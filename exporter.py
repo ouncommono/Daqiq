@@ -20,12 +20,11 @@ def get_next_excel_filename(directory: str, prefix: str = "R") -> str:
 
 
 def _rtl_report_title(shop_name: str, title: str) -> str:
-    """Force a right-to-left paragraph even when the shop name starts with digits."""
-    shop_name = (shop_name or "").strip()
-    # Isolate the store name so leading digits cannot reorder the RTL report title.
-    store_part = f"\u2067{shop_name}\u2069" if shop_name else ""
-    combined = f"{store_part} — {title}" if store_part else title
-    return f"\u200f{combined}\u200f"
+    """Return clean report text; let Excel's cell reading order handle RTL."""
+    bidi_controls = dict.fromkeys(map(ord, "\u061c\u200e\u200f\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069"))
+    clean_shop_name = (shop_name or "").translate(bidi_controls).strip()
+    clean_title = (title or "").translate(bidi_controls).strip()
+    return f"{clean_shop_name} — {clean_title}" if clean_shop_name else clean_title
 
 
 def _style_worksheet_professional(ws, title: str, headers: list, data_rows: list):
