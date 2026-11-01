@@ -1951,14 +1951,27 @@ class DatabaseManager:
             file_descriptor = None
             created_backup = True
 
-            with sqlite3.connect(database_path, timeout=30) as source:
+            # sqlite3.Connection as a context manager commits/rolls back but
+            # does not close the OS file handle. Explicit close is essential on
+            # Windows before rotation or rollback attempts to delete/rename files.
+            source = sqlite3.connect(database_path, timeout=30)
+            destination = None
+            try:
                 source.execute("PRAGMA busy_timeout=30000")
-                with sqlite3.connect(write_file, timeout=30) as destination:
-                    destination.execute("PRAGMA busy_timeout=30000")
-                    source.backup(destination, pages=256, sleep=0.25)
+                destination = sqlite3.connect(write_file, timeout=30)
+                destination.execute("PRAGMA busy_timeout=30000")
+                source.backup(destination, pages=256, sleep=0.25)
+                destination.commit()
+            finally:
+                if destination is not None:
+                    destination.close()
+                source.close()
 
-            with sqlite3.connect(write_file, timeout=30) as check_db:
+            check_db = sqlite3.connect(write_file, timeout=30)
+            try:
                 check_result = check_db.execute("PRAGMA quick_check").fetchone()
+            finally:
+                check_db.close()
             if not check_result or check_result[0] != "ok":
                 raise sqlite3.DatabaseError(
                     "نسخه پشتیبان از آزمون یکپارچگی پایگاه داده SQLite عبور نکرد."
