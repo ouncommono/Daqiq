@@ -3425,9 +3425,17 @@ class MainWindow(QMainWindow):
             if self._is_scoped_access() and self.active_employee:
                 active_id = int(self.active_employee["id"])
                 emps = [employee for employee in emps if int(employee["id"]) == active_id]
-            sups = conn.execute(
-                "SELECT * FROM suppliers ORDER BY id DESC"
-            ).fetchall()
+            if self._is_scoped_access() and self.active_employee:
+                sups = conn.execute(
+                    """SELECT DISTINCT s.* FROM suppliers s
+                       JOIN batches b ON b.supplier_id=s.id
+                       WHERE b.buyer_employee_id=? ORDER BY s.id DESC""",
+                    (int(self.active_employee["id"]),),
+                ).fetchall()
+            else:
+                sups = conn.execute(
+                    "SELECT * FROM suppliers ORDER BY id DESC"
+                ).fetchall()
             srvs = conn.execute(
                 "SELECT * FROM service_catalog WHERE is_active=1 ORDER BY id DESC"
             ).fetchall()
