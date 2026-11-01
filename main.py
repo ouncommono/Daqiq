@@ -853,6 +853,8 @@ class MainWindow(QMainWindow):
         tbl.setSortingEnabled(True)
         tbl.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         tbl.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)
+        tbl.verticalScrollBar().setSingleStep(18)
+        tbl.horizontalScrollBar().setSingleStep(18)
         tbl.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         tbl.horizontalHeader().setStretchLastSection(True)
         return tbl
