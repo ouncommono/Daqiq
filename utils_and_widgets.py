@@ -280,7 +280,8 @@ class SearchableComboBox(QComboBox):
         self._search_proxy = _ComboSearchProxyModel(self.SEARCH_ROLE, self)
         self._search_proxy.setSourceModel(self.model())
         completer = QCompleter(self._search_proxy, self)
-        completer.setCompletionMode(QCompleter.PopupCompletion)
+        # Proxy model is the sole filter source; Qt must not apply a second visible-text filter.
+        completer.setCompletionMode(QCompleter.UnfilteredPopupCompletion)
         completer.setCompletionColumn(0)
         completer.setCompletionRole(Qt.DisplayRole)
         completer.setCaseSensitivity(Qt.CaseInsensitive)
