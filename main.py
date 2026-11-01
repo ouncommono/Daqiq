@@ -1007,7 +1007,7 @@ class MainWindow(QMainWindow):
         # بند ۱ و ۲: کمبوباکس دسته‌بندی اصلی با قابلیت تایپ دستی برای کالاهای ناشناخته
         self.cb_prod_cat = SearchableComboBox()
         product_categories = self.catalog_config.get("categories") or list(MAIN_CATEGORIES)
-        self.cb_prod_cat.addItems(list(dict.fromkeys(MAIN_CATEGORIES + product_categories)))
+        self.cb_prod_cat.addItems(list(dict.fromkeys(product_categories)))
         self.cb_prod_cat.setToolTip("دسته‌بندی اصلی را انتخاب کنید یا در صورت جدید بودن، مستقیم تایپ نمایید")
 
         self.ed_prod_brand = SmartLineEdit("مثلاً ASUS, Lenovo, HP, Logitech...")
