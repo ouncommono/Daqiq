@@ -665,18 +665,29 @@ class MainWindow(QMainWindow):
             )
             return
         try:
-            self.db.add_product(
-                self.ed_prod_code.text().strip(),
-                "",
-                cat,
-                sub,
-                brand,
-                model,
-                specs_dict,
+            code = self.ed_prod_code.text().strip()
+            with self.db.get_connection() as conn:
+                duplicate = conn.execute("SELECT id FROM products WHERE code=?", (code,)).fetchone()
+            target_id = None
+            if duplicate:
+                msg = QMessageBox(self)
+                msg.setWindowTitle("کد کالای تکراری")
+                msg.setText(f"کد {code} قبلاً ثبت شده است. اطلاعات کالای قبلی جایگزین شود؟")
+                btn_replace = msg.addButton("جایگزین کردن", QMessageBox.AcceptRole)
+                msg.addButton("انصراف", QMessageBox.RejectRole)
+                msg.exec()
+                if msg.clickedButton() != btn_replace:
+                    return
+                target_id = int(duplicate["id"])
+            args = (
+                code, "", cat, sub, brand, model, specs_dict,
                 self.ed_prod_desc.text().strip(),
-                self.sp_prod_reorder.value(),
-                self.sp_prod_profit.value(),
+                self.sp_prod_reorder.value(), self.sp_prod_profit.value(),
             )
+            if target_id:
+                self.db.update_product(target_id, *args)
+            else:
+                self.db.add_product(*args)
             self.refresh_all_data()
             self._clear_product_form()
         except Exception as e:
@@ -882,7 +893,7 @@ class MainWindow(QMainWindow):
     def _clear_batch_form(self):
         self.selected_batch_id = None
         self.ed_batch_code.setText(
-            self.db.generate_next_code("batches", "batch_code", "B", 1001)
+            self.db.generate_next_code("batches", "batch_code", "C-", 1001)
         )
         self.ed_batch_inv.clear()
         self.cb_batch_qty.setCurrentText("1")
@@ -934,23 +945,31 @@ class MainWindow(QMainWindow):
                 sup_id = self.cb_batch_supplier.currentData()
 
             custom_specs_or_notes = self.ed_batch_serial.text().strip()
-            self.db.add_batch(
-                self.ed_batch_code.text().strip(),
-                prod["id"],
-                sup_id,
-                self.cb_batch_buyer.currentData(),
-                self.ed_batch_inv.text().strip(),
-                self.dt_batch_date.get_date(),
-                self.cb_batch_qty.get_qty(),
-                self.pr_batch_buy.get_value(),
-                self.pr_batch_extra.get_value(),
-                self.pr_batch_suggest.get_value(),
-                self.pr_batch_paid.get_value(),
-                "",
-                custom_specs_or_notes,
-                custom_specs_or_notes,
-                self.cb_batch_status.currentText(),
+            code = self.ed_batch_code.text().strip()
+            batch_values = (
+                sup_id, self.cb_batch_buyer.currentData(), self.ed_batch_inv.text().strip(),
+                self.dt_batch_date.get_date(), self.cb_batch_qty.get_qty(),
+                self.pr_batch_buy.get_value(), self.pr_batch_extra.get_value(),
+                self.pr_batch_suggest.get_value(), self.pr_batch_paid.get_value(),
+                "", custom_specs_or_notes, self.cb_batch_status.currentText(),
             )
+            with self.db.get_connection() as conn:
+                duplicate = conn.execute("SELECT id FROM batches WHERE batch_code=?", (code,)).fetchone()
+            if duplicate:
+                msg = QMessageBox(self)
+                msg.setWindowTitle("کد محموله تکراری")
+                msg.setText(f"کد {code} قبلاً ثبت شده است. اطلاعات محموله قبلی جایگزین شود؟")
+                btn_replace = msg.addButton("جایگزین کردن", QMessageBox.AcceptRole)
+                msg.addButton("انصراف", QMessageBox.RejectRole)
+                msg.exec()
+                if msg.clickedButton() != btn_replace:
+                    return
+                self.db.update_batch(int(duplicate["id"]), *batch_values)
+            else:
+                self.db.add_batch(
+                    code, prod["id"], *batch_values[:10],
+                    custom_specs_or_notes, batch_values[10], batch_values[11],
+                )
             self.refresh_all_data()
             self._clear_batch_form()
         except Exception as e:
@@ -1054,6 +1073,8 @@ class MainWindow(QMainWindow):
         self.cb_sale_qty.qtyChanged.connect(self._recalc_sale_live)
 
         self.pr_sale_suggest = PriceInput(self.db)
+        self.pr_sale_suggest.setReadOnly(True)
+        self.pr_sale_suggest.setToolTip("قیمت پیشنهادی از بخش ثبت خرید و محموله‌ها دریافت می‌شود و در فاکتور فروش قابل تغییر نیست.")
         self.pr_sale_actual = PriceInput(self.db)
         self.pr_sale_paid = PriceInput(self.db)
 
@@ -1062,7 +1083,6 @@ class MainWindow(QMainWindow):
         self.cb_sale_status.addItems(["تسویه‌شده", "تسویه‌نشده", "تسویه جزئی"])
         self.cb_sale_status.currentTextChanged.connect(self._on_sale_status_changed)
 
-        self.pr_sale_suggest.valueChanged.connect(self._on_suggest_edited_in_sale)
         self.pr_sale_actual.valueChanged.connect(self._recalc_sale_live)
 
         self.lbl_sale_summary = QLabel("تخفیف/تشدید: 0 تومان | سود فروش: 0 تومان")
@@ -1073,8 +1093,13 @@ class MainWindow(QMainWindow):
         self.ed_war_company = SmartLineEdit("شرکت گارانتی‌کننده")
         self.dt_war_start = JalaliDateEdit(default_today=True)
         self.cb_war_months = QComboBox()
-        for m in [0, 6, 12, 18, 24, 36]:
-            self.cb_war_months.addItem(f"{m} ماه", m)
+        warranty_options = [
+            ("بدون گارانتی", 0), ("۲ روز", 2), ("۱ هفته", 7), ("۲ هفته", 14),
+            ("۱ ماه", 30), ("۲ ماه", 60), ("۳ ماه", 90), ("۶ ماه", 180),
+            ("۱ سال", 365), ("۱۸ ماه", 540), ("۲ سال", 730), ("۳ سال", 1095),
+        ]
+        for label, days in warranty_options:
+            self.cb_war_months.addItem(label, days)
         self.dt_war_end = JalaliDateEdit(default_today=True)
         self.ed_sale_serial = SmartLineEdit("شماره سریال دستگاه")
 
@@ -1245,8 +1270,9 @@ class MainWindow(QMainWindow):
     def _recalc_warranty_end(self):
         m = self.cb_war_months.currentData() or 0
         if m > 0:
-            end_str = add_jalali_months(self.dt_war_start.get_date(), m)
-            self.dt_war_end.set_date(end_str)
+            self.dt_war_end.set_date(add_jalali_days(self.dt_war_start.get_date(), m))
+        else:
+            self.dt_war_end.set_date(self.dt_war_start.get_date())
 
     def _save_new_sale(self):
         prod = self.cb_sale_prod.currentData()
@@ -1274,11 +1300,12 @@ class MainWindow(QMainWindow):
                 now_dt,
                 self.ed_war_company.text().strip(),
                 self.dt_war_start.get_date(),
-                self.cb_war_months.currentData() or 0,
+                0,
                 self.dt_war_end.get_date(),
                 self.ed_sale_serial.text().strip(),
                 "",
                 self.cb_sale_status.currentText(),
+                warranty_days=self.cb_war_months.currentData() or 0,
             )
             self.refresh_all_data()
             self.ed_sale_inv.setText(
@@ -1322,11 +1349,12 @@ class MainWindow(QMainWindow):
                 self.pr_sale_paid.get_value(),
                 self.ed_war_company.text().strip(),
                 self.dt_war_start.get_date(),
-                self.cb_war_months.currentData() or 0,
+                0,
                 self.dt_war_end.get_date(),
                 self.ed_sale_serial.text().strip(),
                 "",
                 self.cb_sale_status.currentText(),
+                warranty_days=self.cb_war_months.currentData() or 0,
             )
             self.refresh_all_data()
             QMessageBox.information(self, "اصلاح فروش", "ردیف فروش با موفقیت اصلاح شد.")
@@ -3314,7 +3342,6 @@ class MainWindow(QMainWindow):
         self.cb_batch_prod.blockSignals(False)
         self.cb_sale_prod.blockSignals(False)
         self._on_sale_prod_changed()
-        self._on_sale_prod_changed()
 
         for cb in (
             self.cb_batch_buyer,
@@ -3363,7 +3390,7 @@ class MainWindow(QMainWindow):
             )
         if not self.selected_batch_id:
             self.ed_batch_code.setText(
-                self.db.generate_next_code("batches", "batch_code", "B", 1001)
+                self.db.generate_next_code("batches", "batch_code", "C-", 1001)
             )
         if not self.selected_sale_id:
             self.ed_sale_inv.setText(
@@ -3677,13 +3704,48 @@ class MainWindow(QMainWindow):
                 ORDER BY e.id ASC
             """).fetchall()
 
+        scoped_dashboard = self._is_scoped_access() and bool(self.active_employee)
+        if scoped_dashboard:
+            own_id = int(self.active_employee["id"])
+            role = self.active_employee.get("permissions") or ""
+            with self.db.get_connection() as conn:
+                s_today = conn.execute(
+                    """SELECT COUNT(*) AS cnt, COALESCE(SUM(total_amount),0) AS amt,
+                       COALESCE(SUM(total_profit),0) AS prof
+                       FROM sales WHERE substr(sale_datetime,1,10)=? AND seller_employee_id=?""",
+                    (today, own_id),
+                ).fetchone()
+                b_today = conn.execute(
+                    """SELECT COALESCE(SUM(unit_purchase_price*initial_qty+extra_cost_total),0)
+                       FROM batches WHERE purchase_date=? AND buyer_employee_id=?""",
+                    (today, own_id),
+                ).fetchone()[0]
+                srv_today = conn.execute(
+                    """SELECT COALESCE(SUM(net_profit),0) FROM service_records
+                       WHERE substr(service_datetime,1,10)=? AND seller_employee_id=?""",
+                    (today, own_id),
+                ).fetchone()[0]
+                emp_perf = conn.execute(
+                    """SELECT e.name, COUNT(s.id) AS cnt, COALESCE(SUM(s.total_amount),0) AS amt,
+                       COALESCE(SUM(s.total_discount),0) AS disc, COALESCE(SUM(s.total_profit),0) AS prof
+                       FROM employees e LEFT JOIN sales s ON e.id=s.seller_employee_id
+                       WHERE e.id=? GROUP BY e.id""",
+                    (own_id,),
+                ).fetchall()
+            if "فروش و خدمات" in role:
+                b_today = 0
+            if "ثبت خرید و انبارداری" in role:
+                s_today = {"cnt": 0, "amt": 0, "prof": 0}
+                srv_today = 0
+            low_prods = []
+
         self.lbl_dash_sales_today.setText(f"{int(s_today['amt']):,}")
         self.lbl_dash_profit_today.setText(f"{int(s_today['prof']):,}")
         self.lbl_dash_count_today.setText(str(s_today["cnt"]))
         self.lbl_dash_buy_today.setText(f"{int(b_today):,}")
-        self.lbl_dash_total_stock.setText(f"{int(tot_stock):,}")
-        self.lbl_dash_low_stock.setText(str(len(low_prods)))
-        self.lbl_dash_unpaid_supplier.setText(f"{max(0, int(tot_debt)):,}")
+        self.lbl_dash_total_stock.setText("—" if scoped_dashboard else f"{int(tot_stock):,}")
+        self.lbl_dash_low_stock.setText("—" if scoped_dashboard else str(len(low_prods)))
+        self.lbl_dash_unpaid_supplier.setText("—" if scoped_dashboard else f"{max(0, int(tot_debt)):,}")
         self.lbl_dash_srv_profit.setText(f"{int(srv_today):,}")
 
         low_data = []
