@@ -1,0 +1,195 @@
+# exporter_and_tests.py
+import os
+import json
+from datetime import datetime
+import jdatetime
+import openpyxl
+from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+from database import DatabaseManager
+from utils_and_widgets import add_jalali_months, normalize_digits
+
+
+def get_next_excel_filename(directory: str, prefix: str = "R") -> str:
+    """
+    بند ۹: تولید نام فایل بر اساس تاریخ و ساعت شمسی
+    مثال: R14050809_115300.xlsx
+    """
+    date_part = jdatetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    candidate = f"{prefix}{date_part}.xlsx"
+    return os.path.join(directory, candidate)
+
+
+def _style_worksheet_professional(ws, title: str, headers: list, data_rows: list):
+    """طراحی حرفه‌ای و چشم‌نواز جدول‌های اکسل با راست‌چین کامل، رنگ‌بندی متناوب و عرض خودکار"""
+    ws.views.sheetView[0].rightToLeft = True
+    col_count = max(1, len(headers))
+
+    # ردیف ۱: سربرگ اصلی
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=col_count)
+    title_cell = ws.cell(1, 1, title)
+    title_cell.font = Font(name="Tahoma", size=13, bold=True, color="FFFFFF")
+    title_cell.fill = PatternFill("solid", fgColor="1E3A8A")
+    title_cell.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[1].height = 32
+
+    # ردیف ۲: عناوین ستون‌ها
+    ws.append(headers)
+    ws.row_dimensions[2].height = 25
+    header_fill = PatternFill("solid", fgColor="1E293B")
+    header_font = Font(name="Tahoma", size=10, bold=True, color="FFFFFF")
+    thin_border = Border(
+        left=Side(style="thin", color="CBD5E1"),
+        right=Side(style="thin", color="CBD5E1"),
+        top=Side(style="thin", color="CBD5E1"),
+        bottom=Side(style="thin", color="CBD5E1"),
+    )
+
+    for col_idx in range(1, col_count + 1):
+        c = ws.cell(row=2, column=col_idx)
+        c.fill = header_fill
+        c.font = header_font
+        c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        c.border = thin_border
+
+    # درج داده‌ها با رنگ‌بندی زبرا (متناوب)
+    even_fill = PatternFill("solid", fgColor="F8FAFC")
+    odd_fill = PatternFill("solid", fgColor="FFFFFF")
+    body_font = Font(name="Tahoma", size=10, color="0F172A")
+
+    for r_idx, r_vals in enumerate(data_rows, start=3):
+        ws.append(r_vals)
+        ws.row_dimensions[r_idx].height = 22
+        row_fill = even_fill if r_idx % 2 == 0 else odd_fill
+        for c_idx in range(1, col_count + 1):
+            cell = ws.cell(row=r_idx, column=c_idx)
+            cell.font = body_font
+            cell.fill = row_fill
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+            cell.border = thin_border
+
+    # تنظیم هوشمند عرض ستون‌ها
+    for col_idx in range(1, col_count + 1):
+        max_len = len(str(headers[col_idx - 1]))
+        for r_idx in range(3, ws.max_row + 1):
+            val_str = str(ws.cell(r_idx, col_idx).value or "")
+            if len(val_str) > max_len:
+                max_len = len(val_str)
+        col_letter = openpyxl.utils.get_column_letter(col_idx)
+        ws.column_dimensions[col_letter].width = min(max(max_len + 5, 13), 42)
+
+
+def export_safe_inventory_excel(db: DatabaseManager, file_path: str):
+    """
+    بند ۴ و ۹: خروجی موجودی امن برای همکاران
+    - عنوان دقیق: «گزارش موجودی»
+    - فقط کالاهای دارای موجودی (remaining_qty > 0) خروجی گرفته می‌شوند
+    - بدون فیلد وضعیت موجودی و بدون هیچ‌گونه اطلاعات محرمانه مالی
+    """
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "گزارش موجودی"
+
+    headers = [
+        "کد کالا",
+        "دسته‌بندی",
+        "زیرمجموعه",
+        "برند و مدل",
+        "مشخصات فنی",
+        "موجودی فعلی",
+    ]
+
+    with db.get_connection() as conn:
+        rows = conn.execute("""
+            SELECT p.code, p.name, p.category, p.sub_category, p.brand, p.model,
+                   p.specs_json, p.description,
+                   COALESCE(SUM(b.remaining_qty), 0) as total_rem
+            FROM products p
+            LEFT JOIN batches b ON p.id = b.product_id
+            WHERE p.is_active = 1
+            GROUP BY p.id
+            HAVING total_rem > 0
+            ORDER BY p.category ASC, p.code ASC
+        """).fetchall()
+
+    data_rows = []
+    for r in rows:
+        cat_text = r["category"] or "سایر موارد"
+        sub_text = r["sub_category"] or "-"
+        brand_model = f"{r['brand']} {r['model']}".strip() or r["name"]
+        specs_dict = json.loads(r["specs_json"] or "{}")
+        specs_str = " | ".join(f"{k}: {v}" for k, v in specs_dict.items())
+        if r["description"]:
+            specs_str = (
+                f"{specs_str} - {r['description']}".strip(" -")
+                if specs_str
+                else r["description"]
+            )
+
+        data_rows.append(
+            [
+                r["code"],
+                cat_text,
+                sub_text,
+                brand_model,
+                specs_str or "-",
+                int(r["total_rem"]),
+            ]
+        )
+
+    _style_worksheet_professional(ws, "گزارش موجودی", headers, data_rows)
+    wb.save(file_path)
+
+
+def export_table_to_excel(
+    title: str, headers: list, data_rows: list, file_path: str, summary_text: str = ""
+):
+    """مورد ۱: خروجی اکسل کامل و استایل‌دهی شده برای گزارش‌های جامع"""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "گزارش جامع"
+    ws.views.sheetView[0].rightToLeft = True
+
+    col_count = max(1, len(headers))
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=col_count)
+    ws.cell(1, 1, title).font = Font(name="Tahoma", size=13, bold=True, color="FFFFFF")
+    ws.cell(1, 1).fill = PatternFill("solid", fgColor="1E3A8A")
+    ws.cell(1, 1).alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[1].height = 28
+
+    start_data_row = 3
+    if summary_text:
+        ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=col_count)
+        ws.cell(2, 1, summary_text).font = Font(name="Tahoma", size=10, bold=True, color="1E3A8A")
+        ws.cell(2, 1).fill = PatternFill("solid", fgColor="DBEAFE")
+        ws.cell(2, 1).alignment = Alignment(horizontal="center", vertical="center")
+        ws.row_dimensions[2].height = 22
+        start_data_row = 4
+
+    ws.append(headers)
+    header_row_idx = start_data_row - 1
+    for c_idx in range(1, col_count + 1):
+        cell = ws.cell(header_row_idx, c_idx)
+        cell.font = Font(name="Tahoma", size=10, bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="334155")
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+
+    thin_border = Border(
+        left=Side(style="thin", color="CBD5E1"),
+        right=Side(style="thin", color="CBD5E1"),
+        top=Side(style="thin", color="CBD5E1"),
+        bottom=Side(style="thin", color="CBD5E1"),
+    )
+
+    for r_vals in data_rows:
+        ws.append(r_vals)
+
+    for row in ws.iter_rows(min_row=start_data_row, max_row=ws.max_row, max_col=col_count):
+        for cell in row:
+            cell.font = Font(name="Tahoma", size=10)
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+            cell.border = thin_border
+
+    for col in range(1, col_count + 1):
+        ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = 18
+
+    wb.save(file_path)
