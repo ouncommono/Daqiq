@@ -1840,14 +1840,31 @@ class DatabaseManager:
         backup_dir = os.path.dirname(backup_file) or "."
         os.makedirs(backup_dir, exist_ok=True)
 
-        # Reserve the final name exclusively and write SQLite pages straight into
-        # that .db file. No .tmp or staging copy is created, which also avoids
-        # Windows rename/replace failures when antivirus/indexing software scans files.
+        # Automatic copies are written directly into their final .db files:
+        # no staging file and no rename/replace operation is involved.
+        # For a manual overwrite, use a same-folder .db staging copy so a failed
+        # overwrite never destroys the user's existing manual backup.
+        write_file = backup_file
+        replace_manual_target = bool(
+            not automatic and target_file and os.path.exists(backup_file)
+        )
+        if replace_manual_target:
+            stamp = jdatetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            suffix = 1
+            write_file = os.path.join(
+                backup_dir, f".{database_name}_manual_{stamp}_{suffix:02d}.db"
+            )
+            while os.path.exists(write_file):
+                suffix += 1
+                write_file = os.path.join(
+                    backup_dir, f".{database_name}_manual_{stamp}_{suffix:02d}.db"
+                )
+
         file_descriptor = None
         created_backup = False
         try:
             file_descriptor = os.open(
-                backup_file, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600
+                write_file, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600
             )
             os.close(file_descriptor)
             file_descriptor = None
@@ -1855,16 +1872,20 @@ class DatabaseManager:
 
             with sqlite3.connect(database_path, timeout=30) as source:
                 source.execute("PRAGMA busy_timeout=30000")
-                with sqlite3.connect(backup_file, timeout=30) as destination:
+                with sqlite3.connect(write_file, timeout=30) as destination:
                     destination.execute("PRAGMA busy_timeout=30000")
                     source.backup(destination, pages=256, sleep=0.25)
 
-            with sqlite3.connect(backup_file, timeout=30) as check_db:
+            with sqlite3.connect(write_file, timeout=30) as check_db:
                 check_result = check_db.execute("PRAGMA quick_check").fetchone()
             if not check_result or check_result[0] != "ok":
                 raise sqlite3.DatabaseError(
                     "نسخه پشتیبان از آزمون یکپارچگی پایگاه داده SQLite عبور نکرد."
                 )
+
+            if replace_manual_target:
+                os.replace(write_file, backup_file)
+                created_backup = False
 
             pruning_warnings = []
             if automatic:
@@ -1874,9 +1895,9 @@ class DatabaseManager:
         except Exception:
             if file_descriptor is not None:
                 os.close(file_descriptor)
-            if created_backup and os.path.exists(backup_file):
+            if created_backup and os.path.exists(write_file):
                 try:
-                    os.remove(backup_file)
+                    os.remove(write_file)
                 except OSError:
                     pass
             raise
