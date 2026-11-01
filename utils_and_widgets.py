@@ -175,6 +175,66 @@ GPU_LIST = [
 ]
 
 
+# فهرست ویژگی‌های فنی اولیه؛ هر فروشگاه می‌تواند مقادیر و محدودهٔ زیرمجموعه را تغییر دهد.
+DEFAULT_ATTRIBUTES = {
+    "لپ‌تاپ": [
+        {"name": "CPU", "values": CPU_LIST},
+        {"name": "RAM", "values": RAM_CAPACITIES},
+        {"name": "نوع RAM", "values": ["DDR3 / DDR3L", "DDR4", "DDR5", "LPDDR4 / LPDDR5"]},
+        {"name": "Storage", "values": STORAGE_LIST},
+        {"name": "Graphic", "values": GPU_LIST},
+        {"name": "صفحه‌نمایش", "values": [
+            "13.3 اینچ", "14 اینچ HD/FHD", "15.6 اینچ HD",
+            "15.6 اینچ FHD IPS", "15.6 اینچ 144Hz/165Hz",
+            "16 اینچ FHD+/2K", "17.3 اینچ FHD",
+        ]},
+    ],
+    "قطعات": [
+        {"name": "ظرفیت", "values": [], "subcategory": "رم کامپیوتر (RAM PC)"},
+        {"name": "ظرفیت", "values": [], "subcategory": "رم لپ‌تاپ (RAM Laptop)"},
+        {"name": "نوع رابط", "values": ["SATA", "NVMe", "PCIe"], "subcategory": "حافظه اس‌اس‌دی (SSD)"},
+        {"name": "ظرفیت", "values": [], "subcategory": "هارد دیسک اینترنال (HDD)"},
+        {"name": "نوع سوکت", "values": [], "subcategory": "پردازنده (CPU)"},
+    ],
+    "لوازم جانبی": [
+        {"name": "نوع اتصال / پورت", "values": [
+            "باسیم (USB)", "بی‌سیم (دانگل 2.4GHz)", "بلوتوث (Bluetooth)",
+            "دوحالته و سه‌حالته", "Type-C", "جک ۳.۵ میلی‌متری صدا",
+            "HDMI / DisplayPort / VGA",
+        ]},
+        {"name": "مشخصه", "values": []},
+    ],
+    "مانیتور": [
+        {"name": "سایز", "values": ["19 اینچ", "20 اینچ", "22 اینچ", "24 اینچ", "27 اینچ", "32 اینچ", "34 اینچ"]},
+        {"name": "پنل", "values": ["IPS", "VA", "TN", "OLED", "Nano IPS"]},
+        {"name": "نرخ بروزرسانی", "values": ["60Hz", "75Hz", "100Hz", "144Hz", "165Hz", "180Hz", "240Hz"]},
+        {"name": "پورت‌ها", "values": ["HDMI + VGA", "HDMI + DisplayPort", "HDMI + DP + Type-C", "VGA + DVI"]},
+    ],
+    "کیس و مینی‌کیس": [
+        {"name": "CPU", "values": CPU_LIST},
+        {"name": "RAM", "values": RAM_CAPACITIES},
+        {"name": "Storage", "values": STORAGE_LIST},
+        {"name": "Graphic", "values": GPU_LIST},
+    ],
+    "آداپتور و تغذیه": [
+        {"name": "ولتاژ", "values": ["5V", "9V", "12V", "19V", "19.5V", "20V", "220V AC"]},
+        {"name": "آمپر و توان", "values": ["1A / 1.5A / 2A", "2.31A (45W)", "3.25A (65W)", "4.5A (90W)", "6.75A / 7.7A (135W-150W)"]},
+        {"name": "نوع سوکت", "values": ["سوکت معمولی (5.5x2.5)", "سوکت سوزنی آبی/مشکی HP/Dell", "سوکت USB / مستطیلی Lenovo", "سوکت Type-C PD"]},
+    ],
+    "شبکه و مودم": [
+        {"name": "استاندارد شبکه", "values": ["Wi-Fi 4", "Wi-Fi 5", "Wi-Fi 6", "Wi-Fi 6E", "Wi-Fi 7", "4G", "5G"]},
+        {"name": "تعداد پورت", "values": []},
+    ],
+    "ماشین‌های اداری": [
+        {"name": "نوع چاپ", "values": ["لیزری", "جوهرافشان", "حرارتی", "سوزنی"]},
+        {"name": "رنگ چاپ", "values": ["سیاه و سفید", "رنگی"]},
+    ],
+    "سایر موارد": [
+        {"name": "مشخصه", "values": []},
+    ],
+}
+
+
 def normalize_digits(text: str) -> str:
     if not text:
         return ""
