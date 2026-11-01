@@ -331,7 +331,7 @@ def test_excel_report_title_is_right_to_left_for_digit_prefixed_shop_name(tmp_pa
     workbook = load_workbook(target)
     worksheet = workbook.active
     assert worksheet.views.sheetView[0].rightToLeft is True
-    assert worksheet["A1"].value == "\u200f8 رایان — گزارش فروش\u200f"
+    assert worksheet["A1"].value == "\u200f\u20678 رایان\u2069 — گزارش فروش\u200f"
     assert worksheet["A1"].alignment.readingOrder == 2
 
 def test_automatic_backup_rotation_counts_legacy_fixed_backup(manager, tmp_path):
@@ -344,3 +344,30 @@ def test_automatic_backup_rotation_counts_legacy_fixed_backup(manager, tmp_path)
     assert not legacy_path.exists()
     assert os.path.exists(current_backup)
     assert len(list(tmp_path.glob("shop_*.db"))) == 1
+
+def test_automatic_backup_keeps_exactly_latest_configured_count(manager, tmp_path):
+    manager.cfg["auto_backup_retention_count"] = 10
+    created = [manager.create_backup(automatic=True) for _ in range(12)]
+
+    remaining = sorted(tmp_path.glob("shop_*.db"), key=lambda p: p.stat().st_mtime_ns)
+
+    assert len(remaining) == 10
+    assert {str(path) for path in remaining} == set(created[-10:])
+    assert not os.path.exists(created[0])
+    assert not os.path.exists(created[1])
+
+
+def test_last_automatic_backup_timestamp_is_tracked_per_database(tmp_path, monkeypatch):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    first = DatabaseManager(str(tmp_path / "first" / "first.db"))
+    first_backup = first.create_backup(automatic=True)
+    first_timestamp = first.get_last_automatic_backup_timestamp()
+
+    second = DatabaseManager(str(tmp_path / "second" / "second.db"))
+    second.create_backup(automatic=True)
+
+    first_reload = DatabaseManager(str(tmp_path / "first" / "first.db"))
+    assert first_reload.get_last_automatic_backup_timestamp() >= first_timestamp
+    assert os.path.exists(first_backup)
+    assert len(first_reload.cfg["auto_backup_last_success_by_db"]) == 2

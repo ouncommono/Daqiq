@@ -22,7 +22,9 @@ def get_next_excel_filename(directory: str, prefix: str = "R") -> str:
 def _rtl_report_title(shop_name: str, title: str) -> str:
     """Force a right-to-left paragraph even when the shop name starts with digits."""
     shop_name = (shop_name or "").strip()
-    combined = f"{shop_name} — {title}" if shop_name else title
+    # Isolate the store name so leading digits cannot reorder the RTL report title.
+    store_part = f"\u2067{shop_name}\u2069" if shop_name else ""
+    combined = f"{store_part} — {title}" if store_part else title
     return f"\u200f{combined}\u200f"
 
 

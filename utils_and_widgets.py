@@ -16,8 +16,9 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QFormLayout,
 )
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QModelIndex, QSortFilterProxyModel
 from PySide6.QtGui import QIntValidator
+from PySide6.QtWidgets import QSizePolicy
 
 PERSIAN_ARABIC_MAP = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
 
@@ -243,22 +244,58 @@ class PriceInput(QLineEdit):
         self.valueChanged.emit(int(amount) if amount else 0)
 
 
+class _ComboSearchProxyModel(QSortFilterProxyModel):
+    """Filter combo suggestions using visible text plus an optional hidden search field."""
+
+    def __init__(self, search_role, parent=None):
+        super().__init__(parent)
+        self.search_role = search_role
+        self.query = ""
+        self.setFilterCaseSensitivity(Qt.CaseInsensitive)
+
+    def set_query(self, query):
+        self.query = auto_capitalize_english(query).strip()
+        self.invalidateFilter()
+
+    def filterAcceptsRow(self, source_row: int, source_parent: QModelIndex) -> bool:
+        if not self.query:
+            return True
+        source = self.sourceModel()
+        index = source.index(source_row, self.filterKeyColumn(), source_parent)
+        visible = source.data(index, Qt.DisplayRole) or ""
+        searchable = source.data(index, self.search_role) or ""
+        haystack = auto_capitalize_english(f"{visible} {searchable}")
+        return self.query in haystack
+
+
 class SearchableComboBox(QComboBox):
-    """کمبوباکس قابل تایپ و قابل جست‌وجو (شامل فیلتر بر اساس دسته‌بندی، زیرگروه، برند و مدل)"""
+    """Editable combo with completion against visible labels and hidden search keywords."""
+
+    SEARCH_ROLE = Qt.UserRole + 37
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setEditable(True)
         self.setInsertPolicy(QComboBox.NoInsert)
-        completer = self.completer()
+        self._search_proxy = _ComboSearchProxyModel(self.SEARCH_ROLE, self)
+        self._search_proxy.setSourceModel(self.model())
+        completer = QCompleter(self._search_proxy, self)
         completer.setCompletionMode(QCompleter.PopupCompletion)
-        completer.setFilterMode(Qt.MatchContains)
+        completer.setCompletionColumn(0)
+        completer.setCompletionRole(Qt.DisplayRole)
         completer.setCaseSensitivity(Qt.CaseInsensitive)
+        self.setCompleter(completer)
         self.lineEdit().textEdited.connect(self._normalize_search)
         self.currentTextChanged.connect(lambda t: self.setToolTip(t))
 
+    def setItemSearchText(self, index: int, search_text: str):
+        if 0 <= index < self.count():
+            self.setItemData(index, str(search_text or ""), self.SEARCH_ROLE)
+            self._search_proxy.invalidateFilter()
+
     def _normalize_search(self, txt):
         norm = auto_capitalize_english(txt)
+        self._search_proxy.set_query(norm)
         if norm != txt:
             pos = self.lineEdit().cursorPosition()
             self.lineEdit().blockSignals(True)
@@ -314,7 +351,7 @@ class JalaliCalendarDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("انتخاب تاریخ شمسی")
         self.setLayoutDirection(Qt.RightToLeft)
-        self.setFixedSize(440, 390)
+        self.setFixedSize(390, 350)
         self.selected_date = initial_date_str
 
         try:
@@ -329,9 +366,10 @@ class JalaliCalendarDialog(QDialog):
             )
 
         layout = QVBoxLayout(self)
-        layout.setSpacing(10)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(6)
         nav = QVBoxLayout()
-        nav.setSpacing(5)
+        nav.setSpacing(3)
         year_row = QHBoxLayout()
 
         self.cb_year = QComboBox()
@@ -394,13 +432,13 @@ class JalaliCalendarDialog(QDialog):
         layout.addLayout(nav)
 
         self.grid = QGridLayout()
-        self.grid.setSpacing(5)
+        self.grid.setSpacing(3)
         days_header = ["ش", "ی", "د", "س", "چ", "پ", "ج"]
         for col, d_name in enumerate(days_header):
             lbl = QLabel(d_name)
             lbl.setAlignment(Qt.AlignCenter)
             lbl.setStyleSheet(
-                "font-weight: bold; font-size: 14px; color: #1e40af; padding: 4px;"
+                "font-weight: bold; font-size: 12px; color: #1e40af; padding: 2px;"
             )
             self.grid.addWidget(lbl, 0, col)
 
@@ -408,7 +446,11 @@ class JalaliCalendarDialog(QDialog):
         for r in range(1, 7):
             for c in range(7):
                 btn = QPushButton("")
-                btn.setFixedSize(40, 34)
+                btn.setFixedSize(36, 30)
+                btn.setStyleSheet(
+                    "background: #ffffff; color: #0f172a; font-size: 12px; "
+                    "font-weight: bold; border: 1px solid #cbd5e1; border-radius: 4px;"
+                )
                 btn.clicked.connect(self._on_day_clicked)
                 self.grid.addWidget(btn, r, c)
                 self.day_buttons.append(btn)
@@ -461,12 +503,12 @@ class JalaliCalendarDialog(QDialog):
             button.setEnabled(True)
             if year == self.cur_year and month == self.cur_month and day == self.cur_day:
                 button.setStyleSheet(
-                    "background-color: #2563eb; color: white; font-size: 14px; "
+                    "background-color: #2563eb; color: white; font-size: 12px; "
                     "font-weight: bold; border-radius: 6px;"
                 )
             else:
                 button.setStyleSheet(
-                    "background-color: #ffffff; color: #0f172a; font-size: 14px; "
+                    "background-color: #ffffff; color: #0f172a; font-size: 12px; "
                     "font-weight: bold; border: 1px solid #cbd5e1; border-radius: 6px;"
                 )
 
@@ -503,31 +545,34 @@ class JalaliDateEdit(QWidget):
         self.setLayoutDirection(Qt.RightToLeft)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(1)
+        layout.setSpacing(2)
 
         self.ed_day = QLineEdit()
-        self.ed_day.setFixedWidth(42)
-        self.ed_day.setMinimumHeight(32)
+        self.ed_day.setFixedWidth(46)
+        self.ed_day.setFixedHeight(34)
+        self.ed_day.setStyleSheet("font-size: 12px; padding: 2px;")
         self.ed_day.setMaxLength(2)
         self.ed_day.setAlignment(Qt.AlignCenter)
         self.ed_day.setPlaceholderText("روز")
 
         self.ed_month = QLineEdit()
-        self.ed_month.setFixedWidth(42)
-        self.ed_month.setMinimumHeight(32)
+        self.ed_month.setFixedWidth(46)
+        self.ed_month.setFixedHeight(34)
+        self.ed_month.setStyleSheet("font-size: 12px; padding: 2px;")
         self.ed_month.setMaxLength(2)
         self.ed_month.setAlignment(Qt.AlignCenter)
         self.ed_month.setPlaceholderText("ماه")
 
         self.ed_year = QLineEdit()
-        self.ed_year.setFixedWidth(56)
-        self.ed_year.setMinimumHeight(32)
+        self.ed_year.setFixedWidth(58)
+        self.ed_year.setFixedHeight(34)
+        self.ed_year.setStyleSheet("font-size: 12px; padding: 2px;")
         self.ed_year.setMaxLength(4)
         self.ed_year.setAlignment(Qt.AlignCenter)
         self.ed_year.setPlaceholderText("سال")
 
         self.btn_cal = QPushButton("📅")
-        self.btn_cal.setFixedWidth(32)
+        self.btn_cal.setFixedSize(30, 32)
         self.btn_cal.setToolTip("انتخاب از تقویم شمسی")
         self.btn_cal.clicked.connect(self._open_calendar)
 
@@ -538,6 +583,8 @@ class JalaliDateEdit(QWidget):
         layout.addWidget(QLabel("/"))
         layout.addWidget(self.ed_year)
         layout.addWidget(self.btn_cal)
+        self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.setFixedWidth(self.sizeHint().width())
 
         self.ed_day.textEdited.connect(self._on_day_edited)
         self.ed_month.textEdited.connect(self._on_month_edited)
