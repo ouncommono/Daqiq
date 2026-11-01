@@ -1476,10 +1476,9 @@ class MainWindow(QMainWindow):
             "notes",
             "supplier_name_snapshot",
         )
-        product_search_text = " ".join(
-            [*(str(value) for value in product_specs.values()),
-             str(product_data.get("description") or "")]
-        )
+        product_search_values = [str(value) for value in product_specs.values()]
+        product_search_values.append(str(product_data.get("description") or ""))
+        product_search_text = " ".join(product_search_values)
 
         for batch_row in batch_rows:
             # sqlite3.Row supports indexed/key access but deliberately has no .get().
