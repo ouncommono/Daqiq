@@ -64,6 +64,14 @@ PERSIAN_WEEKDAYS = {
 }
 
 
+def _center_message_buttons(dialog):
+    """Keep custom confirmation/action buttons centered and right-to-left."""
+    dialog.setLayoutDirection(Qt.RightToLeft)
+    button_box = dialog.findChild(QDialogButtonBox)
+    if button_box is not None:
+        button_box.setCenterButtons(True)
+
+
 def _ask_yes_no(parent, title: str, message: str) -> bool:
     """Persian, centered confirmation dialog with explicit yes/no actions."""
     dialog = QMessageBox(parent)
@@ -74,9 +82,7 @@ def _ask_yes_no(parent, title: str, message: str) -> bool:
     yes_button = dialog.addButton("بله", QMessageBox.YesRole)
     no_button = dialog.addButton("خیر", QMessageBox.NoRole)
     dialog.setDefaultButton(no_button)
-    button_box = dialog.findChild(QDialogButtonBox)
-    if button_box is not None:
-        button_box.setCenterButtons(True)
+    _center_message_buttons(dialog)
     dialog.exec()
     return dialog.clickedButton() is yes_button
 
@@ -762,6 +768,7 @@ class MainWindow(QMainWindow):
                 msg.setText(f"کد {code} قبلاً ثبت شده است. اطلاعات کالای قبلی جایگزین شود؟")
                 btn_replace = msg.addButton("جایگزین کردن", QMessageBox.AcceptRole)
                 msg.addButton("انصراف", QMessageBox.RejectRole)
+                _center_message_buttons(msg)
                 msg.exec()
                 if msg.clickedButton() != btn_replace:
                     return
@@ -829,6 +836,7 @@ class MainWindow(QMainWindow):
                 msg.setText(f"کد {code} قبلاً برای کالای دیگری ثبت شده است. اطلاعات همان کالا جایگزین شود؟")
                 replace_btn = msg.addButton("جایگزین کردن", QMessageBox.AcceptRole)
                 msg.addButton("انصراف", QMessageBox.RejectRole)
+                _center_message_buttons(msg)
                 msg.exec()
                 if msg.clickedButton() != replace_btn:
                     return
@@ -1062,6 +1070,7 @@ class MainWindow(QMainWindow):
                 msg.setText(f"کد {code} قبلاً ثبت شده است. اطلاعات محموله قبلی جایگزین شود؟")
                 btn_replace = msg.addButton("جایگزین کردن", QMessageBox.AcceptRole)
                 msg.addButton("انصراف", QMessageBox.RejectRole)
+                _center_message_buttons(msg)
                 msg.exec()
                 if msg.clickedButton() != btn_replace:
                     return
@@ -1694,6 +1703,7 @@ class MainWindow(QMainWindow):
             msg.setText(f"کد {code} قبلاً ثبت شده است. اطلاعات خدمت قبلی جایگزین شود؟")
             btn_replace = msg.addButton("جایگزین کردن", QMessageBox.AcceptRole)
             msg.addButton("انصراف", QMessageBox.RejectRole)
+            _center_message_buttons(msg)
             msg.exec()
             if msg.clickedButton() != btn_replace:
                 return
@@ -3263,6 +3273,7 @@ class MainWindow(QMainWindow):
         btn_del_data = msg.addButton(
             "حذف کارمند و داده‌های مربوط به آن", QMessageBox.DestructiveRole
         )
+        _center_message_buttons(msg)
         msg.exec()
 
         clicked = msg.clickedButton()
