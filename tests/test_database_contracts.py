@@ -512,3 +512,21 @@ def test_product_attribute_rename_migrates_existing_specs_atomically(manager):
     # keeps catalog configuration itself per database and serializable.
     assert manager.get_product_catalog_config()["attributes"]["قطعات"][0]["name"] == "توان مصرفی"
     assert product["specs_json"] == '{"TDP":"65W","رنگ":"مشکی"}'
+
+
+
+def test_catalog_config_reader_recovers_from_malformed_nested_values(manager):
+    manager.set_setting(
+        "product_catalog_config",
+        '{"categories":null,"subcategories":{"قطعات":"invalid"},'
+        '"attributes":{"لپ‌تاپ":[{"name":"RAM","values":null},null]},'
+        '"colors":false}',
+    )
+    config = manager.get_product_catalog_config()
+
+    assert config == {
+        "categories": [],
+        "subcategories": {},
+        "attributes": {"لپ‌تاپ": [{"name": "RAM", "values": [], "subcategory": ""}]},
+        "colors": [],
+    }
