@@ -578,6 +578,11 @@ def test_create_database_dialog_does_not_default_to_overwriting_invalid_file(
 ):
     monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
     monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    monkeypatch.setattr(
+        main_module.QMessageBox,
+        "critical",
+        lambda *args, **kwargs: None,
+    )
 
     corrupt = tmp_path / "corrupt.db"
     corrupt.write_text("not a sqlite database", encoding="utf-8")
