@@ -335,14 +335,15 @@ def test_excel_report_title_is_right_to_left_for_digit_prefixed_shop_name(tmp_pa
     assert not any(mark in worksheet["A1"].value for mark in ("\u2066", "\u2067", "\u2068", "\u2069"))
     assert worksheet["A1"].alignment.readingOrder == 2
 
-def test_automatic_backup_rotation_counts_legacy_fixed_backup(manager, tmp_path):
+def test_automatic_backup_rotation_keeps_legacy_manual_backup_separate(manager, tmp_path):
     manager.cfg["auto_backup_retention_count"] = 1
     legacy_path = tmp_path / "AutoBackup_shop.db"
     manager.create_backup(target_file=str(legacy_path))
 
     current_backup = manager.create_backup(automatic=True)
 
-    assert not legacy_path.exists()
+    # Existing legacy/manual files outside Backups are not part of the new cycle.
+    assert legacy_path.exists()
     assert os.path.exists(current_backup)
     assert len(list((tmp_path / "Backups").glob("shop_*.db"))) == 1
 
