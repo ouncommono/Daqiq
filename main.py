@@ -3453,8 +3453,7 @@ class MainWindow(QMainWindow):
                 f"آخرین پشتیبان‌گیری: {self.db.cfg.get('last_backup_time')}"
             )
             QMessageBox.information(
-                self, "پشتیبان‌گیری", f"نسخه پشتیبان به‌صورت امن ذخیره شد:
-{saved_path}"
+                self, "پشتیبان‌گیری", f"نسخه پشتیبان به‌صورت امن ذخیره شد:\n{saved_path}"
             )
         except Exception as exc:
             QMessageBox.critical(self, "خطا در پشتیبان‌گیری", str(exc))
