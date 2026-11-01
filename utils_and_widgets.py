@@ -16,9 +16,16 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QFormLayout,
     QScrollArea,
+    QTableWidget,
 )
 from PySide6.QtCore import (
-    Qt, Signal, QModelIndex, QSortFilterProxyModel, QPropertyAnimation, QEasingCurve
+    Qt,
+    Signal,
+    QModelIndex,
+    QSortFilterProxyModel,
+    QPropertyAnimation,
+    QEasingCurve,
+    QAbstractAnimation,
 )
 from PySide6.QtGui import QIntValidator
 from PySide6.QtWidgets import QSizePolicy
@@ -280,8 +287,56 @@ def add_jalali_days(start_date_str: str, days: int) -> str:
 
 
 
+def _animate_scrollbar(owner, scrollbar, amount):
+    """Accumulate successive wheel ticks against the pending animation target."""
+    if not amount or scrollbar.maximum() <= scrollbar.minimum():
+        return False
+
+    animation = getattr(owner, "_wheel_animation", None)
+    base_value = scrollbar.value()
+    if animation is not None and animation.state() == QAbstractAnimation.Running:
+        try:
+            base_value = int(animation.endValue())
+        except (TypeError, ValueError):
+            base_value = scrollbar.value()
+
+    target = max(
+        scrollbar.minimum(),
+        min(scrollbar.maximum(), base_value - int(amount)),
+    )
+    if target == scrollbar.value():
+        if animation is not None and animation.state() == QAbstractAnimation.Running:
+            animation.stop()
+        return True
+
+    if animation is not None:
+        animation.stop()
+
+    animation = QPropertyAnimation(scrollbar, b"value", owner)
+    animation.setDuration(180)
+    animation.setEasingCurve(QEasingCurve.OutCubic)
+    animation.setStartValue(scrollbar.value())
+    animation.setEndValue(target)
+    animation.start()
+    owner._wheel_animation = animation
+    return True
+
+
+def _wheel_amount(event, horizontal=False):
+    """Normalize mouse-wheel and touchpad deltas to pixel-like scroll steps."""
+    pixel_delta = event.pixelDelta()
+    angle_delta = event.angleDelta()
+    if horizontal:
+        amount = pixel_delta.x() or pixel_delta.y() or angle_delta.x() or angle_delta.y()
+    else:
+        amount = pixel_delta.y() or pixel_delta.x() or angle_delta.y() or angle_delta.x()
+        if not pixel_delta.y() and not pixel_delta.x():
+            amount = int(amount)
+    return int(amount)
+
+
 class SmoothScrollArea(QScrollArea):
-    """A pixel-based scroll area with short eased wheel animations."""
+    """A pixel-based scroll area with accumulated, eased mouse-wheel animation."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -292,23 +347,38 @@ class SmoothScrollArea(QScrollArea):
         self._wheel_animation = None
 
     def wheelEvent(self, event):
-        delta = event.angleDelta()
-        bar = self.horizontalScrollBar() if event.modifiers() & Qt.ShiftModifier else self.verticalScrollBar()
-        amount = delta.x() if event.modifiers() & Qt.ShiftModifier else delta.y()
-        if not amount or bar.maximum() <= bar.minimum():
+        horizontal = bool(event.modifiers() & Qt.ShiftModifier)
+        scrollbar = (
+            self.horizontalScrollBar() if horizontal else self.verticalScrollBar()
+        )
+        amount = _wheel_amount(event, horizontal=horizontal)
+        if not amount or scrollbar.maximum() <= scrollbar.minimum():
             return super().wheelEvent(event)
+        if _animate_scrollbar(self, scrollbar, amount):
+            event.accept()
+        else:
+            super().wheelEvent(event)
 
-        target = max(bar.minimum(), min(bar.maximum(), bar.value() - amount))
-        if self._wheel_animation is not None:
-            self._wheel_animation.stop()
-        animation = QPropertyAnimation(bar, b"value", self)
-        animation.setDuration(170)
-        animation.setEasingCurve(QEasingCurve.OutCubic)
-        animation.setStartValue(bar.value())
-        animation.setEndValue(target)
-        animation.start()
-        self._wheel_animation = animation
-        event.accept()
+
+class SmoothScrollTableWidget(QTableWidget):
+    """Table widget with smooth pixel scrolling, including when the cursor is over a table."""
+
+    def __init__(self, rows=0, columns=0, parent=None):
+        super().__init__(rows, columns, parent)
+        self._wheel_animation = None
+
+    def wheelEvent(self, event):
+        horizontal = bool(event.modifiers() & Qt.ShiftModifier)
+        scrollbar = (
+            self.horizontalScrollBar() if horizontal else self.verticalScrollBar()
+        )
+        amount = _wheel_amount(event, horizontal=horizontal)
+        if not amount or scrollbar.maximum() <= scrollbar.minimum():
+            return super().wheelEvent(event)
+        if _animate_scrollbar(self, scrollbar, amount):
+            event.accept()
+        else:
+            super().wheelEvent(event)
 
 
 class SmartLineEdit(QLineEdit):
