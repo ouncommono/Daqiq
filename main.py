@@ -975,15 +975,18 @@ class MainWindow(QMainWindow):
         self.ed_prod_code = SmartLineEdit("P-1001")
         # بند ۱ و ۲: کمبوباکس دسته‌بندی اصلی با قابلیت تایپ دستی برای کالاهای ناشناخته
         self.cb_prod_cat = SearchableComboBox()
-        self.cb_prod_cat.addItems(MAIN_CATEGORIES)
+        product_categories = self.catalog_config.get("categories") or list(MAIN_CATEGORIES)
+        self.cb_prod_cat.addItems(list(dict.fromkeys(MAIN_CATEGORIES + product_categories)))
         self.cb_prod_cat.setToolTip("دسته‌بندی اصلی را انتخاب کنید یا در صورت جدید بودن، مستقیم تایپ نمایید")
 
         self.ed_prod_brand = SmartLineEdit("مثلاً ASUS, Lenovo, HP, Logitech...")
         self.ed_prod_model = SmartLineEdit("مدل کالا (مثلاً G102, VivoBook 15...)")
         self.cb_prod_color = SearchableComboBox()
-        self.cb_prod_color.addItems(
-            ["", "مشکی", "سفید", "نقره‌ای", "خاکستری", "آبی", "قرمز", "طلایی", "سبز", "سایر"]
-        )
+        configured_colors = self.catalog_config.get("colors") or [
+            "مشکی", "سفید", "نقره‌ای", "خاکستری", "آبی",
+            "قرمز", "طلایی", "سبز", "سایر",
+        ]
+        self.cb_prod_color.addItems([""] + configured_colors)
         self.sp_prod_reorder = QSpinBox()
         self.sp_prod_reorder.setRange(0, 1000)
         self.sp_prod_reorder.setValue(3)
@@ -1007,7 +1010,8 @@ class MainWindow(QMainWindow):
         f_layout.addRow("توضیحات:", self.ed_prod_desc)
 
         self.specs_widget = DynamicSpecsWidget()
-        self.cb_prod_cat.currentTextChanged.connect(self.specs_widget.set_category)
+        self.cb_prod_cat.currentTextChanged.connect(self._configure_product_specs)
+        self._configure_product_specs(self.cb_prod_cat.currentText())
 
         top_split.addWidget(gb_form, 3)
         top_split.addWidget(self.specs_widget, 3)
@@ -1125,7 +1129,7 @@ class MainWindow(QMainWindow):
         cat_txt = self.tbl_products.item(row, 2).text()
         sub_txt = self.tbl_products.item(row, 3).text()
         self.cb_prod_cat.setCurrentText(cat_txt)
-        self.specs_widget.set_category(cat_txt)
+        self._configure_product_specs(cat_txt)
         self.specs_widget.set_sub_category(sub_txt)
         self.ed_prod_brand.setText(self.tbl_products.item(row, 4).text())
         self.ed_prod_model.setText(self.tbl_products.item(row, 5).text())
