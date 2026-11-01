@@ -184,6 +184,21 @@ class LoginDialog(QDialog):
         self.accept()
 
 
+def _is_valid_sqlite_database_file(path):
+    """Quickly verify an existing SQLite file without writing to it."""
+    if not path or not os.path.isfile(path):
+        return False
+    try:
+        # The file is checked with isfile first; a normal connection avoids
+        # platform-specific URI escaping issues on Windows drive-letter paths.
+        with sqlite3.connect(os.path.abspath(path), timeout=5) as conn:
+            conn.execute("PRAGMA busy_timeout=5000")
+            result = conn.execute("PRAGMA quick_check").fetchone()
+        return bool(result and result[0] == "ok")
+    except (sqlite3.Error, OSError):
+        return False
+
+
 class DatabaseBootstrapDialog(QDialog):
     """First-run wizard for creating a database file or connecting an existing one."""
 
@@ -263,7 +278,8 @@ class DatabaseBootstrapDialog(QDialog):
                 )
                 return
             try:
-                with sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5) as conn:
+                with sqlite3.connect(path, timeout=5) as conn:
+                    conn.execute("PRAGMA busy_timeout=5000")
                     result = conn.execute("PRAGMA quick_check").fetchone()
                 if not result or result[0] != "ok":
                     raise sqlite3.DatabaseError("quick_check failed")
@@ -287,16 +303,23 @@ class DatabaseBootstrapDialog(QDialog):
 def select_startup_database_path(parent=None):
     """Choose an existing database or show the first-run setup wizard."""
     config = load_app_config()
-    configured_path = os.path.abspath(config.get("db_path", ""))
-    candidates = [configured_path]
+    configured_value = str(config.get("db_path") or "").strip()
+    configured_path = (
+        os.path.abspath(os.path.expanduser(configured_value))
+        if configured_value else ""
+    )
+    candidates = ([configured_path] if configured_path else [])
     candidates.extend(
-        os.path.abspath(path)
-        for path in reversed(config.get("recent_databases", []))
+        os.path.abspath(os.path.expanduser(path))
+        for path in config.get("recent_databases", [])
         if path
     )
 
     existing_path = next(
-        (path for path in dict.fromkeys(candidates) if os.path.isfile(path)),
+        (
+            path for path in dict.fromkeys(candidates)
+            if _is_valid_sqlite_database_file(path)
+        ),
         None,
     )
     if existing_path:
