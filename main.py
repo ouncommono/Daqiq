@@ -3968,13 +3968,20 @@ class MainWindow(QMainWindow):
         self.ed_cfg_attribute_name.setPlaceholderText("نام ویژگی؛ مثلاً نوع پنل")
         self.ed_cfg_attribute_values = QLineEdit()
         self.ed_cfg_attribute_values.setPlaceholderText("مقادیر اختیاری با جداکنندهٔ ویرگول")
+        self.lst_cfg_attributes.currentItemChanged.connect(
+            self._on_catalog_attribute_selected
+        )
         attr_btn_row = QHBoxLayout()
         btn_add_attr = QPushButton("افزودن ویژگی")
         btn_add_attr.clicked.connect(self._add_catalog_attribute)
+        btn_update_attr = QPushButton("ویرایش")
+        btn_update_attr.setObjectName("btnSecondary")
+        btn_update_attr.clicked.connect(self._update_catalog_attribute)
         btn_delete_attr = QPushButton("حذف ویژگی")
         btn_delete_attr.setObjectName("btnDanger")
         btn_delete_attr.clicked.connect(self._delete_catalog_attribute)
         attr_btn_row.addWidget(btn_add_attr)
+        attr_btn_row.addWidget(btn_update_attr)
         attr_btn_row.addWidget(btn_delete_attr)
         attr_layout.addWidget(self.lst_cfg_attributes)
         attr_layout.addWidget(self.ed_cfg_attribute_name)
@@ -3990,10 +3997,14 @@ class MainWindow(QMainWindow):
         color_btn_row = QHBoxLayout()
         btn_add_color = QPushButton("افزودن رنگ")
         btn_add_color.clicked.connect(self._add_catalog_color)
+        btn_rename_color = QPushButton("تغییر نام")
+        btn_rename_color.setObjectName("btnSecondary")
+        btn_rename_color.clicked.connect(self._rename_catalog_color)
         btn_delete_color = QPushButton("حذف رنگ")
         btn_delete_color.setObjectName("btnDanger")
         btn_delete_color.clicked.connect(self._delete_catalog_color)
         color_btn_row.addWidget(btn_add_color)
+        color_btn_row.addWidget(btn_rename_color)
         color_btn_row.addWidget(btn_delete_color)
         colors_layout.addWidget(self.lst_cfg_colors)
         colors_layout.addWidget(self.ed_cfg_color)
@@ -4076,6 +4087,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(gb_db)
 
         btn_save_set = QPushButton("💾 ذخیره تنظیمات")
+        self.btn_save_settings = btn_save_set
         btn_save_set.setMinimumHeight(42)
         btn_save_set.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         btn_save_set.clicked.connect(self._save_general_settings)
@@ -4289,6 +4301,51 @@ class MainWindow(QMainWindow):
         self.ed_cfg_attribute_values.clear()
         self._refresh_catalog_management_lists()
 
+    def _on_catalog_attribute_selected(self, current, _previous=None):
+        if not current:
+            return
+        category = self.cb_cfg_category.currentText().strip()
+        name = current.data(Qt.UserRole)
+        definition = next(
+            (
+                item for item in self._taxonomy_draft["attributes"].get(category, [])
+                if item.get("name") == name
+            ),
+            None,
+        )
+        if definition:
+            self.ed_cfg_attribute_name.setText(definition["name"])
+            self.ed_cfg_attribute_values.setText(", ".join(definition.get("values", [])))
+
+    def _update_catalog_attribute(self):
+        category = self.cb_cfg_category.currentText().strip()
+        selected = self.lst_cfg_attributes.currentItem()
+        if not selected:
+            QMessageBox.information(
+                self, "انتخاب ویژگی", "ابتدا ویژگی موردنظر را از فهرست انتخاب کنید."
+            )
+            return
+        old_name = selected.data(Qt.UserRole)
+        new_name = self.ed_cfg_attribute_name.text().strip() or old_name
+        definitions = self._taxonomy_draft["attributes"].get(category, [])
+        current = next(
+            (item for item in definitions if item.get("name") == old_name), None
+        )
+        if current is None:
+            return
+        if new_name != old_name and any(
+            item.get("name") == new_name for item in definitions
+        ):
+            QMessageBox.warning(self, "نام تکراری", "ویژگی دیگری با این نام وجود دارد.")
+            return
+        raw_values = self.ed_cfg_attribute_values.text().replace("،", ",")
+        values = [
+            value.strip() for value in raw_values.split(",") if value.strip()
+        ]
+        current["name"] = new_name
+        current["values"] = list(dict.fromkeys(values))
+        self._refresh_catalog_management_lists()
+
     def _delete_catalog_attribute(self):
         category = self.cb_cfg_category.currentText().strip()
         item = self.lst_cfg_attributes.currentItem()
@@ -4307,6 +4364,20 @@ class MainWindow(QMainWindow):
             self._taxonomy_draft["colors"].append(color)
             self.ed_cfg_color.clear()
             self._refresh_catalog_management_lists()
+
+    def _rename_catalog_color(self):
+        item = self.lst_cfg_colors.currentItem()
+        new_name = self.ed_cfg_color.text().strip()
+        if not item or not new_name:
+            return
+        old_name = item.text()
+        if new_name != old_name and new_name in self._taxonomy_draft["colors"]:
+            QMessageBox.warning(self, "نام تکراری", "این رنگ قبلاً وجود دارد.")
+            return
+        index = self._taxonomy_draft["colors"].index(old_name)
+        self._taxonomy_draft["colors"][index] = new_name
+        self.ed_cfg_color.clear()
+        self._refresh_catalog_management_lists()
 
     def _delete_catalog_color(self):
         item = self.lst_cfg_colors.currentItem()
