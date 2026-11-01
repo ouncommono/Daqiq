@@ -4190,6 +4190,7 @@ class MainWindow(QMainWindow):
             self._taxonomy_draft["categories"] = list(stored["categories"])
         self._pending_category_renames = []
         self._pending_subcategory_renames = []
+        self._pending_attribute_renames = []
         self._pending_color_renames = []
 
         self.cb_cfg_category.blockSignals(True)
@@ -4267,6 +4268,11 @@ class MainWindow(QMainWindow):
             (new if category == old else category, old_sub, new_sub)
             for category, old_sub, new_sub in self._pending_subcategory_renames
         ]
+        self._pending_attribute_renames = [
+            (new if category == old else category, old_name, new_name, old_scope, new_scope)
+            for category, old_name, new_name, old_scope, new_scope
+            in self._pending_attribute_renames
+        ]
         self.cb_cfg_category.setItemText(self.cb_cfg_category.currentIndex(), new)
         self.ed_cfg_category.clear()
         self._refresh_catalog_management_lists()
@@ -4275,9 +4281,17 @@ class MainWindow(QMainWindow):
         category = self.cb_cfg_category.currentText().strip()
         if not category or len(self._taxonomy_draft["categories"]) <= 1:
             return
+        source_categories = {category}
+        current_category = category
+        for old_category, new_category in reversed(self._pending_category_renames):
+            if current_category == new_category:
+                source_categories.add(old_category)
+                current_category = old_category
+        category_marks = ",".join("?" for _ in source_categories)
         with self.db.get_connection() as conn:
             used = conn.execute(
-                "SELECT COUNT(*) FROM products WHERE category=?", (category,)
+                f"SELECT COUNT(*) FROM products WHERE category IN ({category_marks})",
+                tuple(source_categories),
             ).fetchone()[0]
         if used:
             QMessageBox.warning(
@@ -4329,10 +4343,32 @@ class MainWindow(QMainWindow):
         if not item:
             return
         name = item.text()
+        source_categories = {category}
+        current_category = category
+        for old_category, new_category in reversed(self._pending_category_renames):
+            if current_category == new_category:
+                source_categories.add(old_category)
+                current_category = old_category
+
+        source_subcategories = {name}
+        current_subcategory = name
+        for pending_category, old_subcategory, new_subcategory in reversed(
+            self._pending_subcategory_renames
+        ):
+            if pending_category in source_categories and current_subcategory == new_subcategory:
+                source_subcategories.add(old_subcategory)
+                current_subcategory = old_subcategory
+
+        predicates = []
+        parameters = []
+        for source_category in source_categories:
+            for source_subcategory in source_subcategories:
+                predicates.append("(category=? AND sub_category=?)")
+                parameters.extend((source_category, source_subcategory))
         with self.db.get_connection() as conn:
             used = conn.execute(
-                "SELECT COUNT(*) FROM products WHERE category=? AND sub_category=?",
-                (category, name),
+                "SELECT COUNT(*) FROM products WHERE " + " OR ".join(predicates),
+                tuple(parameters),
             ).fetchone()[0]
         if used:
             QMessageBox.warning(
@@ -4415,18 +4451,21 @@ class MainWindow(QMainWindow):
                 self, "انتخاب ویژگی", "ابتدا ویژگی موردنظر را از فهرست انتخاب کنید."
             )
             return
+
         definition_index = selected.data(Qt.UserRole)
         definitions = self._taxonomy_draft["attributes"].get(category, [])
         if not isinstance(definition_index, int) or not 0 <= definition_index < len(definitions):
             return
+
         current = definitions[definition_index]
         old_name = current.get("name", "")
+        old_scope = current.get("subcategory", "") or ""
         new_name = self.ed_cfg_attribute_name.text().strip() or old_name
-        selected_scope = self.cb_cfg_attribute_subcategory.currentData() or ""
+        new_scope = self.cb_cfg_attribute_subcategory.currentData() or ""
         if new_name != old_name and any(
             index != definition_index
             and item.get("name") == new_name
-            and (item.get("subcategory", "") or "") == selected_scope
+            and (item.get("subcategory", "") or "") == new_scope
             for index, item in enumerate(definitions)
         ):
             QMessageBox.warning(
@@ -4434,13 +4473,18 @@ class MainWindow(QMainWindow):
                 "ویژگی دیگری با همین نام برای این زیرمجموعه وجود دارد."
             )
             return
+
         raw_values = self.ed_cfg_attribute_values.text().replace("،", ",")
         values = [
             value.strip() for value in raw_values.split(",") if value.strip()
         ]
+        if new_name != old_name:
+            self._pending_attribute_renames.append(
+                (category, old_name, new_name, old_scope, new_scope)
+            )
         current["name"] = new_name
         current["values"] = list(dict.fromkeys(values))
-        current["subcategory"] = self.cb_cfg_attribute_subcategory.currentData() or ""
+        current["subcategory"] = new_scope
         self._refresh_catalog_management_lists()
 
     def _delete_catalog_attribute(self):
@@ -4730,6 +4774,35 @@ class MainWindow(QMainWindow):
                         "UPDATE products SET sub_category=? WHERE category=? AND sub_category=?",
                         (new_subcategory, category, old_subcategory),
                     )
+
+                for category, old_name, new_name, _old_scope, new_scope in self._pending_attribute_renames:
+                    if not old_name or not new_name or old_name == new_name:
+                        continue
+                    if new_scope:
+                        attribute_rows = conn.execute(
+                            "SELECT id, specs_json FROM products WHERE category=? AND sub_category=?",
+                            (category, new_scope),
+                        ).fetchall()
+                    else:
+                        attribute_rows = conn.execute(
+                            "SELECT id, specs_json FROM products WHERE category=?",
+                            (category,),
+                        ).fetchall()
+                    for product_row in attribute_rows:
+                        try:
+                            specs = json.loads(product_row["specs_json"] or "{}")
+                        except (TypeError, ValueError, json.JSONDecodeError):
+                            continue
+                        if not isinstance(specs, dict) or old_name not in specs:
+                            continue
+                        if new_name not in specs:
+                            specs[new_name] = specs[old_name]
+                        del specs[old_name]
+                        conn.execute(
+                            "UPDATE products SET specs_json=? WHERE id=?",
+                            (json.dumps(specs, ensure_ascii=False), product_row["id"]),
+                        )
+
                 if self._pending_color_renames:
                     product_rows = conn.execute(
                         "SELECT id, specs_json FROM products"
