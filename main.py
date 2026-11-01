@@ -1237,7 +1237,7 @@ class MainWindow(QMainWindow):
                 """
                 SELECT * FROM batches
                 WHERE product_id=? AND remaining_qty > 0
-                ORDER BY id ASC
+                ORDER BY id DESC
             """,
                 (prod["id"],),
             ).fetchall()
@@ -1278,10 +1278,6 @@ class MainWindow(QMainWindow):
             self.pr_sale_paid.set_value(tot)
         elif st.startswith("تسویه‌نشده"):
             self.pr_sale_paid.set_value(0)
-
-    def _on_suggest_edited_in_sale(self, val):
-        self.pr_sale_actual.set_value(val)
-        self._recalc_sale_live()
 
     def _recalc_sale_live(self):
         b = self.cb_sale_batch.currentData()
