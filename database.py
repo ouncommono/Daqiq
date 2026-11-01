@@ -536,7 +536,7 @@ class DatabaseManager:
             )),
         }
 
-    def save_product_catalog_config(self, config):
+    def save_product_catalog_config(self, config, conn=None):
         """Persist validated shop-specific product categories, attributes and color choices."""
         if not isinstance(config, dict):
             raise ValueError("ساختار شخصی‌سازی کالا معتبر نیست.")
@@ -551,10 +551,15 @@ class DatabaseManager:
             ("attributes", dict), ("colors", list),
         )):
             raise ValueError("ساختار دسته‌بندی، زیرمجموعه، مشخصات یا رنگ معتبر نیست.")
-        self.set_setting(
-            "product_catalog_config",
-            json.dumps(clean, ensure_ascii=False, separators=(",", ":")),
-        )
+        serialized = json.dumps(clean, ensure_ascii=False, separators=(",", ":"))
+        if conn is not None:
+            conn.execute(
+                "INSERT INTO settings (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                ("product_catalog_config", serialized),
+            )
+            return
+        self.set_setting("product_catalog_config", serialized)
 
     def log_audit(self, conn, action_type, details):
         now_str = jdatetime.datetime.now().strftime("%Y/%m/%d %H:%M:%S")
