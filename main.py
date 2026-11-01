@@ -3787,126 +3787,129 @@ class MainWindow(QMainWindow):
 
     def _refresh_dashboard(self):
         today = jdatetime.date.today().strftime("%Y/%m/%d")
+        scoped = self._is_scoped_access() and bool(self.active_employee)
+        permissions = (self.active_employee.get("permissions") or "") if scoped else ""
+        own_id = int(self.active_employee["id"]) if scoped else None
+        sales_role = "فروش و خدمات" in permissions
+        warehouse_role = "ثبت خرید و انبارداری" in permissions
+
         with self.db.get_connection() as conn:
-            s_today = conn.execute(
-                """
-                SELECT COUNT(*) as cnt, COALESCE(SUM(total_amount),0) as amt, COALESCE(SUM(total_profit),0) as prof
-                FROM sales WHERE substr(sale_datetime, 1, 10) = ?
-            """,
-                (today,),
-            ).fetchone()
-            b_today = conn.execute(
-                """
-                SELECT COALESCE(SUM(unit_purchase_price*initial_qty + extra_cost_total),0)
-                FROM batches WHERE purchase_date = ?
-            """,
-                (today,),
-            ).fetchone()[0]
-            srv_today = conn.execute(
-                """
-                SELECT COALESCE(SUM(net_profit),0) FROM service_records
-                WHERE substr(service_datetime, 1, 10) = ?
-            """,
-                (today,),
-            ).fetchone()[0]
-            tot_stock = conn.execute(
-                "SELECT COALESCE(SUM(remaining_qty),0) FROM batches"
-            ).fetchone()[0]
-            tot_debt = conn.execute(
-                "SELECT COALESCE(SUM((unit_purchase_price*initial_qty + extra_cost_total) - paid_amount),0) FROM batches"
-            ).fetchone()[0]
+            if scoped:
+                # Restricted accounts receive aggregates for their own employee ID only.
+                if warehouse_role:
+                    sales_today = {"cnt": 0, "amt": 0, "prof": 0}
+                    service_profit_today = 0
+                else:
+                    sales_today = conn.execute(
+                        """SELECT COUNT(*) AS cnt, COALESCE(SUM(total_amount),0) AS amt,
+                           COALESCE(SUM(total_profit),0) AS prof
+                           FROM sales
+                           WHERE substr(sale_datetime,1,10)=? AND seller_employee_id=?""",
+                        (today, own_id),
+                    ).fetchone()
+                    service_profit_today = conn.execute(
+                        """SELECT COALESCE(SUM(net_profit),0)
+                           FROM service_records
+                           WHERE substr(service_datetime,1,10)=?
+                           AND (seller_employee_id=? OR technician_employee_id=?)""",
+                        (today, own_id, own_id),
+                    ).fetchone()[0]
 
-            low_prods = conn.execute("""
-                SELECT p.code, p.category, p.sub_category, p.brand, p.model, p.reorder_point,
-                       COALESCE(SUM(b.remaining_qty),0) as rem
-                FROM products p
-                LEFT JOIN batches b ON p.id=b.product_id
-                GROUP BY p.id
-                HAVING rem <= p.reorder_point
-                ORDER BY rem ASC
-            """).fetchall()
-
-            emp_perf = conn.execute("""
-                SELECT e.name, COUNT(s.id) as cnt, COALESCE(SUM(s.total_amount),0) as amt,
-                       COALESCE(SUM(s.total_discount),0) as disc, COALESCE(SUM(s.total_profit),0) as prof
-                FROM employees e
-                LEFT JOIN sales s ON e.id = s.seller_employee_id
-                GROUP BY e.id
-                ORDER BY e.id ASC
-            """).fetchall()
-
-        scoped_dashboard = self._is_scoped_access() and bool(self.active_employee)
-        if scoped_dashboard:
-            own_id = int(self.active_employee["id"])
-            role = self.active_employee.get("permissions") or ""
-            with self.db.get_connection() as conn:
-                s_today = conn.execute(
-                    """SELECT COUNT(*) AS cnt, COALESCE(SUM(total_amount),0) AS amt,
-                       COALESCE(SUM(total_profit),0) AS prof
-                       FROM sales WHERE substr(sale_datetime,1,10)=? AND seller_employee_id=?""",
-                    (today, own_id),
-                ).fetchone()
-                b_today = conn.execute(
+                purchase_today = 0 if sales_role else conn.execute(
                     """SELECT COALESCE(SUM(unit_purchase_price*initial_qty+extra_cost_total),0)
                        FROM batches WHERE purchase_date=? AND buyer_employee_id=?""",
                     (today, own_id),
                 ).fetchone()[0]
-                srv_today = conn.execute(
-                    """SELECT COALESCE(SUM(net_profit),0) FROM service_records
-                       WHERE substr(service_datetime,1,10)=? AND seller_employee_id=?""",
-                    (today, own_id),
-                ).fetchone()[0]
-                emp_perf = conn.execute(
-                    """SELECT e.name, COUNT(s.id) AS cnt, COALESCE(SUM(s.total_amount),0) AS amt,
-                       COALESCE(SUM(s.total_discount),0) AS disc, COALESCE(SUM(s.total_profit),0) AS prof
+
+                employee_performance = conn.execute(
+                    """SELECT e.name, COUNT(s.id) AS cnt,
+                       COALESCE(SUM(s.total_amount),0) AS amt,
+                       COALESCE(SUM(s.total_discount),0) AS disc,
+                       COALESCE(SUM(s.total_profit),0) AS prof
                        FROM employees e LEFT JOIN sales s ON e.id=s.seller_employee_id
                        WHERE e.id=? GROUP BY e.id""",
                     (own_id,),
                 ).fetchall()
-            if "فروش و خدمات" in role:
-                b_today = 0
-            if "ثبت خرید و انبارداری" in role:
-                s_today = {"cnt": 0, "amt": 0, "prof": 0}
-                srv_today = 0
-            low_prods = []
 
-        self.lbl_dash_sales_today.setText(f"{int(s_today['amt']):,}")
-        self.lbl_dash_profit_today.setText(f"{int(s_today['prof']):,}")
-        self.lbl_dash_count_today.setText(str(s_today["cnt"]))
-        self.lbl_dash_buy_today.setText(f"{int(b_today):,}")
-        self.lbl_dash_total_stock.setText("—" if scoped_dashboard else f"{int(tot_stock):,}")
-        self.lbl_dash_low_stock.setText("—" if scoped_dashboard else str(len(low_prods)))
-        self.lbl_dash_unpaid_supplier.setText("—" if scoped_dashboard else f"{max(0, int(tot_debt)):,}")
-        self.lbl_dash_srv_profit.setText(f"{int(srv_today):,}")
+                # Do not even query global stock, low-stock, or supplier-debt figures.
+                low_products = []
+                total_stock = None
+                supplier_debt = None
+            else:
+                sales_today = conn.execute(
+                    """SELECT COUNT(*) AS cnt, COALESCE(SUM(total_amount),0) AS amt,
+                       COALESCE(SUM(total_profit),0) AS prof
+                       FROM sales WHERE substr(sale_datetime,1,10)=?""",
+                    (today,),
+                ).fetchone()
+                purchase_today = conn.execute(
+                    """SELECT COALESCE(SUM(unit_purchase_price*initial_qty+extra_cost_total),0)
+                       FROM batches WHERE purchase_date=?""",
+                    (today,),
+                ).fetchone()[0]
+                service_profit_today = conn.execute(
+                    """SELECT COALESCE(SUM(net_profit),0) FROM service_records
+                       WHERE substr(service_datetime,1,10)=?""",
+                    (today,),
+                ).fetchone()[0]
+                total_stock = conn.execute(
+                    "SELECT COALESCE(SUM(remaining_qty),0) FROM batches"
+                ).fetchone()[0]
+                supplier_debt = conn.execute(
+                    """SELECT COALESCE(SUM((unit_purchase_price*initial_qty+extra_cost_total)-paid_amount),0)
+                       FROM batches"""
+                ).fetchone()[0]
+                low_products = conn.execute(
+                    """SELECT p.code,p.category,p.sub_category,p.brand,p.model,p.reorder_point,
+                       COALESCE(SUM(b.remaining_qty),0) AS rem
+                       FROM products p LEFT JOIN batches b ON p.id=b.product_id
+                       GROUP BY p.id HAVING rem<=p.reorder_point ORDER BY rem ASC"""
+                ).fetchall()
+                employee_performance = conn.execute(
+                    """SELECT e.name, COUNT(s.id) AS cnt,
+                       COALESCE(SUM(s.total_amount),0) AS amt,
+                       COALESCE(SUM(s.total_discount),0) AS disc,
+                       COALESCE(SUM(s.total_profit),0) AS prof
+                       FROM employees e LEFT JOIN sales s ON e.id=s.seller_employee_id
+                       GROUP BY e.id ORDER BY e.id DESC"""
+                ).fetchall()
+
+        if scoped and warehouse_role:
+            sales_today = {"cnt": 0, "amt": 0, "prof": 0}
+            service_profit_today = 0
+
+        self.lbl_dash_sales_today.setText(f"{int(sales_today['amt']):,}")
+        self.lbl_dash_profit_today.setText(f"{int(sales_today['prof']):,}")
+        self.lbl_dash_count_today.setText(str(sales_today["cnt"]))
+        self.lbl_dash_buy_today.setText(f"{int(purchase_today):,}")
+        self.lbl_dash_srv_profit.setText(f"{int(service_profit_today):,}")
+
+        if scoped:
+            self.lbl_dash_total_stock.setText("—")
+            self.lbl_dash_low_stock.setText("—")
+            self.lbl_dash_unpaid_supplier.setText("—")
+        else:
+            self.lbl_dash_total_stock.setText(f"{int(total_stock):,}")
+            self.lbl_dash_low_stock.setText(str(len(low_products)))
+            self.lbl_dash_unpaid_supplier.setText(f"{max(0, int(supplier_debt)):,}")
 
         low_data = []
-        for r in low_prods:
-            st = "ناموجود" if int(r["rem"]) == 0 else "کم‌موجود"
-            title = f"{r['brand']} {r['model']}".strip() or r["sub_category"]
-            low_data.append(
-                [
-                    r["code"],
-                    title,
-                    r["category"],
-                    r["sub_category"],
-                    r["rem"],
-                    r["reorder_point"],
-                    st,
-                ]
-            )
+        for row in low_products:
+            status = "ناموجود" if int(row["rem"]) == 0 else "کم‌موجود"
+            title = f"{row['brand']} {row['model']}".strip() or row["sub_category"]
+            low_data.append([
+                row["code"], title, row["category"], row["sub_category"],
+                row["rem"], row["reorder_point"], status,
+            ])
         self._populate_table_safely(self.tbl_dash_low, low_data, highlight_col=6)
 
-        emp_data = [
-            [
-                r["name"],
-                r["cnt"],
-                f"{int(r['amt']):,}",
-                f"{int(r['disc']):,}",
-                f"{int(r['prof']):,}",
-            ]
-            for r in emp_perf
-        ]
-        self._populate_table_safely(self.tbl_dash_emp, emp_data)
+        employee_data = [[
+            row["name"], row["cnt"], f"{int(row['amt']):,}",
+            f"{int(row['disc']):,}", f"{int(row['prof']):,}",
+        ] for row in employee_performance]
+        self._populate_table_safely(self.tbl_dash_emp, employee_data)
+
+
 
 
 def main():

@@ -420,45 +420,70 @@ class JalaliCalendarDialog(QDialog):
         self.accept()
 
     def _refresh_grid(self):
-        y = int(normalize_digits(self.cb_year.currentText()))
-        m = self.cb_month.currentData()
-        first_day = jdatetime.date(y, m, 1)
+        # Clear the calendar first; typing an incomplete year must never crash the dialog.
+        for button in self.day_buttons:
+            button.setText("")
+            button.setEnabled(False)
+            button.setStyleSheet("background: #f1f5f9; border: none;")
+
+        raw_year = normalize_digits(self.cb_year.currentText()).strip()
+        try:
+            year = int(raw_year)
+        except (TypeError, ValueError):
+            return
+        if not 1405 <= year <= 1500:
+            return
+
+        month = self.cb_month.currentData()
+        if month is None:
+            return
+        try:
+            first_day = jdatetime.date(year, int(month), 1)
+        except (TypeError, ValueError):
+            return
         start_weekday = first_day.weekday()
 
-        if m <= 6:
+        if month <= 6:
             max_days = 31
-        elif m <= 11:
+        elif month <= 11:
             max_days = 30
         else:
             max_days = 30 if first_day.isleap() else 29
 
-        for btn in self.day_buttons:
-            btn.setText("")
-            btn.setEnabled(False)
-            btn.setStyleSheet("background: #f1f5f9; border: none;")
-
-        for d in range(1, max_days + 1):
-            idx = start_weekday + d - 1
-            btn = self.day_buttons[idx]
-            btn.setText(str(d))
-            btn.setEnabled(True)
-            if d == self.cur_day:
-                btn.setStyleSheet(
-                    "background-color: #2563eb; color: white; font-size: 14px; font-weight: bold; border-radius: 6px;"
+        for day in range(1, max_days + 1):
+            index = start_weekday + day - 1
+            button = self.day_buttons[index]
+            button.setText(str(day))
+            button.setEnabled(True)
+            if year == self.cur_year and month == self.cur_month and day == self.cur_day:
+                button.setStyleSheet(
+                    "background-color: #2563eb; color: white; font-size: 14px; "
+                    "font-weight: bold; border-radius: 6px;"
                 )
             else:
-                btn.setStyleSheet(
-                    "background-color: #ffffff; color: #0f172a; font-size: 14px; font-weight: bold; border: 1px solid #cbd5e1; border-radius: 6px;"
+                button.setStyleSheet(
+                    "background-color: #ffffff; color: #0f172a; font-size: 14px; "
+                    "font-weight: bold; border: 1px solid #cbd5e1; border-radius: 6px;"
                 )
+
 
     def _on_day_clicked(self):
         btn = self.sender()
         if not btn.text():
             return
         d = int(btn.text())
-        y = int(normalize_digits(self.cb_year.currentText()))
+        try:
+            y = int(normalize_digits(self.cb_year.currentText()))
+        except (TypeError, ValueError):
+            return
         m = self.cb_month.currentData()
-        self.selected_date = f"{y:04d}/{m:02d}/{d:02d}"
+        if m is None or not 1405 <= y <= 1500:
+            return
+        try:
+            jdatetime.date(y, int(m), d)
+        except ValueError:
+            return
+        self.selected_date = f"{y:04d}/{int(m):02d}/{d:02d}"
         self.accept()
 
 
