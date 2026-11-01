@@ -4,6 +4,7 @@ import sys
 import json
 import sqlite3
 import jdatetime
+import time
 import hashlib
 
 
@@ -42,6 +43,7 @@ def load_app_config():
         "auto_backup_enabled": True,
         "auto_backup_interval_min": 60,
         "auto_backup_retention_count": 10,
+        "auto_backup_last_success_by_db": {},
         "last_backup_time": "ثبت نشده",
         "default_profit_pct": 20,
         "zero_append_count": 3,
@@ -442,6 +444,8 @@ class DatabaseManager:
         self.cfg["auto_backup_retention_count"] = max(
             1, int(self.cfg.get("auto_backup_retention_count", 10) or 10)
         )
+        if not isinstance(self.cfg.get("auto_backup_last_success_by_db"), dict):
+            self.cfg["auto_backup_last_success_by_db"] = {}
 
     def get_setting(self, key, default=""):
         with self.get_connection() as conn:
@@ -1639,32 +1643,53 @@ class DatabaseManager:
             conn.commit()
 
     # --- پشتیبان‌گیری و بازیابی ---
-    def _prune_automatic_backups(self, directory, database_name):
-        """Keep only the newest configured number of automatic snapshots for one database."""
+    def _automatic_backup_entries(self, directory, database_name):
+        """Return automatic snapshots for one database, oldest first by filesystem creation time."""
         prefix = f"{database_name}_"
-        candidates = []
         legacy_name = f"AutoBackup_{database_name}.db"
-        for entry in os.scandir(directory):
-            if not entry.is_file() or not entry.name.endswith(".db"):
-                continue
-            # Count the single-file backup format from previous application versions
-            # so it cannot sit outside the configured retention limit.
-            if entry.name == legacy_name:
-                candidates.append((entry.stat().st_mtime_ns, entry.name, entry.path))
-                continue
-            if not entry.name.startswith(prefix):
-                continue
-            stamp = entry.name[len(prefix):-3]
-            if (
-                len(stamp) >= 15
-                and stamp[:8].isdigit()
-                and stamp[8] == "_"
-                and stamp[9:15].isdigit()
-                and (len(stamp) == 15 or stamp[15:].startswith("_"))
-            ):
-                candidates.append((entry.stat().st_mtime_ns, entry.name, entry.path))
-
+        candidates = []
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                if not entry.is_file() or not entry.name.endswith(".db"):
+                    continue
+                if entry.name == legacy_name:
+                    candidates.append((entry.stat().st_mtime_ns, entry.name, entry.path))
+                    continue
+                if not entry.name.startswith(prefix):
+                    continue
+                stamp = entry.name[len(prefix):-3]
+                if (
+                    len(stamp) >= 15
+                    and stamp[:8].isdigit()
+                    and stamp[8] == "_"
+                    and stamp[9:15].isdigit()
+                    and (len(stamp) == 15 or stamp[15:].startswith("_"))
+                ):
+                    candidates.append((entry.stat().st_mtime_ns, entry.name, entry.path))
         candidates.sort(key=lambda item: (item[0], item[1]))
+        return candidates
+
+    def get_last_automatic_backup_timestamp(self):
+        """Return this database's last successful automatic backup epoch timestamp."""
+        database_key = os.path.normcase(os.path.abspath(self.db_path))
+        state = self.cfg.get("auto_backup_last_success_by_db", {})
+        try:
+            stored = float(state.get(database_key, 0) or 0)
+        except (TypeError, ValueError):
+            stored = 0.0
+        if stored > 0:
+            return stored
+
+        directory = os.path.dirname(os.path.abspath(self.db_path)) or "."
+        database_name = os.path.splitext(os.path.basename(self.db_path))[0]
+        entries = self._automatic_backup_entries(directory, database_name)
+        if not entries:
+            return 0.0
+        return max(timestamp_ns for timestamp_ns, _, _ in entries) / 1_000_000_000
+
+    def _prune_automatic_backups(self, directory, database_name):
+        """Keep only the newest configured number of snapshots for this database."""
+        candidates = self._automatic_backup_entries(directory, database_name)
         keep_count = max(1, int(self.cfg.get("auto_backup_retention_count", 10) or 10))
         for _, _, old_path in candidates[:-keep_count]:
             os.remove(old_path)
@@ -1720,6 +1745,11 @@ class DatabaseManager:
             "%Y/%m/%d %H:%M:%S"
         )
         self.cfg["backup_dir"] = os.path.dirname(os.path.abspath(self.db_path)) or "."
+        if automatic:
+            database_key = os.path.normcase(os.path.abspath(self.db_path))
+            backup_state = dict(self.cfg.get("auto_backup_last_success_by_db", {}))
+            backup_state[database_key] = time.time()
+            self.cfg["auto_backup_last_success_by_db"] = backup_state
         save_app_config(self.cfg)
         return backup_file
 
