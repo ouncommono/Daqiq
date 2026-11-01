@@ -3,6 +3,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
+from PySide6.QtCore import QCoreApplication, QEvent
 from PySide6.QtWidgets import QApplication, QTableWidgetItem
 
 import database as database_module
@@ -10,10 +11,17 @@ from database import DatabaseManager
 from main import MainWindow
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 def qapp():
-    application = QApplication.instance() or QApplication(["accounting-smoke-test"])
+    application = QApplication.instance()
+    owns_application = application is None
+    if owns_application:
+        application = QApplication(["accounting-smoke-test"])
     yield application
+    application.closeAllWindows()
+    application.quit()
+    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    application.processEvents()
 
 
 def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
@@ -49,4 +57,6 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
         assert table.columnWidth(column) == baseline_width
     finally:
         window.close()
+        window.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
         qapp.processEvents()
