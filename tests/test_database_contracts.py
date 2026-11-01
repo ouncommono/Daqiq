@@ -345,7 +345,28 @@ def test_automatic_backup_rotation_counts_legacy_fixed_backup(manager, tmp_path)
     assert os.path.exists(current_backup)
     assert len(list(tmp_path.glob("shop_*.db"))) == 1
 
-def test_automatic_backup_keeps_exactly_latest_configured_count(manager, tmp_path):
+def test_automatic_backup_keeps_exactly_latest_configured_count(manager, tmp_path, monkeypatch):
+    class FakeTimestamp:
+        def __init__(self, value):
+            self.value = value
+
+        def strftime(self, format_string):
+            minutes, seconds = divmod(self.value, 60)
+            if format_string == "%Y%m%d_%H%M%S":
+                return f"14050810_{minutes:02d}{seconds:02d}"
+            if format_string == "%Y/%m/%d %H:%M:%S":
+                return f"1405/08/10 00:{minutes:02d}:{seconds:02d}"
+            raise AssertionError(f"Unexpected format: {format_string}")
+
+    class FakeJalaliDateTime:
+        counter = 0
+
+        @classmethod
+        def now(cls):
+            cls.counter += 1
+            return FakeTimestamp(cls.counter)
+
+    monkeypatch.setattr(database_module.jdatetime, "datetime", FakeJalaliDateTime)
     manager.cfg["auto_backup_retention_count"] = 10
     created = [manager.create_backup(automatic=True) for _ in range(12)]
 

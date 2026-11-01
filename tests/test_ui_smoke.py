@@ -3,7 +3,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from PySide6.QtWidgets import QApplication, QCompleter
+from PySide6.QtWidgets import QApplication, QBoxLayout, QCompleter
 from PySide6.QtGui import QFontMetrics
 
 import database as database_module
@@ -30,8 +30,8 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
         assert "مدیریت فروش" not in window.lbl_store_name.text()
         assert window.lbl_active_user.text().startswith("👤 کاربر:")
         assert window.lbl_live_clock.minimumWidth() >= 170
-        assert window.top_layout.direction() == window.top_layout.LeftToRight
-        assert window.top_right_layout.direction() == window.top_right_layout.RightToLeft
+        assert window.top_layout.direction() == QBoxLayout.LeftToRight
+        assert window.top_right_layout.direction() == QBoxLayout.RightToLeft
         assert window.btn_theme.isEnabled()
         assert window.btn_table_width.isEnabled()
         assert window.tbl_batches.columnCount() >= 22
