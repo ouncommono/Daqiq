@@ -42,6 +42,7 @@ from utils_and_widgets import (
     JalaliDateEdit,
     DynamicSpecsWidget,
     add_jalali_months,
+    add_jalali_days,
     normalize_digits,
 )
 from exporter import (
@@ -134,6 +135,7 @@ class MainWindow(QMainWindow):
             | Qt.WindowCloseButtonHint
         )
         self.resize(1360, 840)
+        self._tables_auto_fit = False
 
         self._apply_styles()
         self._build_ui()
@@ -149,153 +151,127 @@ class MainWindow(QMainWindow):
             )
             self._apply_employee_permissions()
 
+    def _is_scoped_access(self):
+        """Restricted roles may see only their own operational transactions."""
+        if not self.active_employee:
+            return False
+        permission = self.active_employee.get("permissions") or ""
+        return any(role in permission for role in (
+            "سرپرست عملیات", "سرپرست", "فروش و خدمات", "ثبت خرید و انبارداری"
+        ))
+
+    def _is_full_admin(self):
+        if not self.active_employee:
+            return True
+        permission = self.active_employee.get("permissions") or ""
+        return "دسترسی کامل" in permission or permission == "all"
+
+    def _toggle_theme(self):
+        self.db.cfg["theme"] = "dark" if self.db.cfg.get("theme", "light") != "dark" else "light"
+        save_app_config(self.db.cfg)
+        self._apply_styles()
+        self.btn_theme.setText("☀️ تم روشن" if self.db.cfg["theme"] == "dark" else "🌙 تم تیره")
+
+    def _toggle_table_autosize(self):
+        self._tables_auto_fit = not self._tables_auto_fit
+        for table in self.findChildren(QTableWidget):
+            header = table.horizontalHeader()
+            if self._tables_auto_fit:
+                header.setSectionResizeMode(QHeaderView.ResizeToContents)
+            else:
+                header.setSectionResizeMode(QHeaderView.Interactive)
+                header.setStretchLastSection(True)
+        self.btn_table_width.setText(
+            "↔️ بازگشت به اندازه ثابت ستون‌ها" if self._tables_auto_fit
+            else "↔️ اندازه‌گذاری هوشمند ستون‌ها"
+        )
+
     def _apply_employee_permissions(self):
-        """اعمال واقعی محدودیت سطوح دسترسی روی تب‌ها و دکمه‌های حذف"""
-        perm = (self.active_employee.get("permissions") if self.active_employee else "") or "دسترسی کامل"
-        is_full = "دسترسی کامل" in perm or perm == "all"
-        is_sales_only = "فروش و خدمات" in perm
-        is_warehouse_only = "ثبت خرید و انبارداری" in perm
+        """Role-based tab access and data-scope setup."""
+        permission = (
+            self.active_employee.get("permissions")
+            if self.active_employee else "دسترسی کامل"
+        ) or ""
+        is_full = "دسترسی کامل" in permission or permission == "all"
+        is_senior = "مدیر ارشد" in permission
+        is_sales = "فروش و خدمات" in permission
+        is_warehouse = "ثبت خرید و انبارداری" in permission
+        is_scoped = self._is_scoped_access()
 
-        # فعال کردن اولیه همه تب‌ها
-        for i in range(self.tabs.count()):
-            self.tabs.setTabEnabled(i, True)
+        for index in range(self.tabs.count()):
+            self.tabs.setTabEnabled(index, True)
+        if not is_full:
+            self.tabs.setTabEnabled(8, False)
+        if is_sales:
+            for index in (2, 6, 9):
+                self.tabs.setTabEnabled(index, False)
+        elif is_warehouse:
+            for index in (3, 4, 9):
+                self.tabs.setTabEnabled(index, False)
 
-        if is_sales_only:
-            # عدم دسترسی به ثبت خرید (2)، تامین‌کنندگان (6)، کارمندان (8) و تنظیمات (9)
-            for idx in (2, 6, 8, 9):
-                self.tabs.setTabEnabled(idx, False)
-        elif is_warehouse_only:
-            # عدم دسترسی به فروش (3)، خدمات (4)، گزارش‌ها (7)، کارمندان (8) و تنظیمات (9)
-            for idx in (3, 4, 7, 8, 9):
-                self.tabs.setTabEnabled(idx, False)
+        for button in self.findChildren(QPushButton):
+            if button.objectName() == "btnDanger":
+                button.setEnabled(is_full)
 
-        # غیرفعال کردن دکمه‌های حذف برای کاربران غیرمدیر
-        for btn in self.findChildren(QPushButton):
-            if btn.objectName() == "btnDanger":
-                btn.setEnabled(is_full)
+        if hasattr(self, "cb_rep_emp"):
+            self.cb_rep_emp.setEnabled(not is_scoped)
+            if is_scoped and self.active_employee:
+                own_index = self.cb_rep_emp.findData(int(self.active_employee["id"]))
+                if own_index >= 0:
+                    self.cb_rep_emp.setCurrentIndex(own_index)
+        if hasattr(self, "btn_safe_export"):
+            self.btn_safe_export.setEnabled(not is_scoped)
+        if hasattr(self, "btn_switch_user"):
+            self.btn_switch_user.setEnabled(is_full or is_senior)
+
 
     def _apply_styles(self):
-        self.setStyleSheet("""
-            QMainWindow, QWidget {
-                font-family: 'Segoe UI', 'Tahoma', sans-serif;
-                font-size: 13px;
-                background-color: #f8fafc;
-                color: #0f172a;
-            }
-            QGroupBox {
-                font-weight: bold;
-                border: 1px solid #cbd5e1;
-                border-radius: 8px;
-                margin-top: 10px;
-                padding-top: 12px;
-                background-color: #ffffff;
-            }
-            QGroupBox::title {
-                subcontrol-origin: margin;
-                subcontrol-position: top right;
-                padding: 0 8px;
-                color: #1e40af;
-            }
-            QLineEdit, QComboBox, QSpinBox {
-                border: 1px solid #cbd5e1;
-                border-radius: 5px;
-                padding: 5px 8px;
-                background-color: #ffffff;
-                min-height: 24px;
-            }
-            QLineEdit:focus, QComboBox:focus {
-                border: 1.5px solid #2563eb;
-            }
-            QPushButton {
-                background-color: #2563eb;
-                color: #ffffff;
-                border: none;
-                border-radius: 6px;
-                padding: 6px 14px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #1d4ed8;
-            }
-            QPushButton#btnDanger {
-                background-color: #dc2626;
-            }
-            QPushButton#btnDanger:hover {
-                background-color: #b91c1c;
-            }
-            QPushButton#btnSuccess {
-                background-color: #059669;
-            }
-            QPushButton#btnSuccess:hover {
-                background-color: #047857;
-            }
-            QPushButton#btnSecondary {
-                background-color: #475569;
-            }
-            QTableWidget {
-                background-color: #ffffff;
-                alternate-background-color: #f1f5f9;
-                gridline-color: #e2e8f0;
-                border: 1px solid #cbd5e1;
-                border-radius: 6px;
-            }
-            QHeaderView::section {
-                background-color: #1e293b;
-                color: #ffffff;
-                font-weight: bold;
-                padding: 6px;
-                border: none;
-            }
-            QTabWidget::pane {
-                border: 1px solid #cbd5e1;
-                background: #f8fafc;
-            }
-            QTabBar::tab {
-                background: #e2e8f0;
-                color: #334155;
-                padding: 9px 14px;
-                font-weight: bold;
-                border-top-left-radius: 6px;
-                border-top-right-radius: 6px;
-                margin-left: 2px;
-            }
-            QTabBar::tab:selected {
-                background: #2563eb;
-                color: #ffffff;
-            }
-            QCheckBox {
-                font-weight: bold;
-                color: #1e293b;
-                spacing: 8px;
-                padding: 6px 12px;
-                background-color: #f1f5f9;
-                border: 1.5px solid #cbd5e1;
-                border-radius: 6px;
-            }
-            QCheckBox:hover {
-                background-color: #e2e8f0;
-                border-color: #3b82f6;
-            }
-            QCheckBox:checked {
-                background-color: #eff6ff;
-                border: 1.5px solid #2563eb;
-                color: #1d4ed8;
-            }
-            QCheckBox::indicator {
-                width: 18px;
-                height: 18px;
-                border-radius: 4px;
-                border: 2px solid #64748b;
-                background-color: #ffffff;
-            }
-            QCheckBox::indicator:hover {
-                border-color: #2563eb;
-            }
-            QCheckBox::indicator:checked {
-                background-color: #2563eb;
-                border: 2px solid #1e40af;
-            }
+        dark = self.db.cfg.get("theme", "light") == "dark"
+        bg = "#202938" if dark else "#f8fafc"
+        panel = "#2b3648" if dark else "#ffffff"
+        text = "#e5eaf2" if dark else "#0f172a"
+        muted = "#aab6c8" if dark else "#64748b"
+        input_bg = "#354257" if dark else "#ffffff"
+        alternate = "#273346" if dark else "#f1f5f9"
+        border = "#46556c" if dark else "#cbd5e1"
+        self.setStyleSheet(f"""
+            QMainWindow, QWidget {{
+                font-family: 'Segoe UI', 'Tahoma', sans-serif; font-size: 13px;
+                background-color: {bg}; color: {text};
+            }}
+            QGroupBox {{ font-weight: bold; border: 1px solid {border}; border-radius: 8px;
+                margin-top: 10px; padding-top: 12px; background-color: {panel}; }}
+            QGroupBox::title {{ subcontrol-origin: margin; subcontrol-position: top right;
+                padding: 0 8px; color: {muted}; }}
+            QLineEdit, QComboBox, QSpinBox {{ border: 1px solid {border}; border-radius: 5px;
+                padding: 5px 8px; background-color: {input_bg}; min-height: 24px; }}
+            QLineEdit:focus, QComboBox:focus {{ border: 1.5px solid #3b82f6; }}
+            QPushButton {{ background-color: #2563eb; color: #ffffff; border: none;
+                border-radius: 6px; padding: 7px 14px; font-weight: bold; }}
+            QPushButton:hover {{ background-color: #1d4ed8; }}
+            QPushButton#btnDanger {{ background-color: #dc2626; }}
+            QPushButton#btnDanger:hover {{ background-color: #b91c1c; }}
+            QPushButton#btnSuccess {{ background-color: #059669; }}
+            QPushButton#btnSuccess:hover {{ background-color: #047857; }}
+            QPushButton#btnSecondary {{ background-color: #475569; }}
+            QTableWidget {{ background-color: {panel}; alternate-background-color: {alternate};
+                gridline-color: {border}; border: 1px solid {border}; border-radius: 6px; }}
+            QHeaderView::section {{ background-color: #334155; color: #ffffff; font-weight: bold;
+                padding: 7px; border: none; }}
+            QTabWidget::pane {{ border: 1px solid {border}; background: {bg}; }}
+            QTabBar::tab {{ background: {alternate}; color: {text}; padding: 9px 14px;
+                font-weight: bold; border-top-left-radius: 6px; border-top-right-radius: 6px; margin-left: 2px; }}
+            QTabBar::tab:selected {{ background: #2563eb; color: #ffffff; }}
+            QCheckBox {{ font-weight: bold; color: {text}; spacing: 8px; padding: 6px 12px; }}
+            QCheckBox::indicator {{ width: 18px; height: 18px; border-radius: 4px;
+                border: 2px solid #64748b; background-color: {input_bg}; }}
+            QCheckBox::indicator:checked {{ background-color: #2563eb; border: 2px solid #1e40af; }}
+            QScrollBar:vertical {{ width: 18px; margin: 2px; background: {alternate}; border-radius: 8px; }}
+            QScrollBar::handle:vertical {{ min-height: 36px; background: #718096; border-radius: 8px; }}
+            QScrollBar:horizontal {{ height: 18px; margin: 2px; background: {alternate}; border-radius: 8px; }}
+            QScrollBar::handle:horizontal {{ min-width: 36px; background: #718096; border-radius: 8px; }}
         """)
+
 
     def _build_ui(self):
         central = QWidget()
@@ -310,7 +286,8 @@ class MainWindow(QMainWindow):
         )
         top_layout = QHBoxLayout(top_bar)
 
-        title_lbl = QLabel("💻 مدیریت فروش، انبار و حسابداری فروشگاه کامپیوتر")
+        shop_name = (self.db.cfg.get("shop_name") or "فروشگاه من").strip()
+        title_lbl = QLabel(f"💻 {shop_name} | مدیریت فروش، انبار و حسابداری")
         title_lbl.setStyleSheet(
             "color: #ffffff; font-size: 15px; font-weight: bold; background: transparent;"
         )
@@ -330,6 +307,7 @@ class MainWindow(QMainWindow):
         btn_sync.clicked.connect(self._manual_sync_data)
 
         btn_safe_export = QPushButton("📤 خروجی موجودی امن")
+        self.btn_safe_export = btn_safe_export
         btn_safe_export.setObjectName("btnSuccess")
         btn_safe_export.setToolTip(
             "تهیه فایل اکسل از کالاهای موجود در انبار بدون اطلاعات قیمت خرید و سود (مناسب ارسال به همکاران)"
@@ -344,8 +322,14 @@ class MainWindow(QMainWindow):
             "color: #fde047; font-size: 13px; font-weight: bold; background: rgba(255,255,255,0.12); padding: 5px 12px; border-radius: 6px;"
         )
         btn_switch_user = QPushButton("🔑 تغییر کاربر")
+        self.btn_switch_user = btn_switch_user
         btn_switch_user.setStyleSheet("background-color: #475569; color: white; padding: 6px 10px;")
         btn_switch_user.clicked.connect(self._switch_active_employee)
+        self.btn_theme = QPushButton("☀️ تم روشن" if self.db.cfg.get("theme") == "dark" else "🌙 تم تیره")
+        self.btn_theme.clicked.connect(self._toggle_theme)
+        self.btn_table_width = QPushButton("↔️ اندازه‌گذاری هوشمند ستون‌ها")
+        self.btn_table_width.setObjectName("btnSecondary")
+        self.btn_table_width.clicked.connect(self._toggle_table_autosize)
 
         top_layout.addWidget(title_lbl)
         top_layout.addStretch()
@@ -354,6 +338,8 @@ class MainWindow(QMainWindow):
         top_layout.addWidget(self.lbl_live_clock)
         top_layout.addWidget(btn_sync)
         top_layout.addWidget(btn_safe_export)
+        top_layout.addWidget(self.btn_table_width)
+        top_layout.addWidget(self.btn_theme)
         main_layout.addWidget(top_bar)
 
         # --- تب‌های برنامه با ترتیب جدید (بند ۵: تب ارتقای لپ‌تاپ بلافاصله بعد از مدیریت خدمات) ---
@@ -405,7 +391,7 @@ class MainWindow(QMainWindow):
 
     def _run_periodic_backup(self):
         try:
-            self.db.create_backup()
+            self.db.create_backup(automatic=True)
             if hasattr(self, "lbl_last_backup"):
                 self.lbl_last_backup.setText(
                     f"آخرین پشتیبان‌گیری: {self.db.cfg.get('last_backup_time', '')}"
