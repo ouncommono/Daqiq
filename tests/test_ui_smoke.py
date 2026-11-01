@@ -105,6 +105,10 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
         assert window.dt_batch_date.ed_month.width() >= 48
         assert window.dt_batch_date.width() < 250
         assert isinstance(window.tabs.widget(9), SmoothScrollArea)
+        assert isinstance(window.lst_cfg_subcategories, main_module.SmoothScrollListWidget)
+        assert isinstance(window.lst_cfg_attributes, main_module.SmoothScrollListWidget)
+        assert isinstance(window.lst_cfg_colors, main_module.SmoothScrollListWidget)
+        assert isinstance(window.lst_recent_databases, main_module.SmoothScrollListWidget)
         assert window.btn_save_settings.sizePolicy().horizontalPolicy() == QSizePolicy.Expanding
 
     finally:
