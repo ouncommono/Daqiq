@@ -59,6 +59,7 @@ from utils_and_widgets import (
     add_jalali_days,
     normalize_digits,
     SmoothScrollArea,
+    SmoothScrollTableWidget,
 )
 from exporter import (
     export_safe_inventory_excel,
@@ -856,7 +857,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "خطا", str(e))
 
     def _create_table(self, headers):
-        tbl = QTableWidget(0, len(headers))
+        tbl = SmoothScrollTableWidget(0, len(headers))
         tbl.setHorizontalHeaderLabels(headers)
         for idx, h_text in enumerate(headers):
             item = tbl.horizontalHeaderItem(idx)
@@ -5041,9 +5042,16 @@ class MainWindow(QMainWindow):
                 specs = {}
             specs_short = "، ".join(str(value) for value in specs.values() if str(value).strip())
             product_description = str(product.get("description") or "")
-            visible_label = self._format_product_picker_label(product, include_specs=True)
+            # Keep the visible label compact; all technical details remain searchable
+            # and are available on hover so long specs do not overwhelm the picker.
+            visible_label = self._format_product_picker_label(product)
             batch_index = self.cb_batch_prod.count()
             self.cb_batch_prod.addItem(visible_label, product)
+            self.cb_batch_prod.setItemSearchText(
+                batch_index,
+                f"{product['category']} {product['sub_category']} {product['code']} "
+                f"{product['brand']} {product['model']} {specs_short} {product_description}",
+            )
             self.cb_batch_prod.setItemData(
                 batch_index,
                 f"{visible_label}\nمشخصات کامل: {specs_short or '-'}\nتوضیحات: {product_description or '-'}",
@@ -5086,8 +5094,22 @@ class MainWindow(QMainWindow):
         self.cb_rep_emp.blockSignals(False)
 
         self.cb_batch_supplier.clear()
-        for s in sups:
-            self.cb_batch_supplier.addItem(s["name"], s["id"])
+        for supplier_row in sups:
+            supplier = dict(supplier_row)
+            index = self.cb_batch_supplier.count()
+            self.cb_batch_supplier.addItem(supplier["name"], supplier["id"])
+            supplier_details = " | ".join(
+                value for value in (
+                    supplier.get("phone") or "",
+                    supplier.get("address") or "",
+                    supplier.get("notes") or "",
+                ) if value
+            )
+            self.cb_batch_supplier.setItemData(
+                index,
+                f"{supplier['name']}\n{supplier_details}".strip(),
+                Qt.ToolTipRole,
+            )
 
         self.cb_srv_select.blockSignals(True)
         self.cb_srv_select.clear()
@@ -5099,9 +5121,14 @@ class MainWindow(QMainWindow):
             )
             index = self.cb_srv_select.count()
             self.cb_srv_select.addItem(label, service)
+            self.cb_srv_select.setItemSearchText(
+                index,
+                f"{service['code']} {service['name']} {service['service_type']} "
+                f"{service.get('description') or ''}",
+            )
             self.cb_srv_select.setItemData(
                 index,
-                f"{label}\nشرح: {service.get('description') or '-'}",
+                f"{label}\nکد خدمت: {service['code']}\nشرح: {service.get('description') or '-'}",
                 Qt.ToolTipRole,
             )
         self.cb_srv_select.blockSignals(False)
