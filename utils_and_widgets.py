@@ -190,8 +190,8 @@ DEFAULT_ATTRIBUTES = {
         ]},
     ],
     "قطعات": [
-        {"name": "ظرفیت", "values": [], "subcategory": "رم کامپیوتر (RAM PC)"},
-        {"name": "ظرفیت", "values": [], "subcategory": "رم لپ‌تاپ (RAM Laptop)"},
+        {"name": "ظرفیت", "values": RAM_CAPACITIES[1:], "subcategory": "رم کامپیوتر (RAM PC)"},
+        {"name": "ظرفیت", "values": RAM_CAPACITIES[1:], "subcategory": "رم لپ‌تاپ (RAM Laptop)"},
         {"name": "نوع رابط", "values": ["SATA", "NVMe", "PCIe"], "subcategory": "حافظه اس‌اس‌دی (SSD)"},
         {"name": "ظرفیت", "values": [], "subcategory": "هارد دیسک اینترنال (HDD)"},
         {"name": "نوع سوکت", "values": [], "subcategory": "پردازنده (CPU)"},
@@ -1128,7 +1128,7 @@ class DynamicSpecsWidget(QGroupBox):
 
             existing_widget = self.fields.get(field_name)
             if existing_widget is not None:
-                if isinstance(existing_widget, QComboBox) and values:
+                if isinstance(existing_widget, QComboBox):
                     current_value = existing_widget.currentText()
                     existing_widget.blockSignals(True)
                     existing_widget.clear()
