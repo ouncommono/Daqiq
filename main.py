@@ -187,18 +187,32 @@ class LoginDialog(QDialog):
 
 
 def _is_valid_sqlite_database_file(path):
-    """Quickly verify an existing SQLite file without writing to it."""
+    """Validate both SQLite integrity and the minimum accounting schema."""
     if not path or not os.path.isfile(path):
         return False
+    conn = None
     try:
-        # The file is checked with isfile first; a normal connection avoids
-        # platform-specific URI escaping issues on Windows drive-letter paths.
-        with sqlite3.connect(os.path.abspath(path), timeout=5) as conn:
-            conn.execute("PRAGMA busy_timeout=5000")
-            result = conn.execute("PRAGMA quick_check").fetchone()
-        return bool(result and result[0] == "ok")
-    except (sqlite3.Error, OSError):
+        # Use a read-only connection so selecting an existing file never modifies it.
+        uri = "file:" + os.path.abspath(path).replace("\\", "/") + "?mode=ro"
+        conn = sqlite3.connect(uri, uri=True, timeout=5)
+        conn.execute("PRAGMA busy_timeout=5000")
+        result = conn.execute("PRAGMA quick_check").fetchone()
+        if not result or result[0] != "ok":
+            return False
+        table_names = {
+            row[0] for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        required_tables = {
+            "settings", "employees", "suppliers", "products", "batches", "sales"
+        }
+        return required_tables.issubset(table_names)
+    except (sqlite3.Error, OSError, ValueError):
         return False
+    finally:
+        if conn is not None:
+            conn.close()
 
 
 class DatabaseBootstrapDialog(QDialog):
@@ -279,16 +293,12 @@ class DatabaseBootstrapDialog(QDialog):
                     self, "فایل پیدا نشد", "فایل پایگاه دادهٔ موجود در این مسیر پیدا نشد."
                 )
                 return
-            try:
-                with sqlite3.connect(path, timeout=5) as conn:
-                    conn.execute("PRAGMA busy_timeout=5000")
-                    result = conn.execute("PRAGMA quick_check").fetchone()
-                if not result or result[0] != "ok":
-                    raise sqlite3.DatabaseError("quick_check failed")
-            except (sqlite3.Error, OSError) as exc:
+            if not _is_valid_sqlite_database_file(path):
                 QMessageBox.critical(
-                    self, "پایگاه دادهٔ نامعتبر",
-                    f"فایل انتخاب‌شده یک پایگاه دادهٔ سالم SQLite نیست.\n{exc}"
+                    self,
+                    "پایگاه دادهٔ نامعتبر",
+                    "فایل انتخاب‌شده یا سالم نیست یا ساختار پایگاه دادهٔ حسابداری را ندارد. "
+                    "برای ساخت فایل جدید، گزینهٔ ایجاد پایگاه داده را انتخاب کنید.",
                 )
                 return
         elif os.path.exists(path) and os.path.getsize(path) > 0:
