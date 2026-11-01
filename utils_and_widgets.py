@@ -196,7 +196,12 @@ class PriceInput(QLineEdit):
         self.db = db_manager
         self._raw_typed = False
         self.setPlaceholderText("مبلغ (تومان)")
-        self.setToolTip("مبلغ را به تومان وارد کنید (صفرهای پیش‌فرض خودکار اضافه می‌شوند)")
+        zero_count = int(self.db.cfg.get("zero_append_count", 3) or 0)
+        self.setToolTip(
+            "مبلغ را به تومان وارد کنید (بدون صفر اضافی)"
+            if zero_count <= 0 else
+            f"مبلغ را به تومان وارد کنید ({zero_count} صفر به‌صورت خودکار اضافه می‌شود)"
+        )
         self.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.textEdited.connect(self._on_edited)
         self.editingFinished.connect(self._apply_auto_zeros)
@@ -216,10 +221,9 @@ class PriceInput(QLineEdit):
         if not self._raw_typed:
             return
         self._raw_typed = False
-        enabled = self.db.get_setting("zero_append_enabled", "1") == "1"
-        zeros = int(self.db.get_setting("zero_append_count", "3"))
+        zeros = max(0, int(self.db.cfg.get("zero_append_count", 3) or 0))
         val = self.get_value()
-        if enabled and zeros > 0 and val > 0:
+        if zeros > 0 and val > 0:
             val = val * (10**zeros)
             self.blockSignals(True)
             self.setText(f"{val:,}")
@@ -499,22 +503,25 @@ class JalaliDateEdit(QWidget):
         self.setLayoutDirection(Qt.RightToLeft)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(2)
+        layout.setSpacing(1)
 
         self.ed_day = QLineEdit()
-        self.ed_day.setFixedWidth(32)
+        self.ed_day.setFixedWidth(42)
+        self.ed_day.setMinimumHeight(32)
         self.ed_day.setMaxLength(2)
         self.ed_day.setAlignment(Qt.AlignCenter)
         self.ed_day.setPlaceholderText("روز")
 
         self.ed_month = QLineEdit()
-        self.ed_month.setFixedWidth(32)
+        self.ed_month.setFixedWidth(42)
+        self.ed_month.setMinimumHeight(32)
         self.ed_month.setMaxLength(2)
         self.ed_month.setAlignment(Qt.AlignCenter)
         self.ed_month.setPlaceholderText("ماه")
 
         self.ed_year = QLineEdit()
-        self.ed_year.setFixedWidth(48)
+        self.ed_year.setFixedWidth(56)
+        self.ed_year.setMinimumHeight(32)
         self.ed_year.setMaxLength(4)
         self.ed_year.setAlignment(Qt.AlignCenter)
         self.ed_year.setPlaceholderText("سال")

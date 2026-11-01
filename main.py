@@ -21,6 +21,8 @@ from PySide6.QtWidgets import (
     QTableWidgetItem,
     QHeaderView,
     QMessageBox,
+    QDialogButtonBox,
+    QSizePolicy,
     QFileDialog,
     QGroupBox,
     QComboBox,
@@ -60,6 +62,29 @@ PERSIAN_WEEKDAYS = {
     5: "پنجشنبه",
     6: "جمعه",
 }
+
+
+def _center_message_buttons(dialog):
+    """Keep custom confirmation/action buttons centered and right-to-left."""
+    dialog.setLayoutDirection(Qt.RightToLeft)
+    button_box = dialog.findChild(QDialogButtonBox)
+    if button_box is not None:
+        button_box.setCenterButtons(True)
+
+
+def _ask_yes_no(parent, title: str, message: str) -> bool:
+    """Persian, centered confirmation dialog with explicit yes/no actions."""
+    dialog = QMessageBox(parent)
+    dialog.setWindowTitle(title)
+    dialog.setText(message)
+    dialog.setIcon(QMessageBox.Question)
+    dialog.setLayoutDirection(Qt.RightToLeft)
+    yes_button = dialog.addButton("بله", QMessageBox.YesRole)
+    no_button = dialog.addButton("خیر", QMessageBox.NoRole)
+    dialog.setDefaultButton(no_button)
+    _center_message_buttons(dialog)
+    dialog.exec()
+    return dialog.clickedButton() is yes_button
 
 
 def format_Signed_diff(actual_unit: int, suggested_unit: int, qty: int) -> str:
@@ -112,19 +137,14 @@ class LoginDialog(QDialog):
             return
         stored_hash = employee.get("password") or ""
         typed_password = normalize_digits(self.ed_pass.text())
-        password_required = self.db.get_setting("require_login_password", "0") == "1"
         if stored_hash:
             if not typed_password or (
                 hash_password(typed_password) != stored_hash and typed_password != stored_hash
             ):
                 QMessageBox.warning(self, "خطا", "رمز عبور واردشده صحیح نیست.")
                 return
-        elif password_required:
-            QMessageBox.warning(
-                self, "رمز عبور تعریف نشده",
-                "برای این کارمند هنوز رمز ورود ثبت نشده است. مدیر سیستم باید ابتدا رمز عبور تعریف کند."
-            )
-            return
+        # الزام ورود در سطح برنامه به معنی اجباری بودن رمز برای حساب‌های بدون رمز نیست.
+        # حسابی که رمز ندارد، پس از انتخاب کارمند می‌تواند بدون وارد کردن رمز وارد شود.
         self.logged_employee = employee
         self.accept()
 
@@ -143,8 +163,11 @@ class MainWindow(QMainWindow):
             | Qt.WindowMaximizeButtonHint
             | Qt.WindowCloseButtonHint
         )
-        self.resize(1360, 840)
+        self.resize(1180, 740)
+        self.setMinimumSize(900, 560)
         self._tables_auto_fit = False
+        self._table_default_widths = {}
+        self._table_default_stretch = {}
 
         self._apply_styles()
         self._build_ui()
@@ -156,9 +179,7 @@ class MainWindow(QMainWindow):
         dlg = LoginDialog(self.db, self)
         if dlg.exec() == QDialog.Accepted and dlg.logged_employee:
             self.active_employee = dlg.logged_employee
-            self.lbl_active_user.setText(
-                f"👤 کاربر فعال: {self.active_employee['name']} ({self.active_employee['role']})"
-            )
+            self._update_active_user_badge()
             self._apply_employee_permissions()
             self.refresh_all_data()
 
@@ -177,25 +198,88 @@ class MainWindow(QMainWindow):
         permission = self.active_employee.get("permissions") or ""
         return "دسترسی کامل" in permission or permission == "all"
 
+    def _update_active_user_badge(self):
+        employee_name = self.active_employee["name"] if self.active_employee else "مدیر سیستم"
+        employee_role = self.active_employee["role"] if self.active_employee else "دسترسی کامل"
+        self.lbl_active_user.setText(f"👤 کاربر: {employee_name}")
+        self.lbl_active_user.setToolTip(
+            f"کاربر فعال: {employee_name}\nنقش و سطح شغلی: {employee_role}"
+        )
+
+    def _refresh_visual_layout(self):
+        """Recalculate Qt layouts immediately after global style or column-size changes."""
+        root = self.centralWidget()
+        if root is not None:
+            for widget in [root, *root.findChildren(QWidget)]:
+                layout = widget.layout()
+                if layout is not None:
+                    layout.invalidate()
+                    layout.activate()
+                widget.updateGeometry()
+        self.updateGeometry()
+        self.update()
+        QApplication.processEvents()
+
+    def _reapply_auto_table_widths(self):
+        for table in self.findChildren(QTableWidget):
+            header = table.horizontalHeader()
+            header.setStretchLastSection(False)
+            header.setResizeContentsPrecision(-1)
+            header.setSectionResizeMode(QHeaderView.Interactive)
+            table.resizeColumnsToContents()
+            for column in range(table.columnCount()):
+                table.setColumnWidth(
+                    column, max(table.columnWidth(column), header.sectionSizeHint(column)) + 14
+                )
+        self._refresh_visual_layout()
+
     def _toggle_theme(self):
         self.db.cfg["theme"] = "dark" if self.db.cfg.get("theme", "light") != "dark" else "light"
         save_app_config(self.db.cfg)
-        self._apply_styles()
-        self.btn_theme.setText("☀️ تم روشن" if self.db.cfg["theme"] == "dark" else "🌙 تم تیره")
+        self.setUpdatesEnabled(False)
+        try:
+            self._apply_styles()
+            self.btn_theme.setText(
+                "☀️ تم روشن" if self.db.cfg["theme"] == "dark" else "🌙 تم تیره"
+            )
+        finally:
+            self.setUpdatesEnabled(True)
+        self._refresh_visual_layout()
 
     def _toggle_table_autosize(self):
-        self._tables_auto_fit = not self._tables_auto_fit
+        enable_auto_fit = not self._tables_auto_fit
         for table in self.findChildren(QTableWidget):
             header = table.horizontalHeader()
-            if self._tables_auto_fit:
-                header.setSectionResizeMode(QHeaderView.ResizeToContents)
+            table_key = id(table)
+            if enable_auto_fit:
+                if table_key not in self._table_default_widths:
+                    self._table_default_widths[table_key] = [
+                        table.columnWidth(column) for column in range(table.columnCount())
+                    ]
+                    self._table_default_stretch[table_key] = header.stretchLastSection()
+                header.setStretchLastSection(False)
+                header.setResizeContentsPrecision(-1)
+                header.setSectionResizeMode(QHeaderView.Interactive)
+                table.resizeColumnsToContents()
+                for column in range(table.columnCount()):
+                    table.setColumnWidth(
+                        column, max(table.columnWidth(column), header.sectionSizeHint(column)) + 14
+                    )
             else:
                 header.setSectionResizeMode(QHeaderView.Interactive)
-                header.setStretchLastSection(True)
+                widths = self._table_default_widths.get(table_key, [])
+                for column in range(table.columnCount()):
+                    if column < len(widths):
+                        table.setColumnWidth(column, widths[column])
+                header.setStretchLastSection(
+                    self._table_default_stretch.get(table_key, True)
+                )
+        self._tables_auto_fit = enable_auto_fit
         self.btn_table_width.setText(
             "↔️ بازگشت به اندازه ثابت ستون‌ها" if self._tables_auto_fit
             else "↔️ اندازه‌گذاری هوشمند ستون‌ها"
         )
+        self._refresh_visual_layout()
 
     def _apply_employee_permissions(self):
         """Role-based tab access and data-scope setup."""
@@ -294,33 +378,32 @@ class MainWindow(QMainWindow):
         main_layout = QVBoxLayout(central)
         main_layout.setContentsMargins(10, 8, 10, 8)
 
-        # --- نوار بالای برنامه (ساعت زنده + دکمه همگام‌سازی اطلاعات + خروجی موجودی امن) ---
+        # --- نوار بالای برنامه (نام فروشگاه، کاربر، ساعت و ابزارهای نمایشی) ---
         top_bar = QWidget()
         top_bar.setStyleSheet(
             "background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0f172a, stop:1 #1e3a8a); border-radius: 8px; padding: 6px;"
         )
         top_layout = QHBoxLayout(top_bar)
 
-        shop_name = (self.db.cfg.get("shop_name") or "فروشگاه من").strip()
-        title_lbl = QLabel(f"💻 {shop_name} | مدیریت فروش، انبار و حسابداری")
+        shop_name = (self.db.get_setting("shop_name", "فروشگاه من") or "فروشگاه من").strip()
+        title_lbl = QLabel(f"💻 {shop_name}")
         self.lbl_store_name = title_lbl
         title_lbl.setStyleSheet(
             "color: #ffffff; font-size: 15px; font-weight: bold; background: transparent;"
         )
-        title_lbl.setToolTip("سامانه آفلاین مدیریت خرید، فروش، موجودی محموله‌ها و خدمات")
+        title_lbl.setToolTip(f"نام فروشگاه: {shop_name}")
+        title_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        title_lbl.setMinimumWidth(90)
+        title_lbl.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
 
         self.lbl_live_clock = QLabel()
         self.lbl_live_clock.setStyleSheet(
             "color: #38bdf8; font-size: 13px; font-weight: bold; background: rgba(255,255,255,0.08); padding: 5px 12px; border-radius: 6px;"
         )
-
-        # بند ۷: دکمه همگام‌سازی اطلاعات در بالای برنامه
-        btn_sync = QPushButton("🔄 همگام‌سازی اطلاعات")
-        btn_sync.setToolTip("همگام‌سازی کامل اطلاعات با پایگاه داده و بازخوانی تمامی لیست‌ها")
-        btn_sync.setStyleSheet(
-            "background-color: #0284c7; color: white; padding: 6px 12px; font-weight: bold; border-radius: 6px;"
-        )
-        btn_sync.clicked.connect(self._manual_sync_data)
+        self.lbl_live_clock.setAlignment(Qt.AlignCenter)
+        self.lbl_live_clock.setFixedWidth(280)
+        self.lbl_live_clock.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
+        self.lbl_live_clock.setToolTip("نمایش تاریخ و ساعت جاری؛ برای جزئیات، نشانگر را روی این کادر نگه دارید.")
 
         btn_safe_export = QPushButton("📤 خروجی موجودی امن")
         self.btn_safe_export = btn_safe_export
@@ -333,10 +416,14 @@ class MainWindow(QMainWindow):
         # نمایش نام کارمند وارد شده در نوار بالای برنامه + امکان تغییر کاربر
         emp_name = self.active_employee["name"] if self.active_employee else "مدیر سیستم"
         emp_role = self.active_employee["role"] if self.active_employee else "دسترسی کامل"
-        self.lbl_active_user = QLabel(f"👤 کاربر فعال: {emp_name} ({emp_role})")
+        self.lbl_active_user = QLabel()
         self.lbl_active_user.setStyleSheet(
             "color: #fde047; font-size: 13px; font-weight: bold; background: rgba(255,255,255,0.12); padding: 5px 12px; border-radius: 6px;"
         )
+        self.lbl_active_user.setMinimumWidth(100)
+        self.lbl_active_user.setMaximumWidth(190)
+        self.lbl_active_user.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        self._update_active_user_badge()
         btn_switch_user = QPushButton("🔑 تغییر کاربر")
         self.btn_switch_user = btn_switch_user
         btn_switch_user.setStyleSheet("background-color: #475569; color: white; padding: 6px 10px;")
@@ -352,7 +439,6 @@ class MainWindow(QMainWindow):
         top_layout.addWidget(self.lbl_active_user)
         top_layout.addWidget(btn_switch_user)
         top_layout.addWidget(self.lbl_live_clock)
-        top_layout.addWidget(btn_sync)
         top_layout.addWidget(btn_safe_export)
         top_layout.addWidget(self.btn_table_width)
         top_layout.addWidget(self.btn_theme)
@@ -374,19 +460,8 @@ class MainWindow(QMainWindow):
         self._init_tab_settings()
 
         self._update_clock()
+        self._update_active_user_badge()
         self._apply_employee_permissions()
-
-    def _manual_sync_data(self):
-        try:
-            self.db.sync_database()
-            self.refresh_all_data()
-            QMessageBox.information(
-                self,
-                "همگام‌سازی اطلاعات",
-                "تمامی اطلاعات با پایگاه داده همگام‌سازی و بروزرسانی شدند.",
-            )
-        except Exception as e:
-            QMessageBox.critical(self, "خطا در همگام‌سازی", str(e))
 
     def _setup_timers(self):
         self.clock_timer = QTimer(self)
@@ -398,7 +473,7 @@ class MainWindow(QMainWindow):
         self._restart_backup_timer()
 
     def _restart_backup_timer(self):
-        cfg = load_app_config()
+        cfg = self.db.cfg
         if cfg.get("auto_backup_enabled", True):
             mins = max(5, int(cfg.get("auto_backup_interval_min", 60)))
             self.backup_timer.start(mins * 60 * 1000)
@@ -423,6 +498,9 @@ class MainWindow(QMainWindow):
         self.lbl_live_clock.setText(
             f"📅 {w_day}  {date_str}   |   ⏰ ساعت: {time_str}"
         )
+        self.lbl_live_clock.setToolTip(
+            f"تاریخ شمسی: {w_day} {date_str}\nساعت محلی: {time_str}"
+        )
 
     def _export_safe_inventory(self):
         default_file = get_next_excel_filename(os.path.expanduser("~"), "R")
@@ -434,7 +512,7 @@ class MainWindow(QMainWindow):
         )
         if path:
             try:
-                export_safe_inventory_excel(self.db, path, (self.db.cfg.get("shop_name") or "").strip())
+                export_safe_inventory_excel(self.db, path, (self.db.get_setting("shop_name", "فروشگاه من") or "فروشگاه من").strip())
                 QMessageBox.information(
                     self,
                     "ذخیره شد",
@@ -586,7 +664,7 @@ class MainWindow(QMainWindow):
         self.sp_prod_profit = QSpinBox()
         self.sp_prod_profit.setRange(0, 500)
         self.sp_prod_profit.setValue(
-            int(float(self.db.get_setting("default_profit_pct", "20")))
+            int(float(self.db.cfg.get("default_profit_pct", 20)))
         )
         self.sp_prod_profit.setToolTip("درصد سود پیش‌فرض برای محاسبه قیمت فروش پیشنهادی این کالا")
         self.ed_prod_desc = SmartLineEdit("توضیحات تکمیلی کالا...")
@@ -690,6 +768,7 @@ class MainWindow(QMainWindow):
                 msg.setText(f"کد {code} قبلاً ثبت شده است. اطلاعات کالای قبلی جایگزین شود؟")
                 btn_replace = msg.addButton("جایگزین کردن", QMessageBox.AcceptRole)
                 msg.addButton("انصراف", QMessageBox.RejectRole)
+                _center_message_buttons(msg)
                 msg.exec()
                 if msg.clickedButton() != btn_replace:
                     return
@@ -757,6 +836,7 @@ class MainWindow(QMainWindow):
                 msg.setText(f"کد {code} قبلاً برای کالای دیگری ثبت شده است. اطلاعات همان کالا جایگزین شود؟")
                 replace_btn = msg.addButton("جایگزین کردن", QMessageBox.AcceptRole)
                 msg.addButton("انصراف", QMessageBox.RejectRole)
+                _center_message_buttons(msg)
                 msg.exec()
                 if msg.clickedButton() != replace_btn:
                     return
@@ -780,8 +860,8 @@ class MainWindow(QMainWindow):
         if not self.selected_product_id:
             return
         if (
-            QMessageBox.question(self, "تأیید حذف", "آیا از حذف این کالا اطمینان دارید؟")
-            == QMessageBox.Yes
+            _ask_yes_no(self, "تأیید حذف", "آیا از حذف این کالا اطمینان دارید؟")
+            is True
         ):
             try:
                 self.db.delete_product(self.selected_product_id)
@@ -950,7 +1030,7 @@ class MainWindow(QMainWindow):
         pct = (
             float(prod_data["default_profit_pct"])
             if prod_data
-            else float(self.db.get_setting("default_profit_pct", "20"))
+            else float(self.db.cfg.get("default_profit_pct", 20))
         )
         suggested = round(cost_u * (1 + (pct / 100.0)))
         self.pr_batch_suggest.set_value(suggested)
@@ -990,6 +1070,7 @@ class MainWindow(QMainWindow):
                 msg.setText(f"کد {code} قبلاً ثبت شده است. اطلاعات محموله قبلی جایگزین شود؟")
                 btn_replace = msg.addButton("جایگزین کردن", QMessageBox.AcceptRole)
                 msg.addButton("انصراف", QMessageBox.RejectRole)
+                _center_message_buttons(msg)
                 msg.exec()
                 if msg.clickedButton() != btn_replace:
                     return
@@ -1070,10 +1151,10 @@ class MainWindow(QMainWindow):
         if not self.selected_batch_id:
             return
         if (
-            QMessageBox.question(
+            _ask_yes_no(
                 self, "تأیید حذف", "آیا از حذف این محموله خرید اطمینان دارید؟"
             )
-            == QMessageBox.Yes
+            is True
         ):
             try:
                 self.db.delete_batch(self.selected_batch_id)
@@ -1107,7 +1188,12 @@ class MainWindow(QMainWindow):
 
         self.pr_sale_suggest = PriceInput(self.db)
         self.pr_sale_suggest.setReadOnly(True)
-        self.pr_sale_suggest.setToolTip("قیمت پیشنهادی از بخش ثبت خرید و محموله‌ها دریافت می‌شود و در فاکتور فروش قابل تغییر نیست.")
+        self.pr_sale_suggest.setStyleSheet(
+            "background-color: #e2e8f0; color: #475569; font-weight: bold;"
+        )
+        self.pr_sale_suggest.setToolTip(
+            "قیمت پیشنهادی از بخش ثبت خرید و محموله‌ها دریافت می‌شود و در فاکتور فروش قابل تغییر نیست."
+        )
         self.pr_sale_actual = PriceInput(self.db)
         self.pr_sale_paid = PriceInput(self.db)
 
@@ -1424,12 +1510,12 @@ class MainWindow(QMainWindow):
         if not self.selected_sale_id:
             return
         if (
-            QMessageBox.question(
+            _ask_yes_no(
                 self,
                 "حذف فروش",
                 "آیا از حذف این فروش و بازگرداندن کالا به موجودی انبار اطمینان دارید؟",
             )
-            == QMessageBox.Yes
+            is True
         ):
             self.db.delete_sale(self.selected_sale_id)
             self.refresh_all_data()
@@ -1617,6 +1703,7 @@ class MainWindow(QMainWindow):
             msg.setText(f"کد {code} قبلاً ثبت شده است. اطلاعات خدمت قبلی جایگزین شود؟")
             btn_replace = msg.addButton("جایگزین کردن", QMessageBox.AcceptRole)
             msg.addButton("انصراف", QMessageBox.RejectRole)
+            _center_message_buttons(msg)
             msg.exec()
             if msg.clickedButton() != btn_replace:
                 return
@@ -1967,12 +2054,12 @@ class MainWindow(QMainWindow):
             return
         upg_id = int(self.tbl_upgrades.item(items[0].row(), 0).text())
         if (
-            QMessageBox.question(
+            _ask_yes_no(
                 self,
                 "تأیید برگشت ارتقا",
                 "آیا از برگشت این ارتقا، بازگرداندن قطعه به موجودی انبار و بازگشت مشخصات قبلی کالا اطمینان دارید؟",
             )
-            == QMessageBox.Yes
+            is True
         ):
             try:
                 self.db.revert_upgrade(upg_id)
@@ -2110,6 +2197,7 @@ class MainWindow(QMainWindow):
         btn_cancel = msg.addButton("انصراف", QMessageBox.RejectRole)
         msg.addButton("حذف تأمین‌کننده بدون حذف داده‌های مربوط به آن", QMessageBox.AcceptRole)
         btn_delete_all = msg.addButton("حذف تأمین‌کننده و داده‌های مربوط به آن", QMessageBox.DestructiveRole)
+        _center_message_buttons(msg)
         msg.exec()
         clicked = msg.clickedButton()
         if clicked == btn_cancel or clicked is None:
@@ -2925,7 +3013,7 @@ class MainWindow(QMainWindow):
             rows,
             path,
             summary_text=self.lbl_rep_totals.text(),
-            shop_name=(self.db.cfg.get("shop_name") or "").strip(),
+            shop_name=(self.db.get_setting("shop_name", "فروشگاه من") or "فروشگاه من").strip(),
         )
         QMessageBox.information(
             self, "خروجی اکسل", f"فایل گزارش با موفقیت ذخیره شد:\n{path}"
@@ -2945,7 +3033,7 @@ class MainWindow(QMainWindow):
         self.ed_emp_name = SmartLineEdit("نام و نام خانوادگی کارمند...")
         self.cb_emp_role = QComboBox()
         self.cb_emp_role.addItems(
-            ["مدیر / فروشنده", "فروشنده", "مسئول خرید", "تکنسین فنی"]
+            ["مدیر", "فروشنده", "مسئول خرید", "تکنسین فنی"]
         )
         self.ed_emp_phone = SmartLineEdit("شماره تماس...")
         self.ed_emp_old_pass = QLineEdit()
@@ -3139,12 +3227,6 @@ class MainWindow(QMainWindow):
         if not self.selected_emp_id:
             QMessageBox.warning(self, "انتخاب کارمند", "ابتدا کارمند موردنظر را انتخاب کنید.")
             return
-        if self.db.get_setting("require_login_password", "0") == "1":
-            QMessageBox.warning(
-                self, "الزام رمز ورود فعال است",
-                "ابتدا الزام عمومی ورود با رمز عبور را در تنظیمات غیرفعال کنید؛ سپس می‌توانید رمز این کارمند را حذف نمایید."
-            )
-            return
         current_password = normalize_digits(self.ed_emp_old_pass.text().strip())
         if not current_password:
             QMessageBox.warning(self, "رمز فعلی لازم است", "برای حذف رمز، وارد کردن رمز فعلی الزامی است.")
@@ -3192,6 +3274,7 @@ class MainWindow(QMainWindow):
         btn_del_data = msg.addButton(
             "حذف کارمند و داده‌های مربوط به آن", QMessageBox.DestructiveRole
         )
+        _center_message_buttons(msg)
         msg.exec()
 
         clicked = msg.clickedButton()
@@ -3224,15 +3307,9 @@ class MainWindow(QMainWindow):
         self.sp_set_profit = QSpinBox()
         self.sp_set_profit.setRange(0, 300)
         self.sp_set_profit.setValue(
-            int(float(self.db.get_setting("default_profit_pct", "20")))
+            int(float(self.db.cfg.get("default_profit_pct", 20)))
         )
 
-        self.chk_zero_enabled = QCheckBox(
-            "افزودن خودکار صفر به اعداد وارد شده در کادرهای قیمت"
-        )
-        self.chk_zero_enabled.setChecked(
-            self.db.get_setting("zero_append_enabled", "1") == "1"
-        )
         self.cb_zero_count = QComboBox()
         self.cb_zero_count.addItem("بدون صفر اضافی (0)", "0")
         self.cb_zero_count.addItem("افزودن ۲ صفر (ضرب در 100)", "2")
@@ -3242,7 +3319,7 @@ class MainWindow(QMainWindow):
         self.cb_zero_count.addItem("افزودن ۴ صفر (ضرب در 10,000)", "4")
         for zeros in (5, 6, 8, 10, 12):
             self.cb_zero_count.addItem(f"افزودن {zeros} صفر", str(zeros))
-        cur_z = self.db.get_setting("zero_append_count", "3")
+        cur_z = str(self.db.cfg.get("zero_append_count", 3))
         idx_z = self.cb_zero_count.findData(cur_z)
         if idx_z >= 0:
             self.cb_zero_count.setCurrentIndex(idx_z)
@@ -3250,23 +3327,24 @@ class MainWindow(QMainWindow):
         self.cb_win_mode = QComboBox()
         self.cb_win_mode.addItem("تمام‌صفحه (Maximized)", "1")
         self.cb_win_mode.addItem("پنجره معمولی (Normal)", "0")
-        if self.db.get_setting("default_window_maximized", "1") == "0":
+        if not bool(self.db.cfg.get("default_window_maximized", True)):
             self.cb_win_mode.setCurrentIndex(1)
 
         self.chk_req_pass = QCheckBox(
             "درخواست رمز عبور کارمند هنگام شروع برنامه (اختیاری)"
         )
         self.chk_req_pass.setChecked(
-            self.db.get_setting("require_login_password", "0") == "1"
+            bool(self.db.cfg.get("require_login_password", False))
         )
 
-        self.ed_shop_name = QLineEdit(self.db.cfg.get("shop_name") or "فروشگاه من")
+        self.ed_shop_name = QLineEdit(
+            self.db.get_setting("shop_name", "فروشگاه من") or "فروشگاه من"
+        )
         self.ed_shop_name.setAlignment(Qt.AlignRight)
         self.ed_shop_name.setLayoutDirection(Qt.RightToLeft)
 
         f_gen.addRow("درصد سود پیش‌فرض فروشگاه (%):", self.sp_set_profit)
-        f_gen.addRow(self.chk_zero_enabled)
-        f_gen.addRow("تعداد صفرهای خودکار قیمت:", self.cb_zero_count)
+        f_gen.addRow("تعداد صفرهای اضافی قیمت (۰ = بدون صفر):", self.cb_zero_count)
         f_gen.addRow("حالت باز شدن پنجره برنامه:", self.cb_win_mode)
         f_gen.addRow(self.chk_req_pass)
         f_gen.addRow("نام فروشگاه:", self.ed_shop_name)
@@ -3303,6 +3381,16 @@ class MainWindow(QMainWindow):
         )
         self.sp_bk_interval.setKeyboardTracking(False)
         self.sp_bk_interval.setButtonSymbols(QSpinBox.NoButtons)
+        self.sp_bk_retention = QSpinBox()
+        self.sp_bk_retention.setRange(1, 100)
+        self.sp_bk_retention.setValue(
+            max(1, min(100, int(self.db.cfg.get("auto_backup_retention_count", 10))))
+        )
+        self.sp_bk_retention.setKeyboardTracking(False)
+        self.sp_bk_retention.setButtonSymbols(QSpinBox.NoButtons)
+        self.sp_bk_retention.setToolTip(
+            "حداکثر تعداد نسخه‌های خودکار برای همین فایل دیتابیس؛ پس از بکاپ موفق، قدیمی‌ترین نسخه حذف می‌شود."
+        )
 
         bk_btn_row = QHBoxLayout()
         btn_manual_bk = QPushButton("🛡️ تهیه نسخه پشتیبان دستی")
@@ -3322,13 +3410,14 @@ class MainWindow(QMainWindow):
         f_db.addRow(db_btn_row)
         f_db.addRow(self.chk_auto_bk)
         f_db.addRow("فاصله زمانی بکاپ خودکار (دقیقه):", self.sp_bk_interval)
+        f_db.addRow("حداکثر تعداد نسخه‌های خودکار:", self.sp_bk_retention)
         f_db.addRow(bk_btn_row)
         f_db.addRow(self.lbl_last_backup)
         layout.addWidget(gb_db)
-        layout.addStretch()
         btn_save_set = QPushButton("💾 ذخیره تنظیمات")
+        btn_save_set.setMinimumWidth(180)
         btn_save_set.clicked.connect(self._save_general_settings)
-        layout.addWidget(btn_save_set, 0, Qt.AlignBottom | Qt.AlignRight)
+        layout.addWidget(btn_save_set, 0, Qt.AlignHCenter)
 
         self.tabs.addTab(tab, "⚙️ تنظیمات و پشتیبان‌گیری")
 
@@ -3354,16 +3443,18 @@ class MainWindow(QMainWindow):
 
         self.db.db_path = target_path
         self.db.cfg["db_path"] = target_path
+        self.db.cfg["backup_dir"] = os.path.dirname(target_path) or "."
         recents = self.db.cfg.get("recent_databases", [])
         if target_path not in recents:
             recents.append(target_path)
         self.db.cfg["recent_databases"] = recents
-        save_app_config(self.db.cfg)
         self.db.init_db()
+        self.db._migrate_legacy_application_settings()
+        save_app_config(self.db.cfg)
 
         # An employee identity from another database must never carry over.
         self.active_employee = None
-        if self.db.get_setting("require_login_password", "0") == "1":
+        if bool(self.db.cfg.get("require_login_password", False)):
             login = LoginDialog(self.db, self)
             if login.exec() != QDialog.Accepted or not login.logged_employee:
                 QMessageBox.warning(
@@ -3376,10 +3467,11 @@ class MainWindow(QMainWindow):
 
         employee_name = self.active_employee["name"] if self.active_employee else "مدیر سیستم"
         employee_role = self.active_employee["role"] if self.active_employee else "دسترسی کامل"
-        self.lbl_active_user.setText(f"👤 کاربر فعال: {employee_name} ({employee_role})")
-        shop_name = (self.db.cfg.get("shop_name") or "فروشگاه من").strip()
+        self._update_active_user_badge()
+        shop_name = (self.db.get_setting("shop_name", "فروشگاه من") or "فروشگاه من").strip()
         self.setWindowTitle(f"{shop_name} | سامانه حسابداری و مدیریت فروشگاه")
-        self.lbl_store_name.setText(f"💻 {shop_name} | مدیریت فروش، انبار و حسابداری")
+        self.lbl_store_name.setText(f"💻 {shop_name}")
+        self.lbl_store_name.setToolTip(f"نام فروشگاه: {shop_name}")
         self._refresh_multi_db_combo()
         self.refresh_all_data()
         QMessageBox.information(
@@ -3407,26 +3499,25 @@ class MainWindow(QMainWindow):
             self._switch_to_database_path(ext_path)
 
     def _save_general_settings(self):
-        self.db.set_setting("default_profit_pct", self.sp_set_profit.value())
-        self.db.set_setting(
-            "zero_append_enabled", "1" if self.chk_zero_enabled.isChecked() else "0"
-        )
-        self.db.set_setting("zero_append_count", self.cb_zero_count.currentData())
-        self.db.set_setting(
-            "default_window_maximized", self.cb_win_mode.currentData()
-        )
-        self.db.set_setting(
-            "require_login_password", "1" if self.chk_req_pass.isChecked() else "0"
-        )
+        self.db.cfg["default_profit_pct"] = self.sp_set_profit.value()
+        self.db.cfg["zero_append_count"] = int(self.cb_zero_count.currentData())
+        self.db.cfg["default_window_maximized"] = self.cb_win_mode.currentData() == "1"
+        self.db.cfg["require_login_password"] = self.chk_req_pass.isChecked()
 
-        self.db.cfg["shop_name"] = self.ed_shop_name.text().strip() or "فروشگاه من"
+        shop_name = self.ed_shop_name.text().strip() or "فروشگاه من"
+        self.db.set_setting("shop_name", shop_name)
         self.db.cfg["auto_backup_enabled"] = self.chk_auto_bk.isChecked()
         self.db.cfg["auto_backup_interval_min"] = self.sp_bk_interval.value()
+        self.db.cfg["auto_backup_retention_count"] = self.sp_bk_retention.value()
+        self.db.cfg["backup_dir"] = os.path.dirname(os.path.abspath(self.db.db_path)) or "."
         save_app_config(self.db.cfg)
-        self.setWindowTitle(f"{self.db.cfg['shop_name']} | سامانه حسابداری و مدیریت فروشگاه")
+
+        self.setWindowTitle(f"{shop_name} | سامانه حسابداری و مدیریت فروشگاه")
         if hasattr(self, "lbl_store_name"):
-            self.lbl_store_name.setText(f"💻 {self.db.cfg['shop_name']} | مدیریت فروش، انبار و حسابداری")
+            self.lbl_store_name.setText(f"💻 {shop_name}")
+            self.lbl_store_name.setToolTip(f"نام فروشگاه: {shop_name}")
         self._restart_backup_timer()
+        self._refresh_visual_layout()
         QMessageBox.information(
             self, "ذخیره تنظیمات", "تنظیمات با موفقیت ذخیره شدند."
         )
@@ -3465,12 +3556,12 @@ class MainWindow(QMainWindow):
         )
         if path:
             if (
-                QMessageBox.question(
+                _ask_yes_no(
                     self,
                     "تأیید بازیابی",
                     "آیا از بازیابی اطلاعات مطمئن هستید؟ (از دیتابیس فعلی به طور خودکار بکاپ گرفته می‌شود)",
                 )
-                == QMessageBox.Yes
+                is True
             ):
                 self.db.restore_backup(path)
                 self.refresh_all_data()
@@ -3493,6 +3584,8 @@ class MainWindow(QMainWindow):
         self._refresh_dashboard()
         self._update_report_live()
         self._apply_employee_permissions()
+        if self._tables_auto_fit:
+            self._reapply_auto_table_widths()
 
     def _refresh_combos(self):
         with self.db.get_connection() as conn:
@@ -4001,14 +4094,14 @@ def main():
     db = DatabaseManager()
 
     active_emp = None
-    if db.get_setting("require_login_password", "0") == "1":
+    if bool(db.cfg.get("require_login_password", False)):
         dlg = LoginDialog(db)
         if dlg.exec() != QDialog.Accepted:
             sys.exit(0)
         active_emp = dlg.logged_employee
 
     win = MainWindow(db, active_emp)
-    if db.get_setting("default_window_maximized", "1") == "1":
+    if bool(db.cfg.get("default_window_maximized", True)):
         win.showMaximized()
     else:
         win.show()
