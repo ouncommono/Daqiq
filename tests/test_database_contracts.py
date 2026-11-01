@@ -353,7 +353,7 @@ def test_automatic_backup_keeps_exactly_latest_configured_count(manager, tmp_pat
         def strftime(self, format_string):
             minutes, seconds = divmod(self.value, 60)
             if format_string == "%Y%m%d_%H%M%S":
-                return f"14050810_{minutes:02d}{seconds:02d}"
+                return f"14050810_00{minutes:02d}{seconds:02d}"
             if format_string == "%Y/%m/%d %H:%M:%S":
                 return f"1405/08/10 00:{minutes:02d}:{seconds:02d}"
             raise AssertionError(f"Unexpected format: {format_string}")
