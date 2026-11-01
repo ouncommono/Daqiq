@@ -78,6 +78,8 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
         assert measured_widths[20] >= expected_header_width
 
         assert window.dt_rep_from.get_date() == "1405/01/01"
+        assert window.cb_rep_preset.currentText() == "بازه انتخابی دستی"
+        assert window.sp_bk_interval.minimum() == 1
         assert window.dt_batch_date.ed_day.width() >= 48
         assert window.dt_batch_date.ed_month.width() >= 48
         assert window.dt_batch_date.width() < 250
