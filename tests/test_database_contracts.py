@@ -208,3 +208,32 @@ def test_service_code_is_the_tariff_identity(manager):
     assert [(row["code"], row["default_fee"]) for row in rows] == [
         ("S-1001", 100), ("S-1002", 120)
     ]
+
+
+def test_upgrade_migration_removes_only_legacy_sample_employees(manager):
+    with manager.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO employees (name, role, permissions) VALUES (?, ?, ?)",
+            ("فروشنده اول", "مدیر / فروشنده", "دسترسی کامل"),
+        )
+        conn.execute(
+            "INSERT INTO employees (name, role, permissions) VALUES (?, ?, ?)",
+            ("فروشنده دوم", "فروشنده", "دسترسی کامل"),
+        )
+        conn.execute(
+            "INSERT INTO employees (name, role, permissions) VALUES (?, ?, ?)",
+            ("کارمند واقعی", "فروشنده", "فروش و خدمات"),
+        )
+        conn.commit()
+
+    manager.init_db()
+
+    with manager.get_connection() as conn:
+        names = [
+            row["name"] for row in conn.execute(
+                "SELECT name FROM employees ORDER BY name"
+            ).fetchall()
+        ]
+
+    assert names == ["کارمند واقعی"]
+

@@ -332,6 +332,39 @@ class DatabaseManager:
                     ("تأمین‌کننده عمومی بازار", "021-88990011", "تهران", "پیش‌فرض"),
                 )
                 
+            # Remove only the two legacy sample employees created by older releases.
+            # Keep their historic transactions and detach the employee references.
+            legacy_employees = conn.execute(
+                """SELECT id FROM employees WHERE
+                   (name=? AND role=?) OR (name=? AND role=?)""",
+                ("فروشنده اول", "مدیر / فروشنده", "فروشنده دوم", "فروشنده"),
+            ).fetchall()
+            legacy_ids = [int(row["id"]) for row in legacy_employees]
+            if legacy_ids:
+                marks = ",".join("?" for _ in legacy_ids)
+                conn.execute(
+                    f"UPDATE batches SET buyer_employee_id=NULL WHERE buyer_employee_id IN ({marks})",
+                    legacy_ids,
+                )
+                conn.execute(
+                    f"UPDATE sales SET seller_employee_id=NULL WHERE seller_employee_id IN ({marks})",
+                    legacy_ids,
+                )
+                conn.execute(
+                    f"""UPDATE service_records
+                        SET seller_employee_id=NULL, technician_employee_id=NULL
+                        WHERE seller_employee_id IN ({marks}) OR technician_employee_id IN ({marks})""",
+                    legacy_ids + legacy_ids,
+                )
+                conn.execute(
+                    f"UPDATE upgrades SET technician_id=NULL WHERE technician_id IN ({marks})",
+                    legacy_ids,
+                )
+                conn.execute(
+                    f"DELETE FROM employees WHERE id IN ({marks})",
+                    legacy_ids,
+                )
+
             # Migrate existing databases without dropping any business records.
             migrations = (
                 ("upgrades", "added_cost_unit", "INTEGER DEFAULT 0"),
