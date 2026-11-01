@@ -791,7 +791,11 @@ class MainWindow(QMainWindow):
             self.backup_timer.stop()
             return
 
-        interval_seconds = max(5, int(cfg.get("auto_backup_interval_min", 60))) * 60
+        try:
+            interval_minutes = int(cfg.get("auto_backup_interval_min", 60))
+        except (TypeError, ValueError):
+            interval_minutes = 60
+        interval_seconds = max(1, min(1440, interval_minutes)) * 60
         last_success = self.db.get_last_automatic_backup_timestamp()
         if last_success > 0:
             delay_seconds = max(1, interval_seconds - (time.time() - last_success))
@@ -4109,7 +4113,7 @@ class MainWindow(QMainWindow):
 
         self.chk_auto_bk = QCheckBox("پشتیبان‌گیری خودکار دوره‌ای فعال باشد")
         self.sp_bk_interval = QSpinBox()
-        self.sp_bk_interval.setRange(5, 1440)
+        self.sp_bk_interval.setRange(1, 1440)
         self.sp_bk_interval.setSuffix(" دقیقه")
         self.sp_bk_interval.setKeyboardTracking(False)
         self.sp_bk_interval.setButtonSymbols(QSpinBox.NoButtons)
@@ -4174,7 +4178,11 @@ class MainWindow(QMainWindow):
             self.db.get_setting("shop_name", "فروشگاه من") or "فروشگاه من"
         )
         self.chk_auto_bk.setChecked(bool(cfg.get("auto_backup_enabled", True)))
-        self.sp_bk_interval.setValue(max(5, int(cfg.get("auto_backup_interval_min", 60))))
+        try:
+            backup_interval = int(cfg.get("auto_backup_interval_min", 60))
+        except (TypeError, ValueError):
+            backup_interval = 60
+        self.sp_bk_interval.setValue(max(1, min(1440, backup_interval)))
         self.sp_bk_retention.setValue(
             max(1, min(100, int(cfg.get("auto_backup_retention_count", 10))))
         )
