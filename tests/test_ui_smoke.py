@@ -25,10 +25,12 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
     try:
         assert window.tabs.count() == 10
         assert window.tabs.tabText(9).endswith("تنظیمات و پشتیبان‌گیری")
-        assert window.lbl_store_name.text().startswith("💻")
+        assert window.lbl_store_name.text().strip("\u2067\u2069") == "فروشگاه من"
         assert "مدیریت فروش" not in window.lbl_store_name.text()
         assert window.lbl_active_user.text().startswith("👤 کاربر:")
-        assert window.lbl_live_clock.minimumWidth() >= 250
+        assert window.lbl_live_clock.minimumWidth() >= 170
+        assert window.top_layout.direction() == window.top_layout.LeftToRight
+        assert window.top_right_layout.direction() == window.top_right_layout.RightToLeft
         assert window.btn_theme.isEnabled()
         assert window.btn_table_width.isEnabled()
         assert window.tbl_batches.columnCount() >= 22
