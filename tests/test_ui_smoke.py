@@ -549,6 +549,7 @@ def test_taxonomy_attribute_rename_and_pending_category_delete_preserve_product_
         assert "سخت‌افزار" in window._taxonomy_draft["categories"]
 
         window._save_general_settings()
+        assert window.cb_rep_cat.findText("سخت‌افزار") >= 0
         with manager.get_connection() as conn:
             product = conn.execute(
                 "SELECT category, specs_json FROM products WHERE code='P-TAX-1'"
