@@ -615,8 +615,7 @@ class DatabaseManager:
             else:
                 conn.execute(
                     """UPDATE batches
-                       SET supplier_name_snapshot=COALESCE(NULLIF(supplier_name_snapshot,''),?),
-                           supplier_id=NULL
+                       SET supplier_name_snapshot=?, supplier_id=NULL
                        WHERE supplier_id=?""",
                     (supplier["name"], sup_id),
                 )
@@ -896,6 +895,42 @@ class DatabaseManager:
             conn.commit()
 
 
+    def _reverse_upgrade_effects(self, conn, upgrade):
+        """Reverse one upgrade's stock and target-cost effects inside the caller's transaction."""
+        part_batch = conn.execute(
+            "SELECT id FROM batches WHERE id=?", (upgrade["part_batch_id"],)
+        ).fetchone()
+        if part_batch:
+            conn.execute(
+                """UPDATE batches SET sold_qty=MAX(0,sold_qty-?),
+                   remaining_qty=remaining_qty+? WHERE id=?""",
+                (upgrade["part_qty_used"], upgrade["part_qty_used"], upgrade["part_batch_id"]),
+            )
+
+        target = conn.execute(
+            "SELECT * FROM batches WHERE id=?", (upgrade["target_batch_id"],)
+        ).fetchone()
+        if target:
+            added_cost = int(upgrade["added_cost_unit"] or 0)
+            deducted_suggested = round(
+                added_cost * (1 + float(target["profit_pct"] or 0) / 100.0)
+            )
+            conn.execute(
+                """UPDATE batches SET
+                   upgrade_cost_unit=MAX(0,upgrade_cost_unit-?),
+                   unit_cost_price=MAX(0,unit_cost_price-?),
+                   suggested_sell_price=MAX(0,suggested_sell_price-?),
+                   final_specs=?
+                   WHERE id=?""",
+                (
+                    added_cost,
+                    added_cost,
+                    deducted_suggested,
+                    upgrade["old_specs"],
+                    upgrade["target_batch_id"],
+                ),
+            )
+
     def upgrade_batch_product(
         self,
         target_batch_id,
@@ -909,12 +944,37 @@ class DatabaseManager:
         serial_number="",
         notes="",
         add_part_cost_to_product=False,
+        upgrade_id=None,
     ):
         target_qty = int(target_qty)
-        part_qty_total = target_qty * int(part_qty_per_unit)
+        part_qty_per_unit = int(part_qty_per_unit)
+        part_qty_total = target_qty * part_qty_per_unit
         labor_cost_unit = int(labor_cost_unit)
+        if target_qty <= 0 or part_qty_per_unit <= 0:
+            raise ValueError("تعداد کالای هدف و تعداد قطعه مصرفی باید بیشتر از صفر باشند.")
+        if labor_cost_unit < 0:
+            raise ValueError("اجرت ارتقا نمی‌تواند منفی باشد.")
+        if int(target_batch_id) == int(part_batch_id):
+            raise ValueError("محموله کالای هدف و محموله قطعه مصرفی باید متفاوت باشند.")
 
         with self.get_connection() as conn:
+            previous_upgrade = None
+            if upgrade_id is not None:
+                previous_upgrade = conn.execute(
+                    "SELECT * FROM upgrades WHERE id=?", (upgrade_id,)
+                ).fetchone()
+                if not previous_upgrade:
+                    raise ValueError("رکورد ارتقای انتخاب‌شده یافت نشد.")
+                latest = conn.execute(
+                    "SELECT id FROM upgrades WHERE target_batch_id=? ORDER BY id DESC LIMIT 1",
+                    (previous_upgrade["target_batch_id"],),
+                ).fetchone()
+                if not latest or int(latest["id"]) != int(upgrade_id):
+                    raise ValueError(
+                        "برای حفظ زنجیره محاسبه بهای تمام‌شده، فقط آخرین ارتقای هر محموله قابل ویرایش است."
+                    )
+                self._reverse_upgrade_effects(conn, previous_upgrade)
+
             target_b = conn.execute(
                 "SELECT * FROM batches WHERE id=?", (target_batch_id,)
             ).fetchone()
@@ -923,131 +983,97 @@ class DatabaseManager:
             ).fetchone()
             if not target_b or not part_b:
                 raise ValueError("محموله هدف یا محموله قطعه یافت نشد.")
-            if part_b["remaining_qty"] < part_qty_total:
+            if int(part_b["remaining_qty"]) < part_qty_total:
                 raise ValueError(
-                    f"موجودی قطعه ارتقا کافی نیست! موجودی فعلی: {part_b['remaining_qty']}"
+                    f"موجودی قطعه ارتقا کافی نیست. موجودی فعلی: {part_b['remaining_qty']} عدد."
                 )
 
-            # کسر قطعه مصرفی از موجودی انبار
             conn.execute(
-                """
-                UPDATE batches SET sold_qty = sold_qty + ?, remaining_qty = remaining_qty - ?
-                WHERE id = ?
-            """,
+                """UPDATE batches SET sold_qty=sold_qty+?, remaining_qty=remaining_qty-?
+                   WHERE id=?""",
                 (part_qty_total, part_qty_total, part_batch_id),
             )
 
-            # مورد ۱: هزینه قطعه فقط در صورت فعال بودن چک‌باکس اضافه می‌شود،
-            # اما اجرت در صورت پر شدن (بزرگتر از صفر بودن) به طور خودکار اضافه می‌گردد.
             part_cost_share = (
-                (part_b["unit_cost_price"] * int(part_qty_per_unit))
-                if add_part_cost_to_product
-                else 0
+                int(part_b["unit_cost_price"]) * part_qty_per_unit
+                if add_part_cost_to_product else 0
             )
-            added_cost_per_unit = part_cost_share + (labor_cost_unit if labor_cost_unit > 0 else 0)
-
-            new_upgrade_cost = target_b["upgrade_cost_unit"] + added_cost_per_unit
-            new_unit_cost = target_b["unit_cost_price"] + added_cost_per_unit
-            new_suggested = target_b["suggested_sell_price"] + round(
-                added_cost_per_unit * (1 + (target_b["profit_pct"] / 100.0))
+            added_cost_per_unit = part_cost_share + labor_cost_unit
+            new_upgrade_cost = int(target_b["upgrade_cost_unit"]) + added_cost_per_unit
+            new_unit_cost = int(target_b["unit_cost_price"]) + added_cost_per_unit
+            suggested_increase = round(
+                added_cost_per_unit * (1 + float(target_b["profit_pct"] or 0) / 100.0)
             )
-
-            conn.execute(
-                """
-                UPDATE batches SET upgrade_cost_unit = ?, unit_cost_price = ?,
-                suggested_sell_price = ?, final_specs = ?
-                WHERE id = ?
-            """,
-                (
-                    new_upgrade_cost,
-                    new_unit_cost,
-                    new_suggested,
-                    new_specs,
-                    target_batch_id,
-                ),
-            )
+            new_suggested = int(target_b["suggested_sell_price"]) + suggested_increase
 
             conn.execute(
-                """
-                INSERT INTO upgrades (
-                    target_batch_id, target_qty, part_batch_id, part_qty_used,
-                    part_unit_cost, labor_cost_unit, added_cost_unit, old_specs, new_specs,
-                    upgrade_date, technician_id, serial_number, notes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    target_batch_id,
-                    target_qty,
-                    part_batch_id,
-                    part_qty_total,
-                    part_b["unit_cost_price"],
-                    labor_cost_unit,
-                    added_cost_per_unit,
-                    target_b["final_specs"],
-                    new_specs,
-                    upgrade_date,
-                    technician_id,
-                    serial_number,
-                    notes,
-                ),
+                """UPDATE batches SET upgrade_cost_unit=?, unit_cost_price=?,
+                   suggested_sell_price=?, final_specs=? WHERE id=?""",
+                (new_upgrade_cost, new_unit_cost, new_suggested, new_specs, target_batch_id),
             )
+
+            values = (
+                target_batch_id,
+                target_qty,
+                part_batch_id,
+                part_qty_total,
+                int(part_b["unit_cost_price"]),
+                labor_cost_unit,
+                added_cost_per_unit,
+                target_b["final_specs"],
+                new_specs,
+                upgrade_date,
+                technician_id,
+                serial_number,
+                notes,
+            )
+            if upgrade_id is None:
+                conn.execute(
+                    """INSERT INTO upgrades (
+                       target_batch_id, target_qty, part_batch_id, part_qty_used,
+                       part_unit_cost, labor_cost_unit, added_cost_unit, old_specs, new_specs,
+                       upgrade_date, technician_id, serial_number, notes
+                       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    values,
+                )
+            else:
+                conn.execute(
+                    """UPDATE upgrades SET target_batch_id=?, target_qty=?, part_batch_id=?,
+                       part_qty_used=?, part_unit_cost=?, labor_cost_unit=?, added_cost_unit=?,
+                       old_specs=?, new_specs=?, upgrade_date=?, technician_id=?, serial_number=?, notes=?
+                       WHERE id=?""",
+                    values + (upgrade_id,),
+                )
+
             self.log_audit(
                 conn,
-                "ارتقای کالا",
+                "ویرایش ارتقای کالا" if upgrade_id is not None else "ثبت ارتقای کالا",
                 f"محموله هدف: {target_b['batch_code']} با قطعه {part_b['batch_code']}",
             )
             conn.commit()
 
     def revert_upgrade(self, upgrade_id: int):
-        """مورد ۱: برگشت ارتقای کالا (بازگرداندن قطعه به انبار، اصلاح مشخصات و کسر هزینه اضافه شده)"""
+        """Delete an upgrade and reverse its stock and cost effects atomically."""
         with self.get_connection() as conn:
-            upg = conn.execute(
+            upgrade = conn.execute(
                 "SELECT * FROM upgrades WHERE id=?", (upgrade_id,)
             ).fetchone()
-            if not upg:
+            if not upgrade:
                 raise ValueError("رکورد ارتقا یافت نشد.")
-
-            target_b = conn.execute(
-                "SELECT * FROM batches WHERE id=?", (upg["target_batch_id"],)
+            latest = conn.execute(
+                "SELECT id FROM upgrades WHERE target_batch_id=? ORDER BY id DESC LIMIT 1",
+                (upgrade["target_batch_id"],),
             ).fetchone()
-
-            # ۱. بازگرداندن قطعه مصرفی به موجودی محموله قطعه
-            conn.execute(
-                """
-                UPDATE batches SET sold_qty = MAX(0, sold_qty - ?), remaining_qty = remaining_qty + ?
-                WHERE id = ?
-            """,
-                (upg["part_qty_used"], upg["part_qty_used"], upg["part_batch_id"]),
-            )
-
-            # ۲. بازگرداندن بهای تمام‌شده، قیمت پیشنهادی و مشخصات قبلی کالای هدف
-            if target_b:
-                added_c = int(upg["added_cost_unit"] or 0)
-                new_upg_c = max(0, target_b["upgrade_cost_unit"] - added_c)
-                new_unit_c = max(0, target_b["unit_cost_price"] - added_c)
-                deducted_sug = round(added_c * (1 + (target_b["profit_pct"] / 100.0)))
-                new_sug = max(0, target_b["suggested_sell_price"] - deducted_sug)
-
-                conn.execute(
-                    """
-                    UPDATE batches SET upgrade_cost_unit = ?, unit_cost_price = ?,
-                    suggested_sell_price = ?, final_specs = ?
-                    WHERE id = ?
-                """,
-                    (
-                        new_upg_c,
-                        new_unit_c,
-                        new_sug,
-                        upg["old_specs"],
-                        upg["target_batch_id"],
-                    ),
+            if not latest or int(latest["id"]) != int(upgrade_id):
+                raise ValueError(
+                    "برای جلوگیری از برهم خوردن سوابق ارتقا، ابتدا ارتقاهای جدیدتر همین محموله را حذف کنید."
                 )
-
+            self._reverse_upgrade_effects(conn, upgrade)
             conn.execute("DELETE FROM upgrades WHERE id=?", (upgrade_id,))
-            self.log_audit(conn, "برگشت ارتقای کالا", f"شناسه ارتقا: {upgrade_id}")
+            self.log_audit(conn, "حذف کامل ارتقای کالا", f"شناسه ارتقا: {upgrade_id}")
             conn.commit()
 
-    # --- ثبت، ویرایش و حذف فروش ---
+
     def add_sale(
         self,
         invoice_number,
