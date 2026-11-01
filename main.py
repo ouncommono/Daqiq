@@ -4200,12 +4200,12 @@ class MainWindow(QMainWindow):
                 "قرمز", "طلایی", "سبز", "بنفش", "صورتی", "سایر",
             ],
         }
-        self._taxonomy_draft = {
-            key: copy.deepcopy(stored.get(key) or defaults[key])
-            for key in defaults
-        }
-        if stored.get("categories"):
-            self._taxonomy_draft["categories"] = list(stored["categories"])
+        has_saved_catalog = bool(self.db.get_setting("product_catalog_config", ""))
+        self._taxonomy_draft = (
+            copy.deepcopy(stored)
+            if has_saved_catalog
+            else copy.deepcopy(defaults)
+        )
         self._pending_category_renames = []
         self._pending_subcategory_renames = []
         self._pending_attribute_renames = []
@@ -4567,10 +4567,10 @@ class MainWindow(QMainWindow):
         self.catalog_config = self.db.get_product_catalog_config()
         categories = self.catalog_config.get("categories") or list(MAIN_CATEGORIES)
         categories = list(dict.fromkeys(categories))
-        colors = self.catalog_config.get("colors") or [
+        colors = self.catalog_config.get("colors", [
             "مشکی", "سفید", "نقره‌ای", "خاکستری", "آبی",
             "قرمز", "طلایی", "سبز", "سایر",
-        ]
+        ])
         current_category = self.cb_prod_cat.currentText() if hasattr(self, "cb_prod_cat") else ""
         if hasattr(self, "cb_prod_cat"):
             self.cb_prod_cat.blockSignals(True)
