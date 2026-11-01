@@ -2582,9 +2582,21 @@ class MainWindow(QMainWindow):
             batch_id = int(batch["id"])
             product_title = self._format_product_picker_label(dict(batch))
             label = f"{batch['batch_code']} | {product_title} | موجودی: {batch['remaining_qty']}"
+            tooltip = (
+                f"{label}\nمشخصات اولیه: {batch['initial_specs'] or '-'}\n"
+                f"مشخصات نهایی: {batch['final_specs'] or '-'}\n"
+                f"شماره سریال: {batch['serial_numbers'] or '-'}"
+            )
+            searchable = (
+                f"{label} {batch['initial_specs'] or ''} {batch['final_specs'] or ''} "
+                f"{batch['serial_numbers'] or ''}"
+            ).strip()
             for combo in (self.cb_upg_target, self.cb_upg_part):
                 if combo.findData(batch_id) < 0:
+                    item_index = combo.count()
                     combo.addItem(label, batch_id)
+                    combo.setItemSearchText(item_index, searchable)
+                    combo.setItemData(item_index, tooltip, Qt.ToolTipRole)
 
         target_index = self.cb_upg_target.findData(int(upgrade["target_batch_id"]))
         part_index = self.cb_upg_part.findData(int(upgrade["part_batch_id"]))
@@ -4843,10 +4855,18 @@ class MainWindow(QMainWindow):
 
         self.cb_srv_select.blockSignals(True)
         self.cb_srv_select.clear()
-        for s in srvs:
-            self.cb_srv_select.addItem(
-                f"{s['name']} ({s['service_type']}) - {s['default_fee']:,} تومان",
-                dict(s),
+        for service_row in srvs:
+            service = dict(service_row)
+            label = (
+                f"{service['name']} | {service['service_type']} | "
+                f"{service['default_fee']:,} تومان"
+            )
+            index = self.cb_srv_select.count()
+            self.cb_srv_select.addItem(label, service)
+            self.cb_srv_select.setItemData(
+                index,
+                f"{label}\nشرح: {service.get('description') or '-'}",
+                Qt.ToolTipRole,
             )
         self.cb_srv_select.blockSignals(False)
         if srvs:
@@ -4854,11 +4874,27 @@ class MainWindow(QMainWindow):
 
         self.cb_upg_target.clear()
         self.cb_upg_part.clear()
-        for b in batches:
-            title = f"{b['sub_category']} {b['brand']} {b['model']}".strip()
-            lbl = f"{b['batch_code']} | {b['category']} - {title} (موجودی: {b['remaining_qty']})"
-            self.cb_upg_target.addItem(lbl, b["id"])
-            self.cb_upg_part.addItem(lbl, b["id"])
+        for batch_row in batches:
+            batch = dict(batch_row)
+            product_title = self._format_product_picker_label(batch)
+            label = (
+                f"{batch['batch_code']} | {product_title} | "
+                f"موجودی: {batch['remaining_qty']}"
+            )
+            searchable = (
+                f"{label} {batch.get('initial_specs') or ''} "
+                f"{batch.get('final_specs') or ''} {batch.get('serial_numbers') or ''}"
+            ).strip()
+            tooltip = (
+                f"{label}\nمشخصات اولیه: {batch.get('initial_specs') or '-'}\n"
+                f"مشخصات نهایی: {batch.get('final_specs') or '-'}\n"
+                f"شماره سریال: {batch.get('serial_numbers') or '-'}"
+            )
+            for combo in (self.cb_upg_target, self.cb_upg_part):
+                item_index = combo.count()
+                combo.addItem(label, batch["id"])
+                combo.setItemSearchText(item_index, searchable)
+                combo.setItemData(item_index, tooltip, Qt.ToolTipRole)
         self._on_upg_target_changed()
 
         if not self.selected_product_id:
