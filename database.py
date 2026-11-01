@@ -1,7 +1,7 @@
 # database.py
 import os
+import sys
 import json
-import shutil
 import sqlite3
 import jdatetime
 import hashlib
@@ -14,7 +14,23 @@ def get_app_data_dir():
     return path
 
 
-CONFIG_FILE = os.path.join(get_app_data_dir(), "app_config.json")
+def get_config_file_path():
+    """Keep portable settings beside the executable whenever that location is writable."""
+    app_dir = os.path.dirname(os.path.abspath(
+        sys.executable if getattr(sys, "frozen", False) else __file__
+    ))
+    local_path = os.path.join(app_dir, "app_config.json")
+    try:
+        probe = local_path + ".write-test"
+        with open(probe, "w", encoding="utf-8") as handle:
+            handle.write("")
+        os.remove(probe)
+        return local_path
+    except OSError:
+        return os.path.join(get_app_data_dir(), "app_config.json")
+
+
+CONFIG_FILE = get_config_file_path()
 
 
 def load_app_config():
@@ -26,6 +42,8 @@ def load_app_config():
         "auto_backup_enabled": True,
         "auto_backup_interval_min": 60,
         "last_backup_time": "ثبت نشده",
+        "shop_name": "فروشگاه من",
+        "theme": "light",
     }
     if os.path.exists(CONFIG_FILE):
         try:
@@ -46,8 +64,13 @@ def hash_password(raw_password: str) -> str:
     return hashlib.sha256(raw_password.encode("utf-8")).hexdigest()
 
 def save_app_config(cfg):
-    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+    """Write config atomically; preserve the last valid settings file."""
+    temp_path = CONFIG_FILE + ".tmp"
+    with open(temp_path, "w", encoding="utf-8") as f:
         json.dump(cfg, f, ensure_ascii=False, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(temp_path, CONFIG_FILE)
 
 
 class DatabaseManager:
@@ -153,6 +176,7 @@ class DatabaseManager:
                     initial_specs TEXT DEFAULT '',
                     final_specs TEXT DEFAULT '',
                     notes TEXT DEFAULT '',
+                    supplier_name_snapshot TEXT DEFAULT '',
                     FOREIGN KEY(product_id) REFERENCES products(id),
                     FOREIGN KEY(supplier_id) REFERENCES suppliers(id),
                     FOREIGN KEY(buyer_employee_id) REFERENCES employees(id)
@@ -206,6 +230,7 @@ class DatabaseManager:
                     warranty_company TEXT DEFAULT '',
                     warranty_start TEXT DEFAULT '',
                     warranty_months INTEGER DEFAULT 0,
+                    warranty_days INTEGER DEFAULT 0,
                     warranty_end TEXT DEFAULT '',
                     serial_number TEXT DEFAULT '',
                     notes TEXT DEFAULT '',
@@ -300,17 +325,6 @@ class DatabaseManager:
                     (k, v),
                 )
 
-            cur.execute("SELECT COUNT(*) FROM employees")
-            if cur.fetchone()[0] == 0:
-                cur.execute(
-                    "INSERT INTO employees (name, role, phone, permissions) VALUES (?, ?, ?, ?)",
-                    ("فروشنده اول", "مدیر / فروشنده", "", "دسترسی کامل"),
-                )
-                cur.execute(
-                    "INSERT INTO employees (name, role, phone, permissions) VALUES (?, ?, ?, ?)",
-                    ("فروشنده دوم", "فروشنده", "", "دسترسی کامل"),
-                )
-
             cur.execute("SELECT COUNT(*) FROM suppliers")
             if cur.fetchone()[0] == 0:
                 cur.execute(
@@ -318,10 +332,54 @@ class DatabaseManager:
                     ("تأمین‌کننده عمومی بازار", "021-88990011", "تهران", "پیش‌فرض"),
                 )
                 
-            try:
-                cur.execute("ALTER TABLE upgrades ADD COLUMN added_cost_unit INTEGER DEFAULT 0")
-            except Exception:
-                pass
+            # Remove only the two legacy sample employees created by older releases.
+            # Keep their historic transactions and detach the employee references.
+            legacy_employees = conn.execute(
+                """SELECT id FROM employees WHERE
+                   (name=? AND role=?) OR (name=? AND role=?)""",
+                ("فروشنده اول", "مدیر / فروشنده", "فروشنده دوم", "فروشنده"),
+            ).fetchall()
+            legacy_ids = [int(row["id"]) for row in legacy_employees]
+            if legacy_ids:
+                marks = ",".join("?" for _ in legacy_ids)
+                conn.execute(
+                    f"UPDATE batches SET buyer_employee_id=NULL WHERE buyer_employee_id IN ({marks})",
+                    legacy_ids,
+                )
+                conn.execute(
+                    f"UPDATE sales SET seller_employee_id=NULL WHERE seller_employee_id IN ({marks})",
+                    legacy_ids,
+                )
+                conn.execute(
+                    f"""UPDATE service_records
+                        SET seller_employee_id=NULL, technician_employee_id=NULL
+                        WHERE seller_employee_id IN ({marks}) OR technician_employee_id IN ({marks})""",
+                    legacy_ids + legacy_ids,
+                )
+                conn.execute(
+                    f"UPDATE upgrades SET technician_id=NULL WHERE technician_id IN ({marks})",
+                    legacy_ids,
+                )
+                conn.execute(
+                    f"DELETE FROM employees WHERE id IN ({marks})",
+                    legacy_ids,
+                )
+
+            # Migrate existing databases without dropping any business records.
+            migrations = (
+                ("upgrades", "added_cost_unit", "INTEGER DEFAULT 0"),
+                ("batches", "supplier_name_snapshot", "TEXT DEFAULT ''"),
+                ("sales", "warranty_days", "INTEGER DEFAULT 0"),
+            )
+            for table_name, column_name, column_type in migrations:
+                columns = {
+                    row["name"]
+                    for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+                }
+                if column_name not in columns:
+                    cur.execute(
+                        f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}"
+                    )
 
             conn.commit()
 
@@ -385,7 +443,7 @@ class DatabaseManager:
         default_profit_pct,
     ):
         if not code:
-            code = self.generate_next_code("products", "code", "P", 1001)
+            code = self.generate_next_code("products", "code", "P-", 1001)
         auto_name = (
             name.strip()
             if name and name.strip()
@@ -457,20 +515,105 @@ class DatabaseManager:
             self.log_audit(conn, "ویرایش کالا", f"کد کالا: {code} - {auto_name}")
             conn.commit()
 
-    def delete_product(self, prod_id):
-        with self.get_connection() as conn:
-            used = conn.execute(
-                "SELECT COUNT(*) FROM batches WHERE product_id=?", (prod_id,)
-            ).fetchone()[0]
-            if used > 0:
-                raise ValueError(
-                    "این کالا دارای سابقه خرید در بخش محموله‌ها است و قابل حذف نیست."
+    def _delete_linked_upgrades(self, conn, batch_ids=None, technician_id=None):
+        batch_ids = list(batch_ids or [])
+        clauses = []
+        params = []
+        if batch_ids:
+            marks = ",".join("?" for _ in batch_ids)
+            clauses.extend([f"target_batch_id IN ({marks})", f"part_batch_id IN ({marks})"])
+            params.extend(batch_ids + batch_ids)
+        if technician_id is not None:
+            clauses.append("technician_id=?")
+            params.append(technician_id)
+        if not clauses:
+            return
+        rows = conn.execute(
+            "SELECT * FROM upgrades WHERE " + " OR ".join(clauses) + " ORDER BY id DESC",
+            params,
+        ).fetchall()
+        removed_ids = set(batch_ids)
+        for upgrade in rows:
+            if upgrade["part_batch_id"] not in removed_ids:
+                conn.execute(
+                    """UPDATE batches SET sold_qty=MAX(0,sold_qty-?),
+                       remaining_qty=remaining_qty+? WHERE id=?""",
+                    (upgrade["part_qty_used"], upgrade["part_qty_used"], upgrade["part_batch_id"]),
                 )
+            if upgrade["target_batch_id"] not in removed_ids:
+                target = conn.execute(
+                    "SELECT * FROM batches WHERE id=?", (upgrade["target_batch_id"],)
+                ).fetchone()
+                if target:
+                    added = int(upgrade["added_cost_unit"] or 0)
+                    deducted = round(added * (1 + float(target["profit_pct"] or 0) / 100.0))
+                    conn.execute(
+                        """UPDATE batches SET upgrade_cost_unit=MAX(0,upgrade_cost_unit-?),
+                           unit_cost_price=MAX(0,unit_cost_price-?),
+                           suggested_sell_price=MAX(0,suggested_sell_price-?), final_specs=?
+                           WHERE id=?""",
+                        (added, added, deducted, upgrade["old_specs"], upgrade["target_batch_id"]),
+                    )
+            conn.execute("DELETE FROM upgrades WHERE id=?", (upgrade["id"],))
+
+    def _delete_linked_sales(self, conn, batch_ids=None, seller_id=None, product_id=None):
+        batch_ids = list(batch_ids or [])
+        clauses = []
+        params = []
+        if batch_ids:
+            clauses.append("batch_id IN (" + ",".join("?" for _ in batch_ids) + ")")
+            params.extend(batch_ids)
+        if seller_id is not None:
+            clauses.append("seller_employee_id=?")
+            params.append(seller_id)
+        if product_id is not None:
+            clauses.append("product_id=?")
+            params.append(product_id)
+        if not clauses:
+            return
+        rows = conn.execute(
+            "SELECT id,batch_id,qty FROM sales WHERE " + " OR ".join(clauses) + " ORDER BY id DESC",
+            params,
+        ).fetchall()
+        removed_batches = set(batch_ids)
+        for sale in rows:
+            if sale["batch_id"] not in removed_batches:
+                conn.execute(
+                    """UPDATE batches SET sold_qty=MAX(0,sold_qty-?),
+                       remaining_qty=remaining_qty+? WHERE id=?""",
+                    (sale["qty"], sale["qty"], sale["batch_id"]),
+                )
+            conn.execute("DELETE FROM payments WHERE ref_type='sale' AND ref_id=?", (sale["id"],))
+            conn.execute("DELETE FROM sales WHERE id=?", (sale["id"],))
+
+    def _hard_delete_batches(self, conn, batch_ids):
+        batch_ids = list(dict.fromkeys(int(value) for value in batch_ids))
+        if not batch_ids:
+            return
+        self._delete_linked_upgrades(conn, batch_ids=batch_ids)
+        self._delete_linked_sales(conn, batch_ids=batch_ids)
+        marks = ",".join("?" for _ in batch_ids)
+        conn.execute(
+            f"DELETE FROM payments WHERE ref_type='batch' AND ref_id IN ({marks})",
+            batch_ids,
+        )
+        conn.execute(f"DELETE FROM batches WHERE id IN ({marks})", batch_ids)
+
+    def delete_product(self, prod_id):
+        """Hard-delete product history and dependent batches transactionally."""
+        with self.get_connection() as conn:
+            batch_rows = conn.execute(
+                "SELECT id FROM batches WHERE product_id=?", (prod_id,)
+            ).fetchall()
+            batch_ids = [int(row["id"]) for row in batch_rows]
+            self._hard_delete_batches(conn, batch_ids)
+            # Also remove any orphaned sale records created by older versions.
+            self._delete_linked_sales(conn, product_id=prod_id)
             conn.execute("DELETE FROM products WHERE id=?", (prod_id,))
-            self.log_audit(conn, "حذف کالا", f"شناسه کالا: {prod_id}")
+            self.log_audit(conn, "حذف کامل کالا", f"شناسه کالا: {prod_id}")
             conn.commit()
 
-    # --- مدیریت تأمین‌کنندگان (بند ۶) ---
+
     def add_supplier(self, name, phone, address, notes=""):
         with self.get_connection() as conn:
             conn.execute(
@@ -487,70 +630,78 @@ class DatabaseManager:
             )
             conn.commit()
 
-    def delete_supplier(self, sup_id):
+    def delete_supplier(self, sup_id, delete_related_data=False):
+        """Remove a supplier while optionally retaining its purchase records and historical name."""
         with self.get_connection() as conn:
-            used = conn.execute(
-                "SELECT COUNT(*) FROM batches WHERE supplier_id=?", (sup_id,)
-            ).fetchone()[0]
-            if used > 0:
-                raise ValueError(
-                    "برای این تأمین‌کننده محموله خرید ثبت شده است و قابل حذف نیست."
+            supplier = conn.execute(
+                "SELECT name FROM suppliers WHERE id=?", (sup_id,)
+            ).fetchone()
+            if not supplier:
+                return
+            batch_rows = conn.execute(
+                "SELECT id FROM batches WHERE supplier_id=?", (sup_id,)
+            ).fetchall()
+            batch_ids = [int(row["id"]) for row in batch_rows]
+            if delete_related_data:
+                self._hard_delete_batches(conn, batch_ids)
+            else:
+                conn.execute(
+                    """UPDATE batches
+                       SET supplier_name_snapshot=?, supplier_id=NULL
+                       WHERE supplier_id=?""",
+                    (supplier["name"], sup_id),
                 )
             conn.execute("DELETE FROM suppliers WHERE id=?", (sup_id,))
+            self.log_audit(
+                conn, "حذف تأمین‌کننده",
+                f"شناسه: {sup_id} | حذف داده‌های وابسته: {'بله' if delete_related_data else 'خیر'}"
+            )
             conn.commit()
-            
+
+
     def delete_employee_custom(self, emp_id: int, delete_related_data: bool = False):
-        """
-        مورد ۳:
-        - اگر delete_related_data=True: کارمند و تمام فروش‌ها، خدمات، ارتقاها و محموله‌هایش حذف می‌شوند.
-        - اگر delete_related_data=False: فقط کارمند حذف شده و داده‌های مالی گذشته بدون تغییر باقی می‌مانند.
-        """
+        """Delete an employee; optionally remove all linked operations and reverse inventory effects."""
         with self.get_connection() as conn:
-            conn.execute("PRAGMA foreign_keys = OFF;")
-            try:
-                if delete_related_data:
-                    # بازگرداندن موجودی فروش‌های این کارمند به انبار قبل از حذف
-                    emp_sales = conn.execute(
-                        "SELECT id, batch_id, qty FROM sales WHERE seller_employee_id=?",
-                        (emp_id,),
-                    ).fetchall()
-                    for s in emp_sales:
-                        conn.execute(
-                            "UPDATE batches SET sold_qty = MAX(0, sold_qty - ?), remaining_qty = remaining_qty + ? WHERE id=?",
-                            (s["qty"], s["qty"], s["batch_id"]),
-                        )
-                        conn.execute(
-                            "DELETE FROM payments WHERE ref_type='sale' AND ref_id=?",
-                            (s["id"],),
-                        )
-                    conn.execute("DELETE FROM sales WHERE seller_employee_id=?", (emp_id,))
-                    conn.execute("DELETE FROM service_records WHERE seller_employee_id=?", (emp_id,))
-                    conn.execute("DELETE FROM upgrades WHERE technician_id=?", (emp_id,))
-
-                    emp_batches = conn.execute(
-                        "SELECT id FROM batches WHERE buyer_employee_id=?", (emp_id,)
-                    ).fetchall()
-                    for b in emp_batches:
-                        conn.execute("DELETE FROM sales WHERE batch_id=?", (b["id"],))
-                        conn.execute("DELETE FROM upgrades WHERE target_batch_id=? OR part_batch_id=?", (b["id"], b["id"]))
-                        conn.execute("DELETE FROM payments WHERE ref_type='batch' AND ref_id=?", (b["id"],))
-                    conn.execute("DELETE FROM batches WHERE buyer_employee_id=?", (emp_id,))
-                else:
-                    # حفظ کامل داده‌ها و قطع ارتباط کلید خارجی کارمند
-                    conn.execute("UPDATE batches SET buyer_employee_id=NULL WHERE buyer_employee_id=?", (emp_id,))
-                    conn.execute("UPDATE sales SET seller_employee_id=NULL WHERE seller_employee_id=?", (emp_id,))
-                    conn.execute("UPDATE service_records SET seller_employee_id=NULL, technician_employee_id=NULL WHERE seller_employee_id=? OR technician_employee_id=?", (emp_id, emp_id))
-                    conn.execute("UPDATE upgrades SET technician_id=NULL WHERE technician_id=?", (emp_id,))
-
-                conn.execute("DELETE FROM employees WHERE id=?", (emp_id,))
-                self.log_audit(
-                    conn,
-                    "حذف کارمند",
-                    f"شناسه: {emp_id} | حذف داده‌های وابسته: {'بله' if delete_related_data else 'خیر'}",
+            if delete_related_data:
+                owned_batches = conn.execute(
+                    "SELECT id FROM batches WHERE buyer_employee_id=?", (emp_id,)
+                ).fetchall()
+                batch_ids = [int(row["id"]) for row in owned_batches]
+                self._hard_delete_batches(conn, batch_ids)
+                # Remove this employee's sales made from batches owned by someone else.
+                self._delete_linked_sales(conn, seller_id=emp_id)
+                # Also remove upgrades performed on batches that remain in inventory.
+                self._delete_linked_upgrades(conn, technician_id=emp_id)
+                conn.execute(
+                    "DELETE FROM service_records WHERE seller_employee_id=? OR technician_employee_id=?",
+                    (emp_id, emp_id),
                 )
-                conn.commit()
-            finally:
-                conn.execute("PRAGMA foreign_keys = ON;")
+            else:
+                conn.execute(
+                    "UPDATE batches SET buyer_employee_id=NULL WHERE buyer_employee_id=?",
+                    (emp_id,),
+                )
+                conn.execute(
+                    "UPDATE sales SET seller_employee_id=NULL WHERE seller_employee_id=?",
+                    (emp_id,),
+                )
+                conn.execute(
+                    """UPDATE service_records
+                       SET seller_employee_id=NULL, technician_employee_id=NULL
+                       WHERE seller_employee_id=? OR technician_employee_id=?""",
+                    (emp_id, emp_id),
+                )
+                conn.execute(
+                    "UPDATE upgrades SET technician_id=NULL WHERE technician_id=?",
+                    (emp_id,),
+                )
+            conn.execute("DELETE FROM employees WHERE id=?", (emp_id,))
+            self.log_audit(
+                conn, "حذف کارمند",
+                f"شناسه: {emp_id} | حذف داده‌های وابسته: {'بله' if delete_related_data else 'خیر'}"
+            )
+            conn.commit()
+
 
     def get_or_create_supplier(self, supplier_name: str):
         """اگر نام تأمین‌کننده جدیدی تایپ شده بود، آن را خودکار در جدول تأمین‌کنندگان ثبت کن"""
@@ -590,7 +741,7 @@ class DatabaseManager:
         settlement_status=None,
     ):
         if not batch_code:
-            batch_code = self.generate_next_code("batches", "batch_code", "B", 1001)
+            batch_code = self.generate_next_code("batches", "batch_code", "C-", 1001)
         initial_qty = int(initial_qty)
         if initial_qty <= 0:
             raise ValueError("تعداد خرید باید بیشتر از صفر باشد.")
@@ -622,6 +773,10 @@ class DatabaseManager:
                 status = "تسویه جزئی"
 
         with self.get_connection() as conn:
+            supplier_row = conn.execute(
+                "SELECT name FROM suppliers WHERE id=?", (supplier_id,)
+            ).fetchone() if supplier_id else None
+            supplier_snapshot = supplier_row["name"] if supplier_row else ""
             cur = conn.cursor()
             cur.execute(
                 """
@@ -630,8 +785,8 @@ class DatabaseManager:
                     purchase_date, initial_qty, sold_qty, returned_qty, remaining_qty,
                     unit_purchase_price, extra_cost_total, upgrade_cost_unit, unit_cost_price,
                     suggested_sell_price, profit_pct, settlement_status, paid_amount,
-                    serial_numbers, initial_specs, final_specs, notes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    serial_numbers, initial_specs, final_specs, notes, supplier_name_snapshot
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     batch_code,
@@ -653,6 +808,7 @@ class DatabaseManager:
                     initial_specs,
                     initial_specs,
                     notes,
+                    supplier_snapshot,
                 ),
             )
             batch_id = cur.lastrowid
@@ -683,18 +839,30 @@ class DatabaseManager:
         serial_numbers,
         notes,
         settlement_status=None,
+        product_id=None,
+        initial_specs=None,
+        batch_code=None,
     ):
         with self.get_connection() as conn:
             old = conn.execute("SELECT * FROM batches WHERE id=?", (batch_id,)).fetchone()
             if not old:
                 raise ValueError("محموله یافت نشد.")
+            new_product_id = int(product_id) if product_id is not None else int(old["product_id"])
+            if int(old["sold_qty"] or 0) > 0 and new_product_id != int(old["product_id"]):
+                raise ValueError("کالای محموله‌ای که فروش یا مصرف در ارتقا داشته است قابل تعویض نیست.")
             new_initial_qty = int(new_initial_qty)
+            if new_initial_qty <= 0:
+                raise ValueError("تعداد اولیه محموله باید بیشتر از صفر باشد.")
             if new_initial_qty < old["sold_qty"]:
                 raise ValueError(
                     f"تعداد اولیه نمی‌تواند کمتر از تعداد فروخته‌شده ({old['sold_qty']} عدد) باشد."
                 )
 
             new_remaining = new_initial_qty - old["sold_qty"]
+            supplier_row = conn.execute(
+                "SELECT name FROM suppliers WHERE id=?", (supplier_id,)
+            ).fetchone() if supplier_id else None
+            supplier_snapshot = supplier_row["name"] if supplier_row else old["supplier_name_snapshot"]
             unit_purchase_price = int(unit_purchase_price)
             extra_cost_total = int(extra_cost_total)
             extra_per_unit = round(extra_cost_total / new_initial_qty)
@@ -721,13 +889,15 @@ class DatabaseManager:
 
             conn.execute(
                 """
-                UPDATE batches SET supplier_id=?, buyer_employee_id=?, invoice_number=?, purchase_date=?,
+                UPDATE batches SET batch_code=?, product_id=?, supplier_id=?, buyer_employee_id=?, invoice_number=?, purchase_date=?,
                 initial_qty=?, remaining_qty=?, unit_purchase_price=?, extra_cost_total=?,
                 unit_cost_price=?, suggested_sell_price=?, profit_pct=?, settlement_status=?,
-                paid_amount=?, serial_numbers=?, notes=?
+                paid_amount=?, serial_numbers=?, initial_specs=?, notes=?, supplier_name_snapshot=?
                 WHERE id=?
             """,
                 (
+                    (batch_code or old["batch_code"]).strip(),
+                    new_product_id,
                     supplier_id,
                     buyer_employee_id,
                     invoice_number,
@@ -742,7 +912,9 @@ class DatabaseManager:
                     status,
                     paid_amount,
                     serial_numbers,
+                    initial_specs if initial_specs is not None else old["initial_specs"],
                     notes,
+                    supplier_snapshot,
                     batch_id,
                 ),
             )
@@ -750,18 +922,54 @@ class DatabaseManager:
             conn.commit()
 
     def delete_batch(self, batch_id):
+        """Hard-delete a purchase batch, its sales, payments and linked upgrades."""
         with self.get_connection() as conn:
-            old = conn.execute("SELECT * FROM batches WHERE id=?", (batch_id,)).fetchone()
-            if old["sold_qty"] > 0:
-                raise ValueError(
-                    "از این محموله فروش ثبت شده است. ابتدا فروش‌های مرتبط را حذف کنید."
-                )
-            conn.execute("DELETE FROM payments WHERE ref_type='batch' AND ref_id=?", (batch_id,))
-            conn.execute("DELETE FROM batches WHERE id=?", (batch_id,))
-            self.log_audit(conn, "حذف محموله", f"کد محموله: {old['batch_code']}")
+            row = conn.execute(
+                "SELECT batch_code FROM batches WHERE id=?", (batch_id,)
+            ).fetchone()
+            if not row:
+                return
+            self._hard_delete_batches(conn, [batch_id])
+            self.log_audit(conn, "حذف کامل محموله", f"کد محموله: {row['batch_code']}")
             conn.commit()
 
-    # --- ارتقای لپ‌تاپ و کالاها ---
+
+    def _reverse_upgrade_effects(self, conn, upgrade):
+        """Reverse one upgrade's stock and target-cost effects inside the caller's transaction."""
+        part_batch = conn.execute(
+            "SELECT id FROM batches WHERE id=?", (upgrade["part_batch_id"],)
+        ).fetchone()
+        if part_batch:
+            conn.execute(
+                """UPDATE batches SET sold_qty=MAX(0,sold_qty-?),
+                   remaining_qty=remaining_qty+? WHERE id=?""",
+                (upgrade["part_qty_used"], upgrade["part_qty_used"], upgrade["part_batch_id"]),
+            )
+
+        target = conn.execute(
+            "SELECT * FROM batches WHERE id=?", (upgrade["target_batch_id"],)
+        ).fetchone()
+        if target:
+            added_cost = int(upgrade["added_cost_unit"] or 0)
+            deducted_suggested = round(
+                added_cost * (1 + float(target["profit_pct"] or 0) / 100.0)
+            )
+            conn.execute(
+                """UPDATE batches SET
+                   upgrade_cost_unit=MAX(0,upgrade_cost_unit-?),
+                   unit_cost_price=MAX(0,unit_cost_price-?),
+                   suggested_sell_price=MAX(0,suggested_sell_price-?),
+                   final_specs=?
+                   WHERE id=?""",
+                (
+                    added_cost,
+                    added_cost,
+                    deducted_suggested,
+                    upgrade["old_specs"],
+                    upgrade["target_batch_id"],
+                ),
+            )
+
     def upgrade_batch_product(
         self,
         target_batch_id,
@@ -775,12 +983,37 @@ class DatabaseManager:
         serial_number="",
         notes="",
         add_part_cost_to_product=False,
+        upgrade_id=None,
     ):
         target_qty = int(target_qty)
-        part_qty_total = target_qty * int(part_qty_per_unit)
+        part_qty_per_unit = int(part_qty_per_unit)
+        part_qty_total = target_qty * part_qty_per_unit
         labor_cost_unit = int(labor_cost_unit)
+        if target_qty <= 0 or part_qty_per_unit <= 0:
+            raise ValueError("تعداد کالای هدف و تعداد قطعه مصرفی باید بیشتر از صفر باشند.")
+        if labor_cost_unit < 0:
+            raise ValueError("اجرت ارتقا نمی‌تواند منفی باشد.")
+        if int(target_batch_id) == int(part_batch_id):
+            raise ValueError("محموله کالای هدف و محموله قطعه مصرفی باید متفاوت باشند.")
 
         with self.get_connection() as conn:
+            previous_upgrade = None
+            if upgrade_id is not None:
+                previous_upgrade = conn.execute(
+                    "SELECT * FROM upgrades WHERE id=?", (upgrade_id,)
+                ).fetchone()
+                if not previous_upgrade:
+                    raise ValueError("رکورد ارتقای انتخاب‌شده یافت نشد.")
+                latest = conn.execute(
+                    "SELECT id FROM upgrades WHERE target_batch_id=? ORDER BY id DESC LIMIT 1",
+                    (previous_upgrade["target_batch_id"],),
+                ).fetchone()
+                if not latest or int(latest["id"]) != int(upgrade_id):
+                    raise ValueError(
+                        "برای حفظ زنجیره محاسبه بهای تمام‌شده، فقط آخرین ارتقای هر محموله قابل ویرایش است."
+                    )
+                self._reverse_upgrade_effects(conn, previous_upgrade)
+
             target_b = conn.execute(
                 "SELECT * FROM batches WHERE id=?", (target_batch_id,)
             ).fetchone()
@@ -789,131 +1022,97 @@ class DatabaseManager:
             ).fetchone()
             if not target_b or not part_b:
                 raise ValueError("محموله هدف یا محموله قطعه یافت نشد.")
-            if part_b["remaining_qty"] < part_qty_total:
+            if int(part_b["remaining_qty"]) < part_qty_total:
                 raise ValueError(
-                    f"موجودی قطعه ارتقا کافی نیست! موجودی فعلی: {part_b['remaining_qty']}"
+                    f"موجودی قطعه ارتقا کافی نیست. موجودی فعلی: {part_b['remaining_qty']} عدد."
                 )
 
-            # کسر قطعه مصرفی از موجودی انبار
             conn.execute(
-                """
-                UPDATE batches SET sold_qty = sold_qty + ?, remaining_qty = remaining_qty - ?
-                WHERE id = ?
-            """,
+                """UPDATE batches SET sold_qty=sold_qty+?, remaining_qty=remaining_qty-?
+                   WHERE id=?""",
                 (part_qty_total, part_qty_total, part_batch_id),
             )
 
-            # مورد ۱: هزینه قطعه فقط در صورت فعال بودن چک‌باکس اضافه می‌شود،
-            # اما اجرت در صورت پر شدن (بزرگتر از صفر بودن) به طور خودکار اضافه می‌گردد.
             part_cost_share = (
-                (part_b["unit_cost_price"] * int(part_qty_per_unit))
-                if add_part_cost_to_product
-                else 0
+                int(part_b["unit_cost_price"]) * part_qty_per_unit
+                if add_part_cost_to_product else 0
             )
-            added_cost_per_unit = part_cost_share + (labor_cost_unit if labor_cost_unit > 0 else 0)
-
-            new_upgrade_cost = target_b["upgrade_cost_unit"] + added_cost_per_unit
-            new_unit_cost = target_b["unit_cost_price"] + added_cost_per_unit
-            new_suggested = target_b["suggested_sell_price"] + round(
-                added_cost_per_unit * (1 + (target_b["profit_pct"] / 100.0))
+            added_cost_per_unit = part_cost_share + labor_cost_unit
+            new_upgrade_cost = int(target_b["upgrade_cost_unit"]) + added_cost_per_unit
+            new_unit_cost = int(target_b["unit_cost_price"]) + added_cost_per_unit
+            suggested_increase = round(
+                added_cost_per_unit * (1 + float(target_b["profit_pct"] or 0) / 100.0)
             )
-
-            conn.execute(
-                """
-                UPDATE batches SET upgrade_cost_unit = ?, unit_cost_price = ?,
-                suggested_sell_price = ?, final_specs = ?
-                WHERE id = ?
-            """,
-                (
-                    new_upgrade_cost,
-                    new_unit_cost,
-                    new_suggested,
-                    new_specs,
-                    target_batch_id,
-                ),
-            )
+            new_suggested = int(target_b["suggested_sell_price"]) + suggested_increase
 
             conn.execute(
-                """
-                INSERT INTO upgrades (
-                    target_batch_id, target_qty, part_batch_id, part_qty_used,
-                    part_unit_cost, labor_cost_unit, added_cost_unit, old_specs, new_specs,
-                    upgrade_date, technician_id, serial_number, notes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    target_batch_id,
-                    target_qty,
-                    part_batch_id,
-                    part_qty_total,
-                    part_b["unit_cost_price"],
-                    labor_cost_unit,
-                    added_cost_per_unit,
-                    target_b["final_specs"],
-                    new_specs,
-                    upgrade_date,
-                    technician_id,
-                    serial_number,
-                    notes,
-                ),
+                """UPDATE batches SET upgrade_cost_unit=?, unit_cost_price=?,
+                   suggested_sell_price=?, final_specs=? WHERE id=?""",
+                (new_upgrade_cost, new_unit_cost, new_suggested, new_specs, target_batch_id),
             )
+
+            values = (
+                target_batch_id,
+                target_qty,
+                part_batch_id,
+                part_qty_total,
+                int(part_b["unit_cost_price"]),
+                labor_cost_unit,
+                added_cost_per_unit,
+                target_b["final_specs"],
+                new_specs,
+                upgrade_date,
+                technician_id,
+                serial_number,
+                notes,
+            )
+            if upgrade_id is None:
+                conn.execute(
+                    """INSERT INTO upgrades (
+                       target_batch_id, target_qty, part_batch_id, part_qty_used,
+                       part_unit_cost, labor_cost_unit, added_cost_unit, old_specs, new_specs,
+                       upgrade_date, technician_id, serial_number, notes
+                       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    values,
+                )
+            else:
+                conn.execute(
+                    """UPDATE upgrades SET target_batch_id=?, target_qty=?, part_batch_id=?,
+                       part_qty_used=?, part_unit_cost=?, labor_cost_unit=?, added_cost_unit=?,
+                       old_specs=?, new_specs=?, upgrade_date=?, technician_id=?, serial_number=?, notes=?
+                       WHERE id=?""",
+                    values + (upgrade_id,),
+                )
+
             self.log_audit(
                 conn,
-                "ارتقای کالا",
+                "ویرایش ارتقای کالا" if upgrade_id is not None else "ثبت ارتقای کالا",
                 f"محموله هدف: {target_b['batch_code']} با قطعه {part_b['batch_code']}",
             )
             conn.commit()
 
     def revert_upgrade(self, upgrade_id: int):
-        """مورد ۱: برگشت ارتقای کالا (بازگرداندن قطعه به انبار، اصلاح مشخصات و کسر هزینه اضافه شده)"""
+        """Delete an upgrade and reverse its stock and cost effects atomically."""
         with self.get_connection() as conn:
-            upg = conn.execute(
+            upgrade = conn.execute(
                 "SELECT * FROM upgrades WHERE id=?", (upgrade_id,)
             ).fetchone()
-            if not upg:
+            if not upgrade:
                 raise ValueError("رکورد ارتقا یافت نشد.")
-
-            target_b = conn.execute(
-                "SELECT * FROM batches WHERE id=?", (upg["target_batch_id"],)
+            latest = conn.execute(
+                "SELECT id FROM upgrades WHERE target_batch_id=? ORDER BY id DESC LIMIT 1",
+                (upgrade["target_batch_id"],),
             ).fetchone()
-
-            # ۱. بازگرداندن قطعه مصرفی به موجودی محموله قطعه
-            conn.execute(
-                """
-                UPDATE batches SET sold_qty = MAX(0, sold_qty - ?), remaining_qty = remaining_qty + ?
-                WHERE id = ?
-            """,
-                (upg["part_qty_used"], upg["part_qty_used"], upg["part_batch_id"]),
-            )
-
-            # ۲. بازگرداندن بهای تمام‌شده، قیمت پیشنهادی و مشخصات قبلی کالای هدف
-            if target_b:
-                added_c = int(upg["added_cost_unit"] or 0)
-                new_upg_c = max(0, target_b["upgrade_cost_unit"] - added_c)
-                new_unit_c = max(0, target_b["unit_cost_price"] - added_c)
-                deducted_sug = round(added_c * (1 + (target_b["profit_pct"] / 100.0)))
-                new_sug = max(0, target_b["suggested_sell_price"] - deducted_sug)
-
-                conn.execute(
-                    """
-                    UPDATE batches SET upgrade_cost_unit = ?, unit_cost_price = ?,
-                    suggested_sell_price = ?, final_specs = ?
-                    WHERE id = ?
-                """,
-                    (
-                        new_upg_c,
-                        new_unit_c,
-                        new_sug,
-                        upg["old_specs"],
-                        upg["target_batch_id"],
-                    ),
+            if not latest or int(latest["id"]) != int(upgrade_id):
+                raise ValueError(
+                    "برای جلوگیری از برهم خوردن سوابق ارتقا، ابتدا ارتقاهای جدیدتر همین محموله را حذف کنید."
                 )
-
+            self._reverse_upgrade_effects(conn, upgrade)
             conn.execute("DELETE FROM upgrades WHERE id=?", (upgrade_id,))
-            self.log_audit(conn, "برگشت ارتقای کالا", f"شناسه ارتقا: {upgrade_id}")
+            self.log_audit(conn, "حذف کامل ارتقای کالا", f"شناسه ارتقا: {upgrade_id}")
             conn.commit()
 
-    # --- ثبت، ویرایش و حذف فروش ---
+
     def add_sale(
         self,
         invoice_number,
@@ -933,6 +1132,7 @@ class DatabaseManager:
         serial_number="",
         notes="",
         settlement_status=None,
+        warranty_days=None,
     ):
         qty = int(qty)
         if qty <= 0:
@@ -986,8 +1186,8 @@ class DatabaseManager:
                     qty, suggested_unit_price, actual_unit_price, unit_cost_price,
                     unit_discount, total_discount, price_Markup_unit, unit_profit, total_profit,
                     total_amount, paid_amount, settlement_status, sale_datetime,
-                    warranty_company, warranty_start, warranty_months, warranty_end, serial_number, notes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    warranty_company, warranty_start, warranty_months, warranty_days, warranty_end, serial_number, notes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     invoice_number,
@@ -1011,6 +1211,7 @@ class DatabaseManager:
                     warranty_company,
                     warranty_start,
                     int(warranty_months),
+                    int(warranty_days if warranty_days is not None else int(warranty_months or 0) * 30),
                     warranty_end,
                     serial_number,
                     notes,
@@ -1059,6 +1260,7 @@ class DatabaseManager:
         serial_number,
         notes,
         settlement_status=None,
+        warranty_days=None,
     ):
         new_qty = int(new_qty)
         if new_qty <= 0:
@@ -1110,7 +1312,7 @@ class DatabaseManager:
                 suggested_unit_price=?, actual_unit_price=?, unit_discount=?, total_discount=?,
                 price_Markup_unit=?, unit_profit=?, total_profit=?, total_amount=?,
                 paid_amount=?, settlement_status=?, warranty_company=?, warranty_start=?,
-                warranty_months=?, warranty_end=?, serial_number=?, notes=?
+                warranty_months=?, warranty_days=?, warranty_end=?, serial_number=?, notes=?
                 WHERE id=?
             """,
                 (
@@ -1130,6 +1332,7 @@ class DatabaseManager:
                     warranty_company,
                     warranty_start,
                     int(warranty_months),
+                    int(warranty_days if warranty_days is not None else int(warranty_months or 0) * 30),
                     warranty_end,
                     serial_number,
                     notes,
@@ -1189,17 +1392,10 @@ class DatabaseManager:
 
         with self.get_connection() as conn:
             target_id = service_id
-            if not target_id:
-                existing = conn.execute(
-                    "SELECT id FROM service_catalog WHERE name=? AND service_type=?",
-                    (name_clean, type_clean),
-                ).fetchone()
-                if existing:
-                    target_id = existing["id"]
 
             if not target_id:
                 if not code:
-                    code = self.generate_next_code("service_catalog", "code", "SRV-", 101)
+                    code = self.generate_next_code("service_catalog", "code", "S-", 1001)
                 cur = conn.execute(
                     """
                     INSERT INTO service_catalog (code, service_type, name, default_fee, default_side_cost, description)
@@ -1229,10 +1425,11 @@ class DatabaseManager:
                     )
                 conn.execute(
                     """
-                    UPDATE service_catalog SET service_type=?, name=?, default_fee=?, default_side_cost=?, description=?
+                    UPDATE service_catalog SET code=?, service_type=?, name=?, default_fee=?, default_side_cost=?, description=?
                     WHERE id=?
                 """,
                     (
+                        code or conn.execute("SELECT code FROM service_catalog WHERE id=?", (target_id,)).fetchone()["code"],
                         type_clean,
                         name_clean,
                         default_fee,
@@ -1244,16 +1441,17 @@ class DatabaseManager:
             conn.commit()
 
     def delete_service_catalog(self, service_id):
+        """Hard-delete a service tariff together with dependent invoices and price history."""
         with self.get_connection() as conn:
-            used = conn.execute(
-                "SELECT COUNT(*) FROM service_records WHERE service_id=?", (service_id,)
-            ).fetchone()[0]
-            if used > 0:
-                raise ValueError(
-                    "برای این خدمت قبلاً فاکتور ثبت شده است و برای حفظ تاریخچه مالی قابل حذف نیست."
-                )
+            service = conn.execute(
+                "SELECT name FROM service_catalog WHERE id=?", (service_id,)
+            ).fetchone()
+            if not service:
+                return
+            conn.execute("DELETE FROM service_records WHERE service_id=?", (service_id,))
             conn.execute("DELETE FROM service_price_history WHERE service_id=?", (service_id,))
             conn.execute("DELETE FROM service_catalog WHERE id=?", (service_id,))
+            self.log_audit(conn, "حذف کامل خدمت", f"شناسه خدمت: {service_id} - {service['name']}")
             conn.commit()
 
     def add_service_record(
@@ -1381,18 +1579,36 @@ class DatabaseManager:
             conn.commit()
 
     # --- پشتیبان‌گیری و بازیابی ---
-    def create_backup(self, custom_dir=None):
-        target_dir = custom_dir or self.cfg["backup_dir"]
-        os.makedirs(target_dir, exist_ok=True)
-        stamp = jdatetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_file = os.path.join(target_dir, f"ShopBackup_{stamp}.db")
-        shutil.copy2(self.db_path, backup_file)
+    def create_backup(self, custom_dir=None, automatic=False, target_file=None):
+        """Create a consistent SQLite snapshot of the currently active database."""
+        if target_file:
+            backup_file = os.path.abspath(target_file)
+            if os.path.normcase(backup_file) == os.path.normcase(os.path.abspath(self.db_path)):
+                raise ValueError("مسیر فایل پشتیبان نمی‌تواند با مسیر دیتابیس فعال یکسان باشد.")
+        elif automatic:
+            target_dir = os.path.dirname(os.path.abspath(self.db_path))
+            db_name = os.path.splitext(os.path.basename(self.db_path))[0]
+            backup_file = os.path.join(target_dir, f"AutoBackup_{db_name}.db")
+        else:
+            target_dir = custom_dir or self.cfg["backup_dir"]
+            os.makedirs(target_dir, exist_ok=True)
+            stamp = jdatetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_file = os.path.join(target_dir, f"ShopBackup_{stamp}.db")
+
+        os.makedirs(os.path.dirname(backup_file), exist_ok=True)
+        with sqlite3.connect(self.db_path) as source:
+            with sqlite3.connect(backup_file) as destination:
+                source.backup(destination)
+
         self.cfg["last_backup_time"] = jdatetime.datetime.now().strftime(
             "%Y/%m/%d %H:%M:%S"
         )
         save_app_config(self.cfg)
         return backup_file
 
+
     def restore_backup(self, backup_file_path):
         self.create_backup()
-        shutil.copy2(backup_file_path, self.db_path)
+        with sqlite3.connect(backup_file_path) as source:
+            with sqlite3.connect(self.db_path) as destination:
+                source.backup(destination)
