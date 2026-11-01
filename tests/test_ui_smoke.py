@@ -570,12 +570,19 @@ def test_create_database_dialog_does_not_default_to_overwriting_invalid_file(
 
     corrupt = tmp_path / "corrupt.db"
     corrupt.write_text("not a sqlite database", encoding="utf-8")
-    manager = DatabaseManager(str(tmp_path / "valid.db"))
+    valid_path = tmp_path / "valid.db"
+    manager = DatabaseManager(str(valid_path))
     del manager
+    assert main_module._is_valid_sqlite_database_file(str(valid_path))
 
-    # A direct connect attempt must reject the corrupt file.
-    dialog = main_module.DatabaseBootstrapDialog(str(corrupt))
-    dialog.rb_existing.setChecked(True)
-    dialog._validate_and_accept()
-    assert dialog.selected_path is None
-    dialog.close()
+    # A different, healthy SQLite file is not automatically an accounting DB.
+    unrelated = tmp_path / "unrelated.db"
+    with database_module.sqlite3.connect(unrelated) as conn:
+        conn.execute("CREATE TABLE unrelated_records (id INTEGER PRIMARY KEY)")
+
+    for selected_path in (corrupt, unrelated):
+        dialog = main_module.DatabaseBootstrapDialog(str(selected_path))
+        dialog.rb_existing.setChecked(True)
+        dialog._validate_and_accept()
+        assert dialog.selected_path is None
+        dialog.close()
