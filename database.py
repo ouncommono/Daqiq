@@ -6,7 +6,6 @@ import sqlite3
 import jdatetime
 import time
 import hashlib
-import tempfile
 
 
 def get_app_data_dir():
@@ -401,6 +400,31 @@ class DatabaseManager:
                     cur.execute(
                         f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}"
                     )
+
+            # Remove the exact legacy generic supplier from the selector on upgraded
+            # databases too, but retain its historical name on linked purchase rows.
+            legacy_supplier_rows = conn.execute(
+                """
+                SELECT id, name FROM suppliers
+                WHERE name=? AND phone=? AND address=? AND notes=?
+                """,
+                ("تأمین‌کننده عمومی بازار", "021-88990011", "تهران", "پیش‌فرض"),
+            ).fetchall()
+            for legacy_supplier in legacy_supplier_rows:
+                conn.execute(
+                    """
+                    UPDATE batches
+                    SET supplier_name_snapshot=CASE
+                        WHEN supplier_name_snapshot IS NULL OR TRIM(supplier_name_snapshot)=''
+                        THEN ? ELSE supplier_name_snapshot END,
+                        supplier_id=NULL
+                    WHERE supplier_id=?
+                    """,
+                    (legacy_supplier["name"], legacy_supplier["id"]),
+                )
+                conn.execute(
+                    "DELETE FROM suppliers WHERE id=?", (legacy_supplier["id"],)
+                )
 
             conn.commit()
 
