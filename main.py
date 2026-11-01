@@ -60,6 +60,7 @@ from utils_and_widgets import (
     normalize_digits,
     SmoothScrollArea,
     SmoothScrollTableWidget,
+    SmoothScrollListWidget,
 )
 from exporter import (
     export_safe_inventory_excel,
@@ -4005,7 +4006,7 @@ class MainWindow(QMainWindow):
 
         gb_subcategories = QGroupBox("زیرمجموعه‌های دستهٔ انتخاب‌شده")
         sub_layout = QVBoxLayout(gb_subcategories)
-        self.lst_cfg_subcategories = QListWidget()
+        self.lst_cfg_subcategories = SmoothScrollListWidget()
         self.lst_cfg_subcategories.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.lst_cfg_subcategories.verticalScrollBar().setSingleStep(18)
         self.lst_cfg_subcategories.setMaximumHeight(125)
@@ -4029,7 +4030,7 @@ class MainWindow(QMainWindow):
 
         gb_attributes = QGroupBox("مشخصات فنی سفارشی")
         attr_layout = QVBoxLayout(gb_attributes)
-        self.lst_cfg_attributes = QListWidget()
+        self.lst_cfg_attributes = SmoothScrollListWidget()
         self.lst_cfg_attributes.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.lst_cfg_attributes.verticalScrollBar().setSingleStep(18)
         self.lst_cfg_attributes.setMaximumHeight(125)
@@ -4063,7 +4064,7 @@ class MainWindow(QMainWindow):
 
         gb_colors = QGroupBox("رنگ‌های قابل انتخاب کالا")
         colors_layout = QVBoxLayout(gb_colors)
-        self.lst_cfg_colors = QListWidget()
+        self.lst_cfg_colors = SmoothScrollListWidget()
         self.lst_cfg_colors.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.lst_cfg_colors.verticalScrollBar().setSingleStep(18)
         self.lst_cfg_colors.setMaximumHeight(125)
@@ -4103,7 +4104,7 @@ class MainWindow(QMainWindow):
         self.lbl_active_db_path = QLabel()
         self.lbl_active_db_path.setWordWrap(True)
         self.lbl_active_db_path.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self.lst_recent_databases = QListWidget()
+        self.lst_recent_databases = SmoothScrollListWidget()
         self.lst_recent_databases.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.lst_recent_databases.verticalScrollBar().setSingleStep(18)
         self.lst_recent_databases.setMaximumHeight(190)
