@@ -229,8 +229,13 @@ def test_database_refresh_keeps_services_suppliers_and_password_status_visible(
             )
             try:
                 assert protected_window.cb_sale_batch.count() == 2
+                assert "کاربر بدون رمز" in protected_window.lbl_active_user.text()
+                protected_employee_row = next(
+                    row for row in range(protected_window.tbl_employees.rowCount())
+                    if protected_window.tbl_employees.item(row, 0).text() == str(employee_id)
+                )
                 assert protected_window.tbl_employees.item(
-                    employee_row, 5
+                    protected_employee_row, 5
                 ).text() == "بله"
             finally:
                 protected_window.close()
