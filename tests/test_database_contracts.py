@@ -461,3 +461,24 @@ def test_legacy_generic_supplier_is_removed_without_losing_purchase_history(mana
     assert supplier_count == 0
     assert batch["supplier_id"] is None
     assert batch["supplier_name_snapshot"] == "تأمین‌کننده عمومی بازار"
+
+
+
+def test_manual_backup_can_replace_an_existing_user_selected_file(manager, tmp_path):
+    product_id = create_product(manager, "P-MANUAL-1")
+    target = tmp_path / "manual" / "chosen_backup.db"
+    first = manager.create_backup(target_file=str(target))
+    assert first == str(target)
+    assert target.is_file()
+
+    manager.add_product(
+        "P-MANUAL-2", "", "قطعات", "حافظه اس‌اس‌دی (SSD)",
+        "TestBrand", "Second", {}, "", 2, 20,
+    )
+    second = manager.create_backup(target_file=str(target))
+    assert second == str(target)
+
+    with sqlite3.connect(target) as conn:
+        assert conn.execute("PRAGMA quick_check").fetchone()[0] == "ok"
+        assert conn.execute("SELECT COUNT(*) FROM products").fetchone()[0] == 2
+    assert not list(target.parent.glob("*.manual*.db"))
