@@ -1359,13 +1359,6 @@ class DatabaseManager:
 
         with self.get_connection() as conn:
             target_id = service_id
-            if not target_id:
-                existing = conn.execute(
-                    "SELECT id FROM service_catalog WHERE name=? AND service_type=?",
-                    (name_clean, type_clean),
-                ).fetchone()
-                if existing:
-                    target_id = existing["id"]
 
             if not target_id:
                 if not code:
