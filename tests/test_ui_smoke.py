@@ -466,3 +466,86 @@ def test_technical_attributes_follow_selected_subcategory_and_are_editable(
     finally:
         window.close()
         qapp.processEvents()
+
+
+
+def test_taxonomy_attribute_rename_and_pending_category_delete_preserve_product_data(
+    tmp_path, monkeypatch, qapp
+):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    monkeypatch.setattr(
+        main_module.QMessageBox, "information", lambda *args, **kwargs: None
+    )
+    monkeypatch.setattr(
+        main_module.QMessageBox, "warning", lambda *args, **kwargs: None
+    )
+
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    manager.add_product(
+        "P-TAX-1", "", "قطعات", "پردازنده (CPU)",
+        "Intel", "i5", {"TDP": "65W", "رنگ": "مشکی"}, "", 1, 20,
+    )
+
+    manager.save_product_catalog_config({
+        "categories": ["قطعات"],
+        "subcategories": {"قطعات": ["پردازنده (CPU)"]},
+        "attributes": {
+            "قطعات": [
+                {
+                    "name": "TDP",
+                    "values": ["45W", "65W"],
+                    "subcategory": "پردازنده (CPU)",
+                }
+            ]
+        },
+        "colors": ["مشکی"],
+    })
+
+    window = MainWindow(manager, active_employee=None)
+    try:
+        window.cb_cfg_category.setCurrentText("قطعات")
+        attribute_item = window.lst_cfg_attributes.item(0)
+        window.lst_cfg_attributes.setCurrentItem(attribute_item)
+        window.ed_cfg_attribute_name.setText("توان مصرفی")
+        window._update_catalog_attribute()
+
+        # Renaming the category and deleting it before Save must not bypass the
+        # guard for existing records whose category is still stored under the old name.
+        window.ed_cfg_category.setText("سخت‌افزار")
+        window._rename_catalog_category()
+        assert window.cb_cfg_category.currentText() == "سخت‌افزار"
+        window._delete_catalog_category()
+        assert "سخت‌افزار" in window._taxonomy_draft["categories"]
+
+        window._save_general_settings()
+        with manager.get_connection() as conn:
+            product = conn.execute(
+                "SELECT category, specs_json FROM products WHERE code='P-TAX-1'"
+            ).fetchone()
+        specs = __import__("json").loads(product["specs_json"])
+        assert product["category"] == "سخت‌افزار"
+        assert specs["توان مصرفی"] == "65W"
+        assert "TDP" not in specs
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
+def test_create_database_dialog_does_not_default_to_overwriting_invalid_file(
+    tmp_path, monkeypatch, qapp
+):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+
+    corrupt = tmp_path / "corrupt.db"
+    corrupt.write_text("not a sqlite database", encoding="utf-8")
+    manager = DatabaseManager(str(tmp_path / "valid.db"))
+    del manager
+
+    # A direct connect attempt must reject the corrupt file.
+    dialog = main_module.DatabaseBootstrapDialog(str(corrupt))
+    dialog.rb_existing.setChecked(True)
+    dialog._validate_and_accept()
+    assert dialog.selected_path is None
+    dialog.close()
