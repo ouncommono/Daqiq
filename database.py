@@ -2,7 +2,6 @@
 import os
 import sys
 import json
-import shutil
 import sqlite3
 import jdatetime
 import hashlib
@@ -1554,9 +1553,13 @@ class DatabaseManager:
             conn.commit()
 
     # --- پشتیبان‌گیری و بازیابی ---
-    def create_backup(self, custom_dir=None, automatic=False):
-        """Create a consistent SQLite snapshot; automatic copies follow the active database."""
-        if automatic:
+    def create_backup(self, custom_dir=None, automatic=False, target_file=None):
+        """Create a consistent SQLite snapshot of the currently active database."""
+        if target_file:
+            backup_file = os.path.abspath(target_file)
+            if os.path.normcase(backup_file) == os.path.normcase(os.path.abspath(self.db_path)):
+                raise ValueError("مسیر فایل پشتیبان نمی‌تواند با مسیر دیتابیس فعال یکسان باشد.")
+        elif automatic:
             target_dir = os.path.dirname(os.path.abspath(self.db_path))
             db_name = os.path.splitext(os.path.basename(self.db_path))[0]
             backup_file = os.path.join(target_dir, f"AutoBackup_{db_name}.db")
@@ -1565,15 +1568,18 @@ class DatabaseManager:
             os.makedirs(target_dir, exist_ok=True)
             stamp = jdatetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             backup_file = os.path.join(target_dir, f"ShopBackup_{stamp}.db")
+
         os.makedirs(os.path.dirname(backup_file), exist_ok=True)
         with sqlite3.connect(self.db_path) as source:
             with sqlite3.connect(backup_file) as destination:
                 source.backup(destination)
+
         self.cfg["last_backup_time"] = jdatetime.datetime.now().strftime(
             "%Y/%m/%d %H:%M:%S"
         )
         save_app_config(self.cfg)
         return backup_file
+
 
     def restore_backup(self, backup_file_path):
         self.create_backup()

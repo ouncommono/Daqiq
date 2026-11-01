@@ -3449,17 +3449,20 @@ class MainWindow(QMainWindow):
             f"Backup_{jdatetime.date.today().strftime('%Y%m%d')}.db",
             "Database (*.db)",
         )
-        if path:
-            import shutil
-
-            shutil.copy2(self.db.db_path, path)
-            self.db.create_backup()
+        if not path:
+            return
+        try:
+            saved_path = self.db.create_backup(target_file=path)
             self.lbl_last_backup.setText(
                 f"آخرین پشتیبان‌گیری: {self.db.cfg.get('last_backup_time')}"
             )
             QMessageBox.information(
-                self, "پشتیبان‌گیری", f"نسخه پشتیبان ذخیره شد:\n{path}"
+                self, "پشتیبان‌گیری", f"نسخه پشتیبان به‌صورت امن ذخیره شد:
+{saved_path}"
             )
+        except Exception as exc:
+            QMessageBox.critical(self, "خطا در پشتیبان‌گیری", str(exc))
+
 
     def _do_restore_backup(self):
         path, _ = QFileDialog.getOpenFileName(
