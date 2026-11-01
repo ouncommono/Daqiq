@@ -913,7 +913,7 @@ class MainWindow(QMainWindow):
         self.tbl_products.itemSelectionChanged.connect(self._on_product_row_selected)
         layout.addWidget(self.tbl_products)
 
-        self.tabs.addTab(tab, "📦 مدیریت کالاها")
+        self._add_scrollable_tab(tab, "📦 مدیریت کالاها")
 
     def _clear_product_form(self):
         self.selected_product_id = None
@@ -1177,9 +1177,10 @@ class MainWindow(QMainWindow):
             ]
         )
         self.tbl_batches.itemSelectionChanged.connect(self._on_batch_row_selected)
+        self._add_table_search(layout, self.tbl_batches, "batches", "🔍 جست‌وجو در خریدها و محموله‌ها...")
         layout.addWidget(self.tbl_batches)
 
-        self.tabs.addTab(tab, "🚚 ثبت خرید و محموله‌ها")
+        self._add_scrollable_tab(tab, "🚚 ثبت خرید و محموله‌ها")
 
     def _on_batch_prod_changed(self):
         prod = self.cb_batch_prod.currentData()
@@ -1508,9 +1509,10 @@ class MainWindow(QMainWindow):
             ]
         )
         self.tbl_sales.itemSelectionChanged.connect(self._on_sale_row_selected)
+        self._add_table_search(layout, self.tbl_sales, "sales", "🔍 جست‌وجو در فاکتورها و فروش‌ها...")
         layout.addWidget(self.tbl_sales)
 
-        self.tabs.addTab(tab, "🛒 ثبت فروش")
+        self._add_scrollable_tab(tab, "🛒 ثبت فروش")
 
     def _on_sale_prod_changed(self):
         """Load available batches without assuming SQLite rows implement dict.get()."""
@@ -1806,6 +1808,7 @@ class MainWindow(QMainWindow):
         )
         self.tbl_srv_catalog.setMaximumHeight(160)
         self.tbl_srv_catalog.itemSelectionChanged.connect(self._on_srv_catalog_table_selected)
+        self._add_table_search(v_cat, self.tbl_srv_catalog, "service_catalog", "🔍 جست‌وجو در فهرست تعرفه‌های خدمات...")
         v_cat.addWidget(self.tbl_srv_catalog)
 
         # ب) ثبت انجام خدمت برای مشتری
@@ -1887,8 +1890,9 @@ class MainWindow(QMainWindow):
             ]
         )
         self.tbl_services.itemSelectionChanged.connect(self._on_srv_rec_selected)
+        self._add_table_search(layout, self.tbl_services, "service_records", "🔍 جست‌وجو در فاکتورهای خدمات...")
         layout.addWidget(self.tbl_services)
-        self.tabs.addTab(tab, "🛠️ مدیریت خدمات")
+        self._add_scrollable_tab(tab, "🛠️ مدیریت خدمات")
         
     def _clear_service_cat_form(self):
         self.selected_srv_cat_id = None
@@ -2175,8 +2179,9 @@ class MainWindow(QMainWindow):
             ]
         )
         self.tbl_upgrades.itemSelectionChanged.connect(self._on_upgrade_selected)
+        self._add_table_search(layout, self.tbl_upgrades, "upgrades", "🔍 جست‌وجو در سوابق ارتقای کالا...")
         layout.addWidget(self.tbl_upgrades)
-        self.tabs.addTab(tab, "🔧 ارتقای کالا")
+        self._add_scrollable_tab(tab, "🔧 ارتقای کالا")
 
     def _on_upg_target_changed(self):
         """مورد ۶: پر شدن خودکار کادر مشخصات جدید با مشخصات قبلی دستگاه جهت ویرایش راحت‌تر"""
@@ -2380,8 +2385,9 @@ class MainWindow(QMainWindow):
             ]
         )
         self.tbl_suppliers.itemSelectionChanged.connect(self._on_supplier_selected)
+        self._add_table_search(layout, self.tbl_suppliers, "suppliers", "🔍 جست‌وجو در تأمین‌کنندگان...")
         layout.addWidget(self.tbl_suppliers)
-        self.tabs.addTab(tab, "💳 تأمین‌کنندگان و بدهی‌ها")
+        self._add_scrollable_tab(tab, "💳 تأمین‌کنندگان و بدهی‌ها")
 
     def _add_supplier(self):
         name = self.ed_sup_name.text().strip()
@@ -2580,6 +2586,9 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.lbl_rep_totals)
 
         self.tbl_report = self._create_table(["ستون ۱"])
+        self._add_table_search(
+            layout, self.tbl_report, "reports", "🔍 جست‌وجو در ردیف‌های گزارش..."
+        )
         layout.addWidget(self.tbl_report)
 
         self.cb_rep_type.currentIndexChanged.connect(self._update_report_live)
@@ -2590,9 +2599,6 @@ class MainWindow(QMainWindow):
         self.cb_rep_cat.currentTextChanged.connect(self._update_report_live)
         self.ed_rep_search.textChanged.connect(self._update_report_live)
 
-        self._add_table_search(
-            layout, self.tbl_report, "reports", "🔍 جست‌وجو در ردیف‌های گزارش..."
-        )
         self._add_scrollable_tab(tab, "📈 گزارش‌های جامع")
 
     def _on_rep_preset_changed(self):
@@ -3363,9 +3369,10 @@ class MainWindow(QMainWindow):
             ]
         )
         self.tbl_employees.itemSelectionChanged.connect(self._on_emp_selected)
+        self._add_table_search(layout, self.tbl_employees, "employees", "🔍 جست‌وجو در کارکنان...")
         layout.addWidget(self.tbl_employees)
 
-        self.tabs.addTab(tab, "👤 مدیریت کارمندان")
+        self._add_scrollable_tab(tab, "👤 مدیریت کارمندان")
 
     def _add_employee(self):
         name = self.ed_emp_name.text().strip()
