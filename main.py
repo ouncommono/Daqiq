@@ -4348,8 +4348,16 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "نام ویژگی لازم است", "نام مشخصهٔ فنی را وارد کنید.")
             return
         definitions = self._taxonomy_draft["attributes"].setdefault(category, [])
-        if any(item["name"] == name for item in definitions):
-            QMessageBox.warning(self, "ویژگی تکراری", "این مشخصه قبلاً برای این دسته‌بندی ثبت شده است.")
+        selected_scope = self.cb_cfg_attribute_subcategory.currentData() or ""
+        if any(
+            item["name"] == name
+            and (item.get("subcategory", "") or "") == selected_scope
+            for item in definitions
+        ):
+            QMessageBox.warning(
+                self, "ویژگی تکراری",
+                "این مشخصه قبلاً برای همین زیرمجموعه ثبت شده است."
+            )
             return
         values = [
             value.strip() for value in self.ed_cfg_attribute_values.text().replace("،", ",").split(",")
@@ -4358,7 +4366,7 @@ class MainWindow(QMainWindow):
         definitions.append({
             "name": name,
             "values": list(dict.fromkeys(values)),
-            "subcategory": self.cb_cfg_attribute_subcategory.currentData() or "",
+            "subcategory": selected_scope,
         })
         self.ed_cfg_attribute_name.clear()
         self.ed_cfg_attribute_values.clear()
