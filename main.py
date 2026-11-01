@@ -141,6 +141,7 @@ class MainWindow(QMainWindow):
         self._build_ui()
         self._setup_timers()
         self.refresh_all_data()
+        self._apply_employee_permissions()
 
     def _switch_active_employee(self):
         dlg = LoginDialog(self.db, self)
@@ -150,6 +151,7 @@ class MainWindow(QMainWindow):
                 f"👤 کاربر فعال: {self.active_employee['name']} ({self.active_employee['role']})"
             )
             self._apply_employee_permissions()
+            self.refresh_all_data()
 
     def _is_scoped_access(self):
         """Restricted roles may see only their own operational transactions."""
@@ -208,6 +210,10 @@ class MainWindow(QMainWindow):
         elif is_warehouse:
             for index in (3, 4, 9):
                 self.tabs.setTabEnabled(index, False)
+        elif is_scoped:
+            # Operations supervisor: own transactions only, without supplier-wide and system settings.
+            self.tabs.setTabEnabled(6, False)
+            self.tabs.setTabEnabled(9, False)
 
         for button in self.findChildren(QPushButton):
             if button.objectName() == "btnDanger":
@@ -551,7 +557,7 @@ class MainWindow(QMainWindow):
         gb_form = QGroupBox("تعریف و ویرایش کالا (بدون نیاز به نام محصول؛ شناسایی با دسته‌بندی، زیرمجموعه، برند و مدل)")
         f_layout = QFormLayout(gb_form)
 
-        self.ed_prod_code = SmartLineEdit("تولید خودکار P1001")
+        self.ed_prod_code = SmartLineEdit("P-1001")
         # بند ۱ و ۲: کمبوباکس دسته‌بندی اصلی با قابلیت تایپ دستی برای کالاهای ناشناخته
         self.cb_prod_cat = SearchableComboBox()
         self.cb_prod_cat.addItems(MAIN_CATEGORIES)
@@ -772,7 +778,7 @@ class MainWindow(QMainWindow):
         gb = QGroupBox("ثبت خرید کالا از تأمین‌کننده (ایجاد محموله جدید)")
         grid = QGridLayout(gb)
 
-        self.ed_batch_code = SmartLineEdit("B1001")
+        self.ed_batch_code = SmartLineEdit("C-1001")
         self.cb_batch_prod = SearchableComboBox()
         self.cb_batch_prod.setToolTip("نام دسته‌بندی، زیرگروه (مثلاً کیبورد)، برند، مدل یا کد کالا را تایپ کنید")
         self.cb_batch_prod.currentIndexChanged.connect(self._on_batch_prod_changed)
@@ -2023,6 +2029,12 @@ class MainWindow(QMainWindow):
                 allowed_reports = [
                     "۲. گزارش کامل تمام خریدها (محموله‌ها)",
                     "۷. گزارش جامع عملکرد هر کارمند / فروشنده",
+                ]
+            elif "سرپرست عملیات" in permission:
+                allowed_reports = [
+                    "۱. گزارش کامل تمام فروش‌ها",
+                    "۲. گزارش کامل تمام خریدها (محموله‌ها)",
+                    "۱۲. گزارش کامل خدمات انجام‌شده",
                 ]
             else:
                 allowed_reports = [
@@ -3318,6 +3330,9 @@ class MainWindow(QMainWindow):
             emps = conn.execute(
                 "SELECT * FROM employees WHERE is_active=1 ORDER BY id DESC"
             ).fetchall()
+            if self._is_scoped_access() and self.active_employee:
+                active_id = int(self.active_employee["id"])
+                emps = [employee for employee in emps if int(employee["id"]) == active_id]
             sups = conn.execute(
                 "SELECT * FROM suppliers ORDER BY id DESC"
             ).fetchall()
