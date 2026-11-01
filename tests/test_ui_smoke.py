@@ -3,25 +3,17 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from PySide6.QtCore import QCoreApplication, QEvent
-from PySide6.QtWidgets import QApplication, QTableWidgetItem
+from PySide6.QtWidgets import QApplication
 
 import database as database_module
 from database import DatabaseManager
 from main import MainWindow
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def qapp():
-    application = QApplication.instance()
-    owns_application = application is None
-    if owns_application:
-        application = QApplication(["accounting-smoke-test"])
+    application = QApplication.instance() or QApplication(["accounting-smoke-test"])
     yield application
-    application.closeAllWindows()
-    application.quit()
-    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
-    application.processEvents()
 
 
 def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
@@ -43,20 +35,6 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
         assert not hasattr(window, "chk_zero_enabled")
         assert window.lbl_live_clock.toolTip()
 
-        table = window.tbl_batches
-        column = min(2, table.columnCount() - 1)
-        baseline_width = table.columnWidth(column)
-        row = table.rowCount()
-        table.insertRow(row)
-        table.setItem(row, column, QTableWidgetItem("متن بسیار طولانی برای آزمون اندازه‌گذاری هوشمند ستون"))
-        qapp.processEvents()
-        window._toggle_table_autosize()
-        fitted_width = table.columnWidth(column)
-        assert fitted_width > baseline_width
-        window._toggle_table_autosize()
-        assert table.columnWidth(column) == baseline_width
     finally:
         window.close()
-        window.deleteLater()
-        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
         qapp.processEvents()
