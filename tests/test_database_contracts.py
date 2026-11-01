@@ -331,7 +331,8 @@ def test_excel_report_title_is_right_to_left_for_digit_prefixed_shop_name(tmp_pa
     workbook = load_workbook(target)
     worksheet = workbook.active
     assert worksheet.views.sheetView[0].rightToLeft is True
-    assert worksheet["A1"].value == "\u200f\u20678 رایان\u2069 — گزارش فروش\u200f"
+    assert worksheet["A1"].value == "8 رایان — گزارش فروش"
+    assert not any(mark in worksheet["A1"].value for mark in ("\u2066", "\u2067", "\u2068", "\u2069"))
     assert worksheet["A1"].alignment.readingOrder == 2
 
 def test_automatic_backup_rotation_counts_legacy_fixed_backup(manager, tmp_path):
