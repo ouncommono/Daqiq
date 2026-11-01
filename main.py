@@ -44,7 +44,7 @@ from utils_and_widgets import (
     add_jalali_months,
     normalize_digits,
 )
-from exporter_and_tests import (
+from exporter import (
     export_safe_inventory_excel,
     export_table_to_excel,
     get_next_excel_filename,
