@@ -4626,8 +4626,8 @@ class MainWindow(QMainWindow):
                 effective_password_policy = current_password_policy
 
         try:
-            # Apply category/subcategory renames to existing product rows only now,
-            # after the user explicitly presses Save Settings.
+            # Apply taxonomy edits and persist the new configuration atomically.
+            # Existing product rows are renamed only after the explicit Save action.
             with self.db.get_connection() as conn:
                 for old_category, new_category in self._pending_category_renames:
                     conn.execute(
@@ -4639,9 +4639,8 @@ class MainWindow(QMainWindow):
                         "UPDATE products SET sub_category=? WHERE category=? AND sub_category=?",
                         (new_subcategory, category, old_subcategory),
                     )
+                self.db.save_product_catalog_config(self._taxonomy_draft, conn=conn)
                 conn.commit()
-
-            self.db.save_product_catalog_config(self._taxonomy_draft)
 
             self.db.cfg["default_profit_pct"] = self.sp_set_profit.value()
             self.db.cfg["zero_append_count"] = int(self.cb_zero_count.currentData())
@@ -4665,6 +4664,7 @@ class MainWindow(QMainWindow):
             self.lbl_store_name.setToolTip(f"نام فروشگاه: {shop_name}")
 
         self._apply_product_catalog_config()
+        self.refresh_all_data()
         self._refresh_multi_db_combo()
         self._restart_backup_timer()
         self._refresh_visual_layout()
