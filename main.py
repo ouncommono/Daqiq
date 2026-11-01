@@ -1265,6 +1265,9 @@ class MainWindow(QMainWindow):
         self.cb_sale_status.setCurrentIndex(0)
         self.ed_war_company.clear()
         self.cb_war_months.setCurrentIndex(0)
+        today = jdatetime.date.today().strftime("%Y/%m/%d")
+        self.dt_war_start.set_date(today)
+        self.dt_war_end.set_date(today)
         self.ed_sale_serial.clear()
         self.tbl_sales.clearSelection()
         self._on_sale_batch_changed()
@@ -1348,25 +1351,52 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "خطا در ثبت فروش", str(e))
 
     def _on_sale_row_selected(self):
-        items = self.tbl_sales.selectedItems()
-        if not items:
+        selected = self.tbl_sales.selectedItems()
+        if not selected:
             return
-        r = items[0].row()
-        self.selected_sale_id = int(self.tbl_sales.item(r, 0).text())
-        self.ed_sale_inv.setText(self.tbl_sales.item(r, 1).text())
-        self.ed_sale_customer.setText(self.tbl_sales.item(r, 7).text())
-        self.cb_sale_qty.setCurrentText(self.tbl_sales.item(r, 8).text())
+        row_index = selected[0].row()
+        self.selected_sale_id = int(self.tbl_sales.item(row_index, 0).text())
+        self.ed_sale_inv.setText(self.tbl_sales.item(row_index, 1).text())
+        self.ed_sale_customer.setText(self.tbl_sales.item(row_index, 7).text())
+        self.cb_sale_qty.setCurrentText(self.tbl_sales.item(row_index, 8).text())
         self.pr_sale_suggest.set_value(
-            int(self.tbl_sales.item(r, 9).text().replace(",", ""))
+            int(self.tbl_sales.item(row_index, 9).text().replace(",", ""))
         )
         self.pr_sale_actual.set_value(
-            int(self.tbl_sales.item(r, 10).text().replace(",", ""))
+            int(self.tbl_sales.item(row_index, 10).text().replace(",", ""))
         )
         self.pr_sale_paid.set_value(
-            int(self.tbl_sales.item(r, 16).text().replace(",", ""))
+            int(self.tbl_sales.item(row_index, 16).text().replace(",", ""))
         )
-        self.cb_sale_status.setCurrentText(self.tbl_sales.item(r, 17).text())
-        self.ed_sale_serial.setText(self.tbl_sales.item(r, 19).text())
+        self.cb_sale_status.setCurrentText(self.tbl_sales.item(row_index, 17).text())
+        self.ed_sale_serial.setText(self.tbl_sales.item(row_index, 19).text())
+
+        with self.db.get_connection() as conn:
+            sale = conn.execute(
+                """SELECT warranty_company, warranty_start, warranty_months,
+                   warranty_days, warranty_end FROM sales WHERE id=?""",
+                (self.selected_sale_id,),
+            ).fetchone()
+        if sale:
+            self.ed_war_company.setText(sale["warranty_company"] or "")
+            self.dt_war_start.set_date(sale["warranty_start"] or jdatetime.date.today().strftime("%Y/%m/%d"))
+            self.dt_war_end.set_date(sale["warranty_end"] or sale["warranty_start"] or "")
+            duration_days = int(sale["warranty_days"] or (int(sale["warranty_months"] or 0) * 30))
+            if duration_days:
+                index = self.cb_war_months.findData(duration_days)
+                if index < 0:
+                    choices = [
+                        (abs(int(self.cb_war_months.itemData(i)) - duration_days), i)
+                        for i in range(1, self.cb_war_months.count())
+                        if self.cb_war_months.itemData(i) is not None
+                    ]
+                    if choices:
+                        index = min(choices)[1]
+                if index >= 0:
+                    self.cb_war_months.setCurrentIndex(index)
+            else:
+                self.cb_war_months.setCurrentIndex(0)
+
 
     def _update_selected_sale(self):
         if not self.selected_sale_id:

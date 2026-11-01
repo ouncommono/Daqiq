@@ -819,6 +819,8 @@ class DatabaseManager:
             if int(old["sold_qty"] or 0) > 0 and new_product_id != int(old["product_id"]):
                 raise ValueError("کالای محموله‌ای که فروش یا مصرف در ارتقا داشته است قابل تعویض نیست.")
             new_initial_qty = int(new_initial_qty)
+            if new_initial_qty <= 0:
+                raise ValueError("تعداد اولیه محموله باید بیشتر از صفر باشد.")
             if new_initial_qty < old["sold_qty"]:
                 raise ValueError(
                     f"تعداد اولیه نمی‌تواند کمتر از تعداد فروخته‌شده ({old['sold_qty']} عدد) باشد."
