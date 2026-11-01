@@ -336,6 +336,16 @@ def select_startup_database_path(parent=None):
     default_path = configured_path or os.path.join(
         os.path.dirname(os.path.abspath(__file__)), "shop_database.db"
     )
+    if os.path.exists(default_path):
+        base_dir = os.path.dirname(default_path) or "."
+        stem, extension = os.path.splitext(os.path.basename(default_path))
+        extension = extension or ".db"
+        suffix = 1
+        proposed = os.path.join(base_dir, f"{stem}_new{extension}")
+        while os.path.exists(proposed):
+            suffix += 1
+            proposed = os.path.join(base_dir, f"{stem}_new_{suffix}{extension}")
+        default_path = proposed
     dialog = DatabaseBootstrapDialog(default_path, parent)
     if dialog.exec() != QDialog.Accepted or not dialog.selected_path:
         return None
@@ -3979,6 +3989,8 @@ class MainWindow(QMainWindow):
         gb_subcategories = QGroupBox("زیرمجموعه‌های دستهٔ انتخاب‌شده")
         sub_layout = QVBoxLayout(gb_subcategories)
         self.lst_cfg_subcategories = QListWidget()
+        self.lst_cfg_subcategories.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
+        self.lst_cfg_subcategories.verticalScrollBar().setSingleStep(18)
         self.lst_cfg_subcategories.setMaximumHeight(125)
         self.ed_cfg_subcategory = QLineEdit()
         self.ed_cfg_subcategory.setPlaceholderText("عنوان زیرمجموعه...")
@@ -4001,6 +4013,8 @@ class MainWindow(QMainWindow):
         gb_attributes = QGroupBox("مشخصات فنی سفارشی")
         attr_layout = QVBoxLayout(gb_attributes)
         self.lst_cfg_attributes = QListWidget()
+        self.lst_cfg_attributes.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
+        self.lst_cfg_attributes.verticalScrollBar().setSingleStep(18)
         self.lst_cfg_attributes.setMaximumHeight(125)
         self.ed_cfg_attribute_name = QLineEdit()
         self.ed_cfg_attribute_name.setPlaceholderText("نام ویژگی؛ مثلاً نوع پنل")
@@ -4033,6 +4047,8 @@ class MainWindow(QMainWindow):
         gb_colors = QGroupBox("رنگ‌های قابل انتخاب کالا")
         colors_layout = QVBoxLayout(gb_colors)
         self.lst_cfg_colors = QListWidget()
+        self.lst_cfg_colors.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
+        self.lst_cfg_colors.verticalScrollBar().setSingleStep(18)
         self.lst_cfg_colors.setMaximumHeight(125)
         self.ed_cfg_color = QLineEdit()
         self.ed_cfg_color.setPlaceholderText("نام رنگ جدید...")
@@ -4071,6 +4087,8 @@ class MainWindow(QMainWindow):
         self.lbl_active_db_path.setWordWrap(True)
         self.lbl_active_db_path.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.lst_recent_databases = QListWidget()
+        self.lst_recent_databases.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
+        self.lst_recent_databases.verticalScrollBar().setSingleStep(18)
         self.lst_recent_databases.setMaximumHeight(190)
         self.lst_recent_databases.setToolTip(
             "برای اتصال از دکمهٔ «اتصال» استفاده کنید؛ علامت × فقط مسیر را از فهرست حذف می‌کند و فایل را پاک نمی‌کند."
@@ -4331,6 +4349,17 @@ class MainWindow(QMainWindow):
             return
         values[values.index(old)] = new
         self._pending_subcategory_renames.append((category, old, new))
+        self._pending_attribute_renames = [
+            (
+                pending_category,
+                old_name,
+                new_name,
+                new if old_scope == old else old_scope,
+                new if new_scope == old else new_scope,
+            )
+            for pending_category, old_name, new_name, old_scope, new_scope
+            in self._pending_attribute_renames
+        ]
         for definition in self._taxonomy_draft["attributes"].get(category, []):
             if (definition.get("subcategory") or "") == old:
                 definition["subcategory"] = new
@@ -4495,7 +4524,12 @@ class MainWindow(QMainWindow):
         definition_index = item.data(Qt.UserRole)
         definitions = self._taxonomy_draft["attributes"].get(category, [])
         if isinstance(definition_index, int) and 0 <= definition_index < len(definitions):
-            definitions.pop(definition_index)
+            removed = definitions.pop(definition_index)
+            removed_name = removed.get("name", "")
+            self._pending_attribute_renames = [
+                pending for pending in self._pending_attribute_renames
+                if not (pending[0] == category and pending[2] == removed_name)
+            ]
         self._refresh_catalog_management_lists()
 
     def _add_catalog_color(self):
@@ -4775,13 +4809,13 @@ class MainWindow(QMainWindow):
                         (new_subcategory, category, old_subcategory),
                     )
 
-                for category, old_name, new_name, _old_scope, new_scope in self._pending_attribute_renames:
+                for category, old_name, new_name, old_scope, _new_scope in self._pending_attribute_renames:
                     if not old_name or not new_name or old_name == new_name:
                         continue
-                    if new_scope:
+                    if old_scope:
                         attribute_rows = conn.execute(
                             "SELECT id, specs_json FROM products WHERE category=? AND sub_category=?",
-                            (category, new_scope),
+                            (category, old_scope),
                         ).fetchall()
                     else:
                         attribute_rows = conn.execute(
