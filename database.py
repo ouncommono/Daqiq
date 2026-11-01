@@ -1643,8 +1643,16 @@ class DatabaseManager:
         """Keep only the newest configured number of automatic snapshots for one database."""
         prefix = f"{database_name}_"
         candidates = []
+        legacy_name = f"AutoBackup_{database_name}.db"
         for entry in os.scandir(directory):
-            if not entry.is_file() or not entry.name.startswith(prefix) or not entry.name.endswith(".db"):
+            if not entry.is_file() or not entry.name.endswith(".db"):
+                continue
+            # Count the single-file backup format from previous application versions
+            # so it cannot sit outside the configured retention limit.
+            if entry.name == legacy_name:
+                candidates.append((entry.stat().st_mtime_ns, entry.name, entry.path))
+                continue
+            if not entry.name.startswith(prefix):
                 continue
             stamp = entry.name[len(prefix):-3]
             if (

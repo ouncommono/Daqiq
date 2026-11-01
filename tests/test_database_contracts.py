@@ -333,3 +333,14 @@ def test_excel_report_title_is_right_to_left_for_digit_prefixed_shop_name(tmp_pa
     assert worksheet.views.sheetView[0].rightToLeft is True
     assert worksheet["A1"].value == "\u200f8 رایان — گزارش فروش\u200f"
     assert worksheet["A1"].alignment.readingOrder == 2
+
+def test_automatic_backup_rotation_counts_legacy_fixed_backup(manager, tmp_path):
+    manager.cfg["auto_backup_retention_count"] = 1
+    legacy_path = tmp_path / "AutoBackup_shop.db"
+    manager.create_backup(target_file=str(legacy_path))
+
+    current_backup = manager.create_backup(automatic=True)
+
+    assert not legacy_path.exists()
+    assert os.path.exists(current_backup)
+    assert len(list(tmp_path.glob("shop_*.db"))) == 1
