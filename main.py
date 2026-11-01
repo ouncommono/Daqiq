@@ -2197,6 +2197,7 @@ class MainWindow(QMainWindow):
         btn_cancel = msg.addButton("انصراف", QMessageBox.RejectRole)
         msg.addButton("حذف تأمین‌کننده بدون حذف داده‌های مربوط به آن", QMessageBox.AcceptRole)
         btn_delete_all = msg.addButton("حذف تأمین‌کننده و داده‌های مربوط به آن", QMessageBox.DestructiveRole)
+        _center_message_buttons(msg)
         msg.exec()
         clicked = msg.clickedButton()
         if clicked == btn_cancel or clicked is None:
