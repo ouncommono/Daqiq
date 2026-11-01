@@ -1880,24 +1880,44 @@ class MainWindow(QMainWindow):
         self._on_upg_target_changed()
 
     def _on_upgrade_selected(self):
-        items = self.tbl_upgrades.selectedItems()
-        if not items:
+        selected = self.tbl_upgrades.selectedItems()
+        if not selected:
             return
-        row_index = items[0].row()
+        row_index = selected[0].row()
         self.selected_upgrade_id = int(self.tbl_upgrades.item(row_index, 0).text())
         with self.db.get_connection() as conn:
             upgrade = conn.execute(
                 "SELECT * FROM upgrades WHERE id=?", (self.selected_upgrade_id,)
             ).fetchone()
+            related_batches = conn.execute(
+                """SELECT b.*, p.category, p.sub_category, p.brand, p.model
+                   FROM batches b JOIN products p ON p.id=b.product_id
+                   WHERE b.id IN (?, ?)""",
+                (upgrade["target_batch_id"], upgrade["part_batch_id"]),
+            ).fetchall() if upgrade else []
         if not upgrade:
             self._clear_upgrade_form()
             return
+
+        # Keep exhausted historical batches selectable: editing reverses their old consumption first.
+        for batch in related_batches:
+            batch_id = int(batch["id"])
+            label = (
+                f"{batch['batch_code']} | {batch['category']} - "
+                f"{batch['sub_category']} {batch['brand']} {batch['model']} "
+                f"(موجودی: {batch['remaining_qty']})"
+            )
+            for combo in (self.cb_upg_target, self.cb_upg_part):
+                if combo.findData(batch_id) < 0:
+                    combo.addItem(label, batch_id)
+
         target_index = self.cb_upg_target.findData(int(upgrade["target_batch_id"]))
         part_index = self.cb_upg_part.findData(int(upgrade["part_batch_id"]))
         if target_index >= 0:
             self.cb_upg_target.setCurrentIndex(target_index)
         if part_index >= 0:
             self.cb_upg_part.setCurrentIndex(part_index)
+
         target_qty = max(1, int(upgrade["target_qty"]))
         per_unit = max(1, int(upgrade["part_qty_used"]) // target_qty)
         self.cb_upg_target_qty.setCurrentText(str(target_qty))
@@ -1910,6 +1930,7 @@ class MainWindow(QMainWindow):
         self.chk_upg_add_cost.setChecked(
             int(upgrade["added_cost_unit"] or 0) > int(upgrade["labor_cost_unit"] or 0)
         )
+
 
     def _revert_selected_upgrade(self):
         items = self.tbl_upgrades.selectedItems()
@@ -1930,6 +1951,7 @@ class MainWindow(QMainWindow):
             try:
                 self.db.revert_upgrade(upg_id)
                 self.refresh_all_data()
+                self._clear_upgrade_form()
                 QMessageBox.information(
                     self, "برگشت ارتقا", "ارتقای کالا به حالت قبل بازگردانده شد و قطعه به انبار برگشت."
                 )
@@ -3125,6 +3147,12 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "انتخاب کارمند", "ابتدا یک کارمند را از جدول انتخاب کنید.")
             return
 
+        if self.active_employee and int(self.active_employee.get("id", -1)) == int(self.selected_emp_id):
+            QMessageBox.warning(
+                self, "کارمند فعال",
+                "حساب کاربری فعال را نمی‌توان از همان نشست حذف کرد. ابتدا با حساب مدیریتی دیگری وارد شوید."
+            )
+            return
         msg = QMessageBox(self)
         msg.setWindowTitle("حذف کارمند")
         msg.setText(
@@ -3413,6 +3441,7 @@ class MainWindow(QMainWindow):
         self._refresh_employees_table()
         self._refresh_dashboard()
         self._update_report_live()
+        self._apply_employee_permissions()
 
     def _refresh_combos(self):
         with self.db.get_connection() as conn:
