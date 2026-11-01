@@ -754,8 +754,8 @@ class DatabaseManager:
                     purchase_date, initial_qty, sold_qty, returned_qty, remaining_qty,
                     unit_purchase_price, extra_cost_total, upgrade_cost_unit, unit_cost_price,
                     suggested_sell_price, profit_pct, settlement_status, paid_amount,
-                    serial_numbers, initial_specs, final_specs, notes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    serial_numbers, initial_specs, final_specs, notes, supplier_name_snapshot
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     batch_code,
@@ -808,6 +808,8 @@ class DatabaseManager:
         serial_numbers,
         notes,
         settlement_status=None,
+        product_id=None,
+        initial_specs=None,
     ):
         with self.get_connection() as conn:
             old = conn.execute("SELECT * FROM batches WHERE id=?", (batch_id,)).fetchone()
@@ -850,13 +852,14 @@ class DatabaseManager:
 
             conn.execute(
                 """
-                UPDATE batches SET supplier_id=?, buyer_employee_id=?, invoice_number=?, purchase_date=?,
+                UPDATE batches SET product_id=?, supplier_id=?, buyer_employee_id=?, invoice_number=?, purchase_date=?,
                 initial_qty=?, remaining_qty=?, unit_purchase_price=?, extra_cost_total=?,
                 unit_cost_price=?, suggested_sell_price=?, profit_pct=?, settlement_status=?,
-                paid_amount=?, serial_numbers=?, notes=?, supplier_name_snapshot=?
+                paid_amount=?, serial_numbers=?, initial_specs=?, notes=?, supplier_name_snapshot=?
                 WHERE id=?
             """,
                 (
+                    int(product_id) if product_id is not None else old["product_id"],
                     supplier_id,
                     buyer_employee_id,
                     invoice_number,
@@ -871,6 +874,7 @@ class DatabaseManager:
                     status,
                     paid_amount,
                     serial_numbers,
+                    initial_specs if initial_specs is not None else old["initial_specs"],
                     notes,
                     supplier_snapshot,
                     batch_id,
