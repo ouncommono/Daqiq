@@ -206,7 +206,7 @@ def test_automatic_backup_rotates_oldest_after_success(manager, tmp_path):
     second = manager.create_backup(automatic=True)
     third = manager.create_backup(automatic=True)
 
-    backup_files = sorted(tmp_path.glob("shop_*.db"))
+    backup_files = sorted((tmp_path / "Backups").glob("shop_*.db"))
     assert len(backup_files) == 2
     assert first not in {str(path) for path in backup_files}
     assert second in {str(path) for path in backup_files}
@@ -226,8 +226,8 @@ def test_automatic_backup_folder_tracks_each_database_path(tmp_path, monkeypatch
     first_backup = first_manager.create_backup(automatic=True)
     second_backup = second_manager.create_backup(automatic=True)
 
-    assert first_backup.startswith(str(tmp_path / "first"))
-    assert second_backup.startswith(str(tmp_path / "second"))
+    assert first_backup.startswith(str(tmp_path / "first" / "Backups"))
+    assert second_backup.startswith(str(tmp_path / "second" / "Backups"))
 
 
 def test_application_settings_migrate_from_database_to_config(manager):
@@ -344,7 +344,7 @@ def test_automatic_backup_rotation_counts_legacy_fixed_backup(manager, tmp_path)
 
     assert not legacy_path.exists()
     assert os.path.exists(current_backup)
-    assert len(list(tmp_path.glob("shop_*.db"))) == 1
+    assert len(list((tmp_path / "Backups").glob("shop_*.db"))) == 1
 
 def test_automatic_backup_keeps_exactly_latest_configured_count(manager, tmp_path, monkeypatch):
     class FakeTimestamp:
@@ -371,7 +371,7 @@ def test_automatic_backup_keeps_exactly_latest_configured_count(manager, tmp_pat
     manager.cfg["auto_backup_retention_count"] = 10
     created = [manager.create_backup(automatic=True) for _ in range(12)]
 
-    remaining = sorted(tmp_path.glob("shop_*.db"), key=lambda p: p.stat().st_mtime_ns)
+    remaining = sorted((tmp_path / "Backups").glob("shop_*.db"), key=lambda p: p.stat().st_mtime_ns)
 
     assert len(remaining) == 10
     assert {str(path) for path in remaining} == set(created[-10:])
@@ -401,8 +401,32 @@ def test_automatic_backup_uses_db_files_and_removes_staging_file(manager, tmp_pa
 
     assert backup_path.endswith(".db")
     assert os.path.isfile(backup_path)
-    assert not list(tmp_path.glob("*.tmp"))
-    assert not list(tmp_path.glob("*.db.tmp"))
-    assert not list(tmp_path.glob(".shop_backup_*.db"))
+    assert not list((tmp_path / "Backups").glob("*.tmp"))
+    assert not list((tmp_path / "Backups").glob("*.db.tmp"))
+    assert not list((tmp_path / "Backups").glob(".shop_backup_*.db"))
     with sqlite3.connect(backup_path) as conn:
         assert conn.execute("PRAGMA quick_check").fetchone()[0] == "ok"
+
+
+
+def test_new_database_starts_without_seeded_suppliers(manager):
+    with manager.get_connection() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM suppliers").fetchone()[0] == 0
+
+
+def test_product_catalog_configuration_is_persisted_per_database(manager, tmp_path, monkeypatch):
+    manager.save_product_catalog_config({
+        "categories": ["لپ‌تاپ", "تجهیزات جدید"],
+        "subcategories": {"تجهیزات جدید": ["دستگاه هوشمند"]},
+        "attributes": {
+            "تجهیزات جدید": [{"name": "نسل", "values": ["نسل ۵", "نسل ۶"]}]
+        },
+        "colors": ["مشکی", "نقره‌ای"],
+    })
+
+    reloaded = DatabaseManager(str(tmp_path / "shop.db"))
+    config = reloaded.get_product_catalog_config()
+    assert "تجهیزات جدید" in config["categories"]
+    assert config["subcategories"]["تجهیزات جدید"] == ["دستگاه هوشمند"]
+    assert config["attributes"]["تجهیزات جدید"][0]["values"] == ["نسل ۵", "نسل ۶"]
+    assert config["colors"] == ["مشکی", "نقره‌ای"]
