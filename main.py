@@ -3250,6 +3250,12 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "خطا", "نام کارمند را وارد کنید.")
             return
         raw_pass = normalize_digits(self.ed_emp_pass.text().strip())
+        if self.db.cfg.get("require_login_password", False) and self.chk_emp_active.isChecked() and not raw_pass:
+            QMessageBox.warning(
+                self, "رمز عبور لازم است",
+                "تا زمانی که اجبار رمز عبور فعال است، کارمند فعال باید هنگام ثبت رمز تعیین کند."
+            )
+            return
         hashed = hash_password(raw_pass) if raw_pass else ""
         try:
             with self.db.get_connection() as conn:
@@ -3307,6 +3313,17 @@ class MainWindow(QMainWindow):
             if not emp:
                 return
             saved_hash = emp["password"] or ""
+            if (
+                self.db.cfg.get("require_login_password", False)
+                and self.chk_emp_active.isChecked()
+                and not saved_hash
+                and not new_raw
+            ):
+                QMessageBox.warning(
+                    self, "رمز عبور لازم است",
+                    "این کارمند فعال باید پیش از ذخیره اطلاعات، رمز عبور دریافت کند."
+                )
+                return
 
             # مورد ۴: اگر کاربر قصد تغییر رمز (یا ثبت رمز جدید برای کارمند دارای رمز) را دارد، رمز فعلی الزامی است
             if new_raw:
@@ -3437,9 +3454,38 @@ class MainWindow(QMainWindow):
     def _init_tab_settings(self):
         tab = QWidget()
         layout = QVBoxLayout(tab)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
+        layout.setAlignment(Qt.AlignTop)
 
-        gb_gen = QGroupBox("تنظیمات قیمت‌گذاری، صفرهای خودکار و پنجره‌ها")
+        # سیاست ورود در ابتدای صفحه و جدا از تنظیمات ظاهری/قیمت‌گذاری قرار دارد.
+        gb_security = QGroupBox("امنیت و ورود کاربران")
+        security_layout = QVBoxLayout(gb_security)
+        security_layout.setContentsMargins(12, 10, 12, 10)
+        security_layout.setSpacing(4)
+        self.chk_req_pass = QCheckBox(
+            "اجبار ورود با رمز عبور برای تمام کارکنان فعال"
+        )
+        self.chk_req_pass.setChecked(
+            bool(self.db.cfg.get("require_login_password", False))
+        )
+        self.chk_req_pass.setToolTip(
+            "در حالت فعال، تمام کارکنان فعال باید رمز داشته باشند و برای ورود آن را وارد کنند. "
+            "در حالت غیرفعال، فقط حساب‌هایی که رمز دارند نیازمند وارد کردن رمز هستند."
+        )
+        security_hint = QLabel(
+            "در صورت فعال‌سازی، ابتدا برای تمام کارکنان فعال رمز عبور تعریف کنید."
+        )
+        security_hint.setStyleSheet("color: #64748b; font-size: 11px;")
+        security_layout.addWidget(self.chk_req_pass)
+        security_layout.addWidget(security_hint)
+        layout.addWidget(gb_security)
+
+        gb_gen = QGroupBox("تنظیمات فروش، قیمت‌گذاری و نمایش برنامه")
         f_gen = QFormLayout(gb_gen)
+        f_gen.setContentsMargins(12, 12, 12, 10)
+        f_gen.setHorizontalSpacing(14)
+        f_gen.setVerticalSpacing(7)
 
         self.sp_set_profit = QSpinBox()
         self.sp_set_profit.setRange(0, 300)
@@ -3448,12 +3494,12 @@ class MainWindow(QMainWindow):
         )
 
         self.cb_zero_count = QComboBox()
-        self.cb_zero_count.addItem("بدون صفر اضافی (0)", "0")
-        self.cb_zero_count.addItem("افزودن ۲ صفر (ضرب در 100)", "2")
+        self.cb_zero_count.addItem("بدون صفر اضافی (۰)", "0")
+        self.cb_zero_count.addItem("افزودن ۲ صفر (ضرب در ۱۰۰)", "2")
         self.cb_zero_count.addItem(
-            "افزودن ۳ صفر (مثلاً تایپ 300 -> 300,000 تومان)", "3"
+            "افزودن ۳ صفر (مثلاً ۳۰۰ ← ۳۰۰٬۰۰۰ تومان)", "3"
         )
-        self.cb_zero_count.addItem("افزودن ۴ صفر (ضرب در 10,000)", "4")
+        self.cb_zero_count.addItem("افزودن ۴ صفر (ضرب در ۱۰٬۰۰۰)", "4")
         for zeros in (5, 6, 8, 10, 12):
             self.cb_zero_count.addItem(f"افزودن {zeros} صفر", str(zeros))
         cur_z = str(self.db.cfg.get("zero_append_count", 3))
@@ -3467,13 +3513,6 @@ class MainWindow(QMainWindow):
         if not bool(self.db.cfg.get("default_window_maximized", True)):
             self.cb_win_mode.setCurrentIndex(1)
 
-        self.chk_req_pass = QCheckBox(
-            "درخواست رمز عبور کارمند هنگام شروع برنامه (اختیاری)"
-        )
-        self.chk_req_pass.setChecked(
-            bool(self.db.cfg.get("require_login_password", False))
-        )
-
         self.ed_shop_name = QLineEdit(
             self.db.get_setting("shop_name", "فروشگاه من") or "فروشگاه من"
         )
@@ -3483,41 +3522,40 @@ class MainWindow(QMainWindow):
         f_gen.addRow("درصد سود پیش‌فرض فروشگاه (%):", self.sp_set_profit)
         f_gen.addRow("تعداد صفرهای اضافی قیمت (۰ = بدون صفر):", self.cb_zero_count)
         f_gen.addRow("حالت باز شدن پنجره برنامه:", self.cb_win_mode)
-        f_gen.addRow(self.chk_req_pass)
         f_gen.addRow("نام فروشگاه:", self.ed_shop_name)
         layout.addWidget(gb_gen)
 
-        # مورد ۹: مدیریت و اتصال به چند پایگاه داده مختلف + پشتیبان‌گیری
-        gb_db = QGroupBox("مدیریت چند پایگاه داده (اتصال، ایجاد دیتابیس جدید و پشتیبان‌گیری)")
+        gb_db = QGroupBox("پایگاه داده فعال و پشتیبان‌گیری")
         f_db = QFormLayout(gb_db)
+        f_db.setContentsMargins(12, 12, 12, 10)
+        f_db.setHorizontalSpacing(14)
+        f_db.setVerticalSpacing(7)
 
         self.cb_multi_db = QComboBox()
         self._refresh_multi_db_combo()
         self.cb_multi_db.currentIndexChanged.connect(self._on_switch_multi_db)
 
         db_btn_row = QHBoxLayout()
-        btn_new_db = QPushButton("➕ ایجاد دیتابیس جدید (مثلاً سال مالی جدید)")
+        db_btn_row.setSpacing(6)
+        btn_new_db = QPushButton("➕ ایجاد پایگاه داده")
         btn_new_db.clicked.connect(self._create_and_connect_new_db)
-        btn_open_existing_db = QPushButton("🔗 اتصال به فایل دیتابیس موجود")
+        btn_open_existing_db = QPushButton("🔗 اتصال به پایگاه داده")
         btn_open_existing_db.setObjectName("btnSecondary")
         btn_open_existing_db.clicked.connect(self._connect_existing_db)
-        btn_open_db_dir = QPushButton("📂 باز کردن پوشه دیتابیس فعلی")
+        btn_open_db_dir = QPushButton("📂 باز کردن پوشه")
         btn_open_db_dir.clicked.connect(self._open_db_folder)
         db_btn_row.addWidget(btn_new_db)
         db_btn_row.addWidget(btn_open_existing_db)
         db_btn_row.addWidget(btn_open_db_dir)
 
         self.chk_auto_bk = QCheckBox("پشتیبان‌گیری خودکار دوره‌ای فعال باشد")
-        self.chk_auto_bk.setChecked(
-            self.db.cfg.get("auto_backup_enabled", True)
-        )
+        self.chk_auto_bk.setChecked(self.db.cfg.get("auto_backup_enabled", True))
         self.sp_bk_interval = QSpinBox()
         self.sp_bk_interval.setRange(5, 1440)
-        self.sp_bk_interval.setValue(
-            int(self.db.cfg.get("auto_backup_interval_min", 60))
-        )
+        self.sp_bk_interval.setValue(int(self.db.cfg.get("auto_backup_interval_min", 60)))
         self.sp_bk_interval.setKeyboardTracking(False)
         self.sp_bk_interval.setButtonSymbols(QSpinBox.NoButtons)
+
         self.sp_bk_retention = QSpinBox()
         self.sp_bk_retention.setRange(1, 100)
         self.sp_bk_retention.setValue(
@@ -3526,14 +3564,16 @@ class MainWindow(QMainWindow):
         self.sp_bk_retention.setKeyboardTracking(False)
         self.sp_bk_retention.setButtonSymbols(QSpinBox.NoButtons)
         self.sp_bk_retention.setToolTip(
-            "حداکثر تعداد نسخه‌های خودکار برای همین فایل دیتابیس؛ پس از بکاپ موفق، قدیمی‌ترین نسخه حذف می‌شود."
+            "برای هر پایگاه داده، فقط جدیدترین تعداد انتخاب‌شده نگهداری می‌شود. "
+            "نسخه جدید ابتدا کامل و سالم ثبت می‌شود و سپس قدیمی‌ترین نسخه حذف می‌گردد."
         )
 
         bk_btn_row = QHBoxLayout()
-        btn_manual_bk = QPushButton("🛡️ تهیه نسخه پشتیبان دستی")
+        bk_btn_row.setSpacing(6)
+        btn_manual_bk = QPushButton("🛡️ پشتیبان‌گیری دستی")
         btn_manual_bk.setObjectName("btnSuccess")
         btn_manual_bk.clicked.connect(self._do_manual_backup)
-        btn_restore_bk = QPushButton("♻️ بازیابی اطلاعات از بکاپ")
+        btn_restore_bk = QPushButton("♻️ بازیابی پشتیبان")
         btn_restore_bk.setObjectName("btnDanger")
         btn_restore_bk.clicked.connect(self._do_restore_backup)
         bk_btn_row.addWidget(btn_manual_bk)
@@ -3542,17 +3582,20 @@ class MainWindow(QMainWindow):
         self.lbl_last_backup = QLabel(
             f"آخرین پشتیبان‌گیری: {self.db.cfg.get('last_backup_time', 'ثبت نشده')}"
         )
+        self.lbl_last_backup.setStyleSheet("color: #64748b;")
 
-        f_db.addRow("پایگاه داده فعال (انتخاب از لیست دیتابیس‌ها):", self.cb_multi_db)
+        f_db.addRow("فایل پایگاه داده فعال:", self.cb_multi_db)
         f_db.addRow(db_btn_row)
         f_db.addRow(self.chk_auto_bk)
-        f_db.addRow("فاصله زمانی بکاپ خودکار (دقیقه):", self.sp_bk_interval)
-        f_db.addRow("حداکثر تعداد نسخه‌های خودکار:", self.sp_bk_retention)
+        f_db.addRow("فاصله پشتیبان‌گیری خودکار (دقیقه):", self.sp_bk_interval)
+        f_db.addRow("حداکثر تعداد نسخه‌های خودکار برای هر دیتابیس:", self.sp_bk_retention)
         f_db.addRow(bk_btn_row)
         f_db.addRow(self.lbl_last_backup)
         layout.addWidget(gb_db)
+
         btn_save_set = QPushButton("💾 ذخیره تنظیمات")
-        btn_save_set.setMinimumWidth(180)
+        btn_save_set.setFixedWidth(220)
+        btn_save_set.setFixedHeight(36)
         btn_save_set.clicked.connect(self._save_general_settings)
         layout.addWidget(btn_save_set, 0, Qt.AlignHCenter)
 
@@ -3636,10 +3679,32 @@ class MainWindow(QMainWindow):
             self._switch_to_database_path(ext_path)
 
     def _save_general_settings(self):
+        requested_password_policy = self.chk_req_pass.isChecked()
+        current_password_policy = bool(self.db.cfg.get("require_login_password", False))
+        effective_password_policy = requested_password_policy
+
+        if requested_password_policy:
+            with self.db.get_connection() as conn:
+                missing_passwords = conn.execute(
+                    """SELECT name FROM employees
+                       WHERE is_active=1 AND (password IS NULL OR TRIM(password)='')"""
+                ).fetchall()
+            if missing_passwords:
+                names = "، ".join(row["name"] for row in missing_passwords[:6])
+                suffix = " و ..." if len(missing_passwords) > 6 else ""
+                QMessageBox.warning(
+                    self,
+                    "رمز عبور همه کارکنان لازم است",
+                    "برای فعال‌سازی این گزینه، ابتدا برای تمام کارکنان فعال رمز تعیین کنید:\n"
+                    + names + suffix,
+                )
+                effective_password_policy = current_password_policy
+                self.chk_req_pass.setChecked(current_password_policy)
+
         self.db.cfg["default_profit_pct"] = self.sp_set_profit.value()
         self.db.cfg["zero_append_count"] = int(self.cb_zero_count.currentData())
         self.db.cfg["default_window_maximized"] = self.cb_win_mode.currentData() == "1"
-        self.db.cfg["require_login_password"] = self.chk_req_pass.isChecked()
+        self.db.cfg["require_login_password"] = effective_password_policy
 
         shop_name = self.ed_shop_name.text().strip() or "فروشگاه من"
         self.db.set_setting("shop_name", shop_name)
