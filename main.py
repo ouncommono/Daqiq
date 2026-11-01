@@ -3728,153 +3728,573 @@ class MainWindow(QMainWindow):
         tab = QWidget()
         layout = QVBoxLayout(tab)
         layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(8)
+        layout.setSpacing(10)
         layout.setAlignment(Qt.AlignTop)
 
-        # سیاست ورود در ابتدای صفحه و جدا از تنظیمات ظاهری/قیمت‌گذاری قرار دارد.
         gb_security = QGroupBox("امنیت و ورود کاربران")
         security_layout = QVBoxLayout(gb_security)
-        security_layout.setContentsMargins(12, 10, 12, 10)
-        security_layout.setSpacing(4)
         self.chk_req_pass = QCheckBox(
             "اجبار ورود با رمز عبور برای تمام کارکنان فعال"
         )
-        self.chk_req_pass.setChecked(
-            bool(self.db.cfg.get("require_login_password", False))
-        )
         self.chk_req_pass.setToolTip(
-            "در حالت فعال، تمام کارکنان فعال باید رمز داشته باشند و برای ورود آن را وارد کنند. "
-            "در حالت غیرفعال، فقط حساب‌هایی که رمز دارند نیازمند وارد کردن رمز هستند."
+            "در حالت فعال، تمام کارکنان فعال باید رمز داشته باشند و برای ورود آن را وارد کنند."
         )
         security_hint = QLabel(
-            "در صورت فعال‌سازی، ابتدا برای تمام کارکنان فعال رمز عبور تعریف کنید."
+            "پیش از فعال‌سازی، برای تمام کارکنان فعال رمز عبور تعیین کنید."
         )
+        security_hint.setWordWrap(True)
         security_hint.setStyleSheet("color: #64748b; font-size: 11px;")
         security_layout.addWidget(self.chk_req_pass)
         security_layout.addWidget(security_hint)
         layout.addWidget(gb_security)
 
-        gb_gen = QGroupBox("تنظیمات فروش، قیمت‌گذاری و نمایش برنامه")
+        gb_gen = QGroupBox("تنظیمات عمومی فروش و نمایش")
         f_gen = QFormLayout(gb_gen)
         f_gen.setContentsMargins(12, 12, 12, 10)
         f_gen.setHorizontalSpacing(14)
-        f_gen.setVerticalSpacing(7)
+        f_gen.setVerticalSpacing(8)
 
         self.sp_set_profit = QSpinBox()
         self.sp_set_profit.setRange(0, 300)
-        self.sp_set_profit.setValue(
-            int(float(self.db.cfg.get("default_profit_pct", 20)))
-        )
-
         self.cb_zero_count = QComboBox()
         self.cb_zero_count.addItem("بدون صفر اضافی (۰)", "0")
-        self.cb_zero_count.addItem("افزودن ۲ صفر (ضرب در ۱۰۰)", "2")
-        self.cb_zero_count.addItem(
-            "افزودن ۳ صفر (مثلاً ۳۰۰ ← ۳۰۰٬۰۰۰ تومان)", "3"
-        )
-        self.cb_zero_count.addItem("افزودن ۴ صفر (ضرب در ۱۰٬۰۰۰)", "4")
+        self.cb_zero_count.addItem("افزودن ۲ صفر (×۱۰۰)", "2")
+        self.cb_zero_count.addItem("افزودن ۳ صفر (×۱٬۰۰۰)", "3")
+        self.cb_zero_count.addItem("افزودن ۴ صفر (×۱۰٬۰۰۰)", "4")
         for zeros in (5, 6, 8, 10, 12):
             self.cb_zero_count.addItem(f"افزودن {zeros} صفر", str(zeros))
-        cur_z = str(self.db.cfg.get("zero_append_count", 3))
-        idx_z = self.cb_zero_count.findData(cur_z)
-        if idx_z >= 0:
-            self.cb_zero_count.setCurrentIndex(idx_z)
 
         self.cb_win_mode = QComboBox()
-        self.cb_win_mode.addItem("تمام‌صفحه (Maximized)", "1")
-        self.cb_win_mode.addItem("پنجره معمولی (Normal)", "0")
-        if not bool(self.db.cfg.get("default_window_maximized", True)):
-            self.cb_win_mode.setCurrentIndex(1)
-
-        self.ed_shop_name = QLineEdit(
-            self.db.get_setting("shop_name", "فروشگاه من") or "فروشگاه من"
-        )
+        self.cb_win_mode.addItem("تمام‌صفحه", "1")
+        self.cb_win_mode.addItem("پنجره معمولی", "0")
+        self.ed_shop_name = QLineEdit()
         self.ed_shop_name.setAlignment(Qt.AlignRight)
         self.ed_shop_name.setLayoutDirection(Qt.RightToLeft)
 
         f_gen.addRow("درصد سود پیش‌فرض فروشگاه (%):", self.sp_set_profit)
-        f_gen.addRow("تعداد صفرهای اضافی قیمت (۰ = بدون صفر):", self.cb_zero_count)
-        f_gen.addRow("حالت باز شدن پنجره برنامه:", self.cb_win_mode)
+        f_gen.addRow("تعداد صفرهای اضافی قیمت:", self.cb_zero_count)
+        f_gen.addRow("حالت باز شدن پنجره:", self.cb_win_mode)
         f_gen.addRow("نام فروشگاه:", self.ed_shop_name)
         layout.addWidget(gb_gen)
 
-        gb_db = QGroupBox("پایگاه داده فعال و پشتیبان‌گیری")
+        # Per-database product taxonomy and catalog customization.
+        gb_catalog = QGroupBox("مدیریت دسته‌بندی‌ها، زیرمجموعه‌ها، مشخصات فنی و رنگ‌ها")
+        catalog_grid = QGridLayout(gb_catalog)
+        catalog_grid.setHorizontalSpacing(10)
+        catalog_grid.setVerticalSpacing(8)
+
+        gb_categories = QGroupBox("دسته‌بندی‌های اصلی")
+        categories_layout = QVBoxLayout(gb_categories)
+        self.cb_cfg_category = QComboBox()
+        self.ed_cfg_category = QLineEdit()
+        self.ed_cfg_category.setPlaceholderText("نام دسته‌بندی جدید یا نام جایگزین...")
+        cat_btn_row = QHBoxLayout()
+        btn_add_category = QPushButton("افزودن")
+        btn_add_category.clicked.connect(self._add_catalog_category)
+        btn_rename_category = QPushButton("تغییر نام")
+        btn_rename_category.setObjectName("btnSecondary")
+        btn_rename_category.clicked.connect(self._rename_catalog_category)
+        btn_delete_category = QPushButton("حذف")
+        btn_delete_category.setObjectName("btnDanger")
+        btn_delete_category.clicked.connect(self._delete_catalog_category)
+        cat_btn_row.addWidget(btn_add_category)
+        cat_btn_row.addWidget(btn_rename_category)
+        cat_btn_row.addWidget(btn_delete_category)
+        categories_layout.addWidget(self.cb_cfg_category)
+        categories_layout.addWidget(self.ed_cfg_category)
+        categories_layout.addLayout(cat_btn_row)
+
+        gb_subcategories = QGroupBox("زیرمجموعه‌های دستهٔ انتخاب‌شده")
+        sub_layout = QVBoxLayout(gb_subcategories)
+        self.lst_cfg_subcategories = QListWidget()
+        self.lst_cfg_subcategories.setMaximumHeight(125)
+        self.ed_cfg_subcategory = QLineEdit()
+        self.ed_cfg_subcategory.setPlaceholderText("عنوان زیرمجموعه...")
+        sub_btn_row = QHBoxLayout()
+        btn_add_sub = QPushButton("افزودن")
+        btn_add_sub.clicked.connect(self._add_catalog_subcategory)
+        btn_rename_sub = QPushButton("تغییر نام")
+        btn_rename_sub.setObjectName("btnSecondary")
+        btn_rename_sub.clicked.connect(self._rename_catalog_subcategory)
+        btn_delete_sub = QPushButton("حذف")
+        btn_delete_sub.setObjectName("btnDanger")
+        btn_delete_sub.clicked.connect(self._delete_catalog_subcategory)
+        sub_btn_row.addWidget(btn_add_sub)
+        sub_btn_row.addWidget(btn_rename_sub)
+        sub_btn_row.addWidget(btn_delete_sub)
+        sub_layout.addWidget(self.lst_cfg_subcategories)
+        sub_layout.addWidget(self.ed_cfg_subcategory)
+        sub_layout.addLayout(sub_btn_row)
+
+        gb_attributes = QGroupBox("مشخصات فنی سفارشی")
+        attr_layout = QVBoxLayout(gb_attributes)
+        self.lst_cfg_attributes = QListWidget()
+        self.lst_cfg_attributes.setMaximumHeight(125)
+        self.ed_cfg_attribute_name = QLineEdit()
+        self.ed_cfg_attribute_name.setPlaceholderText("نام ویژگی؛ مثلاً نوع پنل")
+        self.ed_cfg_attribute_values = QLineEdit()
+        self.ed_cfg_attribute_values.setPlaceholderText("مقادیر اختیاری با جداکنندهٔ ویرگول")
+        attr_btn_row = QHBoxLayout()
+        btn_add_attr = QPushButton("افزودن ویژگی")
+        btn_add_attr.clicked.connect(self._add_catalog_attribute)
+        btn_delete_attr = QPushButton("حذف ویژگی")
+        btn_delete_attr.setObjectName("btnDanger")
+        btn_delete_attr.clicked.connect(self._delete_catalog_attribute)
+        attr_btn_row.addWidget(btn_add_attr)
+        attr_btn_row.addWidget(btn_delete_attr)
+        attr_layout.addWidget(self.lst_cfg_attributes)
+        attr_layout.addWidget(self.ed_cfg_attribute_name)
+        attr_layout.addWidget(self.ed_cfg_attribute_values)
+        attr_layout.addLayout(attr_btn_row)
+
+        gb_colors = QGroupBox("رنگ‌های قابل انتخاب کالا")
+        colors_layout = QVBoxLayout(gb_colors)
+        self.lst_cfg_colors = QListWidget()
+        self.lst_cfg_colors.setMaximumHeight(125)
+        self.ed_cfg_color = QLineEdit()
+        self.ed_cfg_color.setPlaceholderText("نام رنگ جدید...")
+        color_btn_row = QHBoxLayout()
+        btn_add_color = QPushButton("افزودن رنگ")
+        btn_add_color.clicked.connect(self._add_catalog_color)
+        btn_delete_color = QPushButton("حذف رنگ")
+        btn_delete_color.setObjectName("btnDanger")
+        btn_delete_color.clicked.connect(self._delete_catalog_color)
+        color_btn_row.addWidget(btn_add_color)
+        color_btn_row.addWidget(btn_delete_color)
+        colors_layout.addWidget(self.lst_cfg_colors)
+        colors_layout.addWidget(self.ed_cfg_color)
+        colors_layout.addLayout(color_btn_row)
+
+        catalog_grid.addWidget(gb_categories, 0, 0)
+        catalog_grid.addWidget(gb_subcategories, 0, 1)
+        catalog_grid.addWidget(gb_attributes, 1, 0)
+        catalog_grid.addWidget(gb_colors, 1, 1)
+        self.cb_cfg_category.currentTextChanged.connect(
+            self._refresh_catalog_management_lists
+        )
+        layout.addWidget(gb_catalog)
+
+        gb_db = QGroupBox("پایگاه دادهٔ فعال و پشتیبان‌گیری خودکار")
         f_db = QFormLayout(gb_db)
         f_db.setContentsMargins(12, 12, 12, 10)
         f_db.setHorizontalSpacing(14)
-        f_db.setVerticalSpacing(7)
+        f_db.setVerticalSpacing(8)
 
-        self.cb_multi_db = QComboBox()
-        self._refresh_multi_db_combo()
-        self.cb_multi_db.currentIndexChanged.connect(self._on_switch_multi_db)
+        self.lbl_active_db_path = QLabel()
+        self.lbl_active_db_path.setWordWrap(True)
+        self.lbl_active_db_path.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.lst_recent_databases = QListWidget()
+        self.lst_recent_databases.setMaximumHeight(190)
+        self.lst_recent_databases.setToolTip(
+            "برای اتصال از دکمهٔ «اتصال» استفاده کنید؛ علامت × فقط مسیر را از فهرست حذف می‌کند و فایل را پاک نمی‌کند."
+        )
 
         db_btn_row = QHBoxLayout()
-        db_btn_row.setSpacing(6)
-        btn_new_db = QPushButton("➕ ایجاد پایگاه داده")
+        btn_new_db = QPushButton("ایجاد پایگاه داده")
         btn_new_db.clicked.connect(self._create_and_connect_new_db)
-        btn_open_existing_db = QPushButton("🔗 اتصال به پایگاه داده")
+        btn_open_existing_db = QPushButton("اتصال به پایگاه دادهٔ موجود")
         btn_open_existing_db.setObjectName("btnSecondary")
         btn_open_existing_db.clicked.connect(self._connect_existing_db)
-        btn_open_db_dir = QPushButton("📂 باز کردن پوشه")
+        btn_open_db_dir = QPushButton("باز کردن پوشه")
         btn_open_db_dir.clicked.connect(self._open_db_folder)
         db_btn_row.addWidget(btn_new_db)
         db_btn_row.addWidget(btn_open_existing_db)
         db_btn_row.addWidget(btn_open_db_dir)
 
         self.chk_auto_bk = QCheckBox("پشتیبان‌گیری خودکار دوره‌ای فعال باشد")
-        self.chk_auto_bk.setChecked(self.db.cfg.get("auto_backup_enabled", True))
         self.sp_bk_interval = QSpinBox()
         self.sp_bk_interval.setRange(5, 1440)
-        self.sp_bk_interval.setValue(int(self.db.cfg.get("auto_backup_interval_min", 60)))
+        self.sp_bk_interval.setSuffix(" دقیقه")
         self.sp_bk_interval.setKeyboardTracking(False)
         self.sp_bk_interval.setButtonSymbols(QSpinBox.NoButtons)
 
         self.sp_bk_retention = QSpinBox()
         self.sp_bk_retention.setRange(1, 100)
-        self.sp_bk_retention.setValue(
-            max(1, min(100, int(self.db.cfg.get("auto_backup_retention_count", 10))))
-        )
+        self.sp_bk_retention.setSuffix(" نسخه")
         self.sp_bk_retention.setKeyboardTracking(False)
         self.sp_bk_retention.setButtonSymbols(QSpinBox.NoButtons)
         self.sp_bk_retention.setToolTip(
-            "برای هر پایگاه داده، فقط جدیدترین تعداد انتخاب‌شده نگهداری می‌شود. "
-            "نسخه جدید ابتدا کامل و سالم ثبت می‌شود و سپس قدیمی‌ترین نسخه حذف می‌گردد."
+            "نسخهٔ جدید ابتدا در پوشهٔ Backups ساخته و بررسی می‌شود؛ سپس نسخه‌های قدیمی‌تر از سقف تعیین‌شده حذف می‌شوند."
         )
 
         bk_btn_row = QHBoxLayout()
-        bk_btn_row.setSpacing(6)
-        btn_manual_bk = QPushButton("🛡️ پشتیبان‌گیری دستی")
+        btn_manual_bk = QPushButton("پشتیبان‌گیری دستی")
         btn_manual_bk.setObjectName("btnSuccess")
         btn_manual_bk.clicked.connect(self._do_manual_backup)
-        btn_restore_bk = QPushButton("♻️ بازیابی پشتیبان")
+        btn_restore_bk = QPushButton("بازیابی پشتیبان")
         btn_restore_bk.setObjectName("btnDanger")
         btn_restore_bk.clicked.connect(self._do_restore_backup)
         bk_btn_row.addWidget(btn_manual_bk)
         bk_btn_row.addWidget(btn_restore_bk)
 
-        self.lbl_last_backup = QLabel(
-            f"آخرین پشتیبان‌گیری: {self.db.cfg.get('last_backup_time', 'ثبت نشده')}"
-        )
+        self.lbl_last_backup = QLabel()
+        self.lbl_last_backup.setWordWrap(True)
         self.lbl_last_backup.setStyleSheet("color: #64748b;")
 
-        f_db.addRow("فایل پایگاه داده فعال:", self.cb_multi_db)
+        f_db.addRow("مسیر پایگاه دادهٔ فعال:", self.lbl_active_db_path)
+        f_db.addRow("فهرست پایگاه‌های داده:", self.lst_recent_databases)
         f_db.addRow(db_btn_row)
         f_db.addRow(self.chk_auto_bk)
-        f_db.addRow("فاصله پشتیبان‌گیری خودکار (دقیقه):", self.sp_bk_interval)
-        f_db.addRow("حداکثر تعداد نسخه‌های خودکار برای هر دیتابیس:", self.sp_bk_retention)
+        f_db.addRow("فاصلهٔ پشتیبان‌گیری خودکار:", self.sp_bk_interval)
+        f_db.addRow("حداکثر نسخه‌های پشتیبان خودکار:", self.sp_bk_retention)
         f_db.addRow(bk_btn_row)
         f_db.addRow(self.lbl_last_backup)
         layout.addWidget(gb_db)
 
         btn_save_set = QPushButton("💾 ذخیره تنظیمات")
-        btn_save_set.setFixedWidth(220)
-        btn_save_set.setFixedHeight(36)
+        btn_save_set.setMinimumHeight(42)
+        btn_save_set.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         btn_save_set.clicked.connect(self._save_general_settings)
-        layout.addWidget(btn_save_set, 0, Qt.AlignHCenter)
+        layout.addWidget(btn_save_set)
 
-        self.tabs.addTab(tab, "⚙️ تنظیمات و پشتیبان‌گیری")
+        self._settings_tab_index = self._add_scrollable_tab(
+            tab, "⚙️ تنظیمات و پشتیبان‌گیری"
+        )
+        self._load_general_settings_form()
+
+    def _load_general_settings_form(self):
+        cfg = self.db.cfg
+        self.chk_req_pass.setChecked(bool(cfg.get("require_login_password", False)))
+        self.sp_set_profit.setValue(int(float(cfg.get("default_profit_pct", 20))))
+
+        zero_count = str(cfg.get("zero_append_count", 3))
+        zero_index = self.cb_zero_count.findData(zero_count)
+        self.cb_zero_count.setCurrentIndex(zero_index if zero_index >= 0 else 0)
+        self.cb_win_mode.setCurrentIndex(
+            0 if bool(cfg.get("default_window_maximized", True)) else 1
+        )
+        self.ed_shop_name.setText(
+            self.db.get_setting("shop_name", "فروشگاه من") or "فروشگاه من"
+        )
+        self.chk_auto_bk.setChecked(bool(cfg.get("auto_backup_enabled", True)))
+        self.sp_bk_interval.setValue(max(5, int(cfg.get("auto_backup_interval_min", 60))))
+        self.sp_bk_retention.setValue(
+            max(1, min(100, int(cfg.get("auto_backup_retention_count", 10))))
+        )
+        last_backup = cfg.get("last_backup_time", "ثبت نشده")
+        warning = cfg.get("last_backup_warning", "")
+        self.lbl_last_backup.setText(
+            f"آخرین پشتیبان‌گیری: {last_backup}" + (f"\n{warning}" if warning else "")
+        )
+        self.lbl_last_backup.setToolTip(
+            warning or f"مسیر نسخه‌های خودکار: {self.db.get_automatic_backup_directory()}"
+        )
+        self.lbl_active_db_path.setText(self.db.db_path)
+        self._refresh_multi_db_combo()
+        self._load_catalog_customization_form()
+
+    def _load_catalog_customization_form(self):
+        stored = self.db.get_product_catalog_config()
+        defaults = {
+            "categories": list(MAIN_CATEGORIES),
+            "subcategories": {},
+            "attributes": {},
+            "colors": [
+                "مشکی", "سفید", "نقره‌ای", "خاکستری", "آبی",
+                "قرمز", "طلایی", "سبز", "بنفش", "صورتی", "سایر",
+            ],
+        }
+        self._taxonomy_draft = {
+            key: copy.deepcopy(stored.get(key) or defaults[key])
+            for key in defaults
+        }
+        if stored.get("categories"):
+            self._taxonomy_draft["categories"] = list(stored["categories"])
+        self._pending_category_renames = []
+        self._pending_subcategory_renames = []
+
+        self.cb_cfg_category.blockSignals(True)
+        self.cb_cfg_category.clear()
+        self.cb_cfg_category.addItems(self._taxonomy_draft["categories"])
+        self.cb_cfg_category.blockSignals(False)
+        if self.cb_cfg_category.count():
+            self.cb_cfg_category.setCurrentIndex(0)
+        self._refresh_catalog_management_lists()
+
+    def _refresh_catalog_management_lists(self, *_):
+        if not hasattr(self, "_taxonomy_draft"):
+            return
+        category = self.cb_cfg_category.currentText().strip()
+        self.lst_cfg_subcategories.clear()
+        for value in self._taxonomy_draft["subcategories"].get(category, []):
+            self.lst_cfg_subcategories.addItem(value)
+        self.lst_cfg_attributes.clear()
+        for item in self._taxonomy_draft["attributes"].get(category, []):
+            values = "، ".join(item.get("values", []))
+            label = item["name"] + (f" — {values}" if values else "")
+            entry = QListWidgetItem(label)
+            entry.setData(Qt.UserRole, item["name"])
+            self.lst_cfg_attributes.addItem(entry)
+        self.lst_cfg_colors.clear()
+        for color in self._taxonomy_draft["colors"]:
+            self.lst_cfg_colors.addItem(color)
+
+    def _add_catalog_category(self):
+        name = self.ed_cfg_category.text().strip()
+        if not name:
+            return
+        categories = self._taxonomy_draft["categories"]
+        if name in categories:
+            QMessageBox.information(self, "دسته‌بندی موجود است", "این دسته‌بندی قبلاً ثبت شده است.")
+            return
+        categories.append(name)
+        self.cb_cfg_category.addItem(name)
+        self.cb_cfg_category.setCurrentText(name)
+        self.ed_cfg_category.clear()
+
+    def _rename_catalog_category(self):
+        old = self.cb_cfg_category.currentText().strip()
+        new = self.ed_cfg_category.text().strip()
+        if not old or not new or old == new:
+            return
+        if new in self._taxonomy_draft["categories"]:
+            QMessageBox.warning(self, "نام تکراری", "دسته‌بندی دیگری با این نام وجود دارد.")
+            return
+        index = self._taxonomy_draft["categories"].index(old)
+        self._taxonomy_draft["categories"][index] = new
+        if old in self._taxonomy_draft["subcategories"]:
+            self._taxonomy_draft["subcategories"][new] = self._taxonomy_draft["subcategories"].pop(old)
+        if old in self._taxonomy_draft["attributes"]:
+            self._taxonomy_draft["attributes"][new] = self._taxonomy_draft["attributes"].pop(old)
+        self._pending_category_renames.append((old, new))
+        self.cb_cfg_category.setItemText(self.cb_cfg_category.currentIndex(), new)
+        self.ed_cfg_category.clear()
+        self._refresh_catalog_management_lists()
+
+    def _delete_catalog_category(self):
+        category = self.cb_cfg_category.currentText().strip()
+        if not category or len(self._taxonomy_draft["categories"]) <= 1:
+            return
+        with self.db.get_connection() as conn:
+            used = conn.execute(
+                "SELECT COUNT(*) FROM products WHERE category=?", (category,)
+            ).fetchone()[0]
+        if used:
+            QMessageBox.warning(
+                self, "دسته‌بندی در حال استفاده است",
+                "برای حفظ سوابق کالاها، این دسته‌بندی حذف نمی‌شود. در صورت نیاز نام آن را تغییر دهید."
+            )
+            return
+        self._taxonomy_draft["categories"].remove(category)
+        self._taxonomy_draft["subcategories"].pop(category, None)
+        self._taxonomy_draft["attributes"].pop(category, None)
+        self.cb_cfg_category.removeItem(self.cb_cfg_category.currentIndex())
+        self._refresh_catalog_management_lists()
+
+    def _add_catalog_subcategory(self):
+        category = self.cb_cfg_category.currentText().strip()
+        name = self.ed_cfg_subcategory.text().strip()
+        if not category or not name:
+            return
+        values = self._taxonomy_draft["subcategories"].setdefault(category, [])
+        if name not in values:
+            values.append(name)
+        self.ed_cfg_subcategory.clear()
+        self._refresh_catalog_management_lists()
+
+    def _rename_catalog_subcategory(self):
+        category = self.cb_cfg_category.currentText().strip()
+        item = self.lst_cfg_subcategories.currentItem()
+        new = self.ed_cfg_subcategory.text().strip()
+        if not item or not new:
+            return
+        old = item.text()
+        if old == new:
+            return
+        values = self._taxonomy_draft["subcategories"].setdefault(category, [])
+        if new in values:
+            QMessageBox.warning(self, "نام تکراری", "این زیرمجموعه قبلاً وجود دارد.")
+            return
+        values[values.index(old)] = new
+        self._pending_subcategory_renames.append((category, old, new))
+        self.ed_cfg_subcategory.clear()
+        self._refresh_catalog_management_lists()
+
+    def _delete_catalog_subcategory(self):
+        category = self.cb_cfg_category.currentText().strip()
+        item = self.lst_cfg_subcategories.currentItem()
+        if not item:
+            return
+        name = item.text()
+        with self.db.get_connection() as conn:
+            used = conn.execute(
+                "SELECT COUNT(*) FROM products WHERE category=? AND sub_category=?",
+                (category, name),
+            ).fetchone()[0]
+        if used:
+            QMessageBox.warning(
+                self, "زیرمجموعه در حال استفاده است",
+                "برای حفظ سوابق کالاها، این زیرمجموعه حذف نمی‌شود. ابتدا کالاهای مرتبط را اصلاح کنید."
+            )
+            return
+        values = self._taxonomy_draft["subcategories"].get(category, [])
+        if name in values:
+            values.remove(name)
+        self._refresh_catalog_management_lists()
+
+    def _add_catalog_attribute(self):
+        category = self.cb_cfg_category.currentText().strip()
+        name = self.ed_cfg_attribute_name.text().strip()
+        if not category or not name:
+            QMessageBox.warning(self, "نام ویژگی لازم است", "نام مشخصهٔ فنی را وارد کنید.")
+            return
+        definitions = self._taxonomy_draft["attributes"].setdefault(category, [])
+        if any(item["name"] == name for item in definitions):
+            QMessageBox.warning(self, "ویژگی تکراری", "این مشخصه قبلاً برای این دسته‌بندی ثبت شده است.")
+            return
+        values = [
+            value.strip() for value in self.ed_cfg_attribute_values.text().replace("،", ",").split(",")
+            if value.strip()
+        ]
+        definitions.append({"name": name, "values": list(dict.fromkeys(values))})
+        self.ed_cfg_attribute_name.clear()
+        self.ed_cfg_attribute_values.clear()
+        self._refresh_catalog_management_lists()
+
+    def _delete_catalog_attribute(self):
+        category = self.cb_cfg_category.currentText().strip()
+        item = self.lst_cfg_attributes.currentItem()
+        if not item:
+            return
+        name = item.data(Qt.UserRole)
+        definitions = self._taxonomy_draft["attributes"].get(category, [])
+        self._taxonomy_draft["attributes"][category] = [
+            definition for definition in definitions if definition.get("name") != name
+        ]
+        self._refresh_catalog_management_lists()
+
+    def _add_catalog_color(self):
+        color = self.ed_cfg_color.text().strip()
+        if color and color not in self._taxonomy_draft["colors"]:
+            self._taxonomy_draft["colors"].append(color)
+            self.ed_cfg_color.clear()
+            self._refresh_catalog_management_lists()
+
+    def _delete_catalog_color(self):
+        item = self.lst_cfg_colors.currentItem()
+        if item:
+            color = item.text()
+            self._taxonomy_draft["colors"] = [
+                value for value in self._taxonomy_draft["colors"] if value != color
+            ]
+            self._refresh_catalog_management_lists()
+
+    def _apply_product_catalog_config(self):
+        self.catalog_config = self.db.get_product_catalog_config()
+        categories = self.catalog_config.get("categories") or list(MAIN_CATEGORIES)
+        categories = list(dict.fromkeys(MAIN_CATEGORIES + categories))
+        colors = self.catalog_config.get("colors") or [
+            "مشکی", "سفید", "نقره‌ای", "خاکستری", "آبی",
+            "قرمز", "طلایی", "سبز", "سایر",
+        ]
+        current_category = self.cb_prod_cat.currentText() if hasattr(self, "cb_prod_cat") else ""
+        if hasattr(self, "cb_prod_cat"):
+            self.cb_prod_cat.blockSignals(True)
+            self.cb_prod_cat.clear()
+            self.cb_prod_cat.addItems(categories)
+            if current_category:
+                self.cb_prod_cat.setCurrentText(current_category)
+            self.cb_prod_cat.blockSignals(False)
+        if hasattr(self, "cb_prod_color"):
+            current_color = self.cb_prod_color.currentText()
+            self.cb_prod_color.blockSignals(True)
+            self.cb_prod_color.clear()
+            self.cb_prod_color.addItem("")
+            self.cb_prod_color.addItems(colors)
+            self.cb_prod_color.setCurrentText(current_color)
+            self.cb_prod_color.blockSignals(False)
+        if hasattr(self, "specs_widget"):
+            self._configure_product_specs(self.cb_prod_cat.currentText())
+
+    def _configure_product_specs(self, category):
+        if not hasattr(self, "specs_widget"):
+            return
+        category = (category or "").strip()
+        self.specs_widget.set_category(category)
+        if hasattr(self, "catalog_config"):
+            self.specs_widget.apply_custom_catalog(
+                self.catalog_config.get("subcategories", {}).get(category),
+                self.catalog_config.get("attributes", {}).get(category, []),
+            )
 
     def _refresh_multi_db_combo(self):
+        self._refresh_recent_database_list()
+
+    def _refresh_recent_database_list(self):
+        self.lst_recent_databases.clear()
+        recents = self.db.cfg.get("recent_databases", [])
+        active_path = os.path.abspath(self.db.db_path)
+        ordered = []
+        for path in [active_path] + list(reversed(recents)):
+            if not path:
+                continue
+            normalized = os.path.abspath(path)
+            if normalized not in ordered:
+                ordered.append(normalized)
+        self.db.cfg["recent_databases"] = ordered
+
+        for database_path in ordered:
+            row_item = QListWidgetItem()
+            row_widget = QWidget()
+            row_layout = QHBoxLayout(row_widget)
+            row_layout.setContentsMargins(5, 3, 5, 3)
+            row_layout.setSpacing(6)
+
+            is_active = os.path.normcase(database_path) == os.path.normcase(active_path)
+            database_label = QLabel(os.path.basename(database_path))
+            database_label.setToolTip(database_path)
+            database_label.setMinimumWidth(100)
+            database_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+            if is_active:
+                database_label.setStyleSheet("font-weight: bold; color: #059669;")
+
+            btn_connect = QPushButton("فعال" if is_active else "اتصال")
+            btn_connect.setEnabled(not is_active)
+            btn_connect.setMaximumWidth(72)
+            btn_connect.clicked.connect(
+                lambda checked=False, target=database_path: self._switch_to_database_path(target)
+            )
+
+            btn_remove = QToolButton()
+            btn_remove.setText("×")
+            btn_remove.setToolTip("حذف مسیر از فهرست؛ فایل پایگاه داده پاک نمی‌شود")
+            btn_remove.setFixedSize(28, 28)
+            btn_remove.setEnabled(not is_active)
+            btn_remove.setStyleSheet(
+                "QToolButton { color: #dc2626; font-size: 18px; font-weight: bold; "
+                "border-radius: 5px; background: transparent; }"
+                "QToolButton:hover { background: rgba(220,38,38,0.12); }"
+            )
+            btn_remove.clicked.connect(
+                lambda checked=False, target=database_path: self._remove_recent_database(target)
+            )
+
+            row_layout.addWidget(database_label, 1)
+            row_layout.addWidget(btn_connect)
+            row_layout.addWidget(btn_remove)
+            row_item.setSizeHint(row_widget.sizeHint())
+            self.lst_recent_databases.addItem(row_item)
+            self.lst_recent_databases.setItemWidget(row_item, row_widget)
+
+        save_app_config(self.db.cfg)
+
+    def _remove_recent_database(self, database_path):
+        active = os.path.normcase(os.path.abspath(self.db.db_path))
+        target = os.path.normcase(os.path.abspath(database_path))
+        if target == active:
+            QMessageBox.information(
+                self, "پایگاه دادهٔ فعال",
+                "پایگاه دادهٔ فعال را نمی‌توان از فهرست حذف کرد."
+            )
+            return
+        self.db.cfg["recent_databases"] = [
+            path for path in self.db.cfg.get("recent_databases", [])
+            if os.path.normcase(os.path.abspath(path)) != target
+        ]
+        save_app_config(self.db.cfg)
+        self._refresh_recent_database_list()
+
+
         self.cb_multi_db.blockSignals(True)
         self.cb_multi_db.clear()
         recents = self.db.cfg.get("recent_databases", [self.db.db_path])
