@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QTableWidget,
     QListWidget,
+    QAbstractItemView,
 )
 from PySide6.QtCore import (
     Qt,
@@ -397,7 +398,7 @@ class SmoothScrollListWidget(QListWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._wheel_animation = None
-        self.setVerticalScrollMode(QListWidget.ScrollPerPixel)
+        self.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.verticalScrollBar().setSingleStep(18)
 
     def wheelEvent(self, event):
