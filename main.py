@@ -107,18 +107,27 @@ class LoginDialog(QDialog):
         layout.addRow(btn_login)
 
     def _check_login(self):
-        emp = self.cb_emp.currentData()
-        if not emp:
+        employee = self.cb_emp.currentData()
+        if not employee:
             return
-        saved_hash = emp.get("password") or ""
-        typed_raw = normalize_digits(self.ed_pass.text())
-        if saved_hash:
-            # پشتیبانی از هش SHA-256
-            if hash_password(typed_raw) != saved_hash and typed_raw != saved_hash:
-                QMessageBox.warning(self, "خطا", "رمز عبور وارد شده صحیح نیست!")
+        stored_hash = employee.get("password") or ""
+        typed_password = normalize_digits(self.ed_pass.text())
+        password_required = self.db.get_setting("require_login_password", "0") == "1"
+        if stored_hash:
+            if not typed_password or (
+                hash_password(typed_password) != stored_hash and typed_password != stored_hash
+            ):
+                QMessageBox.warning(self, "خطا", "رمز عبور واردشده صحیح نیست.")
                 return
-        self.logged_employee = emp
+        elif password_required:
+            QMessageBox.warning(
+                self, "رمز عبور تعریف نشده",
+                "برای این کارمند هنوز رمز ورود ثبت نشده است. مدیر سیستم باید ابتدا رمز عبور تعریف کند."
+            )
+            return
+        self.logged_employee = employee
         self.accept()
+
 
 
 class MainWindow(QMainWindow):
@@ -727,31 +736,45 @@ class MainWindow(QMainWindow):
                 self.specs_widget.set_specs_dict(sp_data)
 
     def _update_selected_product(self):
-        specs_dict = self.specs_widget.get_specs_dict()
-        color_val = self.cb_prod_color.currentText().strip()
-        if color_val:
-            specs_dict["رنگ"] = color_val
+        specs = self.specs_widget.get_specs_dict()
+        color = self.cb_prod_color.currentText().strip()
+        if color:
+            specs["رنگ"] = color
         if not self.selected_product_id:
-            QMessageBox.warning(self, "انتخاب کالا", "ابتدا یک کالا را از جدول انتخاب کنید.")
+            QMessageBox.warning(self, "انتخاب کالا", "ابتدا کالای موردنظر را از جدول انتخاب کنید.")
             return
         try:
+            code = self.ed_prod_code.text().strip()
+            with self.db.get_connection() as conn:
+                duplicate = conn.execute(
+                    "SELECT id FROM products WHERE code=? AND id<>?",
+                    (code, self.selected_product_id),
+                ).fetchone()
+            target_id = self.selected_product_id
+            if duplicate:
+                msg = QMessageBox(self)
+                msg.setWindowTitle("کد کالای تکراری")
+                msg.setText(f"کد {code} قبلاً برای کالای دیگری ثبت شده است. اطلاعات همان کالا جایگزین شود؟")
+                replace_btn = msg.addButton("جایگزین کردن", QMessageBox.AcceptRole)
+                msg.addButton("انصراف", QMessageBox.RejectRole)
+                msg.exec()
+                if msg.clickedButton() != replace_btn:
+                    return
+                target_id = int(duplicate["id"])
             self.db.update_product(
-                self.selected_product_id,
-                self.ed_prod_code.text().strip(),
-                "",
+                target_id, code, "",
                 self.cb_prod_cat.currentText().strip() or "سایر موارد",
                 self.specs_widget.get_sub_category(),
-                self.ed_prod_brand.text().strip(),
-                self.ed_prod_model.text().strip(),
-                specs_dict,
-                self.ed_prod_desc.text().strip(),
-                self.sp_prod_reorder.value(),
-                self.sp_prod_profit.value(),
+                self.ed_prod_brand.text().strip(), self.ed_prod_model.text().strip(),
+                specs, self.ed_prod_desc.text().strip(),
+                self.sp_prod_reorder.value(), self.sp_prod_profit.value(),
             )
+            self.selected_product_id = target_id
             self.refresh_all_data()
             QMessageBox.information(self, "ذخیره شد", "اطلاعات کالا با موفقیت اصلاح شد.")
-        except Exception as e:
-            QMessageBox.critical(self, "خطا", str(e))
+        except Exception as exc:
+            QMessageBox.critical(self, "خطا در ویرایش کالا", str(exc))
+
 
     def _delete_selected_product(self):
         if not self.selected_product_id:
@@ -1815,7 +1838,11 @@ class MainWindow(QMainWindow):
                 self, "خطا", "محموله کالای هدف و محموله قطعه مصرفی را انتخاب کنید."
             )
             return
+        if int(t_id) == int(p_id):
+            QMessageBox.warning(self, "انتخاب نامعتبر", "محموله هدف و قطعه مصرفی باید متفاوت باشند.")
+            return
         try:
+            was_edit = self.selected_upgrade_id is not None
             self.db.upgrade_batch_product(
                 t_id,
                 self.cb_upg_target_qty.get_qty(),
@@ -1828,13 +1855,16 @@ class MainWindow(QMainWindow):
                 self.ed_upg_serial.text().strip(),
                 "",
                 add_part_cost_to_product=self.chk_upg_add_cost.isChecked(),
+                upgrade_id=self.selected_upgrade_id,
             )
             self.refresh_all_data()
+            self._clear_upgrade_form()
             QMessageBox.information(
-                self, "ثبت شد", "ارتقای کالا با موفقیت ثبت گردید."
+                self, "ارتقای کالا",
+                "اطلاعات ارتقا با موفقیت اصلاح شد." if was_edit else "ارتقای کالا با موفقیت ثبت شد."
             )
-        except Exception as e:
-            QMessageBox.critical(self, "خطا در ارتقا", str(e))
+        except Exception as exc:
+            QMessageBox.critical(self, "خطا در ارتقا", str(exc))
 
     def _clear_upgrade_form(self):
         self.selected_upgrade_id = None
@@ -3060,6 +3090,12 @@ class MainWindow(QMainWindow):
     def _remove_employee_password(self):
         if not self.selected_emp_id:
             QMessageBox.warning(self, "انتخاب کارمند", "ابتدا کارمند موردنظر را انتخاب کنید.")
+            return
+        if self.db.get_setting("require_login_password", "0") == "1":
+            QMessageBox.warning(
+                self, "الزام رمز ورود فعال است",
+                "ابتدا الزام عمومی ورود با رمز عبور را در تنظیمات غیرفعال کنید؛ سپس می‌توانید رمز این کارمند را حذف نمایید."
+            )
             return
         current_password = normalize_digits(self.ed_emp_old_pass.text().strip())
         if not current_password:
