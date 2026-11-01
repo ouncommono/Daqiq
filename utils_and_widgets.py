@@ -1025,14 +1025,18 @@ class DynamicSpecsWidget(QGroupBox):
 
     def apply_custom_catalog(self, subcategories=None, custom_fields=None):
         """Apply user-managed subcategories and extra specification fields."""
-        if self.cb_sub is not None and isinstance(subcategories, list) and subcategories:
+        if self.cb_sub is not None and isinstance(subcategories, list):
             current = self.cb_sub.currentText()
             self.cb_sub.blockSignals(True)
             self.cb_sub.clear()
             self.cb_sub.addItems(subcategories)
             self.cb_sub.setEditable(True)
-            if current:
+            if current in subcategories:
                 self.cb_sub.setCurrentText(current)
+            elif subcategories:
+                self.cb_sub.setCurrentIndex(0)
+            else:
+                self.cb_sub.setCurrentText("")
             self.cb_sub.blockSignals(False)
             if self.current_category == "قطعات":
                 self._rebuild_part_subfields(self.cb_sub.currentText())
