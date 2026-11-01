@@ -1787,9 +1787,8 @@ class MainWindow(QMainWindow):
             pieces = []
             current = parsed_rows[index]
             for key in varying_keys:
-                value = current.get(key, "ثبت نشده")
-                if value != "ثبت نشده":
-                    pieces.append(f"{key}: {value}")
+                value = current.get(key) or "ثبت نشده"
+                pieces.append(f"{key}: {value}")
 
             if not varying_keys:
                 shared_tokens = (
