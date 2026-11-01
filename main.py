@@ -4688,25 +4688,38 @@ class MainWindow(QMainWindow):
         self.cb_sale_prod.blockSignals(True)
         self.cb_batch_prod.clear()
         self.cb_sale_prod.clear()
-        for p in prods:
-            specs = json.loads(p["specs_json"] or "{}")
-            specs_short = " ".join(str(v) for v in specs.values())
-            product_description = str(p["description"] or "")
-            lbl = (
-                f"{p['code']} | {p['category']} - {p['sub_category']} | "
-                f"{p['brand']} {p['model']} {specs_short}".strip()
+        for product_row in prods:
+            product = dict(product_row)
+            try:
+                specs = json.loads(product.get("specs_json") or "{}")
+            except (TypeError, ValueError, json.JSONDecodeError):
+                specs = {}
+            if not isinstance(specs, dict):
+                specs = {}
+            specs_short = "، ".join(str(value) for value in specs.values() if str(value).strip())
+            product_description = str(product.get("description") or "")
+            visible_label = self._format_product_picker_label(product, include_specs=True)
+            batch_index = self.cb_batch_prod.count()
+            self.cb_batch_prod.addItem(visible_label, product)
+            self.cb_batch_prod.setItemData(
+                batch_index,
+                f"{visible_label}\nمشخصات کامل: {specs_short or '-'}\nتوضیحات: {product_description or '-'}",
+                Qt.ToolTipRole,
             )
-            self.cb_batch_prod.addItem(lbl, dict(p))
-            if int(p["id"]) in sale_product_ids:
-                sale_label = (
-                    f"{p['code']} | {p['sub_category']} | {p['brand']} {p['model']}"
-                ).strip()
+
+            if int(product["id"]) in sale_product_ids:
+                sale_label = self._format_product_picker_label(product)
                 sale_index = self.cb_sale_prod.count()
-                self.cb_sale_prod.addItem(sale_label, dict(p))
+                self.cb_sale_prod.addItem(sale_label, product)
                 self.cb_sale_prod.setItemSearchText(
                     sale_index,
-                    f"{p['category']} {p['sub_category']} {p['code']} "
-                    f"{p['brand']} {p['model']} {specs_short} {product_description}",
+                    f"{product['category']} {product['sub_category']} {product['code']} "
+                    f"{product['brand']} {product['model']} {specs_short} {product_description}",
+                )
+                self.cb_sale_prod.setItemData(
+                    sale_index,
+                    f"{sale_label}\nمشخصات فنی: {specs_short or '-'}\nتوضیحات: {product_description or '-'}",
+                    Qt.ToolTipRole,
                 )
         self.cb_batch_prod.blockSignals(False)
         self.cb_sale_prod.blockSignals(False)
