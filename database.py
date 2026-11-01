@@ -495,7 +495,7 @@ class DatabaseManager:
             conn.commit()
 
     def get_product_catalog_config(self):
-        """Return per-database, user-editable product taxonomy and specification options."""
+        """Return a normalized, per-database product taxonomy and specification catalog."""
         raw = self.get_setting("product_catalog_config", "{}")
         try:
             config = json.loads(raw or "{}")
@@ -503,55 +503,121 @@ class DatabaseManager:
             config = {}
         if not isinstance(config, dict):
             config = {}
-        return {
-            "categories": list(dict.fromkeys(
-                str(value).strip() for value in config.get("categories", [])
-                if str(value).strip()
-            )),
-            "subcategories": {
-                str(category): list(dict.fromkeys(
-                    str(value).strip() for value in values if str(value).strip()
+
+        raw_categories = config.get("categories")
+        categories = raw_categories if isinstance(raw_categories, list) else []
+        raw_subcategories = config.get("subcategories")
+        raw_attributes = config.get("attributes")
+        raw_colors = config.get("colors")
+
+        subcategories = {}
+        if isinstance(raw_subcategories, dict):
+            for category, values in raw_subcategories.items():
+                if not isinstance(values, list):
+                    continue
+                subcategories[str(category)] = list(dict.fromkeys(
+                    str(value).strip() for value in values if value is not None and str(value).strip()
                 ))
-                for category, values in (config.get("subcategories") or {}).items()
-                if isinstance(values, list)
-            } if isinstance(config.get("subcategories"), dict) else {},
-            "attributes": {
-                str(category): [
-                    {
-                        "name": str(item.get("name", "")).strip(),
+
+        attributes = {}
+        if isinstance(raw_attributes, dict):
+            for category, items in raw_attributes.items():
+                if not isinstance(items, list):
+                    continue
+                normalized_items = []
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    name = str(item.get("name", "") or "").strip()
+                    if not name:
+                        continue
+                    values = item.get("values", [])
+                    if not isinstance(values, list):
+                        values = []
+                    normalized_items.append({
+                        "name": name,
                         "values": list(dict.fromkeys(
-                            str(value).strip() for value in item.get("values", [])
-                            if str(value).strip()
+                            str(value).strip() for value in values
+                            if value is not None and str(value).strip()
                         )),
                         "subcategory": str(item.get("subcategory", "") or "").strip(),
-                    }
-                    for item in items
-                    if isinstance(item, dict) and str(item.get("name", "")).strip()
-                ]
-                for category, items in (config.get("attributes") or {}).items()
-                if isinstance(items, list)
-            } if isinstance(config.get("attributes"), dict) else {},
+                    })
+                attributes[str(category)] = normalized_items
+
+        colors = raw_colors if isinstance(raw_colors, list) else []
+        return {
+            "categories": list(dict.fromkeys(
+                str(value).strip() for value in categories
+                if value is not None and str(value).strip()
+            )),
+            "subcategories": subcategories,
+            "attributes": attributes,
             "colors": list(dict.fromkeys(
-                str(value).strip() for value in config.get("colors", [])
-                if str(value).strip()
+                str(value).strip() for value in colors
+                if value is not None and str(value).strip()
             )),
         }
 
     def save_product_catalog_config(self, config, conn=None):
-        """Persist validated shop-specific product categories, attributes and color choices."""
+        """Validate and persist product taxonomy in the active database."""
         if not isinstance(config, dict):
             raise ValueError("ساختار شخصی‌سازی کالا معتبر نیست.")
+
+        categories = config.get("categories", [])
+        subcategories = config.get("subcategories", {})
+        attributes = config.get("attributes", {})
+        colors = config.get("colors", [])
+        if not isinstance(categories, list) or not isinstance(subcategories, dict):
+            raise ValueError("ساختار دسته‌بندی یا زیرمجموعه‌ها معتبر نیست.")
+        if not isinstance(attributes, dict) or not isinstance(colors, list):
+            raise ValueError("ساختار مشخصات فنی یا رنگ‌ها معتبر نیست.")
+
+        clean_categories = list(dict.fromkeys(
+            str(value).strip() for value in categories
+            if value is not None and str(value).strip()
+        ))
+        clean_subcategories = {}
+        for category, values in subcategories.items():
+            if not isinstance(values, list):
+                raise ValueError(f"فهرست زیرمجموعه‌های «{category}» معتبر نیست.")
+            clean_subcategories[str(category)] = list(dict.fromkeys(
+                str(value).strip() for value in values
+                if value is not None and str(value).strip()
+            ))
+
+        clean_attributes = {}
+        for category, items in attributes.items():
+            if not isinstance(items, list):
+                raise ValueError(f"فهرست مشخصات «{category}» معتبر نیست.")
+            clean_items = []
+            for item in items:
+                if not isinstance(item, dict):
+                    raise ValueError(f"یکی از مشخصات «{category}» ساختار معتبری ندارد.")
+                name = str(item.get("name", "") or "").strip()
+                if not name:
+                    continue
+                values = item.get("values", [])
+                if not isinstance(values, list):
+                    raise ValueError(f"مقادیر مشخصهٔ «{name}» باید به‌صورت فهرست باشند.")
+                clean_items.append({
+                    "name": name,
+                    "values": list(dict.fromkeys(
+                        str(value).strip() for value in values
+                        if value is not None and str(value).strip()
+                    )),
+                    "subcategory": str(item.get("subcategory", "") or "").strip(),
+                })
+            clean_attributes[str(category)] = clean_items
+
         clean = {
-            "categories": config.get("categories", []),
-            "subcategories": config.get("subcategories", {}),
-            "attributes": config.get("attributes", {}),
-            "colors": config.get("colors", []),
+            "categories": clean_categories,
+            "subcategories": clean_subcategories,
+            "attributes": clean_attributes,
+            "colors": list(dict.fromkeys(
+                str(value).strip() for value in colors
+                if value is not None and str(value).strip()
+            )),
         }
-        if any(not isinstance(clean[key], expected) for key, expected in (
-            ("categories", list), ("subcategories", dict),
-            ("attributes", dict), ("colors", list),
-        )):
-            raise ValueError("ساختار دسته‌بندی، زیرمجموعه، مشخصات یا رنگ معتبر نیست.")
         serialized = json.dumps(clean, ensure_ascii=False, separators=(",", ":"))
         if conn is not None:
             conn.execute(
