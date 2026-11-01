@@ -41,8 +41,13 @@ def load_app_config():
         "backup_dir": os.path.join(get_app_data_dir(), "backups"),
         "auto_backup_enabled": True,
         "auto_backup_interval_min": 60,
+        "auto_backup_retention_count": 10,
         "last_backup_time": "ثبت نشده",
-        "shop_name": "فروشگاه من",
+        "default_profit_pct": 20,
+        "zero_append_count": 3,
+        "default_window_maximized": True,
+        "require_login_password": False,
+        "config_schema_version": 1,
         "theme": "light",
     }
     if os.path.exists(CONFIG_FILE):
@@ -76,9 +81,13 @@ def save_app_config(cfg):
 class DatabaseManager:
     def __init__(self, db_path=None):
         self.cfg = load_app_config()
-        self.db_path = db_path or self.cfg["db_path"]
-        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+        self.db_path = os.path.abspath(db_path or self.cfg["db_path"])
+        os.makedirs(os.path.dirname(self.db_path) or ".", exist_ok=True)
+        self.cfg["db_path"] = self.db_path
+        self.cfg["backup_dir"] = os.path.dirname(self.db_path) or "."
         self.init_db()
+        self._migrate_legacy_application_settings()
+        save_app_config(self.cfg)
 
     def get_connection(self):
         conn = sqlite3.connect(self.db_path)
@@ -312,12 +321,10 @@ class DatabaseManager:
             cur.execute("UPDATE products SET category='قطعات' WHERE category='قطعات کامپیوتر'")
             cur.execute("UPDATE products SET category='سایر موارد' WHERE category='خدمات'")
 
+            # نام فروشگاه به هر پایگاه داده تعلق دارد؛ تنظیمات عمومی برنامه
+            # در app_config.json نگهداری می‌شوند.
             default_settings = {
-                "default_profit_pct": "20",
-                "zero_append_count": "3",
-                "zero_append_enabled": "1",
-                "default_window_maximized": "1",
-                "require_login_password": "0",
+                "shop_name": str(self.cfg.get("shop_name") or "فروشگاه من"),
             }
             for k, v in default_settings.items():
                 cur.execute(
@@ -365,6 +372,11 @@ class DatabaseManager:
                     legacy_ids,
                 )
 
+            # نقش مدیر از عنوان ترکیبی قدیمی به عنوان کوتاه و یکپارچه مهاجرت می‌کند.
+            conn.execute(
+                "UPDATE employees SET role='مدیر' WHERE TRIM(role)='مدیر / فروشنده'"
+            )
+
             # Migrate existing databases without dropping any business records.
             migrations = (
                 ("upgrades", "added_cost_unit", "INTEGER DEFAULT 0"),
@@ -382,6 +394,55 @@ class DatabaseManager:
                     )
 
             conn.commit()
+
+    def _migrate_legacy_application_settings(self):
+        """Move application-wide preferences out of each database, preserving legacy values once."""
+        version = int(self.cfg.get("config_schema_version", 1) or 1)
+        legacy_map = {
+            "default_profit_pct": ("default_profit_pct", lambda value: int(float(value))),
+            "zero_append_count": ("zero_append_count", lambda value: max(0, int(value))),
+            "default_window_maximized": (
+                "default_window_maximized",
+                lambda value: str(value).strip().lower() in ("1", "true", "yes", "on"),
+            ),
+            "require_login_password": (
+                "require_login_password",
+                lambda value: str(value).strip().lower() in ("1", "true", "yes", "on"),
+            ),
+        }
+
+        with self.get_connection() as conn:
+            if version < 2:
+                for database_key, (config_key, converter) in legacy_map.items():
+                    row = conn.execute(
+                        "SELECT value FROM settings WHERE key=?", (database_key,)
+                    ).fetchone()
+                    if row is not None:
+                        try:
+                            self.cfg[config_key] = converter(row["value"])
+                        except (TypeError, ValueError, OverflowError):
+                            pass
+
+                old_zero_toggle = conn.execute(
+                    "SELECT value FROM settings WHERE key='zero_append_enabled'"
+                ).fetchone()
+                if old_zero_toggle is not None and str(old_zero_toggle["value"]) == "0":
+                    self.cfg["zero_append_count"] = 0
+
+            # Remove obsolete per-database copies after their one-time migration.
+            conn.executemany(
+                "DELETE FROM settings WHERE key=?",
+                [(key,) for key in (*legacy_map.keys(), "zero_append_enabled")],
+            )
+            conn.commit()
+
+        self.cfg["config_schema_version"] = 2
+        self.cfg.pop("shop_name", None)
+        self.cfg["backup_dir"] = os.path.dirname(os.path.abspath(self.db_path)) or "."
+        self.cfg["db_path"] = os.path.abspath(self.db_path)
+        self.cfg["auto_backup_retention_count"] = max(
+            1, int(self.cfg.get("auto_backup_retention_count", 10) or 10)
+        )
 
     def get_setting(self, key, default=""):
         with self.get_connection() as conn:
@@ -1579,30 +1640,79 @@ class DatabaseManager:
             conn.commit()
 
     # --- پشتیبان‌گیری و بازیابی ---
+    def _prune_automatic_backups(self, directory, database_name):
+        """Keep only the newest configured number of automatic snapshots for one database."""
+        prefix = f"{database_name}_"
+        candidates = []
+        for entry in os.scandir(directory):
+            if not entry.is_file() or not entry.name.startswith(prefix) or not entry.name.endswith(".db"):
+                continue
+            stamp = entry.name[len(prefix):-3]
+            if (
+                len(stamp) >= 15
+                and stamp[:8].isdigit()
+                and stamp[8] == "_"
+                and stamp[9:15].isdigit()
+                and (len(stamp) == 15 or stamp[15:].startswith("_"))
+            ):
+                candidates.append((entry.stat().st_mtime_ns, entry.name, entry.path))
+
+        candidates.sort(key=lambda item: (item[0], item[1]))
+        keep_count = max(1, int(self.cfg.get("auto_backup_retention_count", 10) or 10))
+        for _, _, old_path in candidates[:-keep_count]:
+            os.remove(old_path)
+
     def create_backup(self, custom_dir=None, automatic=False, target_file=None):
-        """Create a consistent SQLite snapshot of the currently active database."""
+        """Create a consistent SQLite snapshot; rotate automatic backups only after success."""
+        database_name = os.path.splitext(os.path.basename(self.db_path))[0]
         if target_file:
             backup_file = os.path.abspath(target_file)
             if os.path.normcase(backup_file) == os.path.normcase(os.path.abspath(self.db_path)):
                 raise ValueError("مسیر فایل پشتیبان نمی‌تواند با مسیر دیتابیس فعال یکسان باشد.")
         elif automatic:
-            target_dir = os.path.dirname(os.path.abspath(self.db_path))
-            db_name = os.path.splitext(os.path.basename(self.db_path))[0]
-            backup_file = os.path.join(target_dir, f"AutoBackup_{db_name}.db")
+            target_dir = os.path.dirname(os.path.abspath(self.db_path)) or "."
+            stamp = jdatetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_file = os.path.join(target_dir, f"{database_name}_{stamp}.db")
+            suffix = 1
+            while os.path.exists(backup_file):
+                backup_file = os.path.join(target_dir, f"{database_name}_{stamp}_{suffix:02d}.db")
+                suffix += 1
         else:
-            target_dir = custom_dir or self.cfg["backup_dir"]
+            target_dir = custom_dir or self.cfg.get("backup_dir") or os.path.dirname(
+                os.path.abspath(self.db_path)
+            )
             os.makedirs(target_dir, exist_ok=True)
             stamp = jdatetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             backup_file = os.path.join(target_dir, f"ShopBackup_{stamp}.db")
 
-        os.makedirs(os.path.dirname(backup_file), exist_ok=True)
-        with sqlite3.connect(self.db_path) as source:
-            with sqlite3.connect(backup_file) as destination:
-                source.backup(destination)
+        backup_dir = os.path.dirname(backup_file) or "."
+        os.makedirs(backup_dir, exist_ok=True)
+        temporary_file = backup_file + ".tmp"
+        try:
+            if os.path.exists(temporary_file):
+                os.remove(temporary_file)
+            with sqlite3.connect(self.db_path) as source:
+                with sqlite3.connect(temporary_file) as destination:
+                    source.backup(destination)
+            with sqlite3.connect(temporary_file) as check_db:
+                check_result = check_db.execute("PRAGMA quick_check").fetchone()
+            if not check_result or check_result[0] != "ok":
+                raise sqlite3.DatabaseError("نسخه پشتیبان از آزمون یکپارچگی SQLite عبور نکرد.")
+            os.replace(temporary_file, backup_file)
+            if automatic:
+                self._prune_automatic_backups(backup_dir, database_name)
+        except Exception:
+            if os.path.exists(temporary_file):
+                try:
+                    os.remove(temporary_file)
+                except OSError:
+                    pass
+            raise
 
         self.cfg["last_backup_time"] = jdatetime.datetime.now().strftime(
             "%Y/%m/%d %H:%M:%S"
         )
+        self.cfg["backup_dir"] = os.path.dirname(os.path.abspath(self.db_path)) or "."
         save_app_config(self.cfg)
         return backup_file
 

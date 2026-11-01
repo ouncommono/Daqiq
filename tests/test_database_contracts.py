@@ -190,10 +190,77 @@ def test_automatic_backup_follows_the_active_database_path(manager, tmp_path):
     product_id = create_product(manager)
     backup_path = manager.create_backup(automatic=True)
 
-    assert backup_path == str(tmp_path / "AutoBackup_shop.db")
+    assert os.path.basename(backup_path).startswith("shop_")
+    assert backup_path.endswith(".db")
     with sqlite3.connect(backup_path) as conn:
         assert conn.execute("PRAGMA quick_check").fetchone()[0] == "ok"
         assert conn.execute("SELECT COUNT(*) FROM products WHERE id=?", (product_id,)).fetchone()[0] == 1
+
+
+def test_automatic_backup_rotates_oldest_after_success(manager, tmp_path):
+    manager.cfg["auto_backup_retention_count"] = 2
+    product_id = create_product(manager)
+
+    first = manager.create_backup(automatic=True)
+    second = manager.create_backup(automatic=True)
+    third = manager.create_backup(automatic=True)
+
+    backup_files = sorted(tmp_path.glob("shop_*.db"))
+    assert len(backup_files) == 2
+    assert first not in {str(path) for path in backup_files}
+    assert second in {str(path) for path in backup_files}
+    assert third in {str(path) for path in backup_files}
+    for path in backup_files:
+        with sqlite3.connect(path) as conn:
+            assert conn.execute("PRAGMA quick_check").fetchone()[0] == "ok"
+            assert conn.execute("SELECT COUNT(*) FROM products WHERE id=?", (product_id,)).fetchone()[0] == 1
+
+
+def test_automatic_backup_folder_tracks_each_database_path(tmp_path, monkeypatch):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    first_manager = DatabaseManager(str(tmp_path / "first" / "first_shop.db"))
+    second_manager = DatabaseManager(str(tmp_path / "second" / "second_shop.db"))
+
+    first_backup = first_manager.create_backup(automatic=True)
+    second_backup = second_manager.create_backup(automatic=True)
+
+    assert first_backup.startswith(str(tmp_path / "first"))
+    assert second_backup.startswith(str(tmp_path / "second"))
+
+
+def test_application_settings_migrate_from_database_to_config(manager):
+    manager.set_setting("default_profit_pct", "35")
+    manager.set_setting("zero_append_count", "4")
+    manager.set_setting("zero_append_enabled", "1")
+    manager.set_setting("default_window_maximized", "0")
+    manager.set_setting("require_login_password", "1")
+    manager.cfg["config_schema_version"] = 1
+
+    manager._migrate_legacy_application_settings()
+
+    assert manager.cfg["default_profit_pct"] == 35
+    assert manager.cfg["zero_append_count"] == 4
+    assert manager.cfg["default_window_maximized"] is False
+    assert manager.cfg["require_login_password"] is True
+    assert manager.get_setting("default_profit_pct", None) is None
+    assert manager.get_setting("zero_append_count", None) is None
+
+
+def test_zero_count_migration_respects_legacy_disabled_flag(manager):
+    manager.set_setting("zero_append_count", "3")
+    manager.set_setting("zero_append_enabled", "0")
+    manager.cfg["config_schema_version"] = 1
+
+    manager._migrate_legacy_application_settings()
+
+    assert manager.cfg["zero_append_count"] == 0
+
+
+def test_shop_name_is_stored_per_database(manager):
+    manager.set_setting("shop_name", "8 رایان")
+    assert manager.get_setting("shop_name") == "8 رایان"
+    assert "shop_name" not in manager.cfg
 
 
 def test_service_code_is_the_tariff_identity(manager):
@@ -224,6 +291,10 @@ def test_upgrade_migration_removes_only_legacy_sample_employees(manager):
             "INSERT INTO employees (name, role, permissions) VALUES (?, ?, ?)",
             ("کارمند واقعی", "فروشنده", "فروش و خدمات"),
         )
+        conn.execute(
+            "INSERT INTO employees (name, role, permissions) VALUES (?, ?, ?)",
+            ("مدیر واقعی", "مدیر / فروشنده", "دسترسی کامل"),
+        )
         conn.commit()
 
     manager.init_db()
@@ -235,5 +306,10 @@ def test_upgrade_migration_removes_only_legacy_sample_employees(manager):
             ).fetchall()
         ]
 
-    assert names == ["کارمند واقعی"]
+    assert set(names) == {"کارمند واقعی", "مدیر واقعی"}
+    with manager.get_connection() as conn:
+        migrated_role = conn.execute(
+            "SELECT role FROM employees WHERE name='مدیر واقعی'"
+        ).fetchone()["role"]
+    assert migrated_role == "مدیر"
 

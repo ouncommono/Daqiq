@@ -19,6 +19,13 @@ def get_next_excel_filename(directory: str, prefix: str = "R") -> str:
     return os.path.join(directory, candidate)
 
 
+def _rtl_report_title(shop_name: str, title: str) -> str:
+    """Force a right-to-left paragraph even when the shop name starts with digits."""
+    shop_name = (shop_name or "").strip()
+    combined = f"{shop_name} — {title}" if shop_name else title
+    return f"\u200f{combined}\u200f"
+
+
 def _style_worksheet_professional(ws, title: str, headers: list, data_rows: list):
     """طراحی حرفه‌ای و چشم‌نواز جدول‌های اکسل با راست‌چین کامل، رنگ‌بندی متناوب و عرض خودکار"""
     ws.views.sheetView[0].rightToLeft = True
@@ -29,7 +36,7 @@ def _style_worksheet_professional(ws, title: str, headers: list, data_rows: list
     title_cell = ws.cell(1, 1, title)
     title_cell.font = Font(name="Tahoma", size=13, bold=True, color="FFFFFF")
     title_cell.fill = PatternFill("solid", fgColor="1E3A8A")
-    title_cell.alignment = Alignment(horizontal="center", vertical="center")
+    title_cell.alignment = Alignment(horizontal="center", vertical="center", readingOrder=2)
     ws.row_dimensions[1].height = 32
 
     # ردیف ۲: عناوین ستون‌ها
@@ -136,7 +143,7 @@ def export_safe_inventory_excel(db: DatabaseManager, file_path: str, shop_name: 
             ]
         )
 
-    report_title = f"{shop_name} — گزارش موجودی" if shop_name else "گزارش موجودی"
+    report_title = _rtl_report_title(shop_name, "گزارش موجودی")
     _style_worksheet_professional(ws, report_title, headers, data_rows)
     wb.save(file_path)
 
@@ -153,10 +160,10 @@ def export_table_to_excel(
 
     col_count = max(1, len(headers))
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=col_count)
-    report_title = f"{shop_name} — {title}" if shop_name else title
+    report_title = _rtl_report_title(shop_name, title)
     ws.cell(1, 1, report_title).font = Font(name="Tahoma", size=13, bold=True, color="FFFFFF")
     ws.cell(1, 1).fill = PatternFill("solid", fgColor="1E3A8A")
-    ws.cell(1, 1).alignment = Alignment(horizontal="center", vertical="center")
+    ws.cell(1, 1).alignment = Alignment(horizontal="center", vertical="center", readingOrder=2)
     ws.row_dimensions[1].height = 28
 
     start_data_row = 3
@@ -164,7 +171,7 @@ def export_table_to_excel(
         ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=col_count)
         ws.cell(2, 1, summary_text).font = Font(name="Tahoma", size=10, bold=True, color="1E3A8A")
         ws.cell(2, 1).fill = PatternFill("solid", fgColor="DBEAFE")
-        ws.cell(2, 1).alignment = Alignment(horizontal="center", vertical="center")
+        ws.cell(2, 1).alignment = Alignment(horizontal="center", vertical="center", readingOrder=2)
         ws.row_dimensions[2].height = 22
         start_data_row = 4
 
