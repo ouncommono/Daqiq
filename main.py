@@ -372,7 +372,7 @@ class MainWindow(QMainWindow):
         main_layout = QVBoxLayout(central)
         main_layout.setContentsMargins(10, 8, 10, 8)
 
-        # --- نوار بالای برنامه (ساعت زنده + دکمه همگام‌سازی اطلاعات + خروجی موجودی امن) ---
+        # --- نوار بالای برنامه (نام فروشگاه، کاربر، ساعت و ابزارهای نمایشی) ---
         top_bar = QWidget()
         top_bar.setStyleSheet(
             "background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0f172a, stop:1 #1e3a8a); border-radius: 8px; padding: 6px;"
@@ -852,7 +852,7 @@ class MainWindow(QMainWindow):
         if not self.selected_product_id:
             return
         if (
-            _ask_yes_no(self,self, "تأیید حذف", "آیا از حذف این کالا اطمینان دارید؟")
+            _ask_yes_no(self, "تأیید حذف", "آیا از حذف این کالا اطمینان دارید؟")
             is True
         ):
             try:
@@ -1142,7 +1142,7 @@ class MainWindow(QMainWindow):
         if not self.selected_batch_id:
             return
         if (
-            _ask_yes_no(self,
+            _ask_yes_no(
                 self, "تأیید حذف", "آیا از حذف این محموله خرید اطمینان دارید؟"
             )
             is True
@@ -1501,7 +1501,7 @@ class MainWindow(QMainWindow):
         if not self.selected_sale_id:
             return
         if (
-            _ask_yes_no(self,
+            _ask_yes_no(
                 self,
                 "حذف فروش",
                 "آیا از حذف این فروش و بازگرداندن کالا به موجودی انبار اطمینان دارید؟",
@@ -2044,7 +2044,7 @@ class MainWindow(QMainWindow):
             return
         upg_id = int(self.tbl_upgrades.item(items[0].row(), 0).text())
         if (
-            _ask_yes_no(self,
+            _ask_yes_no(
                 self,
                 "تأیید برگشت ارتقا",
                 "آیا از برگشت این ارتقا، بازگرداندن قطعه به موجودی انبار و بازگشت مشخصات قبلی کالا اطمینان دارید؟",
@@ -3544,7 +3544,7 @@ class MainWindow(QMainWindow):
         )
         if path:
             if (
-                _ask_yes_no(self,
+                _ask_yes_no(
                     self,
                     "تأیید بازیابی",
                     "آیا از بازیابی اطلاعات مطمئن هستید؟ (از دیتابیس فعلی به طور خودکار بکاپ گرفته می‌شود)",

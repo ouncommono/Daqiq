@@ -314,3 +314,22 @@ def test_upgrade_migration_removes_only_legacy_sample_employees(manager):
         ).fetchone()["role"]
     assert migrated_role == "مدیر"
 
+
+def test_excel_report_title_is_right_to_left_for_digit_prefixed_shop_name(tmp_path):
+    from openpyxl import load_workbook
+    from exporter import export_table_to_excel
+
+    target = tmp_path / "rtl_report.xlsx"
+    export_table_to_excel(
+        "گزارش فروش",
+        ["عنوان"],
+        [["مقدار"]],
+        str(target),
+        shop_name="8 رایان",
+    )
+
+    workbook = load_workbook(target)
+    worksheet = workbook.active
+    assert worksheet.views.sheetView[0].rightToLeft is True
+    assert worksheet["A1"].value == "\u200f8 رایان — گزارش فروش\u200f"
+    assert worksheet["A1"].alignment.readingOrder == 2
