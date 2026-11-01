@@ -981,7 +981,8 @@ class MainWindow(QMainWindow):
         )
         lbl_val = QLabel(val)
         lbl_val.setStyleSheet(
-            f"color: {color}; font-size: 18px; font-weight: bold;"
+            f"color: {color}; background: transparent; "
+            "font-size: 18px; font-weight: bold;"
         )
         v.addWidget(t)
         v.addWidget(lbl_val)
@@ -1696,7 +1697,7 @@ class MainWindow(QMainWindow):
         """Parse key/value technical specifications for comparing batch variants."""
         parsed = {}
         plain_tokens = []
-        for segment in re.split(r"[|؛;\\n]+", str(raw_text or "")):
+        for segment in re.split(r"[|؛;\n]+", str(raw_text or "")):
             segment = segment.strip(" ,،-")
             if not segment:
                 continue
