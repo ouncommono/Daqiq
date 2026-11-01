@@ -530,3 +530,27 @@ def test_catalog_config_reader_recovers_from_malformed_nested_values(manager):
         "attributes": {"لپ‌تاپ": [{"name": "RAM", "values": [], "subcategory": ""}]},
         "colors": [],
     }
+
+
+
+def test_automatic_backup_rolls_back_new_copy_when_old_copy_is_locked(
+    manager, tmp_path, monkeypatch
+):
+    manager.cfg["auto_backup_retention_count"] = 1
+    first_backup = manager.create_backup(automatic=True)
+    real_remove = os.remove
+
+    def remove_with_locked_old_file(path):
+        if os.path.abspath(path) == os.path.abspath(first_backup):
+            raise PermissionError("file is in use by another process")
+        return real_remove(path)
+
+    monkeypatch.setattr(database_module.os, "remove", remove_with_locked_old_file)
+
+    with pytest.raises(PermissionError, match="نسخه‌های قدیمی"):
+        manager.create_backup(automatic=True)
+
+    retained = list((tmp_path / "Backups").glob("shop_*.db"))
+    assert [str(path) for path in retained] == [first_backup]
+    with sqlite3.connect(first_backup) as conn:
+        assert conn.execute("PRAGMA quick_check").fetchone()[0] == "ok"
