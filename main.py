@@ -4221,12 +4221,14 @@ class MainWindow(QMainWindow):
         self.cb_cfg_attribute_subcategory.blockSignals(False)
 
         self.lst_cfg_attributes.clear()
-        for item in self._taxonomy_draft["attributes"].get(category, []):
+        for definition_index, item in enumerate(
+            self._taxonomy_draft["attributes"].get(category, [])
+        ):
             values = "، ".join(item.get("values", []))
             scope = item.get("subcategory") or "همهٔ زیرمجموعه‌ها"
             label = item["name"] + (f" — {values}" if values else "") + f"  [{scope}]"
             entry = QListWidgetItem(label)
-            entry.setData(Qt.UserRole, item["name"])
+            entry.setData(Qt.UserRole, definition_index)
             self.lst_cfg_attributes.addItem(entry)
         self.lst_cfg_colors.clear()
         for color in self._taxonomy_draft["colors"]:
@@ -4366,13 +4368,12 @@ class MainWindow(QMainWindow):
         if not current:
             return
         category = self.cb_cfg_category.currentText().strip()
-        name = current.data(Qt.UserRole)
-        definition = next(
-            (
-                item for item in self._taxonomy_draft["attributes"].get(category, [])
-                if item.get("name") == name
-            ),
-            None,
+        definition_index = current.data(Qt.UserRole)
+        definitions = self._taxonomy_draft["attributes"].get(category, [])
+        definition = (
+            definitions[definition_index]
+            if isinstance(definition_index, int) and 0 <= definition_index < len(definitions)
+            else None
         )
         if definition:
             self.ed_cfg_attribute_name.setText(definition["name"])
@@ -4392,18 +4393,24 @@ class MainWindow(QMainWindow):
                 self, "انتخاب ویژگی", "ابتدا ویژگی موردنظر را از فهرست انتخاب کنید."
             )
             return
-        old_name = selected.data(Qt.UserRole)
-        new_name = self.ed_cfg_attribute_name.text().strip() or old_name
+        definition_index = selected.data(Qt.UserRole)
         definitions = self._taxonomy_draft["attributes"].get(category, [])
-        current = next(
-            (item for item in definitions if item.get("name") == old_name), None
-        )
-        if current is None:
+        if not isinstance(definition_index, int) or not 0 <= definition_index < len(definitions):
             return
+        current = definitions[definition_index]
+        old_name = current.get("name", "")
+        new_name = self.ed_cfg_attribute_name.text().strip() or old_name
+        selected_scope = self.cb_cfg_attribute_subcategory.currentData() or ""
         if new_name != old_name and any(
-            item.get("name") == new_name for item in definitions
+            index != definition_index
+            and item.get("name") == new_name
+            and (item.get("subcategory", "") or "") == selected_scope
+            for index, item in enumerate(definitions)
         ):
-            QMessageBox.warning(self, "نام تکراری", "ویژگی دیگری با این نام وجود دارد.")
+            QMessageBox.warning(
+                self, "نام تکراری",
+                "ویژگی دیگری با همین نام برای این زیرمجموعه وجود دارد."
+            )
             return
         raw_values = self.ed_cfg_attribute_values.text().replace("،", ",")
         values = [
@@ -4419,11 +4426,10 @@ class MainWindow(QMainWindow):
         item = self.lst_cfg_attributes.currentItem()
         if not item:
             return
-        name = item.data(Qt.UserRole)
+        definition_index = item.data(Qt.UserRole)
         definitions = self._taxonomy_draft["attributes"].get(category, [])
-        self._taxonomy_draft["attributes"][category] = [
-            definition for definition in definitions if definition.get("name") != name
-        ]
+        if isinstance(definition_index, int) and 0 <= definition_index < len(definitions):
+            definitions.pop(definition_index)
         self._refresh_catalog_management_lists()
 
     def _add_catalog_color(self):
