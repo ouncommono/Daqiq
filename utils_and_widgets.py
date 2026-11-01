@@ -178,11 +178,11 @@ GPU_LIST = [
 # فهرست ویژگی‌های فنی اولیه؛ هر فروشگاه می‌تواند مقادیر و محدودهٔ زیرمجموعه را تغییر دهد.
 DEFAULT_ATTRIBUTES = {
     "لپ‌تاپ": [
-        {"name": "CPU", "values": CPU_LIST},
-        {"name": "RAM", "values": RAM_CAPACITIES},
+        {"name": "CPU", "values": CPU_LIST[1:]},
+        {"name": "RAM", "values": RAM_CAPACITIES[1:]},
         {"name": "نوع RAM", "values": ["DDR3 / DDR3L", "DDR4", "DDR5", "LPDDR4 / LPDDR5"]},
-        {"name": "Storage", "values": STORAGE_LIST},
-        {"name": "Graphic", "values": GPU_LIST},
+        {"name": "Storage", "values": STORAGE_LIST[1:]},
+        {"name": "Graphic", "values": GPU_LIST[1:]},
         {"name": "صفحه‌نمایش", "values": [
             "13.3 اینچ", "14 اینچ HD/FHD", "15.6 اینچ HD",
             "15.6 اینچ FHD IPS", "15.6 اینچ 144Hz/165Hz",
@@ -211,10 +211,10 @@ DEFAULT_ATTRIBUTES = {
         {"name": "پورت‌ها", "values": ["HDMI + VGA", "HDMI + DisplayPort", "HDMI + DP + Type-C", "VGA + DVI"]},
     ],
     "کیس و مینی‌کیس": [
-        {"name": "CPU", "values": CPU_LIST},
-        {"name": "RAM", "values": RAM_CAPACITIES},
-        {"name": "Storage", "values": STORAGE_LIST},
-        {"name": "Graphic", "values": GPU_LIST},
+        {"name": "CPU", "values": CPU_LIST[1:]},
+        {"name": "RAM", "values": RAM_CAPACITIES[1:]},
+        {"name": "Storage", "values": STORAGE_LIST[1:]},
+        {"name": "Graphic", "values": GPU_LIST[1:]},
     ],
     "آداپتور و تغذیه": [
         {"name": "ولتاژ", "values": ["5V", "9V", "12V", "19V", "19.5V", "20V", "220V AC"]},
@@ -527,6 +527,8 @@ class JalaliCalendarDialog(QDialog):
             f"QLabel {{ color: {colors['text']}; }}"
             f"QComboBox {{ background: {colors['surface']}; color: {colors['text']}; "
             f"border: 1px solid {colors['border']}; border-radius: 6px; padding: 5px; min-height: 30px; }}"
+            f"QComboBox QAbstractItemView {{ background: {colors['surface']}; color: {colors['text']}; "
+            f"selection-background-color: {colors['selected']}; selection-color: #ffffff; }}"
             f"QPushButton {{ background: {colors['surface']}; color: {colors['text']}; "
             f"border: 1px solid {colors['border']}; border-radius: 6px; padding: 6px 10px; }}"
             f"QPushButton:hover {{ border: 1px solid {colors['selected']}; }}"
