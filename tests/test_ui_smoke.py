@@ -350,6 +350,12 @@ def test_sale_batch_picker_shows_only_distinguishing_specifications(tmp_path, mo
         assert any("RAM: 16GB" in label for label in labels)
         assert all("CPU:" not in label and "SSD:" not in label for label in labels)
 
+        missing_spec_labels = MainWindow._batch_variant_labels([
+            {"id": 1, "final_specs": "CPU: Core i7 | RAM: 8GB"},
+            {"id": 2, "final_specs": "CPU: Core i7"},
+        ])
+        assert missing_spec_labels[2] == "RAM: ثبت نشده"
+
         tooltips = [
             window.cb_sale_batch.itemData(index, Qt.ToolTipRole)
             for index in range(window.cb_sale_batch.count())
