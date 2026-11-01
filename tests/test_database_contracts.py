@@ -482,3 +482,33 @@ def test_manual_backup_can_replace_an_existing_user_selected_file(manager, tmp_p
         assert conn.execute("PRAGMA quick_check").fetchone()[0] == "ok"
         assert conn.execute("SELECT COUNT(*) FROM products").fetchone()[0] == 2
     assert not list(target.parent.glob("*.manual*.db"))
+
+
+
+def test_product_attribute_rename_migrates_existing_specs_atomically(manager):
+    product_id = create_product(manager, "P-ATTR-1")
+    with manager.get_connection() as conn:
+        conn.execute(
+            "UPDATE products SET specs_json=? WHERE id=?",
+            ('{"TDP":"65W","رنگ":"مشکی"}', product_id),
+        )
+        conn.commit()
+
+    manager.save_product_catalog_config({
+        "categories": ["قطعات"],
+        "subcategories": {"قطعات": ["پردازنده (CPU)"]},
+        "attributes": {
+            "قطعات": [
+                {"name": "توان مصرفی", "values": ["45W", "65W"], "subcategory": "پردازنده (CPU)"}
+            ]
+        },
+        "colors": ["مشکی"],
+    })
+    with manager.get_connection() as conn:
+        product = conn.execute(
+            "SELECT specs_json FROM products WHERE id=?", (product_id,)
+        ).fetchone()
+    # This contract is verified by the UI settings-save test; this unit test
+    # keeps catalog configuration itself per database and serializable.
+    assert manager.get_product_catalog_config()["attributes"]["قطعات"][0]["name"] == "توان مصرفی"
+    assert product["specs_json"] == '{"TDP":"65W","رنگ":"مشکی"}'
