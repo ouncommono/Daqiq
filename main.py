@@ -4,6 +4,8 @@ import sys
 import json
 import subprocess
 import time
+import sqlite3
+import copy
 from datetime import timedelta
 import jdatetime
 
@@ -32,6 +34,11 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QDialog,
     QLineEdit,
+    QRadioButton,
+    QListWidget,
+    QListWidgetItem,
+    QToolButton,
+    QAbstractItemView,
 )
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFont, QColor, QFontMetrics
@@ -48,6 +55,7 @@ from utils_and_widgets import (
     add_jalali_months,
     add_jalali_days,
     normalize_digits,
+    SmoothScrollArea,
 )
 from exporter import (
     export_safe_inventory_excel,
@@ -214,9 +222,12 @@ class MainWindow(QMainWindow):
         self._tables_auto_fit = False
         self._table_default_widths = {}
         self._table_default_stretch = {}
+        self._table_search_fields = {}
+        self.catalog_config = self.db.get_product_catalog_config()
 
         self._apply_styles()
         self._build_ui()
+        self.tabs.currentChanged.connect(self._on_main_tab_changed)
         self._setup_timers()
         self.refresh_all_data()
         self._apply_employee_permissions()
@@ -646,9 +657,51 @@ class MainWindow(QMainWindow):
         tbl.setSelectionBehavior(QTableWidget.SelectRows)
         tbl.setEditTriggers(QTableWidget.NoEditTriggers)
         tbl.setSortingEnabled(True)
+        tbl.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
+        tbl.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)
         tbl.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         tbl.horizontalHeader().setStretchLastSection(True)
         return tbl
+
+    def _add_scrollable_tab(self, tab: QWidget, title: str):
+        """Wrap each page in a scroll area so compact windows never crush form controls."""
+        tab.setMinimumWidth(940)
+        scroll = SmoothScrollArea()
+        scroll.setWidget(tab)
+        return self.tabs.addTab(scroll, title)
+
+    def _add_table_search(self, parent_layout, table, key, placeholder):
+        search = SmartLineEdit(placeholder)
+        search.setMinimumHeight(34)
+        search.setToolTip("جست‌وجو در تمام ستون‌های جدول")
+        search.setClearButtonEnabled(True)
+        search.textChanged.connect(
+            lambda query, target=table: self._filter_table_rows(target, query)
+        )
+        parent_layout.addWidget(search)
+        self._table_search_fields[table] = search
+        setattr(self, f"ed_search_{key}", search)
+        return search
+
+    def _filter_table_rows(self, table, query):
+        query = normalize_digits(str(query or "")).strip().casefold()
+        for row in range(table.rowCount()):
+            if not query:
+                table.setRowHidden(row, False)
+                continue
+            values = []
+            for column in range(table.columnCount()):
+                item = table.item(row, column)
+                if item:
+                    values.append(item.text())
+                    values.append(item.toolTip())
+            haystack = normalize_digits(" ".join(values)).casefold()
+            table.setRowHidden(row, query not in haystack)
+
+    def _on_main_tab_changed(self, index):
+        if index == getattr(self, "_settings_tab_index", -1):
+            # Unsaved edits are drafts only; entering Settings always reloads persisted values.
+            self._load_general_settings_form()
 
     def _populate_table_safely(self, table: QTableWidget, rows_data: list, highlight_col=None):
         """
@@ -671,6 +724,9 @@ class MainWindow(QMainWindow):
                         item.setForeground(QColor("#059669"))
                 table.setItem(r_idx, c_idx, item)
         table.setSortingEnabled(True)
+        search = self._table_search_fields.get(table)
+        if search is not None:
+            self._filter_table_rows(table, search.text())
 
     # =========================================================================
     # ۱. تب داشبورد
@@ -712,6 +768,10 @@ class MainWindow(QMainWindow):
         self.tbl_dash_low = self._create_table(
             ["کد کالا", "مشخصات کالا", "دسته‌بندی", "زیرمجموعه", "موجودی فعلی", "حداقل موجودی", "وضعیت"]
         )
+        self._add_table_search(
+            l_low, self.tbl_dash_low, "dashboard_low",
+            "🔍 جست‌وجو در هشدارهای موجودی..."
+        )
         l_low.addWidget(self.tbl_dash_low)
 
         gb_emp = QGroupBox("👥 عملکرد فروشندگان")
@@ -719,24 +779,35 @@ class MainWindow(QMainWindow):
         self.tbl_dash_emp = self._create_table(
             ["نام فروشنده", "تعداد فروش", "مبلغ کل فروش (تومان)", "تخفیف داده شده", "سود حاصل از فروش"]
         )
+        self._add_table_search(
+            l_emp, self.tbl_dash_emp, "dashboard_employees",
+            "🔍 جست‌وجو در عملکرد کارکنان..."
+        )
         l_emp.addWidget(self.tbl_dash_emp)
 
         split.addWidget(gb_low)
         split.addWidget(gb_emp)
         layout.addLayout(split)
 
-        self.tabs.addTab(tab, "📊 داشبورد")
+        self._add_scrollable_tab(tab, "📊 داشبورد")
 
     def _make_stat_card(self, grid, r, c, title, val, color):
         box = QGroupBox()
         box.setToolTip(title)
+        dark = self.db.cfg.get("theme", "light") == "dark"
+        panel = "#2b3648" if dark else "#ffffff"
+        title_color = "#cbd5e1" if dark else "#64748b"
         box.setStyleSheet(
-            f"QGroupBox {{ border-right: 5px solid {color}; background: white; border-radius: 8px; padding: 8px; }}"
+            f"QGroupBox {{ border-right: 5px solid {color}; background: {panel}; "
+            "border-radius: 8px; padding: 8px; }"
         )
         v = QVBoxLayout(box)
         t = QLabel(title)
         t.setToolTip(title)
-        t.setStyleSheet("color: #64748b; font-size: 12px; font-weight: bold;")
+        t.setStyleSheet(
+            f"color: {title_color}; background: transparent; "
+            "font-size: 12px; font-weight: bold;"
+        )
         lbl_val = QLabel(val)
         lbl_val.setStyleSheet(
             f"color: {color}; font-size: 18px; font-weight: bold;"
@@ -2466,7 +2537,7 @@ class MainWindow(QMainWindow):
         )
 
         self.dt_rep_from = JalaliDateEdit(default_today=False)
-        self.dt_rep_from.set_date("1395/01/01")
+        self.dt_rep_from.set_date("1405/01/01")
         self.dt_rep_to = JalaliDateEdit(default_today=True)
 
         self.cb_rep_emp = SearchableComboBox()
@@ -2519,7 +2590,10 @@ class MainWindow(QMainWindow):
         self.cb_rep_cat.currentTextChanged.connect(self._update_report_live)
         self.ed_rep_search.textChanged.connect(self._update_report_live)
 
-        self.tabs.addTab(tab, "📈 گزارش‌های جامع")
+        self._add_table_search(
+            layout, self.tbl_report, "reports", "🔍 جست‌وجو در ردیف‌های گزارش..."
+        )
+        self._add_scrollable_tab(tab, "📈 گزارش‌های جامع")
 
     def _on_rep_preset_changed(self):
         preset = self.cb_rep_preset.currentText()
