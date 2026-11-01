@@ -973,6 +973,7 @@ class MainWindow(QMainWindow):
                 self.db.update_batch(
                     int(duplicate["id"]), *batch_values,
                     product_id=prod["id"], initial_specs=custom_specs_or_notes,
+                    batch_code=code,
                 )
             else:
                 self.db.add_batch(
@@ -1704,6 +1705,7 @@ class MainWindow(QMainWindow):
         gb = QGroupBox("ثبت ارتقای کالا (کسر خودکار قطعه مصرفی از انبار و ویرایش مشخصات فنی کالا)")
         grid = QGridLayout(gb)
 
+        self.selected_upgrade_id = None
         self.cb_upg_target = SearchableComboBox()
         self.cb_upg_target.currentIndexChanged.connect(self._on_upg_target_changed)
         self.cb_upg_target_qty = QuantitySelector(50)
@@ -1744,12 +1746,20 @@ class MainWindow(QMainWindow):
         grid.addWidget(self.chk_upg_add_cost, 4, 0, 1, 4)
 
         upg_btn_row = QHBoxLayout()
-        btn_upg = QPushButton("🔧 ثبت ارتقای کالا")
+        btn_clear_upg = QPushButton("پاک کردن فرم")
+        btn_clear_upg.setObjectName("btnSecondary")
+        btn_clear_upg.clicked.connect(self._clear_upgrade_form)
+        btn_upg = QPushButton("🔧 ثبت ارتقای جدید")
         btn_upg.clicked.connect(self._save_upgrade)
-        btn_revert_upg = QPushButton("↩️ برگشت ارتقای انتخاب‌شده (بازگشت قطعه به انبار)")
+        btn_edit_upg = QPushButton("✏️ ذخیره ویرایش ارتقای انتخاب‌شده")
+        btn_edit_upg.setObjectName("btnSuccess")
+        btn_edit_upg.clicked.connect(self._save_upgrade)
+        btn_revert_upg = QPushButton("🗑️ حذف ارتقا و بازگردانی موجودی")
         btn_revert_upg.setObjectName("btnDanger")
         btn_revert_upg.clicked.connect(self._revert_selected_upgrade)
+        upg_btn_row.addWidget(btn_clear_upg)
         upg_btn_row.addWidget(btn_upg)
+        upg_btn_row.addWidget(btn_edit_upg)
         upg_btn_row.addWidget(btn_revert_upg)
         upg_btn_row.addStretch()
         grid.addLayout(upg_btn_row, 5, 0, 1, 4)
@@ -1771,6 +1781,7 @@ class MainWindow(QMainWindow):
                 "انجام‌دهنده",
             ]
         )
+        self.tbl_upgrades.itemSelectionChanged.connect(self._on_upgrade_selected)
         layout.addWidget(self.tbl_upgrades)
         self.tabs.addTab(tab, "🔧 ارتقای کالا")
 
@@ -1824,6 +1835,51 @@ class MainWindow(QMainWindow):
             )
         except Exception as e:
             QMessageBox.critical(self, "خطا در ارتقا", str(e))
+
+    def _clear_upgrade_form(self):
+        self.selected_upgrade_id = None
+        self.tbl_upgrades.clearSelection()
+        self.cb_upg_target.setCurrentIndex(0)
+        self.cb_upg_part.setCurrentIndex(0)
+        self.cb_upg_target_qty.setCurrentText("1")
+        self.cb_upg_part_qty.setCurrentText("1")
+        self.pr_upg_labor.set_value(0)
+        self.ed_upg_serial.clear()
+        self.chk_upg_add_cost.setChecked(False)
+        self.dt_upg_date.set_date(jdatetime.date.today().strftime("%Y/%m/%d"))
+        self._on_upg_target_changed()
+
+    def _on_upgrade_selected(self):
+        items = self.tbl_upgrades.selectedItems()
+        if not items:
+            return
+        row_index = items[0].row()
+        self.selected_upgrade_id = int(self.tbl_upgrades.item(row_index, 0).text())
+        with self.db.get_connection() as conn:
+            upgrade = conn.execute(
+                "SELECT * FROM upgrades WHERE id=?", (self.selected_upgrade_id,)
+            ).fetchone()
+        if not upgrade:
+            self._clear_upgrade_form()
+            return
+        target_index = self.cb_upg_target.findData(int(upgrade["target_batch_id"]))
+        part_index = self.cb_upg_part.findData(int(upgrade["part_batch_id"]))
+        if target_index >= 0:
+            self.cb_upg_target.setCurrentIndex(target_index)
+        if part_index >= 0:
+            self.cb_upg_part.setCurrentIndex(part_index)
+        target_qty = max(1, int(upgrade["target_qty"]))
+        per_unit = max(1, int(upgrade["part_qty_used"]) // target_qty)
+        self.cb_upg_target_qty.setCurrentText(str(target_qty))
+        self.cb_upg_part_qty.set_max_qty(max(10, per_unit))
+        self.cb_upg_part_qty.setCurrentText(str(per_unit))
+        self.pr_upg_labor.set_value(int(upgrade["labor_cost_unit"]))
+        self.ed_upg_new_specs.setText(upgrade["new_specs"] or "")
+        self.dt_upg_date.set_date(upgrade["upgrade_date"])
+        self.ed_upg_serial.setText(upgrade["serial_number"] or "")
+        self.chk_upg_add_cost.setChecked(
+            int(upgrade["added_cost_unit"] or 0) > int(upgrade["labor_cost_unit"] or 0)
+        )
 
     def _revert_selected_upgrade(self):
         items = self.tbl_upgrades.selectedItems()
@@ -2197,7 +2253,7 @@ class MainWindow(QMainWindow):
                 b_rows = conn.execute("""
                     SELECT 'خرید محموله' as t_type, b.batch_code as ref, b.purchase_date as dt,
                            p.code, p.category, p.sub_category, (p.brand || ' ' || p.model) as title,
-                           e.id as emp_id, e.name as emp_name, sup.name as party,
+                           e.id as emp_id, e.name as emp_name, COALESCE(sup.name,b.supplier_name_snapshot) as party,
                            b.initial_qty as qty, b.unit_purchase_price as u_price, b.unit_purchase_price as sug_price,
                            b.extra_cost_total as cost_total,
                            (b.unit_purchase_price * b.initial_qty + b.extra_cost_total) as amt,
@@ -2407,7 +2463,7 @@ class MainWindow(QMainWindow):
                 ]
                 q = conn.execute("""
                     SELECT b.*, p.code, p.category, p.sub_category, p.brand, p.model,
-                           sup.name as sup_name, e.name as emp_name,
+                           COALESCE(sup.name,b.supplier_name_snapshot) as sup_name, e.name as emp_name,
                            COALESCE((SELECT SUM(total_profit) FROM sales s WHERE s.batch_id=b.id), 0) as batch_profit
                     FROM batches b
                     JOIN products p ON b.product_id=p.id
@@ -2643,7 +2699,7 @@ class MainWindow(QMainWindow):
                         ]
                     )
                 for r in conn.execute("""
-                    SELECT b.*, p.sub_category, p.brand, p.model, sup.name as sup_name, e.name as emp_name
+                    SELECT b.*, p.sub_category, p.brand, p.model, COALESCE(sup.name,b.supplier_name_snapshot) as sup_name, e.name as emp_name
                     FROM batches b JOIN products p ON b.product_id=p.id
                     LEFT JOIN suppliers sup ON b.supplier_id=sup.id LEFT JOIN employees e ON b.buyer_employee_id=e.id
                     WHERE b.settlement_status != 'تسویه‌شده'
