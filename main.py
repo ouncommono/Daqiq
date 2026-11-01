@@ -46,6 +46,7 @@ from PySide6.QtGui import QFont, QColor, QFontMetrics
 from database import DatabaseManager, load_app_config, save_app_config, hash_password
 from utils_and_widgets import (
     MAIN_CATEGORIES,
+    DEFAULT_SUBCATEGORIES,
     SmartLineEdit,
     PriceInput,
     SearchableComboBox,
@@ -366,6 +367,7 @@ class MainWindow(QMainWindow):
         self._table_default_widths = {}
         self._table_default_stretch = {}
         self._table_search_fields = {}
+        self._dashboard_card_styles = []
         self.catalog_config = self.db.get_product_catalog_config()
 
         self._apply_styles()
@@ -479,6 +481,7 @@ class MainWindow(QMainWindow):
             )
         finally:
             self.setUpdatesEnabled(True)
+        self._refresh_dashboard_card_styles()
         self._refresh_visual_layout()
 
     def _toggle_table_autosize(self):
@@ -718,6 +721,26 @@ class MainWindow(QMainWindow):
         self._update_active_user_badge()
         self._apply_employee_permissions()
 
+    def _refresh_dashboard_card_styles(self):
+        dark = self.db.cfg.get("theme", "light") == "dark"
+        panel = "#2b3648" if dark else "#ffffff"
+        title_color = "#cbd5e1" if dark else "#64748b"
+        for box, title_label, value_label, accent in getattr(
+            self, "_dashboard_card_styles", []
+        ):
+            box.setStyleSheet(
+                f"QGroupBox {{ border-right: 5px solid {accent}; "
+                f"background: {panel}; border-radius: 8px; padding: 8px; }}"
+            )
+            title_label.setStyleSheet(
+                f"color: {title_color}; background: transparent; "
+                "font-size: 12px; font-weight: bold;"
+            )
+            value_label.setStyleSheet(
+                f"color: {accent}; background: transparent; "
+                "font-size: 18px; font-weight: bold;"
+            )
+
     def _setup_timers(self):
         self.clock_timer = QTimer(self)
         self.clock_timer.timeout.connect(self._update_clock)
@@ -746,10 +769,14 @@ class MainWindow(QMainWindow):
         try:
             saved_path = self.db.create_backup(automatic=True)
             if hasattr(self, "lbl_last_backup"):
+                warning = self.db.cfg.get("last_backup_warning", "")
                 self.lbl_last_backup.setText(
                     f"آخرین پشتیبان‌گیری خودکار: {self.db.cfg.get('last_backup_time', '')}"
+                    + (f"\n{warning}" if warning else "")
                 )
-                self.lbl_last_backup.setToolTip(f"مسیر نسخه جدید: {saved_path}")
+                self.lbl_last_backup.setToolTip(
+                    f"مسیر نسخه جدید: {saved_path}" + (f"\n{warning}" if warning else "")
+                )
         except Exception as exc:
             if hasattr(self, "lbl_last_backup"):
                 self.lbl_last_backup.setText("خطا در پشتیبان‌گیری خودکار؛ تلاش مجدد انجام می‌شود.")
@@ -958,6 +985,8 @@ class MainWindow(QMainWindow):
         v.addWidget(t)
         v.addWidget(lbl_val)
         grid.addWidget(box, r, c)
+        self._dashboard_card_styles.append((box, t, lbl_val, color))
+        self._refresh_dashboard_card_styles()
         return lbl_val
 
     # =========================================================================
@@ -3991,7 +4020,7 @@ class MainWindow(QMainWindow):
         stored = self.db.get_product_catalog_config()
         defaults = {
             "categories": list(MAIN_CATEGORIES),
-            "subcategories": {},
+            "subcategories": copy.deepcopy(DEFAULT_SUBCATEGORIES),
             "attributes": {},
             "colors": [
                 "مشکی", "سفید", "نقره‌ای", "خاکستری", "آبی",
@@ -4061,6 +4090,10 @@ class MainWindow(QMainWindow):
         if old in self._taxonomy_draft["attributes"]:
             self._taxonomy_draft["attributes"][new] = self._taxonomy_draft["attributes"].pop(old)
         self._pending_category_renames.append((old, new))
+        self._pending_subcategory_renames = [
+            (new if category == old else category, old_sub, new_sub)
+            for category, old_sub, new_sub in self._pending_subcategory_renames
+        ]
         self.cb_cfg_category.setItemText(self.cb_cfg_category.currentIndex(), new)
         self.ed_cfg_category.clear()
         self._refresh_catalog_management_lists()
@@ -4186,7 +4219,7 @@ class MainWindow(QMainWindow):
     def _apply_product_catalog_config(self):
         self.catalog_config = self.db.get_product_catalog_config()
         categories = self.catalog_config.get("categories") or list(MAIN_CATEGORIES)
-        categories = list(dict.fromkeys(MAIN_CATEGORIES + categories))
+        categories = list(dict.fromkeys(categories))
         colors = self.catalog_config.get("colors") or [
             "مشکی", "سفید", "نقره‌ای", "خاکستری", "آبی",
             "قرمز", "طلایی", "سبز", "سایر",
@@ -4482,7 +4515,7 @@ class MainWindow(QMainWindow):
                 _ask_yes_no(
                     self,
                     "تأیید بازیابی",
-                    "آیا از بازیابی اطلاعات مطمئن هستید؟ (از دیتابیس فعلی به طور خودکار بکاپ گرفته می‌شود)",
+                    "آیا از بازیابی اطلاعات مطمئن هستید؟ (از پایگاه دادهٔ فعلی به‌صورت خودکار نسخهٔ پشتیبان تهیه می‌شود)",
                 )
                 is True
             ):
