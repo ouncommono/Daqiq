@@ -35,10 +35,10 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
         assert window.top_bar.layoutDirection() == Qt.LeftToRight
         assert window.top_layout.direction() == QBoxLayout.LeftToRight
         assert window.top_right_layout.direction() == QBoxLayout.LeftToRight
-        assert window.top_layout.itemAt(0).layout() is window.top_right_layout
-        assert window.top_layout.itemAt(window.top_layout.count() - 1).widget() is window.lbl_store_name
-        assert window.top_right_layout.itemAt(0).widget() is window.btn_theme
-        assert window.top_right_layout.itemAt(window.top_right_layout.count() - 1).widget() is window.btn_switch_user
+        assert window.top_layout.itemAt(0).layout() == window.top_right_layout
+        assert window.top_layout.itemAt(window.top_layout.count() - 1).widget() == window.lbl_store_name
+        assert window.top_right_layout.itemAt(0).widget() == window.btn_theme
+        assert window.top_right_layout.itemAt(window.top_right_layout.count() - 1).widget() == window.btn_switch_user
         assert window.lbl_active_user.minimumWidth() >= 90
         assert window.lbl_active_user.sizePolicy().horizontalPolicy() == QSizePolicy.Preferred
         assert window.btn_theme.isEnabled()
@@ -89,6 +89,11 @@ def test_database_refresh_keeps_services_suppliers_and_password_status_visible(
     monkeypatch.setattr(
         main_module.QMessageBox,
         "information",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(
+        main_module.QMessageBox,
+        "critical",
         lambda *args, **kwargs: None,
     )
 
@@ -148,6 +153,16 @@ def test_database_refresh_keeps_services_suppliers_and_password_status_visible(
         assert supplier_count == 1
         assert window.tbl_suppliers.rowCount() == 1
 
+        # Purchase registration must still complete and refresh with a populated batch table.
+        window.cb_batch_qty.setCurrentText("2")
+        window.ed_batch_inv.setText("PO-2")
+        window.pr_batch_buy.set_value(100)
+        window.pr_batch_suggest.set_value(150)
+        window._save_new_batch()
+        with manager.get_connection() as conn:
+            batch_count = conn.execute("SELECT COUNT(*) FROM batches").fetchone()[0]
+        assert batch_count == 2
+
         # Adding a tariff must both persist it and refresh the visible catalog.
         window.ed_srv_name.setText("نصب ویندوز آزمون")
         window.ed_srv_code.clear()
@@ -196,10 +211,31 @@ def test_database_refresh_keeps_services_suppliers_and_password_status_visible(
         )
         assert window.tbl_employees.item(employee_row, 5).text() == "بله"
 
-        # Required-password mode must not reintroduce a startup refresh failure.
+        # Reopen with required-password policy enabled, authenticate and build the main UI.
         manager.cfg["require_login_password"] = True
-        window.refresh_all_data()
-        assert window.tbl_employees.item(employee_row, 5).text() == "بله"
+        database_module.save_app_config(manager.cfg)
+        reopened_manager = DatabaseManager(str(tmp_path / "shop.db"))
+        assert reopened_manager.cfg["require_login_password"] is True
+
+        login = main_module.LoginDialog(reopened_manager)
+        try:
+            login.ed_pass.setText("New-Password-123")
+            login._check_login()
+            assert login.logged_employee is not None
+            assert login.result() == 1  # QDialog.Accepted
+
+            protected_window = MainWindow(
+                reopened_manager, active_employee=login.logged_employee
+            )
+            try:
+                assert protected_window.cb_sale_batch.count() == 2
+                assert protected_window.tbl_employees.item(
+                    employee_row, 5
+                ).text() == "بله"
+            finally:
+                protected_window.close()
+        finally:
+            login.close()
     finally:
         window.close()
         qapp.processEvents()
