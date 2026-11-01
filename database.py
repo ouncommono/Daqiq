@@ -59,7 +59,6 @@ def load_app_config():
             pass
     if default_cfg["db_path"] not in default_cfg["recent_databases"]:
         default_cfg["recent_databases"].append(default_cfg["db_path"])
-    os.makedirs(default_cfg["backup_dir"], exist_ok=True)
     return default_cfg
 
 def hash_password(raw_password: str) -> str:
