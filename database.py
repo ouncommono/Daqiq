@@ -809,11 +809,15 @@ class DatabaseManager:
         settlement_status=None,
         product_id=None,
         initial_specs=None,
+        batch_code=None,
     ):
         with self.get_connection() as conn:
             old = conn.execute("SELECT * FROM batches WHERE id=?", (batch_id,)).fetchone()
             if not old:
                 raise ValueError("محموله یافت نشد.")
+            new_product_id = int(product_id) if product_id is not None else int(old["product_id"])
+            if int(old["sold_qty"] or 0) > 0 and new_product_id != int(old["product_id"]):
+                raise ValueError("کالای محموله‌ای که فروش یا مصرف در ارتقا داشته است قابل تعویض نیست.")
             new_initial_qty = int(new_initial_qty)
             if new_initial_qty < old["sold_qty"]:
                 raise ValueError(
@@ -851,14 +855,15 @@ class DatabaseManager:
 
             conn.execute(
                 """
-                UPDATE batches SET product_id=?, supplier_id=?, buyer_employee_id=?, invoice_number=?, purchase_date=?,
+                UPDATE batches SET batch_code=?, product_id=?, supplier_id=?, buyer_employee_id=?, invoice_number=?, purchase_date=?,
                 initial_qty=?, remaining_qty=?, unit_purchase_price=?, extra_cost_total=?,
                 unit_cost_price=?, suggested_sell_price=?, profit_pct=?, settlement_status=?,
                 paid_amount=?, serial_numbers=?, initial_specs=?, notes=?, supplier_name_snapshot=?
                 WHERE id=?
             """,
                 (
-                    int(product_id) if product_id is not None else old["product_id"],
+                    (batch_code or old["batch_code"]).strip(),
+                    new_product_id,
                     supplier_id,
                     buyer_employee_id,
                     invoice_number,
