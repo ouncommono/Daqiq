@@ -418,7 +418,7 @@ class MainWindow(QMainWindow):
         )
         if path:
             try:
-                export_safe_inventory_excel(self.db, path)
+                export_safe_inventory_excel(self.db, path, (self.db.cfg.get("shop_name") or "").strip())
                 QMessageBox.information(
                     self,
                     "ذخیره شد",
@@ -860,6 +860,7 @@ class MainWindow(QMainWindow):
                 "پرداخت‌شده",
                 "مانده بدهی",
                 "مشخصات فنی / توضیحات",
+                "بهای کل محموله (تومان)",
             ]
         )
         self.tbl_batches.itemSelectionChanged.connect(self._on_batch_row_selected)
@@ -1963,6 +1964,20 @@ class MainWindow(QMainWindow):
                 "۱۲. گزارش کامل خدمات انجام‌شده",
             ]
         )
+        if self._is_scoped_access():
+            permission = self.active_employee.get("permissions") or ""
+            if "ثبت خرید و انبارداری" in permission:
+                allowed_reports = [
+                    "۲. گزارش کامل تمام خریدها (محموله‌ها)",
+                    "۷. گزارش جامع عملکرد هر کارمند / فروشنده",
+                ]
+            else:
+                allowed_reports = [
+                    "۱. گزارش کامل تمام فروش‌ها",
+                    "۱۲. گزارش کامل خدمات انجام‌شده",
+                ]
+            self.cb_rep_type.clear()
+            self.cb_rep_type.addItems(allowed_reports)
 
         self.cb_rep_preset = QComboBox()
         self.cb_rep_preset.addItems(
@@ -2070,6 +2085,8 @@ class MainWindow(QMainWindow):
         d_from = self.dt_rep_from.get_date()
         d_to = self.dt_rep_to.get_date()
         emp_id = self.cb_rep_emp.currentData()
+        if self._is_scoped_access() and self.active_employee:
+            emp_id = int(self.active_employee["id"])
         cat = self.cb_rep_cat.currentText().strip()
         q_txt = self.ed_rep_search.text().strip().lower()
 
@@ -2097,7 +2114,7 @@ class MainWindow(QMainWindow):
                     "مبلغ کل (تومان)",
                     "پرداخت‌شده (تومان)",
                     "مانده حساب (تومان)",
-                    "سود ناخالص (تومان)",
+                    "سود خالص (تومان)",
                     "وضعیت تسویه",
                 ]
                 s_rows = conn.execute("""
@@ -2194,7 +2211,7 @@ class MainWindow(QMainWindow):
                 summary_text = (
                     f"مجموع فروش و خدمات: {total_income:,} تومان   |   "
                     f"مجموع خریدها: {total_buy:,} تومان   |   "
-                    f"سود ناخالص کل: {total_profit:,} تومان"
+                    f"سود خالص کل: {total_profit:,} تومان"
                 )
 
             # ۱ و ۱۱. گزارش کامل تمام فروش‌ها / تخفیف‌ها و تشدیدها
@@ -2709,6 +2726,7 @@ class MainWindow(QMainWindow):
             rows,
             path,
             summary_text=self.lbl_rep_totals.text(),
+            shop_name=(self.db.cfg.get("shop_name") or "").strip(),
         )
         QMessageBox.information(
             self, "خروجی اکسل", f"فایل گزارش با موفقیت ذخیره شد:\n{path}"
@@ -3200,13 +3218,13 @@ class MainWindow(QMainWindow):
                 "SELECT * FROM products WHERE is_active=1 ORDER BY code ASC"
             ).fetchall()
             emps = conn.execute(
-                "SELECT * FROM employees WHERE is_active=1 ORDER BY id ASC"
+                "SELECT * FROM employees WHERE is_active=1 ORDER BY id DESC"
             ).fetchall()
             sups = conn.execute(
-                "SELECT * FROM suppliers ORDER BY id ASC"
+                "SELECT * FROM suppliers ORDER BY id DESC"
             ).fetchall()
             srvs = conn.execute(
-                "SELECT * FROM service_catalog WHERE is_active=1 ORDER BY id ASC"
+                "SELECT * FROM service_catalog WHERE is_active=1 ORDER BY id DESC"
             ).fetchall()
             batches = conn.execute(
                 """
@@ -3214,9 +3232,14 @@ class MainWindow(QMainWindow):
                 FROM batches b
                 JOIN products p ON b.product_id=p.id
                 WHERE b.remaining_qty > 0
-                ORDER BY b.id ASC
+                ORDER BY b.id DESC
             """
             ).fetchall()
+            sale_product_ids = {
+                row["product_id"] for row in conn.execute(
+                    "SELECT DISTINCT product_id FROM batches WHERE remaining_qty > 0"
+                ).fetchall()
+            }
 
         # بند ۳: قرار دادن دسته‌بندی و زیرگروه در متن آیتم‌های کمبوباکس کالا برای جست‌وجوی مستقیم (مثلاً تایپ «کیبورد»)
         self.cb_batch_prod.blockSignals(True)
@@ -3231,9 +3254,11 @@ class MainWindow(QMainWindow):
                 f"{p['brand']} {p['model']} {specs_short}".strip()
             )
             self.cb_batch_prod.addItem(lbl, dict(p))
-            self.cb_sale_prod.addItem(lbl, dict(p))
+            if int(p["id"]) in sale_product_ids:
+                self.cb_sale_prod.addItem(lbl, dict(p))
         self.cb_batch_prod.blockSignals(False)
         self.cb_sale_prod.blockSignals(False)
+        self._on_sale_prod_changed()
         self._on_sale_prod_changed()
 
         for cb in (
@@ -3338,7 +3363,7 @@ class MainWindow(QMainWindow):
         with self.db.get_connection() as conn:
             rows = conn.execute("""
                 SELECT b.*, p.code as p_code, p.category, p.sub_category, p.brand, p.model,
-                       sup.name as sup_name, e.name as emp_name
+                       COALESCE(sup.name,b.supplier_name_snapshot) as sup_name, e.name as emp_name
                 FROM batches b
                 JOIN products p ON b.product_id=p.id
                 LEFT JOIN suppliers sup ON b.supplier_id=sup.id
@@ -3373,6 +3398,7 @@ class MainWindow(QMainWindow):
                     f"{r['paid_amount']:,}",
                     f"{debt:,}",
                     f"{r['final_specs']} {r['serial_numbers']}".strip(),
+                    f"{tot_bill:,}",
                 ]
             )
         self._populate_table_safely(self.tbl_batches, data, highlight_col=17)
@@ -3392,7 +3418,7 @@ class MainWindow(QMainWindow):
         for r in rows:
             war_str = (
                 f"{r['warranty_company']} ({r['warranty_end']})"
-                if r["warranty_company"] or r["warranty_months"]
+                if r["warranty_company"] or r["warranty_months"] or r["warranty_days"]
                 else "-"
             )
             prod_title = f"{r['sub_category']} {r['brand']} {r['model']}".strip()
@@ -3508,7 +3534,7 @@ class MainWindow(QMainWindow):
                 FROM suppliers s
                 LEFT JOIN batches b ON s.id = b.supplier_id
                 GROUP BY s.id
-                ORDER BY s.id ASC
+                ORDER BY s.id DESC
             """).fetchall()
         data = []
         for r in rows:
@@ -3530,7 +3556,7 @@ class MainWindow(QMainWindow):
     def _refresh_employees_table(self):
         with self.db.get_connection() as conn:
             rows = conn.execute(
-                "SELECT * FROM employees ORDER BY id ASC"
+                "SELECT * FROM employees ORDER BY id DESC"
             ).fetchall()
         data = [
             [
