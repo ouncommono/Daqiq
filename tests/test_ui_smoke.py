@@ -3,7 +3,15 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from PySide6.QtWidgets import QApplication, QBoxLayout, QCompleter, QSizePolicy, QToolButton
+from PySide6.QtWidgets import (
+    QApplication,
+    QBoxLayout,
+    QCompleter,
+    QSizePolicy,
+    QToolButton,
+    QScrollBar,
+    QWidget,
+)
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFontMetrics
 
@@ -11,7 +19,7 @@ import database as database_module
 import main as main_module
 from database import DatabaseManager
 from main import MainWindow, SmoothScrollArea
-from utils_and_widgets import JalaliCalendarDialog
+from utils_and_widgets import JalaliCalendarDialog, _animate_scrollbar
 
 
 @pytest.fixture(scope="session")
@@ -45,6 +53,19 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
         assert window.btn_theme.isEnabled()
         assert window.btn_table_width.isEnabled()
         assert window.tbl_batches.columnCount() >= 22
+        assert isinstance(window.tbl_batches, main_module.SmoothScrollTableWidget)
+
+        # Repeated wheel events accumulate against the previous animation target.
+        scroll_owner = QWidget()
+        scroll_bar = QScrollBar()
+        scroll_bar.setRange(0, 1000)
+        scroll_bar.setValue(500)
+        assert _animate_scrollbar(scroll_owner, scroll_bar, 120)
+        first_target = int(scroll_owner._wheel_animation.endValue())
+        assert first_target == 380
+        assert _animate_scrollbar(scroll_owner, scroll_bar, 120)
+        second_target = int(scroll_owner._wheel_animation.endValue())
+        assert second_target == 260
         assert not hasattr(window, "chk_zero_enabled")
         assert window.lbl_live_clock.toolTip()
         assert window.lst_cfg_subcategories.count() > 0
@@ -149,6 +170,13 @@ def test_database_refresh_keeps_services_suppliers_and_password_status_visible(
         # A real sqlite3.Row batch is loaded during initial startup and refresh.
         assert window.cb_sale_prod.count() == 1
         assert window.cb_sale_batch.count() == 1
+        # Purchase picker hides long specs in the row but includes them in its search and hover text.
+        assert "DDR5" not in window.cb_batch_prod.itemText(0)
+        assert window.cb_batch_prod._search_proxy.rowCount() >= 1
+        assert "DDR5" in window.cb_batch_prod.itemData(0, Qt.ToolTipRole)
+        window.cb_batch_prod._search_proxy.set_query("DDR5")
+        assert window.cb_batch_prod._search_proxy.rowCount() == 1
+        window.cb_batch_prod._search_proxy.set_query("")
         assert "DDR5" not in window.cb_sale_batch.itemText(0)
         window.cb_sale_batch._search_proxy.set_query("DDR5")
         assert window.cb_sale_batch._search_proxy.rowCount() == 1
