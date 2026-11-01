@@ -964,7 +964,10 @@ class MainWindow(QMainWindow):
                 msg.exec()
                 if msg.clickedButton() != btn_replace:
                     return
-                self.db.update_batch(int(duplicate["id"]), *batch_values)
+                self.db.update_batch(
+                    int(duplicate["id"]), *batch_values,
+                    product_id=prod["id"], initial_specs=custom_specs_or_notes,
+                )
             else:
                 self.db.add_batch(
                     code, prod["id"], *batch_values[:10],
@@ -1391,11 +1394,13 @@ class MainWindow(QMainWindow):
         f_cat = QFormLayout()
         self.cb_srv_type = QComboBox()
         self.cb_srv_type.addItems(["نرم‌افزاری", "سخت‌افزاری"])
+        self.ed_srv_code = SmartLineEdit("S-1001")
         self.ed_srv_name = SmartLineEdit("عنوان خدمت (مثلاً نصب ویندوز، نصب آنتی‌ویروس...)")
         self.pr_srv_def_fee = PriceInput(self.db)
         self.pr_srv_def_side = PriceInput(self.db)
 
         f_cat.addRow("نوع خدمت:", self.cb_srv_type)
+        f_cat.addRow("کد خدمت:", self.ed_srv_code)
         f_cat.addRow("عنوان خدمت *:", self.ed_srv_name)
         f_cat.addRow("هزینه خدمت (تومان):", self.pr_srv_def_fee)
         f_cat.addRow("هزینه جانبی پیش‌فرض:", self.pr_srv_def_side)
@@ -1420,7 +1425,7 @@ class MainWindow(QMainWindow):
         v_cat.addLayout(cat_btns)
 
         self.tbl_srv_catalog = self._create_table(
-            ["شناسه", "نوع خدمت", "عنوان خدمت", "هزینه خدمت (تومان)", "هزینه جانبی پیش‌فرض"]
+            ["شناسه", "کد خدمت", "نوع خدمت", "عنوان خدمت", "هزینه خدمت (تومان)", "هزینه جانبی پیش‌فرض"]
         )
         self.tbl_srv_catalog.setMaximumHeight(160)
         self.tbl_srv_catalog.itemSelectionChanged.connect(self._on_srv_catalog_table_selected)
@@ -1510,6 +1515,7 @@ class MainWindow(QMainWindow):
         
     def _clear_service_cat_form(self):
         self.selected_srv_cat_id = None
+        self.ed_srv_code.setText(self.db.generate_next_code("service_catalog", "code", "S-", 1001))
         self.ed_srv_name.clear()
         self.pr_srv_def_fee.set_value(0)
         self.pr_srv_def_side.set_value(0)
@@ -1545,17 +1551,25 @@ class MainWindow(QMainWindow):
         if not name:
             QMessageBox.warning(self, "خطا", "عنوان خدمت را وارد کنید.")
             return
+        code = self.ed_srv_code.text().strip()
+        with self.db.get_connection() as conn:
+            duplicate = conn.execute("SELECT id FROM service_catalog WHERE code=?", (code,)).fetchone()
+        target_id = None
+        if duplicate:
+            msg = QMessageBox(self)
+            msg.setWindowTitle("کد خدمت تکراری")
+            msg.setText(f"کد {code} قبلاً ثبت شده است. اطلاعات خدمت قبلی جایگزین شود؟")
+            btn_replace = msg.addButton("جایگزین کردن", QMessageBox.AcceptRole)
+            msg.addButton("انصراف", QMessageBox.RejectRole)
+            msg.exec()
+            if msg.clickedButton() != btn_replace:
+                return
+            target_id = int(duplicate["id"])
         self.db.save_service_catalog(
-            None,
-            "",
-            self.cb_srv_type.currentText(),
-            name,
-            self.pr_srv_def_fee.get_value(),
-            self.pr_srv_def_side.get_value(),
-            "",
+            target_id, code, self.cb_srv_type.currentText(), name,
+            self.pr_srv_def_fee.get_value(), self.pr_srv_def_side.get_value(), "",
         )
-        self.selected_srv_cat_id = None
-        self.ed_srv_name.clear()
+        self._clear_service_cat_form()
         self.refresh_all_data()
 
     def _edit_selected_service_tariff(self):
@@ -1564,7 +1578,7 @@ class MainWindow(QMainWindow):
             return
         self.db.save_service_catalog(
             self.selected_srv_cat_id,
-            "",
+            self.ed_srv_code.text().strip(),
             self.cb_srv_type.currentText(),
             self.ed_srv_name.text().strip(),
             self.pr_srv_def_fee.get_value(),
@@ -1591,13 +1605,14 @@ class MainWindow(QMainWindow):
             return
         r = items[0].row()
         self.selected_srv_cat_id = int(self.tbl_srv_catalog.item(r, 0).text())
-        self.cb_srv_type.setCurrentText(self.tbl_srv_catalog.item(r, 1).text())
-        self.ed_srv_name.setText(self.tbl_srv_catalog.item(r, 2).text())
+        self.ed_srv_code.setText(self.tbl_srv_catalog.item(r, 1).text())
+        self.cb_srv_type.setCurrentText(self.tbl_srv_catalog.item(r, 2).text())
+        self.ed_srv_name.setText(self.tbl_srv_catalog.item(r, 3).text())
         self.pr_srv_def_fee.set_value(
-            int(self.tbl_srv_catalog.item(r, 3).text().replace(",", ""))
+            int(self.tbl_srv_catalog.item(r, 4).text().replace(",", ""))
         )
         self.pr_srv_def_side.set_value(
-            int(self.tbl_srv_catalog.item(r, 4).text().replace(",", ""))
+            int(self.tbl_srv_catalog.item(r, 5).text().replace(",", ""))
         )
 
     def _on_srv_catalog_picked(self):
@@ -3576,6 +3591,7 @@ class MainWindow(QMainWindow):
         cat_data = [
             [
                 r["id"],
+                r["code"],
                 r["service_type"],
                 r["name"],
                 f"{r['default_fee']:,}",
