@@ -78,7 +78,7 @@ def _style_worksheet_professional(ws, title: str, headers: list, data_rows: list
         ws.column_dimensions[col_letter].width = min(max(max_len + 5, 13), 42)
 
 
-def export_safe_inventory_excel(db: DatabaseManager, file_path: str):
+def export_safe_inventory_excel(db: DatabaseManager, file_path: str, shop_name: str = ""):
     """
     بند ۴ و ۹: خروجی موجودی امن برای همکاران
     - عنوان دقیق: «گزارش موجودی»
@@ -136,12 +136,14 @@ def export_safe_inventory_excel(db: DatabaseManager, file_path: str):
             ]
         )
 
-    _style_worksheet_professional(ws, "گزارش موجودی", headers, data_rows)
+    report_title = f"{shop_name} — گزارش موجودی" if shop_name else "گزارش موجودی"
+    _style_worksheet_professional(ws, report_title, headers, data_rows)
     wb.save(file_path)
 
 
 def export_table_to_excel(
-    title: str, headers: list, data_rows: list, file_path: str, summary_text: str = ""
+    title: str, headers: list, data_rows: list, file_path: str, summary_text: str = "",
+    shop_name: str = "",
 ):
     """مورد ۱: خروجی اکسل کامل و استایل‌دهی شده برای گزارش‌های جامع"""
     wb = openpyxl.Workbook()
@@ -151,7 +153,8 @@ def export_table_to_excel(
 
     col_count = max(1, len(headers))
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=col_count)
-    ws.cell(1, 1, title).font = Font(name="Tahoma", size=13, bold=True, color="FFFFFF")
+    report_title = f"{shop_name} — {title}" if shop_name else title
+    ws.cell(1, 1, report_title).font = Font(name="Tahoma", size=13, bold=True, color="FFFFFF")
     ws.cell(1, 1).fill = PatternFill("solid", fgColor="1E3A8A")
     ws.cell(1, 1).alignment = Alignment(horizontal="center", vertical="center")
     ws.row_dimensions[1].height = 28

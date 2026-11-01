@@ -1,4 +1,5 @@
 # utils_and_widgets.py
+import datetime
 import jdatetime
 from PySide6.QtWidgets import (
     QWidget,
@@ -16,6 +17,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
 )
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QIntValidator
 
 PERSIAN_ARABIC_MAP = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
 
@@ -145,6 +147,16 @@ def add_jalali_months(start_date_str: str, months: int) -> str:
             max_d = 30 if is_leap else 29
         nd = min(d, max_d)
         return f"{ny:04d}/{nm:02d}/{nd:02d}"
+    except Exception:
+        return start_date_str
+
+
+def add_jalali_days(start_date_str: str, days: int) -> str:
+    """Add exact calendar days to a Jalali date."""
+    try:
+        parts = [int(x) for x in normalize_digits(start_date_str).split("/")]
+        result = jdatetime.date(parts[0], parts[1], parts[2]) + datetime.timedelta(days=int(days))
+        return result.strftime("%Y/%m/%d")
     except Exception:
         return start_date_str
 
@@ -314,18 +326,23 @@ class JalaliCalendarDialog(QDialog):
 
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
-        nav = QHBoxLayout()
+        nav = QVBoxLayout()
+        nav.setSpacing(5)
+        year_row = QHBoxLayout()
 
-        self.sp_year = QSpinBox()
-        self.sp_year.setRange(1380, 1460)
-        self.sp_year.setValue(self.cur_year)
-        self.sp_year.setMinimumWidth(105)
-        self.sp_year.setMinimumHeight(34)
-        self.sp_year.setAlignment(Qt.AlignCenter)
-        self.sp_year.setStyleSheet(
-            "font-size: 15px; font-weight: bold; color: #0f172a; background: #ffffff; padding: 4px;"
+        self.cb_year = QComboBox()
+        self.cb_year.setEditable(True)
+        self.cb_year.addItems([str(year) for year in range(1405, 1501)])
+        self.cb_year.setInsertPolicy(QComboBox.NoInsert)
+        self.cb_year.setCurrentText(str(self.cur_year))
+        self.cb_year.setMinimumWidth(105)
+        self.cb_year.setMinimumHeight(32)
+        self.cb_year.lineEdit().setAlignment(Qt.AlignCenter)
+        self.cb_year.lineEdit().setValidator(QIntValidator(1405, 1500, self.cb_year))
+        self.cb_year.setStyleSheet(
+            "font-size: 14px; font-weight: bold; color: #0f172a; background: #ffffff; padding: 3px;"
         )
-        self.sp_year.valueChanged.connect(self._refresh_grid)
+        self.cb_year.currentTextChanged.connect(self._refresh_grid)
 
         self.cb_month = QComboBox()
         self.cb_month.setMinimumWidth(135)
@@ -359,12 +376,17 @@ class JalaliCalendarDialog(QDialog):
         lbl_m = QLabel("ماه:")
         lbl_m.setStyleSheet("font-weight: bold; font-size: 14px;")
 
-        nav.addWidget(lbl_y)
-        nav.addWidget(self.sp_year)
-        nav.addWidget(lbl_m)
-        nav.addWidget(self.cb_month)
-        nav.addStretch()
-        nav.addWidget(btn_today)
+        year_row.addWidget(lbl_y)
+        year_row.addWidget(self.cb_year)
+        year_row.addStretch()
+        nav.addLayout(year_row)
+
+        month_row = QHBoxLayout()
+        month_row.addWidget(lbl_m)
+        month_row.addWidget(self.cb_month)
+        month_row.addStretch()
+        month_row.addWidget(btn_today)
+        nav.addLayout(month_row)
         layout.addLayout(nav)
 
         self.grid = QGridLayout()
@@ -382,7 +404,7 @@ class JalaliCalendarDialog(QDialog):
         for r in range(1, 7):
             for c in range(7):
                 btn = QPushButton("")
-                btn.setFixedSize(52, 42)
+                btn.setFixedSize(40, 34)
                 btn.clicked.connect(self._on_day_clicked)
                 self.grid.addWidget(btn, r, c)
                 self.day_buttons.append(btn)
@@ -392,13 +414,13 @@ class JalaliCalendarDialog(QDialog):
 
     def _go_today(self):
         t = jdatetime.date.today()
-        self.sp_year.setValue(t.year)
+        self.cb_year.setCurrentText(str(t.year))
         self.cb_month.setCurrentIndex(t.month - 1)
         self.selected_date = t.strftime("%Y/%m/%d")
         self.accept()
 
     def _refresh_grid(self):
-        y = self.sp_year.value()
+        y = int(normalize_digits(self.cb_year.currentText()))
         m = self.cb_month.currentData()
         first_day = jdatetime.date(y, m, 1)
         start_weekday = first_day.weekday()
@@ -434,7 +456,7 @@ class JalaliCalendarDialog(QDialog):
         if not btn.text():
             return
         d = int(btn.text())
-        y = self.sp_year.value()
+        y = int(normalize_digits(self.cb_year.currentText()))
         m = self.cb_month.currentData()
         self.selected_date = f"{y:04d}/{m:02d}/{d:02d}"
         self.accept()
@@ -452,22 +474,22 @@ class JalaliDateEdit(QWidget):
         self.setLayoutDirection(Qt.RightToLeft)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(3)
+        layout.setSpacing(2)
 
         self.ed_day = QLineEdit()
-        self.ed_day.setFixedWidth(36)
+        self.ed_day.setFixedWidth(32)
         self.ed_day.setMaxLength(2)
         self.ed_day.setAlignment(Qt.AlignCenter)
         self.ed_day.setPlaceholderText("روز")
 
         self.ed_month = QLineEdit()
-        self.ed_month.setFixedWidth(36)
+        self.ed_month.setFixedWidth(32)
         self.ed_month.setMaxLength(2)
         self.ed_month.setAlignment(Qt.AlignCenter)
         self.ed_month.setPlaceholderText("ماه")
 
         self.ed_year = QLineEdit()
-        self.ed_year.setFixedWidth(54)
+        self.ed_year.setFixedWidth(48)
         self.ed_year.setMaxLength(4)
         self.ed_year.setAlignment(Qt.AlignCenter)
         self.ed_year.setPlaceholderText("سال")

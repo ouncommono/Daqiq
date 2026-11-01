@@ -1,5 +1,6 @@
 # database.py
 import os
+import sys
 import json
 import shutil
 import sqlite3
@@ -14,7 +15,23 @@ def get_app_data_dir():
     return path
 
 
-CONFIG_FILE = os.path.join(get_app_data_dir(), "app_config.json")
+def get_config_file_path():
+    """Keep portable settings beside the executable whenever that location is writable."""
+    app_dir = os.path.dirname(os.path.abspath(
+        sys.executable if getattr(sys, "frozen", False) else __file__
+    ))
+    local_path = os.path.join(app_dir, "app_config.json")
+    try:
+        probe = local_path + ".write-test"
+        with open(probe, "w", encoding="utf-8") as handle:
+            handle.write("")
+        os.remove(probe)
+        return local_path
+    except OSError:
+        return os.path.join(get_app_data_dir(), "app_config.json")
+
+
+CONFIG_FILE = get_config_file_path()
 
 
 def load_app_config():
@@ -26,6 +43,8 @@ def load_app_config():
         "auto_backup_enabled": True,
         "auto_backup_interval_min": 60,
         "last_backup_time": "ثبت نشده",
+        "shop_name": "فروشگاه من",
+        "theme": "light",
     }
     if os.path.exists(CONFIG_FILE):
         try:
@@ -46,8 +65,13 @@ def hash_password(raw_password: str) -> str:
     return hashlib.sha256(raw_password.encode("utf-8")).hexdigest()
 
 def save_app_config(cfg):
-    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+    """Write config atomically; preserve the last valid settings file."""
+    temp_path = CONFIG_FILE + ".tmp"
+    with open(temp_path, "w", encoding="utf-8") as f:
         json.dump(cfg, f, ensure_ascii=False, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(temp_path, CONFIG_FILE)
 
 
 class DatabaseManager:
@@ -153,6 +177,7 @@ class DatabaseManager:
                     initial_specs TEXT DEFAULT '',
                     final_specs TEXT DEFAULT '',
                     notes TEXT DEFAULT '',
+                    supplier_name_snapshot TEXT DEFAULT '',
                     FOREIGN KEY(product_id) REFERENCES products(id),
                     FOREIGN KEY(supplier_id) REFERENCES suppliers(id),
                     FOREIGN KEY(buyer_employee_id) REFERENCES employees(id)
@@ -206,6 +231,7 @@ class DatabaseManager:
                     warranty_company TEXT DEFAULT '',
                     warranty_start TEXT DEFAULT '',
                     warranty_months INTEGER DEFAULT 0,
+                    warranty_days INTEGER DEFAULT 0,
                     warranty_end TEXT DEFAULT '',
                     serial_number TEXT DEFAULT '',
                     notes TEXT DEFAULT '',
@@ -300,17 +326,6 @@ class DatabaseManager:
                     (k, v),
                 )
 
-            cur.execute("SELECT COUNT(*) FROM employees")
-            if cur.fetchone()[0] == 0:
-                cur.execute(
-                    "INSERT INTO employees (name, role, phone, permissions) VALUES (?, ?, ?, ?)",
-                    ("فروشنده اول", "مدیر / فروشنده", "", "دسترسی کامل"),
-                )
-                cur.execute(
-                    "INSERT INTO employees (name, role, phone, permissions) VALUES (?, ?, ?, ?)",
-                    ("فروشنده دوم", "فروشنده", "", "دسترسی کامل"),
-                )
-
             cur.execute("SELECT COUNT(*) FROM suppliers")
             if cur.fetchone()[0] == 0:
                 cur.execute(
@@ -318,10 +333,21 @@ class DatabaseManager:
                     ("تأمین‌کننده عمومی بازار", "021-88990011", "تهران", "پیش‌فرض"),
                 )
                 
-            try:
-                cur.execute("ALTER TABLE upgrades ADD COLUMN added_cost_unit INTEGER DEFAULT 0")
-            except Exception:
-                pass
+            # Migrate existing databases without dropping any business records.
+            migrations = (
+                ("upgrades", "added_cost_unit", "INTEGER DEFAULT 0"),
+                ("batches", "supplier_name_snapshot", "TEXT DEFAULT ''"),
+                ("sales", "warranty_days", "INTEGER DEFAULT 0"),
+            )
+            for table_name, column_name, column_type in migrations:
+                columns = {
+                    row["name"]
+                    for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+                }
+                if column_name not in columns:
+                    cur.execute(
+                        f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}"
+                    )
 
             conn.commit()
 
@@ -385,7 +411,7 @@ class DatabaseManager:
         default_profit_pct,
     ):
         if not code:
-            code = self.generate_next_code("products", "code", "P", 1001)
+            code = self.generate_next_code("products", "code", "P-", 1001)
         auto_name = (
             name.strip()
             if name and name.strip()
@@ -590,7 +616,7 @@ class DatabaseManager:
         settlement_status=None,
     ):
         if not batch_code:
-            batch_code = self.generate_next_code("batches", "batch_code", "B", 1001)
+            batch_code = self.generate_next_code("batches", "batch_code", "C-", 1001)
         initial_qty = int(initial_qty)
         if initial_qty <= 0:
             raise ValueError("تعداد خرید باید بیشتر از صفر باشد.")
@@ -622,6 +648,10 @@ class DatabaseManager:
                 status = "تسویه جزئی"
 
         with self.get_connection() as conn:
+            supplier_row = conn.execute(
+                "SELECT name FROM suppliers WHERE id=?", (supplier_id,)
+            ).fetchone() if supplier_id else None
+            supplier_snapshot = supplier_row["name"] if supplier_row else ""
             cur = conn.cursor()
             cur.execute(
                 """
@@ -653,6 +683,7 @@ class DatabaseManager:
                     initial_specs,
                     initial_specs,
                     notes,
+                    supplier_snapshot,
                 ),
             )
             batch_id = cur.lastrowid
@@ -695,6 +726,10 @@ class DatabaseManager:
                 )
 
             new_remaining = new_initial_qty - old["sold_qty"]
+            supplier_row = conn.execute(
+                "SELECT name FROM suppliers WHERE id=?", (supplier_id,)
+            ).fetchone() if supplier_id else None
+            supplier_snapshot = supplier_row["name"] if supplier_row else old["supplier_name_snapshot"]
             unit_purchase_price = int(unit_purchase_price)
             extra_cost_total = int(extra_cost_total)
             extra_per_unit = round(extra_cost_total / new_initial_qty)
@@ -724,7 +759,7 @@ class DatabaseManager:
                 UPDATE batches SET supplier_id=?, buyer_employee_id=?, invoice_number=?, purchase_date=?,
                 initial_qty=?, remaining_qty=?, unit_purchase_price=?, extra_cost_total=?,
                 unit_cost_price=?, suggested_sell_price=?, profit_pct=?, settlement_status=?,
-                paid_amount=?, serial_numbers=?, notes=?
+                paid_amount=?, serial_numbers=?, notes=?, supplier_name_snapshot=?
                 WHERE id=?
             """,
                 (
@@ -743,6 +778,7 @@ class DatabaseManager:
                     paid_amount,
                     serial_numbers,
                     notes,
+                    supplier_snapshot,
                     batch_id,
                 ),
             )
@@ -933,6 +969,7 @@ class DatabaseManager:
         serial_number="",
         notes="",
         settlement_status=None,
+        warranty_days=None,
     ):
         qty = int(qty)
         if qty <= 0:
@@ -986,8 +1023,8 @@ class DatabaseManager:
                     qty, suggested_unit_price, actual_unit_price, unit_cost_price,
                     unit_discount, total_discount, price_Markup_unit, unit_profit, total_profit,
                     total_amount, paid_amount, settlement_status, sale_datetime,
-                    warranty_company, warranty_start, warranty_months, warranty_end, serial_number, notes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    warranty_company, warranty_start, warranty_months, warranty_days, warranty_end, serial_number, notes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     invoice_number,
@@ -1011,6 +1048,7 @@ class DatabaseManager:
                     warranty_company,
                     warranty_start,
                     int(warranty_months),
+                    int(warranty_days if warranty_days is not None else int(warranty_months or 0) * 30),
                     warranty_end,
                     serial_number,
                     notes,
@@ -1059,6 +1097,7 @@ class DatabaseManager:
         serial_number,
         notes,
         settlement_status=None,
+        warranty_days=None,
     ):
         new_qty = int(new_qty)
         if new_qty <= 0:
@@ -1110,7 +1149,7 @@ class DatabaseManager:
                 suggested_unit_price=?, actual_unit_price=?, unit_discount=?, total_discount=?,
                 price_Markup_unit=?, unit_profit=?, total_profit=?, total_amount=?,
                 paid_amount=?, settlement_status=?, warranty_company=?, warranty_start=?,
-                warranty_months=?, warranty_end=?, serial_number=?, notes=?
+                warranty_months=?, warranty_days=?, warranty_end=?, serial_number=?, notes=?
                 WHERE id=?
             """,
                 (
@@ -1130,6 +1169,7 @@ class DatabaseManager:
                     warranty_company,
                     warranty_start,
                     int(warranty_months),
+                    int(warranty_days if warranty_days is not None else int(warranty_months or 0) * 30),
                     warranty_end,
                     serial_number,
                     notes,
@@ -1199,7 +1239,7 @@ class DatabaseManager:
 
             if not target_id:
                 if not code:
-                    code = self.generate_next_code("service_catalog", "code", "SRV-", 101)
+                    code = self.generate_next_code("service_catalog", "code", "S-", 1001)
                 cur = conn.execute(
                     """
                     INSERT INTO service_catalog (code, service_type, name, default_fee, default_side_cost, description)
@@ -1229,10 +1269,11 @@ class DatabaseManager:
                     )
                 conn.execute(
                     """
-                    UPDATE service_catalog SET service_type=?, name=?, default_fee=?, default_side_cost=?, description=?
+                    UPDATE service_catalog SET code=?, service_type=?, name=?, default_fee=?, default_side_cost=?, description=?
                     WHERE id=?
                 """,
                     (
+                        code or conn.execute("SELECT code FROM service_catalog WHERE id=?", (target_id,)).fetchone()["code"],
                         type_clean,
                         name_clean,
                         default_fee,
@@ -1244,16 +1285,17 @@ class DatabaseManager:
             conn.commit()
 
     def delete_service_catalog(self, service_id):
+        """Hard-delete a service tariff together with dependent invoices and price history."""
         with self.get_connection() as conn:
-            used = conn.execute(
-                "SELECT COUNT(*) FROM service_records WHERE service_id=?", (service_id,)
-            ).fetchone()[0]
-            if used > 0:
-                raise ValueError(
-                    "برای این خدمت قبلاً فاکتور ثبت شده است و برای حفظ تاریخچه مالی قابل حذف نیست."
-                )
+            service = conn.execute(
+                "SELECT name FROM service_catalog WHERE id=?", (service_id,)
+            ).fetchone()
+            if not service:
+                return
+            conn.execute("DELETE FROM service_records WHERE service_id=?", (service_id,))
             conn.execute("DELETE FROM service_price_history WHERE service_id=?", (service_id,))
             conn.execute("DELETE FROM service_catalog WHERE id=?", (service_id,))
+            self.log_audit(conn, "حذف کامل خدمت", f"شناسه خدمت: {service_id} - {service['name']}")
             conn.commit()
 
     def add_service_record(
@@ -1381,12 +1423,21 @@ class DatabaseManager:
             conn.commit()
 
     # --- پشتیبان‌گیری و بازیابی ---
-    def create_backup(self, custom_dir=None):
-        target_dir = custom_dir or self.cfg["backup_dir"]
-        os.makedirs(target_dir, exist_ok=True)
-        stamp = jdatetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_file = os.path.join(target_dir, f"ShopBackup_{stamp}.db")
-        shutil.copy2(self.db_path, backup_file)
+    def create_backup(self, custom_dir=None, automatic=False):
+        """Create a consistent SQLite snapshot; automatic copies follow the active database."""
+        if automatic:
+            target_dir = os.path.dirname(os.path.abspath(self.db_path))
+            db_name = os.path.splitext(os.path.basename(self.db_path))[0]
+            backup_file = os.path.join(target_dir, f"AutoBackup_{db_name}.db")
+        else:
+            target_dir = custom_dir or self.cfg["backup_dir"]
+            os.makedirs(target_dir, exist_ok=True)
+            stamp = jdatetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_file = os.path.join(target_dir, f"ShopBackup_{stamp}.db")
+        os.makedirs(os.path.dirname(backup_file), exist_ok=True)
+        with sqlite3.connect(self.db_path) as source:
+            with sqlite3.connect(backup_file) as destination:
+                source.backup(destination)
         self.cfg["last_backup_time"] = jdatetime.datetime.now().strftime(
             "%Y/%m/%d %H:%M:%S"
         )
@@ -1395,4 +1446,6 @@ class DatabaseManager:
 
     def restore_backup(self, backup_file_path):
         self.create_backup()
-        shutil.copy2(backup_file_path, self.db_path)
+        with sqlite3.connect(backup_file_path) as source:
+            with sqlite3.connect(self.db_path) as destination:
+                source.backup(destination)
