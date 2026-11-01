@@ -192,9 +192,8 @@ def _is_valid_sqlite_database_file(path):
         return False
     conn = None
     try:
-        # Use a read-only connection so selecting an existing file never modifies it.
-        uri = "file:" + os.path.abspath(path).replace("\\", "/") + "?mode=ro"
-        conn = sqlite3.connect(uri, uri=True, timeout=5)
+        # Opening a verified existing file to inspect schema does not mutate it.
+        conn = sqlite3.connect(os.path.abspath(path), timeout=5)
         conn.execute("PRAGMA busy_timeout=5000")
         result = conn.execute("PRAGMA quick_check").fetchone()
         if not result or result[0] != "ok":
