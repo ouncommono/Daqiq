@@ -6,6 +6,7 @@ import subprocess
 import time
 import sqlite3
 import copy
+import re
 from datetime import timedelta
 import jdatetime
 
@@ -1690,19 +1691,106 @@ class MainWindow(QMainWindow):
 
         self._add_scrollable_tab(tab, "🛒 ثبت فروش")
 
+    @staticmethod
+    def _parse_batch_specifications(raw_text):
+        """Parse key/value technical specifications for comparing batch variants."""
+        parsed = {}
+        plain_tokens = []
+        for segment in re.split(r"[|؛;\\n]+", str(raw_text or "")):
+            segment = segment.strip(" ,،-")
+            if not segment:
+                continue
+            separator = ":" if ":" in segment else ("=" if "=" in segment else None)
+            if separator:
+                key, value = segment.split(separator, 1)
+                key, value = key.strip(), value.strip()
+                if key and value:
+                    parsed[key] = value
+                    continue
+            plain_tokens.extend(
+                token.strip() for token in re.split(r"[,،]+", segment) if token.strip()
+            )
+        return parsed, plain_tokens
+
+    @classmethod
+    def _batch_variant_labels(cls, batches):
+        """Return only the technical details that distinguish each batch of one product."""
+        parsed_rows = []
+        token_rows = []
+        for batch in batches:
+            raw = batch.get("final_specs") or batch.get("initial_specs") or ""
+            parsed, tokens = cls._parse_batch_specifications(raw)
+            parsed_rows.append(parsed)
+            token_rows.append(tokens)
+
+        all_keys = list(dict.fromkeys(
+            key for specification in parsed_rows for key in specification
+        ))
+        varying_keys = [
+            key for key in all_keys
+            if len({specification.get(key) for specification in parsed_rows}) > 1
+        ]
+
+        labels = {}
+        for index, batch in enumerate(batches):
+            pieces = []
+            current = parsed_rows[index]
+            for key in varying_keys:
+                value = current.get(key, "ثبت نشده")
+                if value != "ثبت نشده":
+                    pieces.append(f"{key}: {value}")
+
+            if not varying_keys:
+                shared_tokens = (
+                    set.intersection(*(set(tokens) for tokens in token_rows))
+                    if token_rows and all(token_rows) else set()
+                )
+                unique_tokens = list(dict.fromkeys(
+                    token for token in token_rows[index] if token not in shared_tokens
+                ))
+                pieces.extend(unique_tokens)
+
+            labels[int(batch["id"])] = "، ".join(pieces) if pieces else "بدون تفاوت ثبت‌شده"
+        return labels
+
+    @staticmethod
+    def _format_product_picker_label(product, *, include_specs=False):
+        category = str(product.get("category") or "سایر موارد").strip()
+        subcategory = str(product.get("sub_category") or "").strip()
+        brand_model = " ".join(
+            part for part in (
+                str(product.get("brand") or "").strip(),
+                str(product.get("model") or "").strip(),
+            ) if part
+        )
+        main_title = subcategory if subcategory and subcategory not in ("عمومی", "سایر موارد") else category
+        parts = [str(product.get("code") or "").strip(), main_title]
+        if brand_model:
+            parts.append(brand_model)
+        if include_specs:
+            try:
+                specs = json.loads(product.get("specs_json") or "{}")
+            except (TypeError, ValueError, json.JSONDecodeError):
+                specs = {}
+            if isinstance(specs, dict):
+                short_specs = "، ".join(
+                    str(value).strip() for value in specs.values() if str(value).strip()
+                )
+                if short_specs:
+                    parts.append(short_specs)
+        return " | ".join(part for part in parts if part)
+
     def _on_sale_prod_changed(self):
-        """Load available batches without assuming SQLite rows implement dict.get()."""
+        """Load batches and display only the technical differences between variants."""
         product = self.cb_sale_prod.currentData()
         self.cb_sale_batch.clear()
         if not product:
             return
 
-        # QComboBox stores product dictionaries, but normalise the value here so
-        # this method remains safe if a caller supplies another mapping type.
         product_data = dict(product)
         try:
             product_specs = json.loads(product_data.get("specs_json") or "{}")
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, json.JSONDecodeError):
             product_specs = {}
         if not isinstance(product_specs, dict):
             product_specs = {}
@@ -1717,32 +1805,47 @@ class MainWindow(QMainWindow):
                 (product_data["id"],),
             ).fetchall()
 
+        batches = [dict(row) for row in batch_rows]
+        variant_labels = self._batch_variant_labels(batches)
         searchable_batch_fields = (
-            "batch_code",
-            "initial_specs",
-            "final_specs",
-            "serial_numbers",
-            "notes",
-            "supplier_name_snapshot",
+            "batch_code", "initial_specs", "final_specs", "serial_numbers",
+            "notes", "supplier_name_snapshot", "invoice_number", "purchase_date",
         )
-        product_search_values = [str(value) for value in product_specs.values()]
-        product_search_values.append(str(product_data.get("description") or ""))
-        product_search_text = " ".join(product_search_values)
+        product_search_text = " ".join(
+            [*(str(value) for value in product_specs.values()),
+             str(product_data.get("description") or "")]
+        )
 
-        for batch_row in batch_rows:
-            # sqlite3.Row supports indexed/key access but deliberately has no .get().
-            batch = dict(batch_row)
-            label = (
-                f"{batch['batch_code']} | موجودی: {batch['remaining_qty']} | "
-                f"خرید: {batch['purchase_date']} | پیشنهادی: {batch['suggested_sell_price']:,}"
-            )
-            batch_search_text = " ".join(
+        for batch in batches:
+            variant = variant_labels.get(int(batch["id"]), "")
+            visible_parts = [
+                str(batch["batch_code"]),
+                f"موجودی: {int(batch['remaining_qty'])}",
+            ]
+            if variant and variant != "بدون تفاوت ثبت‌شده":
+                visible_parts.append(f"تفاوت: {variant}")
+            elif variant:
+                visible_parts.append("مشخصات یکسان")
+            label = " | ".join(visible_parts)
+
+            search_text = " ".join(
                 str(batch.get(key) or "") for key in searchable_batch_fields
             )
-            search_text = f"{batch_search_text} {product_search_text}".strip()
+            search_text = f"{search_text} {product_search_text}".strip()
+            full_tooltip = (
+                f"کد محموله: {batch['batch_code']}\n"
+                f"موجودی: {batch['remaining_qty']}\n"
+                f"تاریخ خرید: {batch['purchase_date']}\n"
+                f"قیمت پیشنهادی: {int(batch['suggested_sell_price']):,} تومان\n"
+                f"مشخصات اولیه: {batch.get('initial_specs') or '-'}\n"
+                f"مشخصات نهایی: {batch.get('final_specs') or '-'}\n"
+                f"شماره سریال: {batch.get('serial_numbers') or '-'}\n"
+                f"یادداشت: {batch.get('notes') or '-'}"
+            )
             index = self.cb_sale_batch.count()
             self.cb_sale_batch.addItem(label, batch)
             self.cb_sale_batch.setItemSearchText(index, search_text)
+            self.cb_sale_batch.setItemData(index, full_tooltip, Qt.ToolTipRole)
 
     def _on_sale_batch_changed(self):
         b = self.cb_sale_batch.currentData()
@@ -2453,11 +2556,8 @@ class MainWindow(QMainWindow):
         # Keep exhausted historical batches selectable: editing reverses their old consumption first.
         for batch in related_batches:
             batch_id = int(batch["id"])
-            label = (
-                f"{batch['batch_code']} | {batch['category']} - "
-                f"{batch['sub_category']} {batch['brand']} {batch['model']} "
-                f"(موجودی: {batch['remaining_qty']})"
-            )
+            product_title = self._format_product_picker_label(dict(batch))
+            label = f"{batch['batch_code']} | {product_title} | موجودی: {batch['remaining_qty']}"
             for combo in (self.cb_upg_target, self.cb_upg_part):
                 if combo.findData(batch_id) < 0:
                     combo.addItem(label, batch_id)
@@ -4725,7 +4825,7 @@ class MainWindow(QMainWindow):
         for r in rows:
             tot_bill = (r["unit_purchase_price"] * r["initial_qty"]) + r["extra_cost_total"]
             debt = max(0, tot_bill - r["paid_amount"])
-            prod_title = f"{r['category']} - {r['sub_category']} ({r['brand']} {r['model']})".strip()
+            prod_title = self._format_product_picker_label(dict(r))
             data.append(
                 [
                     r["id"],
