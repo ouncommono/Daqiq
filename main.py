@@ -2888,7 +2888,10 @@ class MainWindow(QMainWindow):
 
         self.cb_rep_emp = SearchableComboBox()
         self.cb_rep_cat = SearchableComboBox()
-        self.cb_rep_cat.addItems(["همه دسته‌ها"] + MAIN_CATEGORIES)
+        report_categories = (
+            self.catalog_config.get("categories") or list(MAIN_CATEGORIES)
+        )
+        self.cb_rep_cat.addItems(["همه دسته‌ها"] + report_categories)
         self.ed_rep_search = SmartLineEdit(
             "جست‌وجوی کد کالا، دسته‌بندی، زیرگروه (مثلاً کیبورد)، برند، مدل، فاکتور..."
         )
@@ -4606,6 +4609,15 @@ class MainWindow(QMainWindow):
             self.cb_prod_color.addItems(colors)
             self.cb_prod_color.setCurrentText(current_color)
             self.cb_prod_color.blockSignals(False)
+        if hasattr(self, "cb_rep_cat"):
+            current_report_category = self.cb_rep_cat.currentText()
+            self.cb_rep_cat.blockSignals(True)
+            self.cb_rep_cat.clear()
+            self.cb_rep_cat.addItem("همه دسته‌ها")
+            self.cb_rep_cat.addItems(categories)
+            report_index = self.cb_rep_cat.findText(current_report_category)
+            self.cb_rep_cat.setCurrentIndex(report_index if report_index >= 0 else 0)
+            self.cb_rep_cat.blockSignals(False)
         if hasattr(self, "specs_widget"):
             self._configure_product_specs(self.cb_prod_cat.currentText())
 
@@ -4943,7 +4955,7 @@ class MainWindow(QMainWindow):
             self,
             "ذخیره فایل پشتیبان",
             f"Backup_{jdatetime.date.today().strftime('%Y%m%d')}.db",
-            "Database (*.db)",
+            "پایگاه داده SQLite (*.db)",
         )
         if not path:
             return
@@ -4961,7 +4973,7 @@ class MainWindow(QMainWindow):
 
     def _do_restore_backup(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "انتخاب فایل پشتیبان", "", "Database (*.db)"
+            self, "انتخاب فایل پشتیبان", "", "پایگاه داده SQLite (*.db)"
         )
         if path:
             if (
