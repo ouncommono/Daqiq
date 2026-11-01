@@ -311,14 +311,23 @@ def _animate_scrollbar(owner, scrollbar, amount):
 
     if animation is not None:
         animation.stop()
+        animation.deleteLater()
+        owner._wheel_animation = None
 
     animation = QPropertyAnimation(scrollbar, b"value", owner)
     animation.setDuration(180)
     animation.setEasingCurve(QEasingCurve.OutCubic)
     animation.setStartValue(scrollbar.value())
     animation.setEndValue(target)
-    animation.start()
+
+    def release_animation():
+        if getattr(owner, "_wheel_animation", None) is animation:
+            owner._wheel_animation = None
+        animation.deleteLater()
+
+    animation.finished.connect(release_animation)
     owner._wheel_animation = animation
+    animation.start()
     return True
 
 
