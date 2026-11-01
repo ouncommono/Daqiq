@@ -843,7 +843,7 @@ class DynamicSpecsWidget(QGroupBox):
         self.main_layout.addWidget(self.form_widget)
         self.current_category = "لپ‌تاپ"
         self.fields = {}
-        self._custom_field_names = set()
+        self._custom_field_widgets = {}
         self.cb_sub = None
         self.set_category("لپ‌تاپ")
 
@@ -853,7 +853,7 @@ class DynamicSpecsWidget(QGroupBox):
             if item.widget():
                 item.widget().deleteLater()
         self.fields.clear()
-        self._custom_field_names.clear()
+        self._custom_field_widgets.clear()
         self.cb_sub = None
 
     def set_category(self, category: str):
@@ -1105,12 +1105,12 @@ class DynamicSpecsWidget(QGroupBox):
 
         # Remove custom widgets from the previously selected subcategory before
         # adding the next set. Built-in fields remain in place and can be reconfigured.
-        for field_name in list(self._custom_field_names):
-            widget = self.fields.pop(field_name, None)
-            if widget is not None:
-                self.form_layout.removeRow(widget)
-                widget.deleteLater()
-        self._custom_field_names.clear()
+        for field_name, widget in list(self._custom_field_widgets.items()):
+            if self.fields.get(field_name) is widget:
+                self.fields.pop(field_name, None)
+            self.form_layout.removeRow(widget)
+            widget.deleteLater()
+        self._custom_field_widgets.clear()
 
         if not isinstance(custom_fields, list):
             return
@@ -1148,7 +1148,7 @@ class DynamicSpecsWidget(QGroupBox):
                 widget = SmartLineEdit(f"{field_name}...")
             widget.setToolTip(f"مشخصه سفارشی: {field_name}")
             self.fields[field_name] = widget
-            self._custom_field_names.add(field_name)
+            self._custom_field_widgets[field_name] = widget
             self.form_layout.addRow(f"{field_name}:", widget)
 
     def _rebuild_part_subfields(self, part_type: str):
