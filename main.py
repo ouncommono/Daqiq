@@ -2866,6 +2866,7 @@ class MainWindow(QMainWindow):
                 "بازه انتخابی دستی",
             ]
         )
+        self.cb_rep_preset.setCurrentText("بازه انتخابی دستی")
 
         self.dt_rep_from = JalaliDateEdit(default_today=False)
         self.dt_rep_from.set_date("1405/01/01")
