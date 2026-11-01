@@ -4299,44 +4299,40 @@ class MainWindow(QMainWindow):
         self._refresh_recent_database_list()
 
 
-        self.cb_multi_db.blockSignals(True)
-        self.cb_multi_db.clear()
-        recents = self.db.cfg.get("recent_databases", [self.db.db_path])
-        if self.db.db_path not in recents:
-            recents.append(self.db.db_path)
-        for p in recents:
-            self.cb_multi_db.addItem(p, p)
-        idx = self.cb_multi_db.findData(self.db.db_path)
-        if idx >= 0:
-            self.cb_multi_db.setCurrentIndex(idx)
-        self.cb_multi_db.blockSignals(False)
-
     def _switch_to_database_path(self, target_path: str):
         if not target_path:
             return
-        target_path = os.path.abspath(target_path)
-        if os.path.abspath(self.db.db_path) == target_path:
+        target_path = os.path.abspath(os.path.expanduser(target_path))
+        if os.path.normcase(os.path.abspath(self.db.db_path)) == os.path.normcase(target_path):
             return
 
         previous_path = self.db.db_path
-        previous_backup_dir = self.db.cfg.get("backup_dir")
+        previous_config = copy.deepcopy(self.db.cfg)
         previous_employee = self.active_employee
 
-        self.db.db_path = target_path
-        self.db.cfg["db_path"] = target_path
-        self.db.cfg["backup_dir"] = os.path.dirname(target_path) or "."
-        recents = self.db.cfg.get("recent_databases", [])
-        if target_path not in recents:
-            recents.append(target_path)
-        self.db.cfg["recent_databases"] = recents
-        self.db.init_db()
-        self.db._migrate_legacy_application_settings()
+        try:
+            os.makedirs(os.path.dirname(target_path) or ".", exist_ok=True)
+            self.db.db_path = target_path
+            self.db.cfg["db_path"] = target_path
+            self.db.cfg["backup_dir"] = os.path.dirname(target_path) or "."
+            recents = [
+                os.path.abspath(path) for path in self.db.cfg.get("recent_databases", [])
+                if path and os.path.normcase(os.path.abspath(path)) != os.path.normcase(target_path)
+            ]
+            self.db.cfg["recent_databases"] = [target_path] + recents
+            self.db.init_db()
+            self.db._migrate_legacy_application_settings()
+        except Exception as exc:
+            self.db.db_path = previous_path
+            self.db.cfg = previous_config
+            QMessageBox.critical(self, "خطا در اتصال", f"اتصال به پایگاه داده انجام نشد.\n{exc}")
+            self._refresh_multi_db_combo()
+            return
 
         selected_employee, accepted = _resolve_startup_employee(self.db, self)
         if not accepted:
             self.db.db_path = previous_path
-            self.db.cfg["db_path"] = previous_path
-            self.db.cfg["backup_dir"] = previous_backup_dir or os.path.dirname(previous_path)
+            self.db.cfg = previous_config
             self.active_employee = previous_employee
             self._refresh_multi_db_combo()
             self._restart_backup_timer()
@@ -4348,29 +4344,33 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"{shop_name} | سامانه حسابداری و مدیریت فروشگاه")
         self.lbl_store_name.setText(f"\u2067{shop_name}\u2069")
         self.lbl_store_name.setToolTip(f"نام فروشگاه: {shop_name}")
+
+        self.catalog_config = self.db.get_product_catalog_config()
+        self._apply_product_catalog_config()
         self._refresh_multi_db_combo()
         self._restart_backup_timer()
         self.refresh_all_data()
+        self._load_general_settings_form()
         QMessageBox.information(
             self, "تغییر پایگاه داده",
-            f"برنامه با موفقیت به پایگاه داده زیر متصل شد: {target_path}"
+            f"برنامه به پایگاه دادهٔ زیر متصل شد:\n{target_path}"
         )
 
-    def _on_switch_multi_db(self):
-        path = self.cb_multi_db.currentData()
-        if path and path != self.db.db_path:
-            self._switch_to_database_path(path)
-
     def _create_and_connect_new_db(self):
+        default_path = os.path.join(
+            os.path.dirname(os.path.abspath(self.db.db_path)), "NewShopDatabase.db"
+        )
         new_path, _ = QFileDialog.getSaveFileName(
-            self, "ایجاد فایل پایگاه داده جدید", "NewShopDatabase.db", "SQLite DB (*.db)"
+            self, "ایجاد فایل پایگاه دادهٔ جدید", default_path,
+            "پایگاه داده SQLite (*.db)"
         )
         if new_path:
             self._switch_to_database_path(new_path)
 
     def _connect_existing_db(self):
         ext_path, _ = QFileDialog.getOpenFileName(
-            self, "انتخاب فایل پایگاه داده موجود", "", "SQLite DB (*.db)"
+            self, "انتخاب فایل پایگاه دادهٔ موجود", "",
+            "پایگاه داده SQLite (*.db *.sqlite *.sqlite3)"
         )
         if ext_path:
             self._switch_to_database_path(ext_path)
@@ -4396,27 +4396,51 @@ class MainWindow(QMainWindow):
                     + names + suffix,
                 )
                 effective_password_policy = current_password_policy
-                self.chk_req_pass.setChecked(current_password_policy)
 
-        self.db.cfg["default_profit_pct"] = self.sp_set_profit.value()
-        self.db.cfg["zero_append_count"] = int(self.cb_zero_count.currentData())
-        self.db.cfg["default_window_maximized"] = self.cb_win_mode.currentData() == "1"
-        self.db.cfg["require_login_password"] = effective_password_policy
+        try:
+            # Apply category/subcategory renames to existing product rows only now,
+            # after the user explicitly presses Save Settings.
+            with self.db.get_connection() as conn:
+                for old_category, new_category in self._pending_category_renames:
+                    conn.execute(
+                        "UPDATE products SET category=? WHERE category=?",
+                        (new_category, old_category),
+                    )
+                for category, old_subcategory, new_subcategory in self._pending_subcategory_renames:
+                    conn.execute(
+                        "UPDATE products SET sub_category=? WHERE category=? AND sub_category=?",
+                        (new_subcategory, category, old_subcategory),
+                    )
+                conn.commit()
 
-        shop_name = self.ed_shop_name.text().strip() or "فروشگاه من"
-        self.db.set_setting("shop_name", shop_name)
-        self.db.cfg["auto_backup_enabled"] = self.chk_auto_bk.isChecked()
-        self.db.cfg["auto_backup_interval_min"] = self.sp_bk_interval.value()
-        self.db.cfg["auto_backup_retention_count"] = self.sp_bk_retention.value()
-        self.db.cfg["backup_dir"] = os.path.dirname(os.path.abspath(self.db.db_path)) or "."
-        save_app_config(self.db.cfg)
+            self.db.save_product_catalog_config(self._taxonomy_draft)
+
+            self.db.cfg["default_profit_pct"] = self.sp_set_profit.value()
+            self.db.cfg["zero_append_count"] = int(self.cb_zero_count.currentData())
+            self.db.cfg["default_window_maximized"] = self.cb_win_mode.currentData() == "1"
+            self.db.cfg["require_login_password"] = effective_password_policy
+
+            shop_name = self.ed_shop_name.text().strip() or "فروشگاه من"
+            self.db.set_setting("shop_name", shop_name)
+            self.db.cfg["auto_backup_enabled"] = self.chk_auto_bk.isChecked()
+            self.db.cfg["auto_backup_interval_min"] = self.sp_bk_interval.value()
+            self.db.cfg["auto_backup_retention_count"] = self.sp_bk_retention.value()
+            self.db.cfg["backup_dir"] = os.path.dirname(os.path.abspath(self.db.db_path)) or "."
+            save_app_config(self.db.cfg)
+        except Exception as exc:
+            QMessageBox.critical(self, "خطا در ذخیره تنظیمات", str(exc))
+            return
 
         self.setWindowTitle(f"{shop_name} | سامانه حسابداری و مدیریت فروشگاه")
         if hasattr(self, "lbl_store_name"):
             self.lbl_store_name.setText(f"\u2067{shop_name}\u2069")
             self.lbl_store_name.setToolTip(f"نام فروشگاه: {shop_name}")
+
+        self._apply_product_catalog_config()
+        self._refresh_multi_db_combo()
         self._restart_backup_timer()
         self._refresh_visual_layout()
+        self._load_general_settings_form()
         QMessageBox.information(
             self, "ذخیره تنظیمات", "تنظیمات با موفقیت ذخیره شدند."
         )
