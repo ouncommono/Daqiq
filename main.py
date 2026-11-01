@@ -4190,6 +4190,7 @@ class MainWindow(QMainWindow):
             self._taxonomy_draft["categories"] = list(stored["categories"])
         self._pending_category_renames = []
         self._pending_subcategory_renames = []
+        self._pending_color_renames = []
 
         self.cb_cfg_category.blockSignals(True)
         self.cb_cfg_category.clear()
@@ -4316,6 +4317,9 @@ class MainWindow(QMainWindow):
             return
         values[values.index(old)] = new
         self._pending_subcategory_renames.append((category, old, new))
+        for definition in self._taxonomy_draft["attributes"].get(category, []):
+            if (definition.get("subcategory") or "") == old:
+                definition["subcategory"] = new
         self.ed_cfg_subcategory.clear()
         self._refresh_catalog_management_lists()
 
@@ -4334,6 +4338,16 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(
                 self, "زیرمجموعه در حال استفاده است",
                 "برای حفظ سوابق کالاها، این زیرمجموعه حذف نمی‌شود. ابتدا کالاهای مرتبط را اصلاح کنید."
+            )
+            return
+        linked_attributes = [
+            definition for definition in self._taxonomy_draft["attributes"].get(category, [])
+            if (definition.get("subcategory") or "") == name
+        ]
+        if linked_attributes:
+            QMessageBox.warning(
+                self, "زیرمجموعه دارای ویژگی است",
+                "ابتدا ویژگی‌های فنی متصل به این زیرمجموعه را حذف یا به زیرمجموعهٔ دیگری منتقل کنید."
             )
             return
         values = self._taxonomy_draft["subcategories"].get(category, [])
@@ -4458,6 +4472,7 @@ class MainWindow(QMainWindow):
             return
         index = self._taxonomy_draft["colors"].index(old_name)
         self._taxonomy_draft["colors"][index] = new_name
+        self._pending_color_renames.append((old_name, new_name))
         self.ed_cfg_color.clear()
         self._refresh_catalog_management_lists()
 
@@ -4715,6 +4730,27 @@ class MainWindow(QMainWindow):
                         "UPDATE products SET sub_category=? WHERE category=? AND sub_category=?",
                         (new_subcategory, category, old_subcategory),
                     )
+                if self._pending_color_renames:
+                    product_rows = conn.execute(
+                        "SELECT id, specs_json FROM products"
+                    ).fetchall()
+                    for product_row in product_rows:
+                        try:
+                            specs = json.loads(product_row["specs_json"] or "{}")
+                        except (TypeError, ValueError, json.JSONDecodeError):
+                            continue
+                        if not isinstance(specs, dict):
+                            continue
+                        changed = False
+                        for old_color, new_color in self._pending_color_renames:
+                            if specs.get("رنگ") == old_color:
+                                specs["رنگ"] = new_color
+                                changed = True
+                        if changed:
+                            conn.execute(
+                                "UPDATE products SET specs_json=? WHERE id=?",
+                                (json.dumps(specs, ensure_ascii=False), product_row["id"]),
+                            )
                 self.db.save_product_catalog_config(self._taxonomy_draft, conn=conn)
                 conn.commit()
 
