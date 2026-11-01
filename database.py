@@ -1872,9 +1872,18 @@ class DatabaseManager:
         keep_count = max(1, int(self.cfg.get("auto_backup_retention_count", 10) or 10))
         failed_removals = []
         for _, _, old_path in candidates[:-keep_count]:
-            try:
-                os.remove(old_path)
-            except OSError:
+            last_error = None
+            for attempt in range(3):
+                try:
+                    os.remove(old_path)
+                    last_error = None
+                    break
+                except OSError as exc:
+                    last_error = exc
+                    if attempt < 2:
+                        # Windows antivirus/indexer handles can briefly prevent deletion.
+                        time.sleep(0.15 * (attempt + 1))
+            if last_error is not None:
                 failed_removals.append(os.path.basename(old_path))
         return failed_removals
 
@@ -1964,6 +1973,23 @@ class DatabaseManager:
                 pruning_warnings = self._prune_automatic_backups(
                     backup_dir, database_name
                 )
+                if pruning_warnings:
+                    # The retention cap is a hard invariant: do not keep the
+                    # just-created N+1 copy when an older locked file cannot be
+                    # removed. Roll back the new copy and retry at the next timer.
+                    try:
+                        os.remove(backup_file)
+                        created_backup = False
+                    except OSError as rollback_error:
+                        raise OSError(
+                            "حذف نسخه پشتیبان جدید برای رعایت سقف نگهداری نیز ممکن نشد؛ "
+                            "لطفاً فایل‌های پوشه Backups را که در برنامه دیگری باز هستند ببندید."
+                        ) from rollback_error
+                    raise PermissionError(
+                        "نسخه‌های قدیمی پایگاه داده در برنامه دیگری باز هستند. "
+                        "برای جلوگیری از عبور تعداد نسخه‌ها از سقف تعیین‌شده، "
+                        "نسخه جدید حذف شد؛ فایل‌های Backups را ببندید و تلاش مجدد انجام می‌شود."
+                    )
         except Exception:
             if file_descriptor is not None:
                 os.close(file_descriptor)
