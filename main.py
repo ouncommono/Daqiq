@@ -4697,11 +4697,31 @@ class MainWindow(QMainWindow):
         self._refresh_recent_database_list()
 
 
-    def _switch_to_database_path(self, target_path: str):
+    def _switch_to_database_path(self, target_path: str, *, create_if_missing=False):
         if not target_path:
             return
         target_path = os.path.abspath(os.path.expanduser(target_path))
         if os.path.normcase(os.path.abspath(self.db.db_path)) == os.path.normcase(target_path):
+            return
+
+        if os.path.isfile(target_path):
+            if not _is_valid_sqlite_database_file(target_path):
+                QMessageBox.warning(
+                    self, "پایگاه داده نامعتبر",
+                    "فایل انتخاب‌شده یک پایگاه دادهٔ سالم SQLite نیست."
+                )
+                return
+            if create_if_missing:
+                QMessageBox.warning(
+                    self, "فایل از قبل وجود دارد",
+                    "برای ایجاد پایگاه دادهٔ جدید، مسیر دیگری انتخاب کنید یا از گزینهٔ اتصال استفاده کنید."
+                )
+                return
+        elif not create_if_missing:
+            QMessageBox.warning(
+                self, "فایل پیدا نشد",
+                "فایل پایگاه دادهٔ انتخاب‌شده پیدا نشد؛ این مسیر از فهرست به‌صورت فایل جدید ساخته نمی‌شود."
+            )
             return
 
         previous_path = self.db.db_path
@@ -4763,7 +4783,7 @@ class MainWindow(QMainWindow):
             "پایگاه داده SQLite (*.db)"
         )
         if new_path:
-            self._switch_to_database_path(new_path)
+            self._switch_to_database_path(new_path, create_if_missing=True)
 
     def _connect_existing_db(self):
         ext_path, _ = QFileDialog.getOpenFileName(
