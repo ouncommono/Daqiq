@@ -6,6 +6,7 @@ import sqlite3
 import jdatetime
 import time
 import hashlib
+import tempfile
 
 
 def get_app_data_dir():
@@ -1719,27 +1720,41 @@ class DatabaseManager:
 
         backup_dir = os.path.dirname(backup_file) or "."
         os.makedirs(backup_dir, exist_ok=True)
-        temporary_file = backup_file + ".tmp"
+
+        # Build the snapshot in a uniquely named .db file in the destination
+        # directory. Keeping the staging file on the same volume makes the final
+        # os.replace atomic while avoiding user-visible *.db.tmp backup files.
+        stamp_for_temp = jdatetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        temp_fd, temporary_file = tempfile.mkstemp(
+            prefix=f".{database_name}_backup_{stamp_for_temp}_",
+            suffix=".db",
+            dir=backup_dir,
+        )
+        os.close(temp_fd)
         try:
-            if os.path.exists(temporary_file):
-                os.remove(temporary_file)
             with sqlite3.connect(self.db_path) as source:
                 with sqlite3.connect(temporary_file) as destination:
                     source.backup(destination)
+
             with sqlite3.connect(temporary_file) as check_db:
                 check_result = check_db.execute("PRAGMA quick_check").fetchone()
             if not check_result or check_result[0] != "ok":
-                raise sqlite3.DatabaseError("نسخه پشتیبان از آزمون یکپارچگی SQLite عبور نکرد.")
+                raise sqlite3.DatabaseError(
+                    "نسخه پشتیبان از آزمون یکپارچگی SQLite عبور نکرد."
+                )
+
             os.replace(temporary_file, backup_file)
+            temporary_file = None
             if automatic:
                 self._prune_automatic_backups(backup_dir, database_name)
-        except Exception:
-            if os.path.exists(temporary_file):
+        finally:
+            # Also clean up a failed/incomplete staging file without leaving a
+            # misleading backup artifact behind.
+            if temporary_file and os.path.exists(temporary_file):
                 try:
                     os.remove(temporary_file)
                 except OSError:
                     pass
-            raise
 
         self.cfg["last_backup_time"] = jdatetime.datetime.now().strftime(
             "%Y/%m/%d %H:%M:%S"
