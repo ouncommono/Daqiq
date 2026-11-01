@@ -3322,6 +3322,10 @@ class MainWindow(QMainWindow):
     def _switch_to_database_path(self, target_path: str):
         if not target_path:
             return
+        target_path = os.path.abspath(target_path)
+        if os.path.abspath(self.db.db_path) == target_path:
+            return
+
         self.db.db_path = target_path
         self.db.cfg["db_path"] = target_path
         recents = self.db.cfg.get("recent_databases", [])
@@ -3330,12 +3334,31 @@ class MainWindow(QMainWindow):
         self.db.cfg["recent_databases"] = recents
         save_app_config(self.db.cfg)
         self.db.init_db()
-        self.setWindowTitle(f"{self.db.cfg.get('shop_name') or 'فروشگاه من'} | سامانه حسابداری و مدیریت فروشگاه")
-        self.lbl_store_name.setText(f"💻 {self.db.cfg.get('shop_name') or 'فروشگاه من'} | مدیریت فروش، انبار و حسابداری")
+
+        # An employee identity from another database must never carry over.
+        self.active_employee = None
+        if self.db.get_setting("require_login_password", "0") == "1":
+            login = LoginDialog(self.db, self)
+            if login.exec() != QDialog.Accepted or not login.logged_employee:
+                QMessageBox.warning(
+                    self, "ورود لازم است",
+                    "برای پایگاه دادهٔ تازه ورود انجام نشد؛ برنامه برای جلوگیری از دسترسی بدون مجوز بسته می‌شود."
+                )
+                self.close()
+                return
+            self.active_employee = login.logged_employee
+
+        employee_name = self.active_employee["name"] if self.active_employee else "مدیر سیستم"
+        employee_role = self.active_employee["role"] if self.active_employee else "دسترسی کامل"
+        self.lbl_active_user.setText(f"👤 کاربر فعال: {employee_name} ({employee_role})")
+        shop_name = (self.db.cfg.get("shop_name") or "فروشگاه من").strip()
+        self.setWindowTitle(f"{shop_name} | سامانه حسابداری و مدیریت فروشگاه")
+        self.lbl_store_name.setText(f"💻 {shop_name} | مدیریت فروش، انبار و حسابداری")
         self._refresh_multi_db_combo()
         self.refresh_all_data()
         QMessageBox.information(
-            self, "تغییر پایگاه داده", f"برنامه با موفقیت به پایگاه داده زیر متصل شد:\n{target_path}"
+            self, "تغییر پایگاه داده",
+            f"برنامه با موفقیت به پایگاه داده زیر متصل شد: {target_path}"
         )
 
     def _on_switch_multi_db(self):
