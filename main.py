@@ -456,10 +456,11 @@ class MainWindow(QMainWindow):
         main_layout = QVBoxLayout(central)
         main_layout.setContentsMargins(10, 8, 10, 8)
 
-        # نوار بالا عمداً از دو جهت مستقل استفاده می‌کند:
-        # نام فروشگاه در لبه چپ و ابزارها در لبه راست قرار می‌گیرند.
+        # جهت نوار به‌صورت صریح LTR است: ابزارها در لبه چپ و نام فروشگاه در لبه راست.
+        # این تنظیم مستقل از RTL بودن محتوای اصلی برنامه است.
         top_bar = QWidget()
         self.top_bar = top_bar
+        top_bar.setLayoutDirection(Qt.LeftToRight)
         top_bar.setStyleSheet(
             "background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0f172a, stop:1 #1e3a8a); border-radius: 8px; padding: 5px;"
         )
@@ -506,9 +507,9 @@ class MainWindow(QMainWindow):
         self.lbl_active_user.setStyleSheet(
             "color: #fde047; font-size: 12px; font-weight: bold; background: rgba(255,255,255,0.12); padding: 4px 8px; border-radius: 6px;"
         )
-        self.lbl_active_user.setMinimumWidth(0)
-        self.lbl_active_user.setMaximumWidth(160)
-        self.lbl_active_user.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.lbl_active_user.setMinimumWidth(90)
+        self.lbl_active_user.setMaximumWidth(190)
+        self.lbl_active_user.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         self._update_active_user_badge()
 
         btn_switch_user = QPushButton("🔑 تغییر کاربر")
@@ -528,8 +529,9 @@ class MainWindow(QMainWindow):
 
         top_right_layout = QHBoxLayout()
         self.top_right_layout = top_right_layout
-        top_right_layout.setDirection(QBoxLayout.RightToLeft)
+        top_right_layout.setDirection(QBoxLayout.LeftToRight)
         top_right_layout.setSpacing(6)
+        # ترتیب فیزیکی از چپ به راست: تم، ابزارها، ساعت، نام کاربر، تغییر کاربر.
         top_right_layout.addWidget(self.btn_theme)
         top_right_layout.addWidget(self.btn_table_width)
         top_right_layout.addWidget(btn_safe_export)
@@ -537,9 +539,10 @@ class MainWindow(QMainWindow):
         top_right_layout.addWidget(self.lbl_active_user)
         top_right_layout.addWidget(btn_switch_user)
 
-        top_layout.addWidget(title_lbl, 0)
-        top_layout.addStretch(1)
+        # گروه کنترل‌ها در چپ قرار می‌گیرد و نام فروشگاه در انتهای راست نوار است.
         top_layout.addLayout(top_right_layout, 0)
+        top_layout.addStretch(1)
+        top_layout.addWidget(title_lbl, 0)
         main_layout.addWidget(top_bar)
 
         # --- تب‌های برنامه با ترتیب جدید (بند ۵: تب ارتقای لپ‌تاپ بلافاصله بعد از مدیریت خدمات) ---
@@ -1439,34 +1442,58 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(tab, "🛒 ثبت فروش")
 
     def _on_sale_prod_changed(self):
-        prod = self.cb_sale_prod.currentData()
+        """Load available batches without assuming SQLite rows implement dict.get()."""
+        product = self.cb_sale_prod.currentData()
         self.cb_sale_batch.clear()
-        if not prod:
+        if not product:
             return
+
+        # QComboBox stores product dictionaries, but normalise the value here so
+        # this method remains safe if a caller supplies another mapping type.
+        product_data = dict(product)
+        try:
+            product_specs = json.loads(product_data.get("specs_json") or "{}")
+        except (TypeError, ValueError):
+            product_specs = {}
+        if not isinstance(product_specs, dict):
+            product_specs = {}
+
         with self.db.get_connection() as conn:
-            batches = conn.execute(
+            batch_rows = conn.execute(
                 """
                 SELECT * FROM batches
                 WHERE product_id=? AND remaining_qty > 0
                 ORDER BY id DESC
-            """,
-                (prod["id"],),
+                """,
+                (product_data["id"],),
             ).fetchall()
-            for b in batches:
-                label = (
-                    f"{b['batch_code']} | موجودی: {b['remaining_qty']} | "
-                    f"خرید: {b['purchase_date']} | پیشنهادی: {b['suggested_sell_price']:,}"
-                )
-                search_text = " ".join(
-                    str(b.get(key) or "")
-                    for key in ("batch_code", "initial_specs", "final_specs", "serial_number", "notes", "description")
-                )
-                product_specs = json.loads(prod.get("specs_json") or "{}")
-                search_text += " " + " ".join(str(value) for value in product_specs.values())
-                search_text += " " + str(prod.get("description") or "")
-                index = self.cb_sale_batch.count()
-                self.cb_sale_batch.addItem(label, dict(b))
-                self.cb_sale_batch.setItemSearchText(index, search_text)
+
+        searchable_batch_fields = (
+            "batch_code",
+            "initial_specs",
+            "final_specs",
+            "serial_numbers",
+            "notes",
+            "supplier_name_snapshot",
+        )
+        product_search_values = [str(value) for value in product_specs.values()]
+        product_search_values.append(str(product_data.get("description") or ""))
+        product_search_text = " ".join(product_search_values)
+
+        for batch_row in batch_rows:
+            # sqlite3.Row supports indexed/key access but deliberately has no .get().
+            batch = dict(batch_row)
+            label = (
+                f"{batch['batch_code']} | موجودی: {batch['remaining_qty']} | "
+                f"خرید: {batch['purchase_date']} | پیشنهادی: {batch['suggested_sell_price']:,}"
+            )
+            batch_search_text = " ".join(
+                str(batch.get(key) or "") for key in searchable_batch_fields
+            )
+            search_text = f"{batch_search_text} {product_search_text}".strip()
+            index = self.cb_sale_batch.count()
+            self.cb_sale_batch.addItem(label, batch)
+            self.cb_sale_batch.setItemSearchText(index, search_text)
 
     def _on_sale_batch_changed(self):
         b = self.cb_sale_batch.currentData()
@@ -1825,32 +1852,54 @@ class MainWindow(QMainWindow):
             self.pr_srv_paid.set_value(0)
 
     def _add_new_service_tariff(self):
-        """بند ۴: ثبت خدمت جدید بدون جایگزینی خدمات قبلی (مگر هم‌نام بودن دقیق)"""
+        """Register a new tariff, explicitly handling duplicate codes and surfacing failures."""
         name = self.ed_srv_name.text().strip()
         if not name:
             QMessageBox.warning(self, "خطا", "عنوان خدمت را وارد کنید.")
             return
-        code = self.ed_srv_code.text().strip()
-        with self.db.get_connection() as conn:
-            duplicate = conn.execute("SELECT id FROM service_catalog WHERE code=?", (code,)).fetchone()
-        target_id = None
-        if duplicate:
-            msg = QMessageBox(self)
-            msg.setWindowTitle("کد خدمت تکراری")
-            msg.setText(f"کد {code} قبلاً ثبت شده است. اطلاعات خدمت قبلی جایگزین شود؟")
-            btn_replace = msg.addButton("جایگزین کردن", QMessageBox.AcceptRole)
-            msg.addButton("انصراف", QMessageBox.RejectRole)
-            _center_message_buttons(msg)
-            msg.exec()
-            if msg.clickedButton() != btn_replace:
-                return
-            target_id = int(duplicate["id"])
-        self.db.save_service_catalog(
-            target_id, code, self.cb_srv_type.currentText(), name,
-            self.pr_srv_def_fee.get_value(), self.pr_srv_def_side.get_value(), "",
-        )
-        self._clear_service_cat_form()
-        self.refresh_all_data()
+
+        try:
+            code = self.ed_srv_code.text().strip()
+            if not code:
+                code = self.db.generate_next_code("service_catalog", "code", "S-", 1001)
+                self.ed_srv_code.setText(code)
+
+            with self.db.get_connection() as conn:
+                duplicate = conn.execute(
+                    "SELECT id FROM service_catalog WHERE code=?", (code,)
+                ).fetchone()
+
+            target_id = None
+            if duplicate:
+                msg = QMessageBox(self)
+                msg.setWindowTitle("کد خدمت تکراری")
+                msg.setText(
+                    f"کد {code} قبلاً ثبت شده است. اطلاعات خدمت قبلی جایگزین شود؟"
+                )
+                btn_replace = msg.addButton("جایگزین کردن", QMessageBox.AcceptRole)
+                msg.addButton("انصراف", QMessageBox.RejectRole)
+                _center_message_buttons(msg)
+                msg.exec()
+                if msg.clickedButton() != btn_replace:
+                    return
+                target_id = int(duplicate["id"])
+
+            self.db.save_service_catalog(
+                target_id,
+                code,
+                self.cb_srv_type.currentText(),
+                name,
+                self.pr_srv_def_fee.get_value(),
+                self.pr_srv_def_side.get_value(),
+                "",
+            )
+            self._clear_service_cat_form()
+            self.refresh_all_data()
+            QMessageBox.information(
+                self, "ثبت شد", "خدمت جدید با موفقیت به فهرست خدمات افزوده شد."
+            )
+        except Exception as exc:
+            QMessageBox.critical(self, "خطا در ثبت خدمت", str(exc))
 
     def _edit_selected_service_tariff(self):
         if not self.selected_srv_cat_id:
