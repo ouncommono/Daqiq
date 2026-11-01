@@ -1713,17 +1713,20 @@ class DatabaseManager:
             conn.commit()
 
     # --- پشتیبان‌گیری و بازیابی ---
+    def get_automatic_backup_directory(self):
+        """Return the Backups folder belonging to the currently active database."""
+        database_dir = os.path.dirname(os.path.abspath(self.db_path)) or "."
+        return os.path.join(database_dir, "Backups")
+
     def _automatic_backup_entries(self, directory, database_name):
-        """Return automatic snapshots for one database, oldest first by filesystem creation time."""
+        """Return this database's automatic snapshots, ordered oldest first."""
         prefix = f"{database_name}_"
-        legacy_name = f"AutoBackup_{database_name}.db"
         candidates = []
+        if not os.path.isdir(directory):
+            return candidates
         with os.scandir(directory) as entries:
             for entry in entries:
                 if not entry.is_file() or not entry.name.endswith(".db"):
-                    continue
-                if entry.name == legacy_name:
-                    candidates.append((entry.stat().st_mtime_ns, entry.name, entry.path))
                     continue
                 if not entry.name.startswith(prefix):
                     continue
@@ -1735,7 +1738,11 @@ class DatabaseManager:
                     and stamp[9:15].isdigit()
                     and (len(stamp) == 15 or stamp[15:].startswith("_"))
                 ):
-                    candidates.append((entry.stat().st_mtime_ns, entry.name, entry.path))
+                    try:
+                        stat = entry.stat()
+                    except OSError:
+                        continue
+                    candidates.append((stat.st_mtime_ns, entry.name, entry.path))
         candidates.sort(key=lambda item: (item[0], item[1]))
         return candidates
 
@@ -1750,90 +1757,122 @@ class DatabaseManager:
         if stored > 0:
             return stored
 
-        directory = os.path.dirname(os.path.abspath(self.db_path)) or "."
         database_name = os.path.splitext(os.path.basename(self.db_path))[0]
-        entries = self._automatic_backup_entries(directory, database_name)
+        entries = self._automatic_backup_entries(
+            self.get_automatic_backup_directory(), database_name
+        )
+        if not entries:
+            # Backward compatibility: discover snapshots created by older versions
+            # beside the database, without counting or deleting them in new rotations.
+            legacy_directory = os.path.dirname(os.path.abspath(self.db_path)) or "."
+            entries = self._automatic_backup_entries(legacy_directory, database_name)
         if not entries:
             return 0.0
         return max(timestamp_ns for timestamp_ns, _, _ in entries) / 1_000_000_000
 
     def _prune_automatic_backups(self, directory, database_name):
-        """Keep only the newest configured number of snapshots for this database."""
+        """Keep at most N automatic copies; tolerate files held open by another app."""
         candidates = self._automatic_backup_entries(directory, database_name)
         keep_count = max(1, int(self.cfg.get("auto_backup_retention_count", 10) or 10))
+        failed_removals = []
         for _, _, old_path in candidates[:-keep_count]:
-            os.remove(old_path)
+            try:
+                os.remove(old_path)
+            except OSError:
+                failed_removals.append(os.path.basename(old_path))
+        return failed_removals
 
     def create_backup(self, custom_dir=None, automatic=False, target_file=None):
-        """Create a consistent SQLite snapshot; rotate automatic backups only after success."""
-        database_name = os.path.splitext(os.path.basename(self.db_path))[0]
+        """Create a verified SQLite copy directly at its final .db path."""
+        database_path = os.path.abspath(self.db_path)
+        database_name = os.path.splitext(os.path.basename(database_path))[0]
+
         if target_file:
             backup_file = os.path.abspath(target_file)
-            if os.path.normcase(backup_file) == os.path.normcase(os.path.abspath(self.db_path)):
-                raise ValueError("مسیر فایل پشتیبان نمی‌تواند با مسیر دیتابیس فعال یکسان باشد.")
+            if os.path.normcase(backup_file) == os.path.normcase(database_path):
+                raise ValueError("مسیر فایل پشتیبان نمی‌تواند با مسیر پایگاه داده فعال یکسان باشد.")
         elif automatic:
-            target_dir = os.path.dirname(os.path.abspath(self.db_path)) or "."
+            backup_dir = self.get_automatic_backup_directory()
+            os.makedirs(backup_dir, exist_ok=True)
             stamp = jdatetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            backup_file = os.path.join(target_dir, f"{database_name}_{stamp}.db")
+            backup_file = os.path.join(backup_dir, f"{database_name}_{stamp}.db")
             suffix = 1
             while os.path.exists(backup_file):
-                backup_file = os.path.join(target_dir, f"{database_name}_{stamp}_{suffix:02d}.db")
+                backup_file = os.path.join(
+                    backup_dir, f"{database_name}_{stamp}_{suffix:02d}.db"
+                )
                 suffix += 1
         else:
-            target_dir = custom_dir or self.cfg.get("backup_dir") or os.path.dirname(
-                os.path.abspath(self.db_path)
-            )
+            target_dir = custom_dir or self.cfg.get("backup_dir") or os.path.dirname(database_path)
             os.makedirs(target_dir, exist_ok=True)
             stamp = jdatetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             backup_file = os.path.join(target_dir, f"ShopBackup_{stamp}.db")
+            suffix = 1
+            base_file = backup_file
+            while os.path.exists(backup_file):
+                backup_file = base_file[:-3] + f"_{suffix:02d}.db"
+                suffix += 1
 
         backup_dir = os.path.dirname(backup_file) or "."
         os.makedirs(backup_dir, exist_ok=True)
 
-        # Build the snapshot in a uniquely named .db file in the destination
-        # directory. Keeping the staging file on the same volume makes the final
-        # os.replace atomic while avoiding user-visible *.db.tmp backup files.
-        stamp_for_temp = jdatetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        temp_fd, temporary_file = tempfile.mkstemp(
-            prefix=f".{database_name}_backup_{stamp_for_temp}_",
-            suffix=".db",
-            dir=backup_dir,
-        )
-        os.close(temp_fd)
+        # Reserve the final name exclusively and write SQLite pages straight into
+        # that .db file. No .tmp or staging copy is created, which also avoids
+        # Windows rename/replace failures when antivirus/indexing software scans files.
+        file_descriptor = None
+        created_backup = False
         try:
-            with sqlite3.connect(self.db_path) as source:
-                with sqlite3.connect(temporary_file) as destination:
-                    source.backup(destination)
+            file_descriptor = os.open(
+                backup_file, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600
+            )
+            os.close(file_descriptor)
+            file_descriptor = None
+            created_backup = True
 
-            with sqlite3.connect(temporary_file) as check_db:
+            with sqlite3.connect(database_path, timeout=30) as source:
+                source.execute("PRAGMA busy_timeout=30000")
+                with sqlite3.connect(backup_file, timeout=30) as destination:
+                    destination.execute("PRAGMA busy_timeout=30000")
+                    source.backup(destination, pages=256, sleep=0.25)
+
+            with sqlite3.connect(backup_file, timeout=30) as check_db:
                 check_result = check_db.execute("PRAGMA quick_check").fetchone()
             if not check_result or check_result[0] != "ok":
                 raise sqlite3.DatabaseError(
-                    "نسخه پشتیبان از آزمون یکپارچگی SQLite عبور نکرد."
+                    "نسخه پشتیبان از آزمون یکپارچگی پایگاه داده SQLite عبور نکرد."
                 )
 
-            os.replace(temporary_file, backup_file)
-            temporary_file = None
+            pruning_warnings = []
             if automatic:
-                self._prune_automatic_backups(backup_dir, database_name)
-        finally:
-            # Also clean up a failed/incomplete staging file without leaving a
-            # misleading backup artifact behind.
-            if temporary_file and os.path.exists(temporary_file):
+                pruning_warnings = self._prune_automatic_backups(
+                    backup_dir, database_name
+                )
+        except Exception:
+            if file_descriptor is not None:
+                os.close(file_descriptor)
+            if created_backup and os.path.exists(backup_file):
                 try:
-                    os.remove(temporary_file)
+                    os.remove(backup_file)
                 except OSError:
                     pass
+            raise
 
         self.cfg["last_backup_time"] = jdatetime.datetime.now().strftime(
             "%Y/%m/%d %H:%M:%S"
         )
-        self.cfg["backup_dir"] = os.path.dirname(os.path.abspath(self.db_path)) or "."
+        self.cfg["backup_dir"] = os.path.dirname(database_path) or "."
         if automatic:
-            database_key = os.path.normcase(os.path.abspath(self.db_path))
+            database_key = os.path.normcase(database_path)
             backup_state = dict(self.cfg.get("auto_backup_last_success_by_db", {}))
             backup_state[database_key] = time.time()
             self.cfg["auto_backup_last_success_by_db"] = backup_state
+            if pruning_warnings:
+                self.cfg["last_backup_warning"] = (
+                    "برخی نسخه‌های قدیمی به دلیل باز بودن فایل در برنامه دیگری حذف نشدند: "
+                    + "، ".join(pruning_warnings)
+                )
+            else:
+                self.cfg.pop("last_backup_warning", None)
         save_app_config(self.cfg)
         return backup_file
 
