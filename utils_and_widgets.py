@@ -15,8 +15,11 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QGroupBox,
     QFormLayout,
+    QScrollArea,
 )
-from PySide6.QtCore import Qt, Signal, QModelIndex, QSortFilterProxyModel
+from PySide6.QtCore import (
+    Qt, Signal, QModelIndex, QSortFilterProxyModel, QPropertyAnimation, QEasingCurve
+)
 from PySide6.QtGui import QIntValidator
 from PySide6.QtWidgets import QSizePolicy
 
@@ -160,6 +163,39 @@ def add_jalali_days(start_date_str: str, days: int) -> str:
         return result.strftime("%Y/%m/%d")
     except Exception:
         return start_date_str
+
+
+
+
+class SmoothScrollArea(QScrollArea):
+    """A pixel-based scroll area with short eased wheel animations."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWidgetResizable(True)
+        self.setFrameShape(QScrollArea.NoFrame)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self._wheel_animation = None
+
+    def wheelEvent(self, event):
+        delta = event.angleDelta()
+        bar = self.horizontalScrollBar() if event.modifiers() & Qt.ShiftModifier else self.verticalScrollBar()
+        amount = delta.x() if event.modifiers() & Qt.ShiftModifier else delta.y()
+        if not amount or bar.maximum() <= bar.minimum():
+            return super().wheelEvent(event)
+
+        target = max(bar.minimum(), min(bar.maximum(), bar.value() - amount))
+        if self._wheel_animation is not None:
+            self._wheel_animation.stop()
+        animation = QPropertyAnimation(bar, b"value", self)
+        animation.setDuration(170)
+        animation.setEasingCurve(QEasingCurve.OutCubic)
+        animation.setStartValue(bar.value())
+        animation.setEndValue(target)
+        animation.start()
+        self._wheel_animation = animation
+        event.accept()
 
 
 class SmartLineEdit(QLineEdit):
@@ -352,8 +388,36 @@ class JalaliCalendarDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("انتخاب تاریخ شمسی")
         self.setLayoutDirection(Qt.RightToLeft)
-        self.setFixedSize(390, 350)
+        self.setFixedSize(470, 438)
         self.selected_date = initial_date_str
+
+        dark = False
+        ancestor = parent
+        while ancestor is not None:
+            if hasattr(ancestor, "db"):
+                dark = ancestor.db.cfg.get("theme", "light") == "dark"
+                break
+            ancestor = ancestor.parentWidget() if hasattr(ancestor, "parentWidget") else None
+
+        self._calendar_colors = {
+            "surface": "#263244" if dark else "#ffffff",
+            "base": "#1e293b" if dark else "#f8fafc",
+            "text": "#e5eaf2" if dark else "#0f172a",
+            "muted": "#aab6c8" if dark else "#475569",
+            "border": "#46556c" if dark else "#cbd5e1",
+            "selected": "#2563eb",
+            "disabled": "#334155" if dark else "#e2e8f0",
+        }
+        colors = self._calendar_colors
+        self.setStyleSheet(
+            f"QDialog {{ background: {colors['base']}; color: {colors['text']}; }}"
+            f"QLabel {{ color: {colors['text']}; }}"
+            f"QComboBox {{ background: {colors['surface']}; color: {colors['text']}; "
+            f"border: 1px solid {colors['border']}; border-radius: 6px; padding: 5px; min-height: 30px; }}"
+            f"QPushButton {{ background: {colors['surface']}; color: {colors['text']}; "
+            f"border: 1px solid {colors['border']}; border-radius: 6px; padding: 6px 10px; }}"
+            f"QPushButton:hover {{ border: 1px solid {colors['selected']}; }}"
+        )
 
         try:
             p = [int(x) for x in normalize_digits(initial_date_str).split("/")]
@@ -375,22 +439,20 @@ class JalaliCalendarDialog(QDialog):
 
         self.cb_year = QComboBox()
         self.cb_year.setEditable(True)
-        self.cb_year.addItems([str(year) for year in range(1405, 1501)])
+        self.cb_year.addItems([str(year) for year in range(1300, 1501)])
         self.cb_year.setInsertPolicy(QComboBox.NoInsert)
         self.cb_year.setCurrentText(str(self.cur_year))
-        self.cb_year.setMinimumWidth(105)
-        self.cb_year.setMinimumHeight(32)
+        self.cb_year.setMinimumWidth(115)
+        self.cb_year.setMinimumHeight(38)
         self.cb_year.lineEdit().setAlignment(Qt.AlignCenter)
-        self.cb_year.lineEdit().setValidator(QIntValidator(1405, 1500, self.cb_year))
-        self.cb_year.setStyleSheet(
-            "font-size: 14px; font-weight: bold; color: #0f172a; background: #ffffff; padding: 3px;"
-        )
+        self.cb_year.lineEdit().setValidator(QIntValidator(1300, 1500, self.cb_year))
+        self.cb_year.setStyleSheet("font-size: 15px; font-weight: bold;")
         self.cb_year.currentTextChanged.connect(self._refresh_grid)
 
         self.cb_month = QComboBox()
-        self.cb_month.setMinimumWidth(135)
-        self.cb_month.setMinimumHeight(34)
-        self.cb_month.setStyleSheet("font-size: 14px; font-weight: bold;")
+        self.cb_month.setMinimumWidth(165)
+        self.cb_month.setMinimumHeight(38)
+        self.cb_month.setStyleSheet("font-size: 15px; font-weight: bold;")
         months = [
             "فروردین",
             "اردیبهشت",
@@ -411,7 +473,7 @@ class JalaliCalendarDialog(QDialog):
         self.cb_month.currentIndexChanged.connect(self._refresh_grid)
 
         btn_today = QPushButton("برو به امروز")
-        btn_today.setMinimumHeight(34)
+        btn_today.setMinimumHeight(38)
         btn_today.clicked.connect(self._go_today)
 
         lbl_y = QLabel("سال:")
@@ -433,24 +495,26 @@ class JalaliCalendarDialog(QDialog):
         layout.addLayout(nav)
 
         self.grid = QGridLayout()
-        self.grid.setSpacing(3)
+        self.grid.setSpacing(5)
         days_header = ["ش", "ی", "د", "س", "چ", "پ", "ج"]
         for col, d_name in enumerate(days_header):
             lbl = QLabel(d_name)
             lbl.setAlignment(Qt.AlignCenter)
             lbl.setStyleSheet(
-                "font-weight: bold; font-size: 12px; color: #1e40af; padding: 2px;"
+                f"font-weight: bold; font-size: 14px; color: {colors['muted']}; padding: 4px;"
             )
+            lbl.setMinimumHeight(30)
             self.grid.addWidget(lbl, 0, col)
 
         self.day_buttons = []
         for r in range(1, 7):
             for c in range(7):
                 btn = QPushButton("")
-                btn.setFixedSize(36, 30)
+                btn.setFixedSize(50, 42)
                 btn.setStyleSheet(
-                    "background: #ffffff; color: #0f172a; font-size: 12px; "
-                    "font-weight: bold; border: 1px solid #cbd5e1; border-radius: 4px;"
+                    f"background: {colors['surface']}; color: {colors['text']}; "
+                    f"font-size: 15px; font-weight: bold; border: 1px solid {colors['border']}; "
+                    "border-radius: 6px;"
                 )
                 btn.clicked.connect(self._on_day_clicked)
                 self.grid.addWidget(btn, r, c)
@@ -468,17 +532,21 @@ class JalaliCalendarDialog(QDialog):
 
     def _refresh_grid(self):
         # Clear the calendar first; typing an incomplete year must never crash the dialog.
+        colors = self._calendar_colors
         for button in self.day_buttons:
             button.setText("")
             button.setEnabled(False)
-            button.setStyleSheet("background: #f1f5f9; border: none;")
+            button.setStyleSheet(
+                f"background: {colors['disabled']}; color: {colors['muted']}; "
+                "border: none; border-radius: 6px;"
+            )
 
         raw_year = normalize_digits(self.cb_year.currentText()).strip()
         try:
             year = int(raw_year)
         except (TypeError, ValueError):
             return
-        if not 1405 <= year <= 1500:
+        if not 1300 <= year <= 1500:
             return
 
         month = self.cb_month.currentData()
@@ -504,13 +572,14 @@ class JalaliCalendarDialog(QDialog):
             button.setEnabled(True)
             if year == self.cur_year and month == self.cur_month and day == self.cur_day:
                 button.setStyleSheet(
-                    "background-color: #2563eb; color: white; font-size: 12px; "
-                    "font-weight: bold; border-radius: 6px;"
+                    f"background-color: {colors['selected']}; color: white; "
+                    "font-size: 15px; font-weight: bold; border-radius: 6px;"
                 )
             else:
                 button.setStyleSheet(
-                    "background-color: #ffffff; color: #0f172a; font-size: 12px; "
-                    "font-weight: bold; border: 1px solid #cbd5e1; border-radius: 6px;"
+                    f"background-color: {colors['surface']}; color: {colors['text']}; "
+                    f"font-size: 15px; font-weight: bold; border: 1px solid {colors['border']}; "
+                    "border-radius: 6px;"
                 )
 
 
@@ -524,7 +593,7 @@ class JalaliCalendarDialog(QDialog):
         except (TypeError, ValueError):
             return
         m = self.cb_month.currentData()
-        if m is None or not 1405 <= y <= 1500:
+        if m is None or not 1300 <= y <= 1500:
             return
         try:
             jdatetime.date(y, int(m), d)
@@ -549,31 +618,31 @@ class JalaliDateEdit(QWidget):
         layout.setSpacing(2)
 
         self.ed_day = QLineEdit()
-        self.ed_day.setFixedWidth(46)
-        self.ed_day.setFixedHeight(34)
+        self.ed_day.setFixedWidth(50)
+        self.ed_day.setFixedHeight(36)
         self.ed_day.setStyleSheet("font-size: 12px; padding: 2px;")
         self.ed_day.setMaxLength(2)
         self.ed_day.setAlignment(Qt.AlignCenter)
         self.ed_day.setPlaceholderText("روز")
 
         self.ed_month = QLineEdit()
-        self.ed_month.setFixedWidth(46)
-        self.ed_month.setFixedHeight(34)
+        self.ed_month.setFixedWidth(50)
+        self.ed_month.setFixedHeight(36)
         self.ed_month.setStyleSheet("font-size: 12px; padding: 2px;")
         self.ed_month.setMaxLength(2)
         self.ed_month.setAlignment(Qt.AlignCenter)
         self.ed_month.setPlaceholderText("ماه")
 
         self.ed_year = QLineEdit()
-        self.ed_year.setFixedWidth(58)
-        self.ed_year.setFixedHeight(34)
+        self.ed_year.setFixedWidth(68)
+        self.ed_year.setFixedHeight(36)
         self.ed_year.setStyleSheet("font-size: 12px; padding: 2px;")
         self.ed_year.setMaxLength(4)
         self.ed_year.setAlignment(Qt.AlignCenter)
         self.ed_year.setPlaceholderText("سال")
 
         self.btn_cal = QPushButton("📅")
-        self.btn_cal.setFixedSize(30, 32)
+        self.btn_cal.setFixedSize(34, 36)
         self.btn_cal.setToolTip("انتخاب از تقویم شمسی")
         self.btn_cal.clicked.connect(self._open_calendar)
 
@@ -900,6 +969,38 @@ class DynamicSpecsWidget(QGroupBox):
             self.fields = {"مشخصات": ed_spec}
             self.form_layout.addRow("زیرمجموعه (قابل تایپ دستی):", self.cb_sub)
             self.form_layout.addRow("مشخصات فنی:", ed_spec)
+
+    def apply_custom_catalog(self, subcategories=None, custom_fields=None):
+        """Apply user-managed subcategories and extra specification fields."""
+        if self.cb_sub is not None and isinstance(subcategories, list) and subcategories:
+            current = self.cb_sub.currentText()
+            self.cb_sub.blockSignals(True)
+            self.cb_sub.clear()
+            self.cb_sub.addItems(subcategories)
+            self.cb_sub.setEditable(True)
+            if current:
+                self.cb_sub.setCurrentText(current)
+            self.cb_sub.blockSignals(False)
+            if self.current_category == "قطعات":
+                self._rebuild_part_subfields(self.cb_sub.currentText())
+
+        if not isinstance(custom_fields, list):
+            return
+        for definition in custom_fields:
+            if not isinstance(definition, dict):
+                continue
+            field_name = str(definition.get("name", "")).strip()
+            if not field_name or field_name in self.fields:
+                continue
+            values = definition.get("values", [])
+            if isinstance(values, list) and values:
+                widget = SearchableComboBox()
+                widget.addItems([""] + [str(value) for value in values if str(value).strip()])
+            else:
+                widget = SmartLineEdit(f"{field_name}...")
+            widget.setToolTip(f"مشخصه سفارشی: {field_name}")
+            self.fields[field_name] = widget
+            self.form_layout.addRow(f"{field_name}:", widget)
 
     def _rebuild_part_subfields(self, part_type: str):
         while self.sub_layout.count():
