@@ -334,13 +334,20 @@ class DatabaseManager:
                     (k, v),
                 )
 
-            cur.execute("SELECT COUNT(*) FROM suppliers")
-            if cur.fetchone()[0] == 0:
-                cur.execute(
-                    "INSERT INTO suppliers (name, phone, address, notes) VALUES (?, ?, ?, ?)",
-                    ("تأمین‌کننده عمومی بازار", "021-88990011", "تهران", "پیش‌فرض"),
-                )
-                
+            # Never seed a generic supplier: suppliers are entered by the shop owner.
+            # Remove only the exact legacy placeholder when it has never been used;
+            # real suppliers and historical purchase references are preserved.
+            cur.execute(
+                """
+                DELETE FROM suppliers
+                WHERE name=? AND phone=? AND address=? AND notes=?
+                  AND NOT EXISTS (
+                      SELECT 1 FROM batches WHERE batches.supplier_id=suppliers.id
+                  )
+                """,
+                ("تأمین‌کننده عمومی بازار", "021-88990011", "تهران", "پیش‌فرض"),
+            )
+
             # Remove only the two legacy sample employees created by older releases.
             # Keep their historic transactions and detach the employee references.
             legacy_employees = conn.execute(
@@ -462,6 +469,68 @@ class DatabaseManager:
                 (key, str(value)),
             )
             conn.commit()
+
+    def get_product_catalog_config(self):
+        """Return per-database, user-editable product taxonomy and specification options."""
+        raw = self.get_setting("product_catalog_config", "{}")
+        try:
+            config = json.loads(raw or "{}")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            config = {}
+        if not isinstance(config, dict):
+            config = {}
+        return {
+            "categories": list(dict.fromkeys(
+                str(value).strip() for value in config.get("categories", [])
+                if str(value).strip()
+            )),
+            "subcategories": {
+                str(category): list(dict.fromkeys(
+                    str(value).strip() for value in values if str(value).strip()
+                ))
+                for category, values in (config.get("subcategories") or {}).items()
+                if isinstance(values, list)
+            } if isinstance(config.get("subcategories"), dict) else {},
+            "attributes": {
+                str(category): [
+                    {
+                        "name": str(item.get("name", "")).strip(),
+                        "values": list(dict.fromkeys(
+                            str(value).strip() for value in item.get("values", [])
+                            if str(value).strip()
+                        )),
+                    }
+                    for item in items
+                    if isinstance(item, dict) and str(item.get("name", "")).strip()
+                ]
+                for category, items in (config.get("attributes") or {}).items()
+                if isinstance(items, list)
+            } if isinstance(config.get("attributes"), dict) else {},
+            "colors": list(dict.fromkeys(
+                str(value).strip() for value in config.get("colors", [])
+                if str(value).strip()
+            )),
+        }
+
+    def save_product_catalog_config(self, config):
+        """Persist validated shop-specific product categories, attributes and color choices."""
+        if not isinstance(config, dict):
+            raise ValueError("ساختار شخصی‌سازی کالا معتبر نیست.")
+        clean = {
+            "categories": config.get("categories", []),
+            "subcategories": config.get("subcategories", {}),
+            "attributes": config.get("attributes", {}),
+            "colors": config.get("colors", []),
+        }
+        if any(not isinstance(clean[key], expected) for key, expected in (
+            ("categories", list), ("subcategories", dict),
+            ("attributes", dict), ("colors", list),
+        )):
+            raise ValueError("ساختار دسته‌بندی، زیرمجموعه، مشخصات یا رنگ معتبر نیست.")
+        self.set_setting(
+            "product_catalog_config",
+            json.dumps(clean, ensure_ascii=False, separators=(",", ":")),
+        )
 
     def log_audit(self, conn, action_type, details):
         now_str = jdatetime.datetime.now().strftime("%Y/%m/%d %H:%M:%S")
