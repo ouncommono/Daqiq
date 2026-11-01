@@ -523,6 +523,7 @@ class DatabaseManager:
                             str(value).strip() for value in item.get("values", [])
                             if str(value).strip()
                         )),
+                        "subcategory": str(item.get("subcategory", "") or "").strip(),
                     }
                     for item in items
                     if isinstance(item, dict) and str(item.get("name", "")).strip()
