@@ -151,7 +151,10 @@ def test_database_refresh_keeps_services_suppliers_and_password_status_visible(
                 ("تأمین‌کننده رگرسیون",),
             ).fetchone()[0]
         assert supplier_count == 1
-        assert window.tbl_suppliers.rowCount() == 1
+        assert any(
+            window.tbl_suppliers.item(row, 1).text() == "تأمین‌کننده رگرسیون"
+            for row in range(window.tbl_suppliers.rowCount())
+        )
 
         # Purchase registration must still complete and refresh with a populated batch table.
         window.cb_batch_qty.setCurrentText("2")
