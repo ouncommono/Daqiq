@@ -843,6 +843,7 @@ class DynamicSpecsWidget(QGroupBox):
         self.main_layout.addWidget(self.form_widget)
         self.current_category = "لپ‌تاپ"
         self.fields = {}
+        self._custom_field_names = set()
         self.cb_sub = None
         self.set_category("لپ‌تاپ")
 
@@ -852,6 +853,7 @@ class DynamicSpecsWidget(QGroupBox):
             if item.widget():
                 item.widget().deleteLater()
         self.fields.clear()
+        self._custom_field_names.clear()
         self.cb_sub = None
 
     def set_category(self, category: str):
@@ -1101,22 +1103,52 @@ class DynamicSpecsWidget(QGroupBox):
             if self.current_category == "قطعات":
                 self._rebuild_part_subfields(self.cb_sub.currentText())
 
+        # Remove custom widgets from the previously selected subcategory before
+        # adding the next set. Built-in fields remain in place and can be reconfigured.
+        for field_name in list(self._custom_field_names):
+            widget = self.fields.pop(field_name, None)
+            if widget is not None:
+                self.form_layout.removeRow(widget)
+                widget.deleteLater()
+        self._custom_field_names.clear()
+
         if not isinstance(custom_fields, list):
             return
         for definition in custom_fields:
             if not isinstance(definition, dict):
                 continue
             field_name = str(definition.get("name", "")).strip()
-            if not field_name or field_name in self.fields:
+            if not field_name:
                 continue
-            values = definition.get("values", [])
-            if isinstance(values, list) and values:
+            raw_values = definition.get("values", [])
+            values = [
+                str(value).strip() for value in raw_values
+                if str(value).strip()
+            ] if isinstance(raw_values, list) else []
+
+            existing_widget = self.fields.get(field_name)
+            if existing_widget is not None:
+                if isinstance(existing_widget, QComboBox) and values:
+                    current_value = existing_widget.currentText()
+                    existing_widget.blockSignals(True)
+                    existing_widget.clear()
+                    existing_widget.addItem("")
+                    existing_widget.addItems(list(dict.fromkeys(values)))
+                    if current_value in values:
+                        existing_widget.setCurrentText(current_value)
+                    existing_widget.blockSignals(False)
+                existing_widget.setToolTip(f"مشخصه قابل تنظیم: {field_name}")
+                continue
+
+            if values:
                 widget = SearchableComboBox()
-                widget.addItems([""] + [str(value) for value in values if str(value).strip()])
+                widget.addItem("")
+                widget.addItems(list(dict.fromkeys(values)))
             else:
                 widget = SmartLineEdit(f"{field_name}...")
             widget.setToolTip(f"مشخصه سفارشی: {field_name}")
             self.fields[field_name] = widget
+            self._custom_field_names.add(field_name)
             self.form_layout.addRow(f"{field_name}:", widget)
 
     def _rebuild_part_subfields(self, part_type: str):
