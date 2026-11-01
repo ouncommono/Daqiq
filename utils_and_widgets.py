@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QScrollArea,
     QTableWidget,
+    QListWidget,
 )
 from PySide6.QtCore import (
     Qt,
@@ -382,6 +383,26 @@ class SmoothScrollTableWidget(QTableWidget):
             self.horizontalScrollBar() if horizontal else self.verticalScrollBar()
         )
         amount = _wheel_amount(event, horizontal=horizontal)
+        if not amount or scrollbar.maximum() <= scrollbar.minimum():
+            return super().wheelEvent(event)
+        if _animate_scrollbar(self, scrollbar, amount):
+            event.accept()
+        else:
+            super().wheelEvent(event)
+
+
+class SmoothScrollListWidget(QListWidget):
+    """List widget with the same eased wheel scrolling as pages and tables."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._wheel_animation = None
+        self.setVerticalScrollMode(QListWidget.ScrollPerPixel)
+        self.verticalScrollBar().setSingleStep(18)
+
+    def wheelEvent(self, event):
+        amount = _wheel_amount(event, horizontal=False)
+        scrollbar = self.verticalScrollBar()
         if not amount or scrollbar.maximum() <= scrollbar.minimum():
             return super().wheelEvent(event)
         if _animate_scrollbar(self, scrollbar, amount):
