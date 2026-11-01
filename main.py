@@ -48,6 +48,7 @@ from database import DatabaseManager, load_app_config, save_app_config, hash_pas
 from utils_and_widgets import (
     MAIN_CATEGORIES,
     DEFAULT_SUBCATEGORIES,
+    DEFAULT_ATTRIBUTES,
     SmartLineEdit,
     PriceInput,
     SearchableComboBox,
@@ -4005,6 +4006,10 @@ class MainWindow(QMainWindow):
         self.ed_cfg_attribute_name.setPlaceholderText("نام ویژگی؛ مثلاً نوع پنل")
         self.ed_cfg_attribute_values = QLineEdit()
         self.ed_cfg_attribute_values.setPlaceholderText("مقادیر اختیاری با جداکنندهٔ ویرگول")
+        self.cb_cfg_attribute_subcategory = QComboBox()
+        self.cb_cfg_attribute_subcategory.addItem("همهٔ زیرمجموعه‌ها", "")
+        attr_layout.addWidget(QLabel("محدودهٔ زیرمجموعه:"))
+        attr_layout.addWidget(self.cb_cfg_attribute_subcategory)
         self.lst_cfg_attributes.currentItemChanged.connect(
             self._on_catalog_attribute_selected
         )
@@ -4171,7 +4176,7 @@ class MainWindow(QMainWindow):
         defaults = {
             "categories": list(MAIN_CATEGORIES),
             "subcategories": copy.deepcopy(DEFAULT_SUBCATEGORIES),
-            "attributes": {},
+            "attributes": copy.deepcopy(DEFAULT_ATTRIBUTES),
             "colors": [
                 "مشکی", "سفید", "نقره‌ای", "خاکستری", "آبی",
                 "قرمز", "طلایی", "سبز", "بنفش", "صورتی", "سایر",
@@ -4199,12 +4204,27 @@ class MainWindow(QMainWindow):
             return
         category = self.cb_cfg_category.currentText().strip()
         self.lst_cfg_subcategories.clear()
-        for value in self._taxonomy_draft["subcategories"].get(category, []):
+        subcategories = self._taxonomy_draft["subcategories"].get(category, [])
+        for value in subcategories:
             self.lst_cfg_subcategories.addItem(value)
+
+        current_scope = self.cb_cfg_attribute_subcategory.currentData() or ""
+        self.cb_cfg_attribute_subcategory.blockSignals(True)
+        self.cb_cfg_attribute_subcategory.clear()
+        self.cb_cfg_attribute_subcategory.addItem("همهٔ زیرمجموعه‌ها", "")
+        for value in subcategories:
+            self.cb_cfg_attribute_subcategory.addItem(value, value)
+        scope_index = self.cb_cfg_attribute_subcategory.findData(current_scope)
+        self.cb_cfg_attribute_subcategory.setCurrentIndex(
+            scope_index if scope_index >= 0 else 0
+        )
+        self.cb_cfg_attribute_subcategory.blockSignals(False)
+
         self.lst_cfg_attributes.clear()
         for item in self._taxonomy_draft["attributes"].get(category, []):
             values = "، ".join(item.get("values", []))
-            label = item["name"] + (f" — {values}" if values else "")
+            scope = item.get("subcategory") or "همهٔ زیرمجموعه‌ها"
+            label = item["name"] + (f" — {values}" if values else "") + f"  [{scope}]"
             entry = QListWidgetItem(label)
             entry.setData(Qt.UserRole, item["name"])
             self.lst_cfg_attributes.addItem(entry)
@@ -4333,7 +4353,11 @@ class MainWindow(QMainWindow):
             value.strip() for value in self.ed_cfg_attribute_values.text().replace("،", ",").split(",")
             if value.strip()
         ]
-        definitions.append({"name": name, "values": list(dict.fromkeys(values))})
+        definitions.append({
+            "name": name,
+            "values": list(dict.fromkeys(values)),
+            "subcategory": self.cb_cfg_attribute_subcategory.currentData() or "",
+        })
         self.ed_cfg_attribute_name.clear()
         self.ed_cfg_attribute_values.clear()
         self._refresh_catalog_management_lists()
@@ -4353,6 +4377,12 @@ class MainWindow(QMainWindow):
         if definition:
             self.ed_cfg_attribute_name.setText(definition["name"])
             self.ed_cfg_attribute_values.setText(", ".join(definition.get("values", [])))
+            scope_index = self.cb_cfg_attribute_subcategory.findData(
+                definition.get("subcategory", "") or ""
+            )
+            self.cb_cfg_attribute_subcategory.setCurrentIndex(
+                scope_index if scope_index >= 0 else 0
+            )
 
     def _update_catalog_attribute(self):
         category = self.cb_cfg_category.currentText().strip()
@@ -4381,6 +4411,7 @@ class MainWindow(QMainWindow):
         ]
         current["name"] = new_name
         current["values"] = list(dict.fromkeys(values))
+        current["subcategory"] = self.cb_cfg_attribute_subcategory.currentData() or ""
         self._refresh_catalog_management_lists()
 
     def _delete_catalog_attribute(self):
@@ -4460,8 +4491,25 @@ class MainWindow(QMainWindow):
         if hasattr(self, "catalog_config"):
             self.specs_widget.apply_custom_catalog(
                 self.catalog_config.get("subcategories", {}).get(category),
-                self.catalog_config.get("attributes", {}).get(category, []),
+                [],
             )
+            self._apply_custom_specs_for_subcategory()
+            if self.specs_widget.cb_sub is not None:
+                self.specs_widget.cb_sub.currentTextChanged.connect(
+                    self._apply_custom_specs_for_subcategory
+                )
+
+    def _apply_custom_specs_for_subcategory(self, *_):
+        if not hasattr(self, "specs_widget") or self.specs_widget.cb_sub is None:
+            return
+        category = (self.cb_prod_cat.currentText() or "").strip()
+        subcategory = self.specs_widget.cb_sub.currentText().strip()
+        definitions = self.catalog_config.get("attributes", {}).get(category, [])
+        applicable = [
+            item for item in definitions
+            if not item.get("subcategory") or item.get("subcategory") == subcategory
+        ]
+        self.specs_widget.apply_custom_catalog(None, applicable)
 
     def _refresh_multi_db_combo(self):
         self._refresh_recent_database_list()
