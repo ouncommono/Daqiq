@@ -182,6 +182,149 @@ class LoginDialog(QDialog):
         self.accept()
 
 
+class DatabaseBootstrapDialog(QDialog):
+    """First-run wizard for creating a database file or connecting an existing one."""
+
+    def __init__(self, default_path, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("راه‌اندازی اولیه پایگاه داده")
+        self.setLayoutDirection(Qt.RightToLeft)
+        self.setMinimumWidth(560)
+        self.selected_path = None
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 18, 18, 16)
+        layout.setSpacing(12)
+
+        title = QLabel("برای شروع، پایگاه دادهٔ فروشگاه را انتخاب کنید")
+        title.setStyleSheet("font-size: 16px; font-weight: bold;")
+        detail = QLabel(
+            "می‌توانید یک پایگاه دادهٔ جدید بسازید یا فایل پایگاه دادهٔ قبلی خود را به برنامه متصل کنید. "
+            "مسیر پیشنهادی قابل ویرایش است."
+        )
+        detail.setWordWrap(True)
+        detail.setStyleSheet("color: #64748b;")
+        layout.addWidget(title)
+        layout.addWidget(detail)
+
+        self.rb_create = QRadioButton("ایجاد پایگاه دادهٔ جدید در مسیر زیر")
+        self.rb_existing = QRadioButton("اتصال به پایگاه دادهٔ موجود")
+        self.rb_create.setChecked(True)
+        layout.addWidget(self.rb_create)
+        layout.addWidget(self.rb_existing)
+
+        path_row = QHBoxLayout()
+        self.ed_path = QLineEdit(default_path)
+        self.ed_path.setClearButtonEnabled(True)
+        self.ed_path.setToolTip("مسیر و نام فایل پایگاه داده با پسوند .db")
+        self.btn_browse = QPushButton("انتخاب مسیر…")
+        self.btn_browse.clicked.connect(self._browse)
+        path_row.addWidget(self.ed_path, 1)
+        path_row.addWidget(self.btn_browse)
+        layout.addLayout(path_row)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel
+        )
+        buttons.button(QDialogButtonBox.Ok).setText("ادامه")
+        buttons.button(QDialogButtonBox.Cancel).setText("انصراف")
+        buttons.accepted.connect(self._validate_and_accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def _browse(self):
+        current = self.ed_path.text().strip()
+        if self.rb_existing.isChecked():
+            path, _ = QFileDialog.getOpenFileName(
+                self, "انتخاب پایگاه دادهٔ موجود", current, "پایگاه داده SQLite (*.db)"
+            )
+        else:
+            path, _ = QFileDialog.getSaveFileName(
+                self, "تعیین مسیر پایگاه دادهٔ جدید", current, "پایگاه داده SQLite (*.db)"
+            )
+        if path:
+            self.ed_path.setText(path)
+
+    def _validate_and_accept(self):
+        raw_path = self.ed_path.text().strip().strip('"')
+        if not raw_path:
+            QMessageBox.warning(self, "مسیر لازم است", "مسیر فایل پایگاه داده را مشخص کنید.")
+            return
+        path = os.path.abspath(os.path.expanduser(raw_path))
+        if not path.lower().endswith((".db", ".sqlite", ".sqlite3")):
+            path += ".db"
+
+        if self.rb_existing.isChecked():
+            if not os.path.isfile(path):
+                QMessageBox.warning(
+                    self, "فایل پیدا نشد", "فایل پایگاه دادهٔ موجود در این مسیر پیدا نشد."
+                )
+                return
+            try:
+                with sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5) as conn:
+                    result = conn.execute("PRAGMA quick_check").fetchone()
+                if not result or result[0] != "ok":
+                    raise sqlite3.DatabaseError("quick_check failed")
+            except (sqlite3.Error, OSError) as exc:
+                QMessageBox.critical(
+                    self, "پایگاه دادهٔ نامعتبر",
+                    f"فایل انتخاب‌شده یک پایگاه دادهٔ سالم SQLite نیست.\n{exc}"
+                )
+                return
+        elif os.path.exists(path) and os.path.getsize(path) > 0:
+            QMessageBox.warning(
+                self, "فایل از قبل وجود دارد",
+                "این فایل از قبل وجود دارد. برای استفاده از آن، گزینهٔ «اتصال به پایگاه دادهٔ موجود» را انتخاب کنید."
+            )
+            return
+
+        self.selected_path = path
+        self.accept()
+
+
+def select_startup_database_path(parent=None):
+    """Choose an existing database or show the first-run setup wizard."""
+    config = load_app_config()
+    configured_path = os.path.abspath(config.get("db_path", ""))
+    candidates = [configured_path]
+    candidates.extend(
+        os.path.abspath(path)
+        for path in reversed(config.get("recent_databases", []))
+        if path
+    )
+
+    existing_path = next(
+        (path for path in dict.fromkeys(candidates) if os.path.isfile(path)),
+        None,
+    )
+    if existing_path:
+        config["db_path"] = existing_path
+        recent = [
+            os.path.abspath(path) for path in config.get("recent_databases", [])
+            if path and os.path.abspath(path) != existing_path
+        ]
+        config["recent_databases"] = [existing_path] + recent
+        save_app_config(config)
+        return existing_path
+
+    default_path = configured_path or os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "shop_database.db"
+    )
+    dialog = DatabaseBootstrapDialog(default_path, parent)
+    if dialog.exec() != QDialog.Accepted or not dialog.selected_path:
+        return None
+
+    chosen_path = os.path.abspath(dialog.selected_path)
+    config["db_path"] = chosen_path
+    recent = [
+        os.path.abspath(path) for path in config.get("recent_databases", [])
+        if path and os.path.abspath(path) != chosen_path
+    ]
+    config["recent_databases"] = [chosen_path] + recent
+    save_app_config(config)
+    return chosen_path
+
+
 def _resolve_startup_employee(db, parent=None):
     """Select a user at startup whenever there are multiple accounts or any account requires a password."""
     with db.get_connection() as conn:
@@ -4433,7 +4576,10 @@ def main():
     font = QFont("Tahoma", 10)
     app.setFont(font)
 
-    db = DatabaseManager()
+    selected_db_path = select_startup_database_path()
+    if not selected_db_path:
+        sys.exit(0)
+    db = DatabaseManager(selected_db_path)
 
     active_emp = None
     active_emp, accepted = _resolve_startup_employee(db)
