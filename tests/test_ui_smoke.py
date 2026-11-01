@@ -421,3 +421,48 @@ def test_jalali_calendar_uses_theme_and_readable_day_cells(tmp_path, monkeypatch
     finally:
         window.close()
         qapp.processEvents()
+
+
+
+def test_technical_attributes_follow_selected_subcategory_and_are_editable(
+    tmp_path, monkeypatch, qapp
+):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    manager.save_product_catalog_config({
+        "categories": ["قطعات"],
+        "subcategories": {
+            "قطعات": ["پردازنده (CPU)", "کارت گرافیک (Graphic Card)"]
+        },
+        "attributes": {
+            "قطعات": [
+                {
+                    "name": "TDP",
+                    "values": ["45W", "65W"],
+                    "subcategory": "پردازنده (CPU)",
+                },
+                {
+                    "name": "VRAM",
+                    "values": ["4GB", "8GB"],
+                    "subcategory": "کارت گرافیک (Graphic Card)",
+                },
+            ]
+        },
+        "colors": ["مشکی"],
+    })
+
+    window = MainWindow(manager, active_employee=None)
+    try:
+        assert window.cb_prod_cat.currentText() == "قطعات"
+        assert "TDP" in window.specs_widget.fields
+        assert "VRAM" not in window.specs_widget.fields
+        assert window.specs_widget.fields["TDP"].count() == 3
+
+        window.specs_widget.cb_sub.setCurrentText("کارت گرافیک (Graphic Card)")
+        assert "VRAM" in window.specs_widget.fields
+        assert "TDP" not in window.specs_widget.fields
+        assert window.specs_widget.fields["VRAM"].count() == 3
+    finally:
+        window.close()
+        qapp.processEvents()
