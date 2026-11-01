@@ -392,3 +392,16 @@ def test_last_automatic_backup_timestamp_is_tracked_per_database(tmp_path, monke
     assert first_reload.get_last_automatic_backup_timestamp() >= first_timestamp
     assert os.path.exists(first_backup)
     assert len(first_reload.cfg["auto_backup_last_success_by_db"]) == 2
+
+
+
+def test_automatic_backup_uses_db_files_and_removes_staging_file(manager, tmp_path):
+    backup_path = manager.create_backup(automatic=True)
+
+    assert backup_path.endswith(".db")
+    assert os.path.isfile(backup_path)
+    assert not list(tmp_path.glob("*.tmp"))
+    assert not list(tmp_path.glob("*.db.tmp"))
+    assert not list(tmp_path.glob(".shop_backup_*.db"))
+    with sqlite3.connect(backup_path) as conn:
+        assert conn.execute("PRAGMA quick_check").fetchone()[0] == "ok"
