@@ -431,3 +431,33 @@ def test_product_catalog_configuration_is_persisted_per_database(manager, tmp_pa
     assert config["subcategories"]["تجهیزات جدید"] == ["دستگاه هوشمند"]
     assert config["attributes"]["تجهیزات جدید"][0]["values"] == ["نسل ۵", "نسل ۶"]
     assert config["colors"] == ["مشکی", "نقره‌ای"]
+
+
+
+def test_legacy_generic_supplier_is_removed_without_losing_purchase_history(manager, tmp_path):
+    product_id = create_product(manager, "P-LEGACY")
+    with manager.get_connection() as conn:
+        cursor = conn.execute(
+            "INSERT INTO suppliers (name, phone, address, notes) VALUES (?, ?, ?, ?)",
+            ("تأمین‌کننده عمومی بازار", "021-88990011", "تهران", "پیش‌فرض"),
+        )
+        supplier_id = int(cursor.lastrowid)
+        conn.commit()
+
+    manager.add_batch(
+        "C-LEGACY", product_id, supplier_id, None, "PO-OLD", "1404/01/01",
+        2, 100, 0, 150, 0, "", "RAM:8GB", "سوابق خرید", "تسویه‌نشده",
+    )
+
+    reloaded = DatabaseManager(str(tmp_path / "shop.db"))
+    with reloaded.get_connection() as conn:
+        supplier_count = conn.execute(
+            "SELECT COUNT(*) FROM suppliers WHERE name='تأمین‌کننده عمومی بازار'"
+        ).fetchone()[0]
+        batch = conn.execute(
+            "SELECT supplier_id, supplier_name_snapshot FROM batches WHERE batch_code='C-LEGACY'"
+        ).fetchone()
+
+    assert supplier_count == 0
+    assert batch["supplier_id"] is None
+    assert batch["supplier_name_snapshot"] == "تأمین‌کننده عمومی بازار"
