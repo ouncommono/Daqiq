@@ -170,6 +170,7 @@ def test_sale_specifications_are_saved_and_updated_as_sold_snapshot(manager):
     invoice = manager.add_sale(
         "INV-SPECS", product_id, batch_id, None, "مشتری",
         1, 150, 150, 0, "1405/01/01 12:00:00",
+        "", "", 0, "", "", "",
         settlement_status="تسویه‌نشده",
         specifications="RAM: 8GB DDR4",
     )
