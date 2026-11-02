@@ -4984,13 +4984,23 @@ class MainWindow(QMainWindow):
         category = (category or "").strip()
         self.specs_widget.set_category(category)
         if hasattr(self, "catalog_config"):
-            self.specs_widget.on_subcategory_rebuilt = (
-                self._apply_custom_specs_for_subcategory
-            )
+            # Rebuild built-in part fields first, then apply the applicable custom
+            # definitions whenever the selected subcategory changes.
+            self.specs_widget.on_subcategory_rebuilt = None
             self.specs_widget.apply_custom_catalog(
                 self.catalog_config.get("subcategories", {}).get(category),
                 [],
             )
+            if self.specs_widget.cb_sub is not None:
+                try:
+                    self.specs_widget.cb_sub.currentTextChanged.disconnect(
+                        self._apply_custom_specs_for_subcategory
+                    )
+                except (RuntimeError, TypeError):
+                    pass
+                self.specs_widget.cb_sub.currentTextChanged.connect(
+                    self._apply_custom_specs_for_subcategory
+                )
             self._apply_custom_specs_for_subcategory()
 
     def _apply_custom_specs_for_subcategory(self, *_):
