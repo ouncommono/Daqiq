@@ -75,14 +75,15 @@ class _CollapsibleSectionController(QObject):
         super().__init__(parent)
         self._button = button
         self._body = body
-        self._button.released.connect(self._sync_expanded_state)
+        self._expanded = False
+        self._button.pressed.connect(self._toggle_expanded_state)
 
     @Slot()
-    def _sync_expanded_state(self):
-        expanded = self._button.isChecked()
-        self._body.setVisible(expanded)
+    def _toggle_expanded_state(self):
+        self._expanded = not self._expanded
+        self._body.setVisible(self._expanded)
         self._button.setArrowType(
-            Qt.DownArrow if expanded else Qt.RightArrow
+            Qt.DownArrow if self._expanded else Qt.RightArrow
         )
 
 
@@ -962,8 +963,9 @@ class MainWindow(QMainWindow):
         branch_layout.setSpacing(4)
         toggle = QToolButton()
         toggle.setText(title)
-        toggle.setCheckable(True)
-        toggle.setChecked(False)
+        # Avoid checkable/boolean Qt signals; this button is a simple disclosure
+        # control whose expanded state is owned by its QObject controller.
+        toggle.setCheckable(False)
         toggle.setArrowType(Qt.RightArrow)
         toggle.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         toggle.setMinimumHeight(38)
