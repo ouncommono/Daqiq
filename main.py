@@ -4553,6 +4553,7 @@ class MainWindow(QMainWindow):
                 "مشکی", "سفید", "نقره‌ای", "خاکستری", "آبی",
                 "قرمز", "طلایی", "سبز", "بنفش", "صورتی", "سایر",
             ],
+            "service_types": ["نرم‌افزاری", "سخت‌افزاری"],
         }
         has_saved_catalog = bool(self.db.get_setting("product_catalog_config", ""))
         self._taxonomy_draft = (
@@ -4564,6 +4565,7 @@ class MainWindow(QMainWindow):
         self._pending_subcategory_renames = []
         self._pending_attribute_renames = []
         self._pending_color_renames = []
+        self._pending_service_type_renames = []
 
         self.cb_cfg_category.blockSignals(True)
         self.cb_cfg_category.clear()
@@ -4600,14 +4602,18 @@ class MainWindow(QMainWindow):
         ):
             values = "، ".join(item.get("values", []))
             scope = item.get("subcategory") or "همهٔ زیرمجموعه‌ها"
-            display_name = item.get("display_name") or item["name"]
-            label = display_name + (f" — {values}" if values else "") + f"  [{scope}]"
+            title = str(item.get("label") or "").strip()
+            title_text = f"  ← عنوان: {title}" if title else ""
+            label = f"{item['name']}{title_text}" + (f" — {values}" if values else "") + f"  [{scope}]"
             entry = QListWidgetItem(label)
             entry.setData(Qt.UserRole, definition_index)
             self.lst_cfg_attributes.addItem(entry)
         self.lst_cfg_colors.clear()
         for color in self._taxonomy_draft["colors"]:
             self.lst_cfg_colors.addItem(color)
+        self.lst_cfg_service_types.clear()
+        for service_type in self._taxonomy_draft.get("service_types", []):
+            self.lst_cfg_service_types.addItem(service_type)
 
     def _add_catalog_category(self):
         name = self.ed_cfg_category.text().strip()
@@ -4800,13 +4806,11 @@ class MainWindow(QMainWindow):
         definitions.append({
             "name": name,
             "label": self.ed_cfg_attribute_label.text().strip(),
-            "display_name": self.ed_cfg_attribute_display.text().strip(),
             "values": list(dict.fromkeys(values)),
             "subcategory": selected_scope,
         })
         self.ed_cfg_attribute_name.clear()
         self.ed_cfg_attribute_label.clear()
-        self.ed_cfg_attribute_display.clear()
         self.ed_cfg_attribute_values.clear()
         self._refresh_catalog_management_lists()
 
@@ -4824,7 +4828,6 @@ class MainWindow(QMainWindow):
         if definition:
             self.ed_cfg_attribute_name.setText(definition["name"])
             self.ed_cfg_attribute_label.setText(definition.get("label", ""))
-            self.ed_cfg_attribute_display.setText(definition.get("display_name", ""))
             self.ed_cfg_attribute_values.setText(", ".join(definition.get("values", [])))
             scope_index = self.cb_cfg_attribute_subcategory.findData(
                 definition.get("subcategory", "") or ""
@@ -4874,7 +4877,7 @@ class MainWindow(QMainWindow):
             )
         current["name"] = new_name
         current["label"] = self.ed_cfg_attribute_label.text().strip()
-        current["display_name"] = self.ed_cfg_attribute_display.text().strip()
+        current.pop("display_name", None)
         current["values"] = list(dict.fromkeys(values))
         current["subcategory"] = new_scope
         self._refresh_catalog_management_lists()
@@ -4961,6 +4964,16 @@ class MainWindow(QMainWindow):
             self.cb_rep_cat.blockSignals(False)
         if hasattr(self, "specs_widget"):
             self._configure_product_specs(self.cb_prod_cat.currentText())
+        if hasattr(self, "cb_srv_type"):
+            current_type = self.cb_srv_type.currentText()
+            self.cb_srv_type.blockSignals(True)
+            self.cb_srv_type.clear()
+            self.cb_srv_type.addItems(
+                self.catalog_config.get("service_types") or ["نرم‌افزاری", "سخت‌افزاری"]
+            )
+            if current_type and self.cb_srv_type.findText(current_type) >= 0:
+                self.cb_srv_type.setCurrentText(current_type)
+            self.cb_srv_type.blockSignals(False)
 
     def _configure_product_specs(self, category):
         if not hasattr(self, "specs_widget"):
@@ -5260,6 +5273,11 @@ class MainWindow(QMainWindow):
                                 "UPDATE products SET specs_json=? WHERE id=?",
                                 (json.dumps(specs, ensure_ascii=False), product_row["id"]),
                             )
+                for old_type, new_type in self._pending_service_type_renames:
+                    conn.execute(
+                        "UPDATE service_catalog SET service_type=? WHERE service_type=?",
+                        (new_type, old_type),
+                    )
                 self.db.save_product_catalog_config(self._taxonomy_draft, conn=conn)
                 conn.commit()
 
