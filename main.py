@@ -1663,7 +1663,7 @@ class MainWindow(QMainWindow):
         for column in (0, 2, 4):
             grid.setColumnStretch(column, 0)
 
-        self.ed_sale_inv = SmartLineEdit("INV-1001")
+        self.ed_sale_inv = SmartLineEdit("")
         self.ed_sale_inv.setToolTip("در صورت خالی بودن، شماره فاکتور بعدی خودکار تخصیص می‌یابد.")
         self.cb_sale_prod = SearchableComboBox()
         self.cb_sale_prod.setToolTip(
@@ -2178,7 +2178,7 @@ class MainWindow(QMainWindow):
         f_cat = QFormLayout()
         self.cb_srv_type = QComboBox()
         self.cb_srv_type.addItems(["نرم‌افزاری", "سخت‌افزاری"])
-        self.ed_srv_code = SmartLineEdit("S-1001")
+        self.ed_srv_code = SmartLineEdit("")
         self.ed_srv_code.setToolTip("در صورت خالی بودن، کد خدمت بعدی خودکار تخصیص می‌یابد.")
         self.ed_srv_name = SmartLineEdit("عنوان خدمت (مثلاً نصب ویندوز، نصب آنتی‌ویروس...)")
         self.pr_srv_def_fee = PriceInput(self.db)
