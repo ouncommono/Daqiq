@@ -39,7 +39,7 @@ PERSIAN_ARABIC_MAP = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "
 _LTR_TOKEN_RE = re.compile(
     r"(?<![A-Za-z0-9])([A-Za-z][A-Za-z0-9._/+%-]*:|[A-Za-z][A-Za-z0-9._/+%-]*|\d+(?:[.,]\d+)?(?:[A-Za-z]+|%))"
 )
-_BIDI_CONTROL_RE = re.compile(r"[\u2066-\u2069\u200e\u200f]")
+_BIDI_CONTROL_RE = re.compile(r"[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]")
 
 
 def bidi_isolate_text(value) -> str:
