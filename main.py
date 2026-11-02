@@ -41,7 +41,7 @@ from PySide6.QtWidgets import (
     QToolButton,
     QAbstractItemView,
 )
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QObject, Slot
 from PySide6.QtGui import QFont, QColor, QFontMetrics
 
 from database import DatabaseManager, load_app_config, save_app_config, hash_password
@@ -67,6 +67,24 @@ from exporter import (
     export_table_to_excel,
     get_next_excel_filename,
 )
+
+class _CollapsibleSectionController(QObject):
+    """QObject-owned, zero-argument Qt slot for one collapsible settings branch."""
+
+    def __init__(self, button, body, parent=None):
+        super().__init__(parent)
+        self._button = button
+        self._body = body
+        self._button.released.connect(self._sync_expanded_state)
+
+    @Slot()
+    def _sync_expanded_state(self):
+        expanded = self._button.isChecked()
+        self._body.setVisible(expanded)
+        self._button.setArrowType(
+            Qt.DownArrow if expanded else Qt.RightArrow
+        )
+
 
 PERSIAN_WEEKDAYS = {
     0: "شنبه",
@@ -955,16 +973,11 @@ class MainWindow(QMainWindow):
         if isinstance(content, QGroupBox):
             content.setTitle("")
         content.setVisible(False)
-        def update_expanded_state():
-            expanded = toggle.isChecked()
-            content.setVisible(expanded)
-            toggle.setArrowType(
-                Qt.DownArrow if expanded else Qt.RightArrow
-            )
-
-        # Use a zero-argument slot so the Qt clicked(bool) payload is discarded;
-        # the current state is read directly from the button.
-        toggle.clicked.connect(update_expanded_state)
+        controller = _CollapsibleSectionController(
+            toggle, content, parent=wrapper
+        )
+        # Keep the Python wrapper strongly referenced for the life of the section.
+        wrapper._collapsible_controller = controller
         branch_layout.addWidget(toggle)
         branch_layout.addWidget(content)
         return wrapper
