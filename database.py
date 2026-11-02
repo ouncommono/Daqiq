@@ -1474,10 +1474,14 @@ class DatabaseManager:
                     values + (upgrade_id,),
                 )
 
+            part_label = (
+                part_b["batch_code"] if part_b
+                else manual_part_description or "قطعه با شرح دستی"
+            )
             self.log_audit(
                 conn,
                 "ویرایش ارتقای کالا" if upgrade_id is not None else "ثبت ارتقای کالا",
-                f"محموله هدف: {target_b['batch_code']} با قطعه {part_b['batch_code']}",
+                f"محموله هدف: {target_b['batch_code']} با قطعه {part_label}",
             )
             conn.commit()
 
