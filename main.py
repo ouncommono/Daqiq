@@ -3268,6 +3268,7 @@ class MainWindow(QMainWindow):
                 ]
                 s_rows = conn.execute("""
                     SELECT 'فروش کالا' as t_type, s.invoice_number as ref, s.sale_datetime as dt,
+                           s.updated_at AS _activity_at,
                            p.code, p.category, p.sub_category, (p.brand || ' ' || p.model) as title,
                            COALESCE(NULLIF(s.specifications,''), NULLIF(b.final_specs,''), NULLIF(b.initial_specs,''), '') as specs,
                            e.id as emp_id, e.name as emp_name, s.customer_name as party,
@@ -3282,6 +3283,7 @@ class MainWindow(QMainWindow):
 
                 b_rows = conn.execute("""
                     SELECT 'خرید محموله' as t_type, b.batch_code as ref, b.purchase_date as dt,
+                           b.updated_at AS _activity_at,
                            p.code, p.category, p.sub_category, (p.brand || ' ' || p.model) as title,
                            COALESCE(NULLIF(b.final_specs,''), NULLIF(b.initial_specs,''), '') as specs,
                            e.id as emp_id, e.name as emp_name, COALESCE(sup.name,b.supplier_name_snapshot) as party,
@@ -3297,6 +3299,7 @@ class MainWindow(QMainWindow):
 
                 srv_rows = conn.execute("""
                     SELECT 'خدمات' as t_type, sr.invoice_number as ref, sr.service_datetime as dt,
+                           sr.updated_at AS _activity_at,
                            'SRV' as code, 'خدمات' as category, sr.service_type as sub_category,
                            sr.service_name as title, '' as specs, e.id as emp_id, e.name as emp_name,
                            sr.customer_name as party, 1 as qty, sr.service_fee as u_price,
@@ -3340,6 +3343,7 @@ class MainWindow(QMainWindow):
 
                     rows_data.append(
                         [
+                            r["_activity_at"] or r["dt"] or "",
                             r["t_type"],
                             r["ref"],
                             r["dt"],
@@ -3361,7 +3365,6 @@ class MainWindow(QMainWindow):
                             r["st"],
                         ]
                     )
-                rows_data.sort(key=lambda row: str(row[2] or ""), reverse=True)
                 summary_text = (
                     f"مجموع فروش و خدمات: {total_income:,} تومان   |   "
                     f"مجموع خریدها: {total_buy:,} تومان   |   "
@@ -3430,6 +3433,7 @@ class MainWindow(QMainWindow):
                     )
                     rows_data.append(
                         [
+                            r["updated_at"] or r["sale_datetime"] or "",
                             r["invoice_number"],
                             r["sale_datetime"],
                             r["code"],
@@ -3527,6 +3531,7 @@ class MainWindow(QMainWindow):
                     sum_b_prof += int(r["batch_profit"])
                     rows_data.append(
                         [
+                            r["updated_at"] or r["purchase_date"] or "",
                             r["batch_code"],
                             r["invoice_number"] or "-",
                             r["purchase_date"],
@@ -3612,6 +3617,7 @@ class MainWindow(QMainWindow):
                     )
                     rows_data.append(
                         [
+                            r["updated_at"] or "",
                             r["code"],
                             r["category"],
                             r["sub_category"],
@@ -3681,6 +3687,7 @@ class MainWindow(QMainWindow):
                     tot_emp_prof = int(s_stat["prof"]) + int(srv_stat["prof"])
                     rows_data.append(
                         [
+                            e["updated_at"] or "",
                             e["name"],
                             e["role"],
                             b_stat["cnt"],
@@ -3721,6 +3728,7 @@ class MainWindow(QMainWindow):
                     sum_receivable += rem_amt
                     rows_data.append(
                         [
+                            r["updated_at"] or r["sale_datetime"] or "",
                             "فروش کالا (طلب از مشتری)",
                             r["invoice_number"],
                             r["sale_datetime"],
@@ -3744,6 +3752,7 @@ class MainWindow(QMainWindow):
                     sum_payable += rem_amt
                     rows_data.append(
                         [
+                            r["updated_at"] or r["purchase_date"] or "",
                             "خرید محموله (بدهی به تأمین‌کننده)",
                             r["batch_code"],
                             r["purchase_date"],
@@ -3765,6 +3774,7 @@ class MainWindow(QMainWindow):
                     sum_receivable += rem_amt
                     rows_data.append(
                         [
+                            r["updated_at"] or r["service_datetime"] or "",
                             "فاکتور خدمات (طلب از مشتری)",
                             r["invoice_number"],
                             r["service_datetime"],
@@ -3819,6 +3829,7 @@ class MainWindow(QMainWindow):
                     rem_srv = max(0, int(r["service_fee"]) - int(r["paid_amount"]))
                     rows_data.append(
                         [
+                            r["updated_at"] or r["service_datetime"] or "",
                             r["invoice_number"],
                             r["service_datetime"],
                             r["service_type"],
@@ -3841,15 +3852,8 @@ class MainWindow(QMainWindow):
                 )
 
         if rows_data:
-            date_columns = [
-                index for index, header in enumerate(headers)
-                if "تاریخ" in str(header) or "زمان" in str(header)
-            ]
-            if date_columns:
-                date_column = date_columns[0]
-                rows_data.sort(
-                    key=lambda row: str(row[date_column] or ""), reverse=True
-                )
+            rows_data.sort(key=lambda row: str(row[0] or ""), reverse=True)
+            rows_data = [row[1:] for row in rows_data]
         self.tbl_report.setSortingEnabled(False)
         self.tbl_report.clear()
         self.tbl_report.setColumnCount(len(headers))
