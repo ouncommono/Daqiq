@@ -401,6 +401,40 @@ class DatabaseManager:
                         f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}"
                     )
 
+            # Add a monotonic edit timestamp to business tables. New records are
+            # ordered by their identifiers; edited records receive a fresh timestamp
+            # and are promoted to the top without changing primary/foreign keys.
+            timestamp_tables = (
+                "employees", "suppliers", "customers", "products", "batches",
+                "upgrades", "sales", "service_catalog", "service_records", "payments",
+            )
+            for table_name in timestamp_tables:
+                columns = {
+                    row["name"]
+                    for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+                }
+                if "updated_at" not in columns:
+                    conn.execute(
+                        f"ALTER TABLE {table_name} ADD COLUMN updated_at REAL NOT NULL DEFAULT 0"
+                    )
+                trigger_name = f"trg_{table_name}_updated_at"
+                conn.execute(
+                    f"""
+                    CREATE TRIGGER IF NOT EXISTS {trigger_name}
+                    AFTER UPDATE ON {table_name}
+                    FOR EACH ROW
+                    WHEN NEW.updated_at = OLD.updated_at
+                    BEGIN
+                        UPDATE {table_name}
+                        SET updated_at = MAX(
+                            (julianday('now') - 2440587.5) * 86400.0,
+                            OLD.updated_at + 0.000001
+                        )
+                        WHERE id = NEW.id;
+                    END
+                    """
+                )
+
             # Remove the exact legacy generic supplier from the selector on upgraded
             # databases too, but retain its historical name on linked purchase rows.
             legacy_supplier_rows = conn.execute(
@@ -541,6 +575,7 @@ class DatabaseManager:
                             if value is not None and str(value).strip()
                         )),
                         "subcategory": str(item.get("subcategory", "") or "").strip(),
+                        "label": str(item.get("label", "") or "").strip(),
                     })
                 attributes[str(category)] = normalized_items
 
@@ -606,6 +641,7 @@ class DatabaseManager:
                         if value is not None and str(value).strip()
                     )),
                     "subcategory": str(item.get("subcategory", "") or "").strip(),
+                    "label": str(item.get("label", "") or "").strip(),
                 })
             clean_attributes[str(category)] = clean_items
 
