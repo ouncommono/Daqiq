@@ -677,15 +677,6 @@ def test_technical_attributes_follow_selected_subcategory_and_are_editable(
         assert window.specs_widget.fields["TDP"].count() == 3
 
         window.specs_widget.cb_sub.setCurrentText("کارت گرافیک (Graphic Card)")
-        print("custom catalog:", window.catalog_config.get("attributes", {}).get("قطعات"))
-        print(
-            "subcategory callback state:",
-            window.specs_widget.cb_sub.currentText(),
-            callable(window.specs_widget.on_subcategory_rebuilt),
-            list(window.specs_widget.fields),
-        )
-        window._apply_custom_specs_for_subcategory()
-        print("fields after explicit apply:", list(window.specs_widget.fields))
         assert "VRAM" in window.specs_widget.fields
         assert "TDP" not in window.specs_widget.fields
         assert window.specs_widget.fields["VRAM"].count() == 3
