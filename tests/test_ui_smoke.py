@@ -492,6 +492,48 @@ def test_settings_are_drafts_until_saved_and_recent_database_x_keeps_the_file(
         qapp.processEvents()
 
 
+def test_password_policy_can_be_enabled_with_warning_and_blocks_passwordless_login(
+    tmp_path, monkeypatch, qapp
+):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    warnings = []
+    monkeypatch.setattr(
+        main_module.QMessageBox, "warning",
+        lambda *args, **kwargs: warnings.append(args[2] if len(args) > 2 else ""),
+    )
+    monkeypatch.setattr(main_module.QMessageBox, "information", lambda *args, **kwargs: None)
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    with manager.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO employees (name, role, phone, permissions, is_active, password) "
+            "VALUES (?, ?, ?, ?, 1, '')",
+            ("کاربر بدون رمز", "فروشنده", "", "فروش و خدمات"),
+        )
+        conn.commit()
+
+    window = MainWindow(manager, active_employee=None)
+    try:
+        window.chk_req_pass.setChecked(True)
+        window._save_general_settings()
+        assert manager.cfg["require_login_password"] is True
+        assert warnings and "امکان ورود ندارند" in warnings[-1]
+        assert "هنوز رمز ندارند" in window.lbl_security_hint.text()
+    finally:
+        window.close()
+
+    login = main_module.LoginDialog(manager)
+    try:
+        login.ed_pass.clear()
+        login._check_login()
+        assert login.logged_employee is None
+        assert login.result() != 1
+        assert "ورود این حساب" in warnings[-1] or warnings
+    finally:
+        login.close()
+        qapp.processEvents()
+
+
 def test_jalali_calendar_uses_theme_and_readable_day_cells(tmp_path, monkeypatch, qapp):
     monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
     monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
