@@ -2816,7 +2816,7 @@ class MainWindow(QMainWindow):
                 "SELECT * FROM upgrades WHERE id=?", (self.selected_upgrade_id,)
             ).fetchone()
             related_batches = conn.execute(
-                """SELECT b.*, p.category, p.sub_category, p.brand, p.model
+                """SELECT b.*, p.code AS product_code, p.category, p.sub_category, p.brand, p.model
                    FROM batches b JOIN products p ON p.id=b.product_id
                    WHERE b.id IN (?, ?)""",
                 (upgrade["target_batch_id"], upgrade["part_batch_id"]),
@@ -2832,7 +2832,7 @@ class MainWindow(QMainWindow):
             label = f"{batch['batch_code']} | {product_title} | موجودی: {batch['remaining_qty']}"
             tooltip_lines = [
                 f"کد محموله: {batch['batch_code']}",
-                f"کد کالا: {self._bidi_safe_text(batch.get('code') or '-')}",
+                f"کد کالا: {self._bidi_safe_text(batch.get('product_code') or '-')}",
                 f"دسته‌بندی: {self._bidi_safe_text(batch.get('category') or '-')}",
                 f"زیرمجموعه: {self._bidi_safe_text(batch.get('sub_category') or '-')}",
                 f"برند: {self._bidi_safe_text(batch.get('brand') or '-')}",
@@ -3572,9 +3572,9 @@ class MainWindow(QMainWindow):
                         continue
                     specs = json.loads(r["specs_json"] or "{}")
                     specs_str = " | ".join(
-                f"{self._bidi_safe_text(k)}: {self._bidi_safe_text(v)}"
-                for k, v in specs.items()
-            )
+                        f"{self._bidi_safe_text(k)}: {self._bidi_safe_text(v)}"
+                        for k, v in specs.items()
+                    )
                     search_pool = f"{r['code']} {r['category']} {r['sub_category']} {r['brand']} {r['model']} {specs_str}".lower()
                     if q_txt and q_txt not in search_pool:
                         continue
