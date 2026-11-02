@@ -502,6 +502,11 @@ def test_custom_attribute_form_and_table_labels_are_independent(tmp_path, monkey
         assert window._format_specs_for_tooltip({"CPU": "Core i7"}, "قطعات") == (
             "مدل پردازنده: Core i7"
         )
+        definition = window.catalog_config["attributes"]["قطعات"][0]
+        definition.pop("display_name")
+        assert window._format_specs_for_display({"CPU": "Core i7"}, "قطعات") == (
+            "پردازنده (CPU): Core i7"
+        )
     finally:
         window.close()
         qapp.processEvents()

@@ -921,7 +921,7 @@ class MainWindow(QMainWindow):
     def _format_specs_for_display(self, specs, category=""):
         definitions = self.catalog_config.get("attributes", {}).get(category or "", [])
         display_names = {
-            item.get("name"): (item.get("display_name") or item.get("name"))
+            item.get("name"): (item.get("display_name") or item.get("label") or item.get("name"))
             for item in definitions
             if isinstance(item, dict) and item.get("name")
         }
@@ -934,7 +934,7 @@ class MainWindow(QMainWindow):
     def _format_specs_for_tooltip(self, specs, category=""):
         definitions = self.catalog_config.get("attributes", {}).get(category or "", [])
         display_names = {
-            item.get("name"): (item.get("display_name") or item.get("name"))
+            item.get("name"): (item.get("display_name") or item.get("label") or item.get("name"))
             for item in definitions
             if isinstance(item, dict) and item.get("name")
         }
