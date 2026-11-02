@@ -1283,6 +1283,7 @@ class DynamicSpecsWidget(QGroupBox):
                 if str(value).strip()
             ] if isinstance(raw_values, list) else []
 
+            display_label = str(definition.get("label") or field_name).strip()
             existing_widget = self.fields.get(field_name)
             if existing_widget is not None:
                 if isinstance(existing_widget, QComboBox):
@@ -1294,7 +1295,12 @@ class DynamicSpecsWidget(QGroupBox):
                     if current_value in values:
                         existing_widget.setCurrentText(current_value)
                     existing_widget.blockSignals(False)
-                existing_widget.setToolTip(f"مشخصه قابل تنظیم: {field_name}")
+                existing_widget.setToolTip(f"مشخصه قابل تنظیم: {display_label}")
+                label_widget = self.form_layout.labelForField(existing_widget)
+                if label_widget is None:
+                    label_widget = self.sub_layout.labelForField(existing_widget)
+                if label_widget is not None:
+                    label_widget.setText(f"{display_label}:")
                 continue
 
             if values:
@@ -1303,7 +1309,6 @@ class DynamicSpecsWidget(QGroupBox):
                 widget.addItems(list(dict.fromkeys(values)))
             else:
                 widget = SmartLineEdit(f"{field_name}...")
-            display_label = str(definition.get("label") or field_name).strip()
             widget.setToolTip(f"مشخصه سفارشی: {display_label}")
             self.fields[field_name] = widget
             self._custom_field_widgets[field_name] = widget
