@@ -1023,7 +1023,7 @@ class DynamicSpecsWidget(QGroupBox):
     """
 
     def __init__(self, parent=None):
-        super().__init__("زیرمجموعه و مشخصات فنی کالا (امکان انتخاب از لیست یا تایپ دستی)", parent)
+        super().__init__("انتخاب زیرمجموعه و مشخصات فنی کالا", parent)
         self.main_layout = QVBoxLayout(self)
         self.form_widget = QWidget()
         self.form_layout = QFormLayout(self.form_widget)
@@ -1062,6 +1062,7 @@ class DynamicSpecsWidget(QGroupBox):
         self.cb_sub.setToolTip("زیرمجموعه را از فهرست انتخاب کنید")
 
         if self.current_category == "لپ‌تاپ":
+            self.cb_sub.currentTextChanged.connect(self._notify_custom_field_callback)
             self.cb_sub.addItems(
                 [
                     "لپ‌تاپ عمومی / مالتی‌مدیا",
@@ -1187,7 +1188,7 @@ class DynamicSpecsWidget(QGroupBox):
             )
             ed_extra = SmartLineEdit("ویژگی تکمیلی (مثلاً طول کابل، ظرفیت، رنگ...)")
             self.fields = {"نوع اتصال / پورت": cb_conn, "مشخصه": ed_extra}
-            self.form_layout.addRow("نوع لوازم جانبی (قابل تایپ):", self.cb_sub)
+            self.form_layout.addRow("نوع لوازم جانبی:", self.cb_sub)
             self.form_layout.addRow("نوع اتصال / پورت:", cb_conn)
             self.form_layout.addRow("مشخصات تکمیلی:", ed_extra)
 
@@ -1268,7 +1269,8 @@ class DynamicSpecsWidget(QGroupBox):
             self.form_layout.addRow("نوع سری / سوکت:", cb_tip)
 
         else:
-            # شبکه و مودم، ماشین‌های اداری، سایر موارد یا دسته تایپ شده دستی
+            # شبکه و مودم، ماشین‌های اداری و سایر موارد
+            self.cb_sub.currentTextChanged.connect(self._notify_custom_field_callback)
             self.cb_sub.addItems(
                 [
                     "سایر موارد",
@@ -1284,7 +1286,7 @@ class DynamicSpecsWidget(QGroupBox):
             )
             ed_spec = SmartLineEdit("مشخصات فنی، پورت‌ها یا توضیحات تخصصی...")
             self.fields = {"مشخصات": ed_spec}
-            self.form_layout.addRow("زیرمجموعه (قابل تایپ دستی):", self.cb_sub)
+            self.form_layout.addRow("زیرمجموعه:", self.cb_sub)
             self.form_layout.addRow("مشخصات فنی:", ed_spec)
 
     def apply_custom_catalog(self, subcategories=None, custom_fields=None):
