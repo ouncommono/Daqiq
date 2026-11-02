@@ -2827,13 +2827,20 @@ class MainWindow(QMainWindow):
             batch_id = int(batch["id"])
             product_title = self._format_product_picker_label(dict(batch))
             label = f"{batch['batch_code']} | {product_title} | موجودی: {batch['remaining_qty']}"
-            tooltip = (
-                f"{label}\nمشخصات اولیه: {batch['initial_specs'] or '-'}\n"
-                f"مشخصات نهایی: {batch['final_specs'] or '-'}\n"
-                f"شماره سریال: {batch['serial_numbers'] or '-'}"
-            )
+            tooltip_lines = [
+                f"کد محموله: {batch['batch_code']}",
+                f"کد کالا: {self._bidi_safe_text(batch.get('code') or '-')}",
+                f"دسته‌بندی: {self._bidi_safe_text(batch.get('category') or '-')}",
+                f"زیرمجموعه: {self._bidi_safe_text(batch.get('sub_category') or '-')}",
+                f"برند: {self._bidi_safe_text(batch.get('brand') or '-')}",
+                f"مدل: {self._bidi_safe_text(batch.get('model') or '-')}",
+                f"موجودی: {int(batch['remaining_qty'])}",
+                f"مشخصات نهایی: {self._bidi_safe_text(batch.get('final_specs') or '-')}",
+                f"شماره سریال: {self._bidi_safe_text(batch.get('serial_numbers') or '-')}",
+            ]
+            tooltip = "\n".join(tooltip_lines)
             searchable = (
-                f"{label} {batch['initial_specs'] or ''} {batch['final_specs'] or ''} "
+                f"{label} {batch['final_specs'] or ''} "
                 f"{batch['serial_numbers'] or ''}"
             ).strip()
             for combo in (self.cb_upg_target, self.cb_upg_part):
@@ -3512,7 +3519,8 @@ class MainWindow(QMainWindow):
                             f"{debt:,}",
                             f"{int(r['batch_profit']):,}",
                             r["settlement_status"],
-                            f"{r['final_specs']} {r['serial_numbers']}".strip() or "-",
+                            f"{self._bidi_safe_text(r['final_specs'])} "
+                            f"{self._bidi_safe_text(r['serial_numbers'])}".strip() or "-",
                         ]
                     )
                 summary_text = (
@@ -5480,11 +5488,14 @@ class MainWindow(QMainWindow):
             tooltip_lines = [
                 f"کد محموله: {batch['batch_code']}",
                 f"کد کالا: {batch.get('product_code') or '-'}",
-                f"مشخصات کالا: {self._bidi_safe_text(product_title)}",
+                f"دسته‌بندی: {self._bidi_safe_text(batch.get('category') or '-')}",
+                f"زیرمجموعه: {self._bidi_safe_text(batch.get('sub_category') or '-')}",
+                f"برند: {self._bidi_safe_text(batch.get('brand') or '-')}",
+                f"مدل: {self._bidi_safe_text(batch.get('model') or '-')}",
                 f"موجودی فعلی: {int(batch['remaining_qty'])}",
                 "مشخصات نهایی محموله:",
                 *(final_spec_lines or ["-"]),
-                f"شماره سریال: {batch.get('serial_numbers') or '-'}",
+                f"شماره سریال: {self._bidi_safe_text(batch.get('serial_numbers') or '-')}",
             ]
             tooltip = "\n".join(tooltip_lines)
             for combo in (self.cb_upg_target, self.cb_upg_part):
@@ -5593,7 +5604,8 @@ class MainWindow(QMainWindow):
                     r["settlement_status"],
                     f"{r['paid_amount']:,}",
                     f"{debt:,}",
-                    f"{r['final_specs']} {r['serial_numbers']}".strip(),
+                    f"{self._bidi_safe_text(r['final_specs'])} "
+                    f"{self._bidi_safe_text(r['serial_numbers'])}".strip(),
                     f"{tot_bill:,}",
                     r["updated_at"],
                 ]
@@ -5670,8 +5682,8 @@ class MainWindow(QMainWindow):
                     r["part_qty_used"],
                     f"{r['part_unit_cost']:,}",
                     f"{r['labor_cost_unit']:,}",
-                    r["old_specs"],
-                    r["new_specs"],
+                    self._bidi_safe_text(r["old_specs"]),
+                    self._bidi_safe_text(r["new_specs"]),
                     r["upgrade_date"],
                     r["tech_name"] or "-",
                     r["updated_at"],
