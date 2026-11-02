@@ -1244,12 +1244,12 @@ class DynamicSpecsWidget(QGroupBox):
             if self.fields.get(field_name) is widget:
                 self.fields.pop(field_name, None)
             try:
+                # QFormLayout.removeRow(QWidget*) schedules deletion of the row's
+                # widgets. Calling deleteLater() again can double-release the
+                # underlying Qt object during Python shutdown.
                 self.form_layout.removeRow(widget)
             except RuntimeError:
-                pass
-            try:
-                widget.deleteLater()
-            except RuntimeError:
+                # The C++ widget may already have been destroyed by a prior rebuild.
                 pass
         self._custom_field_widgets.clear()
 
