@@ -1507,8 +1507,8 @@ class MainWindow(QMainWindow):
     def _clear_batch_form(self):
         self.selected_batch_id = None
         self._set_generated_code_placeholder(self.ed_batch_code, "batches", "batch_code", "C-")
-        self.cb_batch_prod.setCurrentIndex(0)
-        self.cb_batch_supplier.setCurrentIndex(0)
+        self.cb_batch_prod.setCurrentIndex(-1)
+        self.cb_batch_supplier.setCurrentIndex(-1)
         self.cb_batch_buyer.setCurrentIndex(0)
         self.ed_batch_inv.clear()
         self.dt_batch_date.set_date(jdatetime.date.today().strftime("%Y/%m/%d"))
@@ -1831,6 +1831,7 @@ class MainWindow(QMainWindow):
                 "وضعیت تسویه",
                 "گارانتی و انقضا",
                 "شماره سریال",
+                "مشخصات فنی فروخته‌شده",
             ]
         )
         self.tbl_sales.itemSelectionChanged.connect(self._on_sale_row_selected)
@@ -2038,6 +2039,9 @@ class MainWindow(QMainWindow):
         self.tbl_sales.clearSelection()
         self.cb_sale_qty.setCurrentText("1")
         self._on_sale_batch_changed()
+        self.pr_sale_actual.set_value(0)
+        self.pr_sale_paid.set_value(0)
+        self.ed_sale_specs.clear()
         self._recalc_sale_live()
 
     def _on_sale_status_changed(self, st):
@@ -2115,6 +2119,14 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "خطا در ثبت فروش", str(e))
 
+    def _get_batch_sale_specs(self, batch_id):
+        with self.db.get_connection() as conn:
+            row = conn.execute(
+                "SELECT final_specs, initial_specs FROM batches WHERE id=?",
+                (batch_id,),
+            ).fetchone()
+        return (row["final_specs"] or row["initial_specs"] or "") if row else ""
+
     def _on_sale_row_selected(self):
         selected = self.tbl_sales.selectedItems()
         if not selected:
@@ -2141,9 +2153,11 @@ class MainWindow(QMainWindow):
                 (self.selected_sale_id,),
             ).fetchone()
             if sale_specs:
-                self.ed_sale_specs.setText(
-                    sale_specs["specifications"] or self._get_batch_sale_specs(sale_specs["batch_id"])
+                selected_specs = (
+                    sale_specs["specifications"]
+                    or self._get_batch_sale_specs(sale_specs["batch_id"])
                 )
+                self.ed_sale_specs.setText(selected_specs)
 
         with self.db.get_connection() as conn:
             sale = conn.execute(
@@ -2228,7 +2242,9 @@ class MainWindow(QMainWindow):
         v_cat = QVBoxLayout(gb_cat)
         f_cat = QFormLayout()
         self.cb_srv_type = QComboBox()
-        self.cb_srv_type.addItems(["نرم‌افزاری", "سخت‌افزاری"])
+        self.cb_srv_type.addItems(
+            self.catalog_config.get("service_types") or ["نرم‌افزاری", "سخت‌افزاری"]
+        )
         self.ed_srv_code = SmartLineEdit("")
         self.ed_srv_code.setToolTip("در صورت خالی بودن، کد خدمت بعدی خودکار تخصیص می‌یابد.")
         self.ed_srv_name = SmartLineEdit("عنوان خدمت (مثلاً نصب ویندوز، نصب آنتی‌ویروس...)")
@@ -2362,15 +2378,15 @@ class MainWindow(QMainWindow):
 
     def _clear_service_rec_form(self):
         self.selected_srv_rec_id = None
-        self.cb_srv_select.setCurrentIndex(0)
-        self.cb_srv_seller.setCurrentIndex(0)
+        self.cb_srv_select.setCurrentIndex(-1)
+        self.cb_srv_seller.setCurrentIndex(-1)
         self.ed_srv_cust.clear()
         self.ed_srv_desc.clear()
         self.cb_srv_status.setCurrentIndex(0)
+        self.pr_srv_fee.set_value(0)
         self.pr_srv_side.set_value(0)
         self.pr_srv_paid.set_value(0)
         self.tbl_services.clearSelection()
-        self._on_srv_catalog_picked()
         self._recalc_srv_live_summary()
 
     def _recalc_srv_live_summary(self):
@@ -2569,6 +2585,9 @@ class MainWindow(QMainWindow):
         self.cb_upg_target_qty = QuantitySelector(50)
         self.cb_upg_target_qty.setEditable(0)
         self.cb_upg_part = SearchableComboBox()
+        self.cb_upg_part.setEditable(True)
+        self.cb_upg_part.setInsertPolicy(QComboBox.NoInsert)
+        self.cb_upg_part.setToolTip("قطعه را از موجودی انتخاب کنید یا شرح قطعه را دستی وارد کنید.")
         self.cb_upg_part_qty = QuantitySelector(10)
         self.cb_upg_part_qty.setEditable(0)
         self.cb_upg_part.currentIndexChanged.connect(self._on_upg_part_changed)
@@ -2602,7 +2621,7 @@ class MainWindow(QMainWindow):
 
         grid.addWidget(QLabel("تاریخ ارتقا:"), 3, 0)
         grid.addWidget(self.dt_upg_date, 3, 1)
-        grid.addWidget(QLabel("انجام‌دهنده:"), 3, 2)
+        grid.addWidget(QLabel("مسئول ارتقا:"), 3, 2)
         grid.addWidget(self.cb_upg_tech, 3, 3)
 
         grid.addWidget(self.chk_upg_add_cost, 4, 0, 1, 4)
@@ -2640,7 +2659,16 @@ class MainWindow(QMainWindow):
                 "مشخصات قبلی",
                 "مشخصات جدید",
                 "تاریخ ارتقا",
-                "انجام‌دهنده",
+                "مسئول ارتقا",
+                "دسته‌بندی کالای هدف",
+                "برند کالای هدف",
+                "مدل کالای هدف",
+                "تأمین‌کننده کالای هدف",
+                "قطعه مصرفی",
+                "برند قطعه",
+                "مدل قطعه",
+                "تأمین‌کننده قطعه",
+                "وضعیت کسر موجودی",
             ]
         )
         self.tbl_upgrades.itemSelectionChanged.connect(self._on_upgrade_selected)
@@ -2679,8 +2707,8 @@ class MainWindow(QMainWindow):
         part_id = self.cb_upg_part.currentData()
         target_qty = self.cb_upg_target_qty.get_qty()
         if not part_id:
-            self.cb_upg_part_qty.set_max_qty(1)
-            self.cb_upg_part_qty.setEnabled(0)
+            self.cb_upg_part_qty.set_max_qty(50)
+            self.cb_upg_part_qty.setEnabled(True)
             return
         with self.db.get_connection() as conn:
             part = conn.execute(
@@ -2689,26 +2717,64 @@ class MainWindow(QMainWindow):
         available = int(part["remaining_qty"]) if part else 0
         max_per_target = available // max(1, target_qty)
         self.cb_upg_part_qty.set_max_qty(max(1, max_per_target))
-        self.cb_upg_part_qty.setEnabled(int(max_per_target >= 1))
+        self.cb_upg_part_qty.setEnabled(True)
 
     def _save_upgrade(self):
         t_id = self.cb_upg_target.currentData()
         p_id = self.cb_upg_part.currentData()
-        if not t_id or not p_id:
+        part_text = self.cb_upg_part.currentText().strip()
+        combo_index = self.cb_upg_part.currentIndex()
+        is_real_batch = (
+            combo_index >= 0
+            and combo_index < self.cb_upg_part.count()
+            and self.cb_upg_part.itemText(combo_index) == part_text
+            and self.cb_upg_part.currentData() is not None
+        )
+        p_id = self.cb_upg_part.currentData() if is_real_batch else None
+        if not t_id or (p_id is None and not part_text):
             QMessageBox.warning(
-                self, "خطا", "محموله کالای هدف و محموله قطعه مصرفی را انتخاب کنید."
+                self, "اطلاعات ارتقا", "محموله کالای هدف و قطعه مصرفی (انتخابی یا شرح دستی) را مشخص کنید."
             )
             return
-        if not self.cb_upg_part_qty.isEnabled():
-            QMessageBox.warning(
-                self, "موجودی ناکافی", "موجودی قطعه برای تعداد انتخاب‌شدهٔ کالای هدف کافی نیست."
-            )
-            return
-        if int(t_id) == int(p_id):
+        if p_id is not None and int(t_id) == int(p_id):
             QMessageBox.warning(self, "انتخاب نامعتبر", "محموله هدف و قطعه مصرفی باید متفاوت باشند.")
             return
         try:
             was_edit = self.selected_upgrade_id is not None
+            consume_stock = False
+            warning_messages = []
+            with self.db.get_connection() as conn:
+                target_row = conn.execute(
+                    "SELECT remaining_qty, batch_code FROM batches WHERE id=?", (t_id,)
+                ).fetchone()
+                part_row = conn.execute(
+                    "SELECT remaining_qty, batch_code FROM batches WHERE id=?", (p_id,)
+                ).fetchone() if p_id is not None else None
+            requested_targets = self.cb_upg_target_qty.get_qty()
+            if target_row and int(target_row["remaining_qty"]) < requested_targets:
+                warning_messages.append(
+                    f"موجودی کالای هدف «{target_row['batch_code']}» کافی نیست "
+                    f"(موجودی: {target_row['remaining_qty']})."
+                )
+            requested_parts = requested_targets * self.cb_upg_part_qty.get_qty()
+            if p_id is not None and part_row:
+                if int(part_row["remaining_qty"]) >= requested_parts:
+                    consume_stock = True
+                else:
+                    warning_messages.append(
+                        f"موجودی قطعه «{part_row['batch_code']}» کافی نیست "
+                        f"(موجودی: {part_row['remaining_qty']}، مقدار درخواستی: {requested_parts}). "
+                        "با تأیید شما ارتقا بدون کسر موجودی انجام می‌شود."
+                    )
+            else:
+                warning_messages.append(
+                    "قطعه به‌صورت دستی ثبت می‌شود و موجودی انبار تغییر نخواهد کرد."
+                )
+            if warning_messages and not _ask_yes_no(
+                self, "هشدار موجودی و تأیید ارتقا",
+                "\n".join(warning_messages) + "\n\nآیا با ثبت ارتقا بدون کسر موجودی ادامه می‌دهید؟"
+            ):
+                return
             self.db.upgrade_batch_product(
                 t_id,
                 self.cb_upg_target_qty.get_qty(),
@@ -2722,6 +2788,8 @@ class MainWindow(QMainWindow):
                 "",
                 add_part_cost_to_product=self.chk_upg_add_cost.isChecked(),
                 upgrade_id=self.selected_upgrade_id,
+                manual_part_description=part_text if p_id is None else "",
+                consume_stock=consume_stock,
             )
             self.refresh_all_data()
             self._clear_upgrade_form()
@@ -2737,6 +2805,7 @@ class MainWindow(QMainWindow):
         self.tbl_upgrades.clearSelection()
         self.cb_upg_target.setCurrentIndex(-1)
         self.cb_upg_part.setCurrentIndex(-1)
+        self.cb_upg_part.setEditText("")
         self.cb_upg_tech.setCurrentIndex(-1)
         self.cb_upg_target_qty.setCurrentText("1")
         self.cb_upg_part_qty.setCurrentText("1")
@@ -5503,7 +5572,7 @@ class MainWindow(QMainWindow):
         with self.db.get_connection() as conn:
             rows = conn.execute("""
                 SELECT s.*, p.code as p_code, p.category, p.sub_category, p.brand, p.model,
-                       b.batch_code, e.name as emp_name
+                       b.batch_code, b.final_specs, b.initial_specs, e.name as emp_name
                 FROM sales s
                 JOIN products p ON s.product_id=p.id
                 JOIN batches b ON s.batch_id=b.id
@@ -5543,6 +5612,7 @@ class MainWindow(QMainWindow):
                     r["settlement_status"],
                     war_str,
                     r["serial_number"] or "-",
+                    r["specifications"] or r["final_specs"] or r["initial_specs"] or "-",
                 ]
             )
         self._populate_table_safely(self.tbl_sales, data, highlight_col=11)
