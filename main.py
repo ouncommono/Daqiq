@@ -677,7 +677,7 @@ class MainWindow(QMainWindow):
         top_layout.setSpacing(8)
 
         shop_name = (self.db.get_setting("shop_name", "فروشگاه من") or "فروشگاه من").strip()
-        title_lbl = QLabel(f"\u2067{shop_name}\u2069")
+        title_lbl = QLabel(bidi_isolate_text(shop_name))
         self.lbl_store_name = title_lbl
         title_lbl.setStyleSheet(
             "color: #ffffff; font-size: 15px; font-weight: bold; background: transparent;"
@@ -4197,6 +4197,11 @@ class MainWindow(QMainWindow):
         layout.setSpacing(10)
         layout.setAlignment(Qt.AlignTop)
 
+        self.lbl_app_version = QLabel("نسخه برنامه: 1.0.0")
+        self.lbl_app_version.setAlignment(Qt.AlignCenter)
+        self.lbl_app_version.setStyleSheet("font-size: 13px; font-weight: 700; color: #1e3a8a; padding: 6px;")
+        layout.addWidget(self.lbl_app_version)
+
         gb_security = QGroupBox("امنیت و ورود کاربران")
         security_layout = QVBoxLayout(gb_security)
         self.chk_req_pass = QCheckBox(
@@ -4221,11 +4226,6 @@ class MainWindow(QMainWindow):
         f_gen.setContentsMargins(12, 12, 12, 10)
         f_gen.setHorizontalSpacing(14)
         f_gen.setVerticalSpacing(8)
-
-        self.lbl_app_version = QLabel("نسخه برنامه: 1.0.0")
-        self.lbl_app_version.setAlignment(Qt.AlignCenter)
-        self.lbl_app_version.setStyleSheet("font-size: 13px; font-weight: 700; color: #1e3a8a; padding: 6px;")
-        layout.addWidget(self.lbl_app_version)
 
         self.sp_set_profit = QSpinBox()
         self.sp_set_profit.setRange(0, 300)
@@ -4255,7 +4255,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(CollapsibleSection("تنظیمات عمومی فروش و نمایش", gb_gen))
 
         # Per-database product taxonomy and catalog customization.
-        gb_catalog = QGroupBox("مدیریت دسته‌بندی‌ها و خدمات")
+        gb_catalog = QGroupBox("")
         catalog_layout = QVBoxLayout(gb_catalog)
         self.catalog_tabs = QTabWidget()
         products_page = QWidget()
@@ -4687,11 +4687,18 @@ class MainWindow(QMainWindow):
         if not selected:
             return
         name = selected.text()
-        source_names = {name}
+        if len(self._taxonomy_draft.get("service_types", [])) <= 1:
+            QMessageBox.information(
+                self, "آخرین نوع خدمت",
+                "حداقل یک نوع خدمت باید در فهرست باقی بماند."
+            )
+            return
+        source_names = [name]
         current_name = name
         for old_name, new_name in reversed(self._pending_service_type_renames):
             if current_name == new_name:
-                source_names.add(old_name)
+                if old_name not in source_names:
+                    source_names.append(old_name)
                 current_name = old_name
         marks = ",".join("?" for _ in source_names)
         with self.db.get_connection() as conn:
@@ -5155,8 +5162,8 @@ class MainWindow(QMainWindow):
             btn_remove.setEnabled(not is_active)
             btn_remove.setStyleSheet(
                 "QToolButton { color: #dc2626; font-size: 18px; font-weight: bold; "
-                "border-radius: 5px; background: transparent; }"
-                "QToolButton:hover { background: rgba(220,38,38,0.12); }"
+                "border: 1px solid #cbd5e1; border-radius: 5px; background: palette(base); }"
+                "QToolButton:hover { background: rgba(220,38,38,0.12); border-color: #dc2626; }"
             )
             btn_remove.clicked.connect(
                 lambda checked=False, target=database_path: self._remove_recent_database(target)
@@ -5251,7 +5258,7 @@ class MainWindow(QMainWindow):
         save_app_config(self.db.cfg)
         shop_name = (self.db.get_setting("shop_name", "فروشگاه من") or "فروشگاه من").strip()
         self.setWindowTitle(f"{shop_name} | سامانه حسابداری و مدیریت فروشگاه")
-        self.lbl_store_name.setText(f"\u2067{shop_name}\u2069")
+        self.lbl_store_name.setText(bidi_isolate_text(shop_name))
         self.lbl_store_name.setToolTip(f"نام فروشگاه: {shop_name}")
 
         self.catalog_config = self.db.get_product_catalog_config()
