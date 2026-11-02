@@ -42,7 +42,11 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
     window = MainWindow(manager, active_employee=None)
     try:
         assert window.tabs.count() == 10
-        assert window.tabs.tabText(9).endswith("تنظیمات و پشتیبان‌گیری")
+        assert window.tabs.tabText(9).endswith("تنظیمات")
+        assert window.lbl_app_version.text() == "نسخه برنامه: 1.0.0"
+        assert [window.catalog_tabs.tabText(i) for i in range(window.catalog_tabs.count())] == [
+            "مدیریت کالاها", "مدیریت خدمات"
+        ]
         assert window.lbl_store_name.text().strip("\u2067\u2069") == "فروشگاه من"
         assert "مدیریت فروش" not in window.lbl_store_name.text()
         assert window.lbl_active_user.text().startswith("👤 کاربر:")
@@ -473,7 +477,7 @@ def test_jalali_calendar_uses_theme_and_readable_day_cells(tmp_path, monkeypatch
 
 
 
-def test_custom_attribute_form_and_table_labels_are_independent(tmp_path, monkeypatch, qapp):
+def test_custom_attribute_name_is_form_label_and_title_is_output_label(tmp_path, monkeypatch, qapp):
     monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
     monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
     manager = DatabaseManager(str(tmp_path / "shop.db"))
@@ -493,9 +497,9 @@ def test_custom_attribute_form_and_table_labels_are_independent(tmp_path, monkey
     try:
         assert "CPU" in window.specs_widget.fields
         field_widget = window.specs_widget.fields["CPU"]
-        assert field_widget.toolTip() == "مشخصه سفارشی: پردازنده (CPU)"
+        assert field_widget.toolTip() == "مشخصه سفارشی: CPU"
         field_label = window.specs_widget.form_layout.labelForField(field_widget)
-        assert field_label.text() == "پردازنده (CPU):"
+        assert field_label.text() == "CPU:"
         assert window._format_specs_for_display({"CPU": "Core i7"}, "قطعات") == (
             "مدل پردازنده: Core i7"
         )
@@ -503,10 +507,24 @@ def test_custom_attribute_form_and_table_labels_are_independent(tmp_path, monkey
             "مدل پردازنده: Core i7"
         )
         definition = window.catalog_config["attributes"]["قطعات"][0]
-        definition.pop("display_name")
+        definition["label"] = ""
         assert window._format_specs_for_display({"CPU": "Core i7"}, "قطعات") == (
-            "پردازنده (CPU): Core i7"
+            "CPU: Core i7"
         )
+
+        manager.save_product_catalog_config({
+            "categories": ["لپ‌تاپ"],
+            "subcategories": {"لپ‌تاپ": ["عمومی"]},
+            "attributes": {"لپ‌تاپ": [
+                {"name": "رم", "label": "RAM", "values": []},
+                {"name": "نوع رم", "label": "@رم", "values": []},
+            ]},
+            "colors": [],
+        })
+        window.catalog_config = manager.get_product_catalog_config()
+        assert window._format_specs_for_display(
+            {"نوع رم": "DDR4", "رم": "8GB"}, "لپ‌تاپ"
+        ) == "RAM: 8GB DDR4"
     finally:
         window.close()
         qapp.processEvents()
@@ -622,13 +640,15 @@ def test_calendar_year_range_and_day_picker_are_consistent(qapp):
         calendar.close()
 
 
-def test_bidi_isolates_preserve_latin_specs_without_reversing_them():
+def test_bidi_text_is_kept_in_logical_order_without_invisible_controls():
     mixed = "نوع RAM: 12GB و مدل CPU: Core i7"
+    latin_only = "RAPOO 9550L"
     rendered = bidi_isolate_text(mixed)
+    assert rendered == mixed
     assert strip_bidi_controls(rendered) == mixed
-    assert "\u2066RAM:\u2069" in rendered
-    assert "\u206612GB\u2069" in rendered
-    assert "GB21" not in rendered
+    assert bidi_isolate_text(latin_only) == latin_only
+    assert "9550L RAPOO" not in rendered
+    assert all(marker not in rendered for marker in ("\u2066", "\u2069", "\u200e", "\u200f"))
 
 
 def test_price_input_selects_the_full_amount_on_focus(tmp_path, monkeypatch, qapp):
