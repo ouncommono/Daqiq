@@ -553,15 +553,15 @@ def test_settings_sections_start_collapsed(tmp_path, monkeypatch, qapp):
         from utils_and_widgets import CollapsibleSection
         sections = window.findChildren(CollapsibleSection)
         assert sections
-        assert all(not section.header.isChecked() for section in sections)
+        assert all(not section._expanded for section in sections)
         section = sections[0]
         section.header.click()
         qapp.processEvents()
-        assert section.header.isChecked()
+        assert section._expanded
         assert not section.content.isHidden()
         section.header.click()
         qapp.processEvents()
-        assert not section.header.isChecked()
+        assert not section._expanded
         assert section.content.isHidden()
     finally:
         window.close()

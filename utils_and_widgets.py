@@ -437,8 +437,7 @@ class CollapsibleSection(QWidget):
         super().__init__(parent)
         self.content = content
         self.header = QPushButton(f"▸  {title}")
-        self.header.setCheckable(1)
-        self.header.setChecked(0)
+        self._expanded = False
         self.header.setMinimumHeight(38)
         self.header.setStyleSheet(
             "QPushButton { text-align: right; font-weight: 700; padding: 8px 12px; "
@@ -451,15 +450,14 @@ class CollapsibleSection(QWidget):
         layout.setSpacing(5)
         layout.addWidget(self.header)
         layout.addWidget(self.content)
-        # QAbstractButton.clicked carries a bool argument. Connect to a no-argument
-        # slot so the binding discards that payload instead of materializing it in a
-        # Python callback (some PySide/Python 3.11 builds mishandle bool refcounts).
-        self.header.clicked.connect(self._on_header_clicked)
+        # Use pressed(), which has no Python bool payload. Expansion state is kept
+        # in this widget instead of relying on QPushButton's checkable state.
+        self.header.pressed.connect(self._on_header_pressed)
 
-    def _on_header_clicked(self):
-        expanded = self.header.isChecked()
+    def _on_header_pressed(self):
+        self._expanded = not self._expanded
         title = self.header.text().lstrip("▸▾ ").strip()
-        if expanded:
+        if self._expanded:
             self.content.show()
             self.header.setText("▾  " + title)
         else:
