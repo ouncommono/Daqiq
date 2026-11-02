@@ -781,9 +781,14 @@ class JalaliCalendarDialog(QDialog):
             year = int(normalize_digits(self.cb_year.currentText()).strip())
             month = int(self.cb_month.currentData())
             day = int(normalize_digits(day_text))
+            last_day = jdatetime.date(year, month, 1).daysinmonth
+            day = min(day, last_day)
             selected = jdatetime.date(year, month, day)
         except (TypeError, ValueError):
             return
+        self.cb_day.blockSignals(True)
+        self.cb_day.setCurrentText(f"{day:02d}")
+        self.cb_day.blockSignals(False)
         self.selected_date = selected.strftime("%Y/%m/%d")
         self.accept()
 
