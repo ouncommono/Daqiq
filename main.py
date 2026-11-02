@@ -879,7 +879,7 @@ class MainWindow(QMainWindow):
         tbl.setAlternatingRowColors(True)
         tbl.setSelectionBehavior(QTableWidget.SelectRows)
         tbl.setEditTriggers(QTableWidget.NoEditTriggers)
-        tbl.setSortingEnabled(True)
+        tbl.setSortingEnabled(False)
         tbl.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         tbl.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)
         tbl.verticalScrollBar().setSingleStep(18)
@@ -896,17 +896,18 @@ class MainWindow(QMainWindow):
         return self.tabs.addTab(scroll, title)
 
     def _add_table_search(self, parent_layout, table, key, placeholder):
-        """Place compact search beside the page action buttons."""
+        """Keep the existing search position while reserving stable space for action buttons."""
         search = SmartLineEdit(placeholder)
         search.setMinimumHeight(34)
-        search.setMinimumWidth(190)
-        search.setMaximumWidth(360)
+        search.setMinimumWidth(180)
+        search.setMaximumWidth(240)
+        search.setFixedWidth(220)
         search.setToolTip("جست‌وجو در تمام ستون‌های جدول")
         search.setClearButtonEnabled(True)
         search.textChanged.connect(
             lambda query, target=table: self._filter_table_rows(target, query)
         )
-        parent_layout.addWidget(search, 1)
+        parent_layout.addWidget(search, 0)
         self._table_search_fields[table] = search
         setattr(self, f"ed_search_{key}", search)
         return search
@@ -925,11 +926,39 @@ class MainWindow(QMainWindow):
             for item in definitions
             if isinstance(item, dict) and item.get("name")
         }
-        return " | ".join(
-            f"{display_names.get(key, key)}: {str(value).strip()}"
-            for key, value in (specs or {}).items()
-            if str(value).strip()
-        )
+        rendered = {}
+        order = []
+        definitions_by_name = {
+            str(item.get("name") or "").strip(): item
+            for item in definitions if isinstance(item, dict) and item.get("name")
+        }
+        for key, value in (specs or {}).items():
+            value = str(value).strip()
+            if not value:
+                continue
+            definition = definitions_by_name.get(str(key), {})
+            title = str(definition.get("label") or key).strip()
+            if title.startswith("@"):
+                reference = title[1:].strip()
+                if not reference:
+                    continue
+                if reference not in rendered:
+                    rendered[reference] = value
+                    order.append(reference)
+                else:
+                    rendered[reference] = f"{rendered[reference]} {value}".strip()
+                continue
+            if key not in rendered:
+                order.append(key)
+            rendered[key] = f"{rendered.get(key, '')} {value}".strip()
+        pieces = []
+        for key in order:
+            definition = definitions_by_name.get(str(key), {})
+            title = str(definition.get("label") or key).strip()
+            if title.startswith("@"):
+                title = str(key)
+            pieces.append(f"{title}: {rendered[key]}")
+        return " | ".join(pieces)
 
     def _format_specs_for_tooltip(self, specs, category=""):
         definitions = self.catalog_config.get("attributes", {}).get(category or "", [])
@@ -938,11 +967,8 @@ class MainWindow(QMainWindow):
             for item in definitions
             if isinstance(item, dict) and item.get("name")
         }
-        return "\n".join(
-            f"{display_names.get(key, key)}: {str(value).strip()}"
-            for key, value in (specs or {}).items()
-            if str(value).strip()
-        )
+        rendered = self._format_specs_for_display(specs, category)
+        return rendered.replace(" | ", "\n")
 
     def _filter_table_rows(self, table, query):
         query = normalize_digits(str(query or "")).strip().casefold()
@@ -976,7 +1002,7 @@ class MainWindow(QMainWindow):
         for r_idx, row_values in enumerate(rows_data):
             for c_idx, val in enumerate(row_values):
                 text_val = "" if val is None else str(val)
-                display_text = bidi_isolate_text(text_val)
+                display_text = strip_bidi_controls(text_val)
                 item = QTableWidgetItem(display_text)
                 item.setToolTip(display_text)
                 if highlight_col is not None and c_idx == highlight_col:
@@ -985,7 +1011,9 @@ class MainWindow(QMainWindow):
                     elif text_val.startswith("+"):
                         item.setForeground(QColor("#059669"))
                 table.setItem(r_idx, c_idx, item)
-        table.setSortingEnabled(True)
+        # Input rows are already sorted by activity timestamps in SQL; keep this
+        # order stable instead of allowing the primary-key column to re-sort rows.
+        table.setSortingEnabled(False)
         search = self._table_search_fields.get(table)
         if search is not None:
             self._filter_table_rows(table, search.text())
@@ -1674,6 +1702,9 @@ class MainWindow(QMainWindow):
         self.cb_sale_batch.currentIndexChanged.connect(self._on_sale_batch_changed)
         self.cb_sale_seller = SearchableComboBox()
         self.ed_sale_customer = SmartLineEdit("نام مشتری (اختیاری)")
+        self.ed_sale_specs = SmartLineEdit("مشخصات دقیق کالای فروخته‌شده؛ قابل ویرایش...")
+        self.ed_sale_specs.setLayoutDirection(Qt.LeftToRight)
+        self.ed_sale_specs.setToolTip("این مشخصات در زمان فروش ثبت و در گزارش‌های آینده حفظ می‌شود.")
         self.cb_sale_qty = QuantitySelector(100)
         self.cb_sale_qty.setEditable(0)
         self.cb_sale_qty.qtyChanged.connect(self._recalc_sale_live)
@@ -1752,7 +1783,9 @@ class MainWindow(QMainWindow):
         grid.addWidget(QLabel("سریال کالا:"), 4, 4)
         grid.addWidget(self.ed_sale_serial, 4, 5)
 
-        grid.addWidget(self.lbl_sale_summary, 5, 0, 1, 6)
+        grid.addWidget(QLabel("مشخصات فنی کالای فروخته‌شده:"), 5, 0)
+        grid.addWidget(self.ed_sale_specs, 5, 1, 1, 5)
+        grid.addWidget(self.lbl_sale_summary, 6, 0, 1, 6)
 
         layout.addWidget(gb)
 
@@ -1974,9 +2007,13 @@ class MainWindow(QMainWindow):
             self.pr_sale_suggest.set_value(0)
             self.pr_sale_actual.set_value(0)
             self.pr_sale_paid.set_value(0)
+            self.ed_sale_specs.clear()
             self._recalc_sale_live()
             return
         self.cb_sale_qty.set_max_qty(b["remaining_qty"])
+        self.ed_sale_specs.setText(
+            str(b.get("final_specs") or b.get("initial_specs") or "")
+        )
         sug = int(b["suggested_sell_price"])
         self.pr_sale_suggest.set_value(sug)
         self.pr_sale_actual.set_value(sug)
@@ -1988,6 +2025,9 @@ class MainWindow(QMainWindow):
         self.cb_sale_prod.setCurrentIndex(-1)
         self.cb_sale_seller.setCurrentIndex(-1)
         self.ed_sale_customer.clear()
+        self.ed_sale_specs.clear()
+        self.pr_sale_actual.set_value(0)
+        self.pr_sale_paid.set_value(0)
         self.cb_sale_status.setCurrentIndex(0)
         self.ed_war_company.clear()
         self.cb_war_months.setCurrentIndex(0)
@@ -2066,6 +2106,7 @@ class MainWindow(QMainWindow):
                 "",
                 self.cb_sale_status.currentText(),
                 warranty_days=self.cb_war_months.currentData() or 0,
+                specifications=self.ed_sale_specs.text().strip(),
             )
             self.refresh_all_data()
             self._set_generated_code_placeholder(
@@ -2094,6 +2135,15 @@ class MainWindow(QMainWindow):
         )
         self.cb_sale_status.setCurrentText(self.tbl_sales.item(row_index, 17).text())
         self.ed_sale_serial.setText(self.tbl_sales.item(row_index, 19).text())
+        with self.db.get_connection() as conn:
+            sale_specs = conn.execute(
+                "SELECT specifications, batch_id FROM sales WHERE id=?",
+                (self.selected_sale_id,),
+            ).fetchone()
+            if sale_specs:
+                self.ed_sale_specs.setText(
+                    sale_specs["specifications"] or self._get_batch_sale_specs(sale_specs["batch_id"])
+                )
 
         with self.db.get_connection() as conn:
             sale = conn.execute(
@@ -2142,6 +2192,7 @@ class MainWindow(QMainWindow):
                 "",
                 self.cb_sale_status.currentText(),
                 warranty_days=self.cb_war_months.currentData() or 0,
+                specifications=self.ed_sale_specs.text().strip(),
             )
             self.refresh_all_data()
             QMessageBox.information(self, "اصلاح فروش", "ردیف فروش با موفقیت اصلاح شد.")
@@ -2298,7 +2349,7 @@ class MainWindow(QMainWindow):
         self.tbl_services.itemSelectionChanged.connect(self._on_srv_rec_selected)
         self._add_table_search(btn_rec_row, self.tbl_services, "service_records", "🔍 جست‌وجو در فاکتورهای خدمات...")
         layout.addWidget(self.tbl_services)
-        self._add_scrollable_tab(tab, "🛠️ مدیریت خدمات")
+        self._add_scrollable_tab(tab, "🛠️ میز خدمت")
         
     def _clear_service_cat_form(self):
         self.selected_srv_cat_id = None
@@ -2993,7 +3044,7 @@ class MainWindow(QMainWindow):
                 "بازه انتخابی دستی",
             ]
         )
-        self.cb_rep_preset.setCurrentText("بازه انتخابی دستی")
+        self.cb_rep_preset.setCurrentText("همه زمان‌ها")
 
         self.dt_rep_from = JalaliDateEdit(default_today=False)
         self.dt_rep_from.set_date("1405/01/01")
@@ -3046,6 +3097,7 @@ class MainWindow(QMainWindow):
 
         self.cb_rep_type.currentIndexChanged.connect(self._update_report_live)
         self.cb_rep_preset.currentIndexChanged.connect(self._on_rep_preset_changed)
+        self._on_rep_preset_changed()
         self.dt_rep_from.dateChanged.connect(self._update_report_live)
         self.dt_rep_to.dateChanged.connect(self._update_report_live)
         self.cb_rep_emp.currentIndexChanged.connect(self._update_report_live)
@@ -4046,6 +4098,7 @@ class MainWindow(QMainWindow):
         self.chk_req_pass = QCheckBox(
             "اجبار ورود با رمز عبور برای تمام کارکنان فعال"
         )
+        self.chk_req_pass.toggled.connect(self._confirm_password_policy_change)
         self.chk_req_pass.setToolTip(
             "در حالت فعال، تمام کارکنان فعال باید رمز داشته باشند و برای ورود آن را وارد کنند."
         )
@@ -4065,15 +4118,23 @@ class MainWindow(QMainWindow):
         f_gen.setHorizontalSpacing(14)
         f_gen.setVerticalSpacing(8)
 
+        self.lbl_app_version = QLabel("نسخه برنامه: 1.0.0")
+        self.lbl_app_version.setAlignment(Qt.AlignCenter)
+        self.lbl_app_version.setStyleSheet("font-size: 13px; font-weight: 700; color: #1e3a8a; padding: 6px;")
+        layout.addWidget(self.lbl_app_version)
+
         self.sp_set_profit = QSpinBox()
         self.sp_set_profit.setRange(0, 300)
         self.cb_zero_count = QComboBox()
         self.cb_zero_count.addItem("بدون صفر اضافی (۰)", "0")
+        self.cb_zero_count.addItem("افزودن ۱ صفر (×۱۰)", "1")
         self.cb_zero_count.addItem("افزودن ۲ صفر (×۱۰۰)", "2")
         self.cb_zero_count.addItem("افزودن ۳ صفر (×۱٬۰۰۰)", "3")
         self.cb_zero_count.addItem("افزودن ۴ صفر (×۱۰٬۰۰۰)", "4")
-        for zeros in (5, 6, 8, 10, 12):
-            self.cb_zero_count.addItem(f"افزودن {zeros} صفر", str(zeros))
+        for zeros in (5, 6, 7, 8, 9, 10, 11, 12):
+            self.cb_zero_count.addItem(
+                f"افزودن {zeros} صفر (×{10 ** zeros:,})", str(zeros)
+            )
 
         self.cb_win_mode = QComboBox()
         self.cb_win_mode.addItem("تمام‌صفحه", "1")
@@ -4227,6 +4288,10 @@ class MainWindow(QMainWindow):
         self.lbl_active_db_path = QLabel()
         self.lbl_active_db_path.setWordWrap(True)
         self.lbl_active_db_path.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.lbl_active_db_path.setFrameShape(QLabel.StyledPanel)
+        self.lbl_active_db_path.setFrameShadow(QLabel.Sunken)
+        self.lbl_active_db_path.setMargin(8)
+        self.lbl_active_db_path.setStyleSheet("background: palette(base); border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px;")
         self.lst_recent_databases = SmoothScrollListWidget()
         self.lst_recent_databases.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.lst_recent_databases.verticalScrollBar().setSingleStep(18)
@@ -4296,7 +4361,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(btn_save_set)
 
         self._settings_tab_index = self._add_scrollable_tab(
-            tab, "⚙️ تنظیمات و پشتیبان‌گیری"
+            tab, "⚙️ تنظیمات"
         )
         self._load_general_settings_form()
 
