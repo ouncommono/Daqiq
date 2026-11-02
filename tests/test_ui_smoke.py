@@ -463,6 +463,92 @@ def test_sale_clear_resets_every_field_and_edited_products_move_to_top(
         qapp.processEvents()
 
 
+def test_upgrade_edit_accounts_for_the_previous_component_consumption(
+    tmp_path, monkeypatch, qapp
+):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    monkeypatch.setattr(main_module.QMessageBox, "information", lambda *args, **kwargs: None)
+    monkeypatch.setattr(main_module.QMessageBox, "critical", lambda *args, **kwargs: None)
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+
+    manager.add_product(
+        "P-UPG-TARGET", "", "لپ‌تاپ", "لپ‌تاپ عمومی / مالتی‌مدیا",
+        "Acme", "Target", {"RAM": "8GB"}, "", 1, 20,
+    )
+    manager.add_product(
+        "P-UPG-PART", "", "قطعات", "رم لپ‌تاپ (RAM Laptop)",
+        "Acme", "DDR5", {"ظرفیت": "16GB"}, "", 1, 20,
+    )
+    with manager.get_connection() as conn:
+        target_product_id = conn.execute(
+            "SELECT id FROM products WHERE code='P-UPG-TARGET'"
+        ).fetchone()["id"]
+        part_product_id = conn.execute(
+            "SELECT id FROM products WHERE code='P-UPG-PART'"
+        ).fetchone()["id"]
+
+    manager.add_batch(
+        "C-UPG-TARGET", target_product_id, None, None, "PO-TARGET", "1405/01/01",
+        2, 100, 0, 150, 0, "", "RAM: 8GB", "", "تسویه‌نشده",
+    )
+    manager.add_batch(
+        "C-UPG-PART", part_product_id, None, None, "PO-PART", "1405/01/01",
+        4, 10, 0, 20, 0, "", "ظرفیت: 16GB", "", "تسویه‌نشده",
+    )
+    with manager.get_connection() as conn:
+        target_batch_id = conn.execute(
+            "SELECT id FROM batches WHERE batch_code='C-UPG-TARGET'"
+        ).fetchone()["id"]
+        part_batch_id = conn.execute(
+            "SELECT id FROM batches WHERE batch_code='C-UPG-PART'"
+        ).fetchone()["id"]
+
+    manager.upgrade_batch_product(
+        target_batch_id, 2, part_batch_id, 2, 100,
+        "RAM: 16GB", "1405/01/02", None,
+    )
+    with manager.get_connection() as conn:
+        part_after_original_upgrade = conn.execute(
+            "SELECT remaining_qty FROM batches WHERE id=?",
+            (part_batch_id,),
+        ).fetchone()["remaining_qty"]
+    assert part_after_original_upgrade == 0
+
+    window = MainWindow(manager, active_employee=None)
+    try:
+        assert window.tbl_upgrades.rowCount() == 1
+        window.tbl_upgrades.selectRow(0)
+        window._on_upgrade_selected()
+
+        # The previous upgrade consumed all four parts. During editing those
+        # four are provisionally available again, matching the database reversal.
+        assert window.selected_upgrade_id is not None
+        assert window._upgrade_original_part_batch_id == part_batch_id
+        assert window._upgrade_original_part_qty_used == 4
+        assert window._upg_part_available_qty == 4
+        assert window.cb_upg_target_qty.currentText() == "2"
+        assert window.cb_upg_part_qty.currentText() == "2"
+
+        window._save_upgrade()
+
+        with manager.get_connection() as conn:
+            part_after_edit = conn.execute(
+                "SELECT remaining_qty FROM batches WHERE id=?",
+                (part_batch_id,),
+            ).fetchone()["remaining_qty"]
+            saved_upgrade = conn.execute(
+                "SELECT target_qty, part_qty_used FROM upgrades WHERE id=?",
+                (window.tbl_upgrades.item(0, 0).text(),),
+            ).fetchone()
+        assert part_after_edit == 0
+        assert saved_upgrade["target_qty"] == 2
+        assert saved_upgrade["part_qty_used"] == 4
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
 def test_sale_batch_picker_shows_only_distinguishing_specifications(tmp_path, monkeypatch, qapp):
     monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
     monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
