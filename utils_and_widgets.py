@@ -1032,7 +1032,17 @@ class DynamicSpecsWidget(QGroupBox):
         self.fields = {}
         self._custom_field_widgets = {}
         self.cb_sub = None
+        self._custom_field_callback = None
         self.set_category("لپ‌تاپ")
+
+    def set_custom_field_callback(self, callback):
+        """Set a callback invoked after subcategory-specific fields are rebuilt."""
+        self._custom_field_callback = callback if callable(callback) else None
+
+    def _notify_custom_field_callback(self, *_):
+        callback = self._custom_field_callback
+        if callback is not None:
+            callback()
 
     def _clear_form(self):
         while self.form_layout.count():
@@ -1127,7 +1137,7 @@ class DynamicSpecsWidget(QGroupBox):
             )
             self.cb_sub.setCurrentText("سایر موارد")
             self.cb_sub.currentTextChanged.connect(self._rebuild_part_subfields)
-            self.form_layout.addRow("نوع قطعه (قابل تایپ):", self.cb_sub)
+            self.form_layout.addRow("نوع قطعه:", self.cb_sub)
 
             self.sub_container = QWidget()
             self.sub_layout = QFormLayout(self.sub_container)
@@ -1136,6 +1146,7 @@ class DynamicSpecsWidget(QGroupBox):
             self._rebuild_part_subfields("سایر موارد")
 
         elif self.current_category == "لوازم جانبی":
+            self.cb_sub.currentTextChanged.connect(self._notify_custom_field_callback)
             self.cb_sub.addItems(
                 [
                     "سایر موارد",
@@ -1181,6 +1192,7 @@ class DynamicSpecsWidget(QGroupBox):
             self.form_layout.addRow("مشخصات تکمیلی:", ed_extra)
 
         elif self.current_category == "مانیتور":
+            self.cb_sub.currentTextChanged.connect(self._notify_custom_field_callback)
             self.cb_sub.addItems(
                 [
                     "مانیتور اداری و خانگی",
@@ -1206,6 +1218,7 @@ class DynamicSpecsWidget(QGroupBox):
             self.form_layout.addRow("پورت‌های ورودی:", cb_ports)
 
         elif self.current_category == "کیس و مینی‌کیس":
+            self.cb_sub.currentTextChanged.connect(self._notify_custom_field_callback)
             self.cb_sub.addItems(
                 [
                     "مینی‌کیس استوک (Mini Case)",
@@ -1231,6 +1244,7 @@ class DynamicSpecsWidget(QGroupBox):
             self.form_layout.addRow("گرافیک (GPU):", cb_gpu)
 
         elif self.current_category == "آداپتور و تغذیه":
+            self.cb_sub.currentTextChanged.connect(self._notify_custom_field_callback)
             self.cb_sub.addItems(
                 [
                     "شارژر و آداپتور لپ‌تاپ",
@@ -1412,6 +1426,9 @@ class DynamicSpecsWidget(QGroupBox):
             ed_custom = SmartLineEdit("مشخصه فنی قطعه (مثلاً سوکت، ولتاژ، سایز پنل...)")
             self.fields = {"مشخصه فنی": ed_custom}
             self.sub_layout.addRow("مشخصات فنی قطعه:", ed_custom)
+
+        # Run only after the built-in fields for the newly selected part type exist.
+        self._notify_custom_field_callback()
 
     def get_sub_category(self) -> str:
         if self.cb_sub:

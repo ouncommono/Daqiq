@@ -4758,6 +4758,11 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "specs_widget"):
             return
         category = (category or "").strip()
+        # The widget invokes this callback after category-specific built-in controls
+        # have been rebuilt; a parent currentIndexChanged slot can run too early.
+        self.specs_widget.set_custom_field_callback(
+            self._apply_custom_specs_for_subcategory
+        )
         self.specs_widget.set_category(category)
         if hasattr(self, "catalog_config"):
             self.specs_widget.apply_custom_catalog(
@@ -4765,14 +4770,6 @@ class MainWindow(QMainWindow):
                 [],
             )
             self._apply_custom_specs_for_subcategory()
-            if (
-                self.specs_widget.cb_sub is not None
-                and not getattr(self, "_custom_specs_subcategory_signal_connected", False)
-            ):
-                self.specs_widget.cb_sub.currentIndexChanged.connect(
-                    self._apply_custom_specs_for_subcategory
-                )
-                self._custom_specs_subcategory_signal_connected = True
 
     def _apply_custom_specs_for_subcategory(self, *_):
         if not hasattr(self, "specs_widget") or self.specs_widget.cb_sub is None:
