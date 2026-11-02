@@ -49,7 +49,7 @@ def _style_worksheet_professional(ws, title: str, headers: list, data_rows: list
     ws.row_dimensions[1].height = 32
 
     # ردیف ۲: عناوین ستون‌ها
-    ws.append(headers)
+    ws.append([_clean_excel_value(value) for value in headers])
     ws.row_dimensions[2].height = 25
     header_fill = PatternFill("solid", fgColor="1E293B")
     header_font = Font(name="Tahoma", size=10, bold=True, color="FFFFFF")
@@ -120,13 +120,15 @@ def export_safe_inventory_excel(db: DatabaseManager, file_path: str, shop_name: 
         rows = conn.execute("""
             SELECT p.code, p.name, p.category, p.sub_category, p.brand, p.model,
                    p.specs_json, p.description,
-                   COALESCE(SUM(b.remaining_qty), 0) as total_rem
+                   COALESCE(SUM(b.remaining_qty), 0) as total_rem,
+                   MAX(b.updated_at) as last_batch_activity
             FROM products p
             LEFT JOIN batches b ON p.id = b.product_id
             WHERE p.is_active = 1
             GROUP BY p.id
             HAVING total_rem > 0
-            ORDER BY p.updated_at DESC, p.id DESC
+            ORDER BY COALESCE(last_batch_activity, p.updated_at) DESC,
+                     p.updated_at DESC, p.id DESC
         """).fetchall()
 
     data_rows = []
