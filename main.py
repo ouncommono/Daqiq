@@ -867,8 +867,13 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "خطا", str(e))
 
     def _create_table(self, headers):
-        tbl = SmoothScrollTableWidget(0, len(headers))
-        tbl.setHorizontalHeaderLabels(headers)
+        # The final hidden column stores a numeric recency key, leaving visible
+        # business fields untouched while enforcing most-recent-first ordering.
+        visible_headers = list(headers)
+        recency_column = len(visible_headers)
+        tbl = SmoothScrollTableWidget(0, recency_column + 1)
+        tbl.setHorizontalHeaderLabels(visible_headers + [""])
+        tbl.setColumnHidden(recency_column, True)
         for idx, h_text in enumerate(headers):
             item = tbl.horizontalHeaderItem(idx)
             if item:
@@ -968,7 +973,8 @@ class MainWindow(QMainWindow):
                 table.setRowHidden(row, False)
                 continue
             values = []
-            for column in range(table.columnCount()):
+            visible_column_count = max(0, table.columnCount() - 1)
+            for column in range(visible_column_count):
                 item = table.item(row, column)
                 if item:
                     values.append(item.text())
@@ -990,8 +996,11 @@ class MainWindow(QMainWindow):
         table.setSortingEnabled(False)
         table.clearContents()
         table.setRowCount(len(rows_data))
+        recency_column = table.columnCount() - 1
+        visible_column_count = recency_column
         for r_idx, row_values in enumerate(rows_data):
-            for c_idx, val in enumerate(row_values):
+            for c_idx in range(min(len(row_values), visible_column_count)):
+                val = row_values[c_idx]
                 text_val = "" if val is None else str(val)
                 item = QTableWidgetItem(text_val)
                 item.setToolTip(text_val)
@@ -1001,7 +1010,23 @@ class MainWindow(QMainWindow):
                     elif text_val.startswith("+"):
                         item.setForeground(QColor("#059669"))
                 table.setItem(r_idx, c_idx, item)
+
+            # Record tables append updated_at; report/dashboard tables retain the
+            # row order produced by their own query when no timestamp is supplied.
+            if len(row_values) > visible_column_count and row_values[visible_column_count] is not None:
+                recency_value = row_values[visible_column_count]
+            else:
+                recency_value = -r_idx
+            recency_item = QTableWidgetItem()
+            try:
+                recency_item.setData(Qt.EditRole, float(recency_value))
+            except (TypeError, ValueError):
+                recency_item.setData(Qt.EditRole, float(-r_idx))
+            table.setItem(r_idx, recency_column, recency_item)
+
         table.setSortingEnabled(True)
+        if rows_data:
+            table.sortItems(recency_column, Qt.DescendingOrder)
         search = self._table_search_fields.get(table)
         if search is not None:
             self._filter_table_rows(table, search.text())
@@ -5508,6 +5533,7 @@ class MainWindow(QMainWindow):
                     r["default_profit_pct"],
                     st,
                     r["description"],
+                    r["updated_at"],
                 ]
             )
         self._populate_table_safely(self.tbl_products, data, highlight_col=11)
@@ -5552,6 +5578,7 @@ class MainWindow(QMainWindow):
                     f"{debt:,}",
                     f"{r['final_specs']} {r['serial_numbers']}".strip(),
                     f"{tot_bill:,}",
+                    r["updated_at"],
                 ]
             )
         self._populate_table_safely(self.tbl_batches, data, highlight_col=17)
@@ -5600,6 +5627,7 @@ class MainWindow(QMainWindow):
                     r["settlement_status"],
                     war_str,
                     r["serial_number"] or "-",
+                    r["updated_at"],
                 ]
             )
         self._populate_table_safely(self.tbl_sales, data, highlight_col=11)
@@ -5629,6 +5657,7 @@ class MainWindow(QMainWindow):
                     r["new_specs"],
                     r["upgrade_date"],
                     r["tech_name"] or "-",
+                    r["updated_at"],
                 ]
             )
         self._populate_table_safely(self.tbl_upgrades, data)
@@ -5652,6 +5681,7 @@ class MainWindow(QMainWindow):
                 r["name"],
                 f"{r['default_fee']:,}",
                 f"{r['default_side_cost']:,}",
+                r["updated_at"],
             ]
             for r in cat_rows
         ]
@@ -5673,6 +5703,7 @@ class MainWindow(QMainWindow):
                 f"{r['paid_amount']:,}",
                 r["settlement_status"],
                 r["description"],
+                r["updated_at"],
             ]
             for r in rec_rows
         ]
@@ -5703,6 +5734,7 @@ class MainWindow(QMainWindow):
                     f"{int(r['tot_buy']):,}",
                     f"{int(r['tot_paid']):,}",
                     f"{debt:,}",
+                    r["updated_at"],
                 ]
             )
         self._populate_table_safely(self.tbl_suppliers, data)
@@ -5721,6 +5753,7 @@ class MainWindow(QMainWindow):
                 r["permissions"],
                 "بله" if r["password"] else "خیر",
                 "فعال" if r["is_active"] else "غیرفعال",
+                r["updated_at"],
             ]
             for r in rows
         ]
