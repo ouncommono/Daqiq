@@ -4768,10 +4768,14 @@ class MainWindow(QMainWindow):
                 [],
             )
             self._apply_custom_specs_for_subcategory()
-            if self.specs_widget.cb_sub is not None:
-                self.specs_widget.cb_sub.currentTextChanged.connect(
+            if (
+                self.specs_widget.cb_sub is not None
+                and not getattr(self, "_custom_specs_subcategory_signal_connected", False)
+            ):
+                self.specs_widget.cb_sub.currentIndexChanged.connect(
                     self._apply_custom_specs_for_subcategory
                 )
+                self._custom_specs_subcategory_signal_connected = True
 
     def _apply_custom_specs_for_subcategory(self, *_):
         if not hasattr(self, "specs_widget") or self.specs_widget.cb_sub is None:
@@ -4976,7 +4980,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(
                     self,
                     "رمز عبور همه کارکنان لازم است",
-                    "اجبار رمز عبور فعال می‌شود؛ کارکنان زیر تا زمان تعیین رمز اجازه ورود نخواهند داشت:\n"
+                    "اجبار رمز عبور فعال می‌شود؛ کارکنان زیر تا زمان تعیین رمز عبور نمی‌توانند وارد برنامه شوند:\n"
                     + names + suffix,
                 )
                 # Enabling is permitted; users without a password are blocked at login

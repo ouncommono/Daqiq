@@ -1334,7 +1334,12 @@ class DynamicSpecsWidget(QGroupBox):
                     if current_value in values:
                         existing_widget.setCurrentText(current_value)
                     existing_widget.blockSignals(False)
-                existing_widget.setToolTip(f"مشخصه قابل تنظیم: {field_name}")
+                field_label = self.form_layout.labelForField(existing_widget)
+                if field_label is None:
+                    field_label = self.sub_layout.labelForField(existing_widget)
+                if isinstance(field_label, QLabel):
+                    field_label.setText(f"{form_label}:")
+                existing_widget.setToolTip(f"مشخصه سفارشی: {form_label}")
                 continue
 
             if values:

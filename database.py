@@ -415,7 +415,8 @@ class DatabaseManager:
             )
             for table_name in (
                 "products", "batches", "sales", "upgrades", "service_catalog",
-                "service_records", "suppliers", "employees",
+                "service_records", "suppliers", "employees", "customers", "payments",
+                "service_price_history", "audit_logs",
             ):
                 columns = {
                     row["name"]
@@ -580,16 +581,21 @@ class DatabaseManager:
                     values = item.get("values", [])
                     if not isinstance(values, list):
                         values = []
-                    normalized_items.append({
+                    normalized_item = {
                         "name": name,
-                        "label": str(item.get("label", "") or "").strip(),
-                        "display_name": str(item.get("display_name", "") or "").strip(),
                         "values": list(dict.fromkeys(
                             str(value).strip() for value in values
                             if value is not None and str(value).strip()
                         )),
                         "subcategory": str(item.get("subcategory", "") or "").strip(),
-                    })
+                    }
+                    label = str(item.get("label", "") or "").strip()
+                    display_name = str(item.get("display_name", "") or "").strip()
+                    if label:
+                        normalized_item["label"] = label
+                    if display_name:
+                        normalized_item["display_name"] = display_name
+                    normalized_items.append(normalized_item)
                 attributes[str(category)] = normalized_items
 
         colors = raw_colors if isinstance(raw_colors, list) else []
@@ -647,16 +653,21 @@ class DatabaseManager:
                 values = item.get("values", [])
                 if not isinstance(values, list):
                     raise ValueError(f"مقادیر مشخصهٔ «{name}» باید به‌صورت فهرست باشند.")
-                clean_items.append({
+                clean_item = {
                     "name": name,
-                    "label": str(item.get("label", "") or "").strip(),
-                    "display_name": str(item.get("display_name", "") or "").strip(),
                     "values": list(dict.fromkeys(
                         str(value).strip() for value in values
                         if value is not None and str(value).strip()
                     )),
                     "subcategory": str(item.get("subcategory", "") or "").strip(),
-                })
+                }
+                label = str(item.get("label", "") or "").strip()
+                display_name = str(item.get("display_name", "") or "").strip()
+                if label:
+                    clean_item["label"] = label
+                if display_name:
+                    clean_item["display_name"] = display_name
+                clean_items.append(clean_item)
             clean_attributes[str(category)] = clean_items
 
         clean = {
@@ -809,7 +820,7 @@ class DatabaseManager:
         if not clauses:
             return
         rows = conn.execute(
-            "SELECT * FROM upgrades WHERE " + " OR ".join(clauses) + " ORDER BY id DESC",
+            "SELECT * FROM upgrades WHERE " + " OR ".join(clauses) + " ORDER BY updated_at DESC, id DESC",
             params,
         ).fetchall()
         removed_ids = set(batch_ids)
@@ -852,7 +863,7 @@ class DatabaseManager:
         if not clauses:
             return
         rows = conn.execute(
-            "SELECT id,batch_id,qty FROM sales WHERE " + " OR ".join(clauses) + " ORDER BY id DESC",
+            "SELECT id,batch_id,qty FROM sales WHERE " + " OR ".join(clauses) + " ORDER BY updated_at DESC, id DESC",
             params,
         ).fetchall()
         removed_batches = set(batch_ids)
@@ -1285,7 +1296,7 @@ class DatabaseManager:
                 if not previous_upgrade:
                     raise ValueError("رکورد ارتقای انتخاب‌شده یافت نشد.")
                 latest = conn.execute(
-                    "SELECT id FROM upgrades WHERE target_batch_id=? ORDER BY id DESC LIMIT 1",
+                    "SELECT id FROM upgrades WHERE target_batch_id=? ORDER BY updated_at DESC, id DESC LIMIT 1",
                     (previous_upgrade["target_batch_id"],),
                 ).fetchone()
                 if not latest or int(latest["id"]) != int(upgrade_id):
@@ -1384,7 +1395,7 @@ class DatabaseManager:
             if not upgrade:
                 raise ValueError("رکورد ارتقا یافت نشد.")
             latest = conn.execute(
-                "SELECT id FROM upgrades WHERE target_batch_id=? ORDER BY id DESC LIMIT 1",
+                "SELECT id FROM upgrades WHERE target_batch_id=? ORDER BY updated_at DESC, id DESC LIMIT 1",
                 (upgrade["target_batch_id"],),
             ).fetchone()
             if not latest or int(latest["id"]) != int(upgrade_id):
