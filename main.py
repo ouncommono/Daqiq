@@ -2552,12 +2552,16 @@ class MainWindow(QMainWindow):
         grid = QGridLayout(gb)
 
         self.selected_upgrade_id = None
+        self._upg_target_available_qty = 0
+        self._upg_part_available_qty = 0
         self.cb_upg_target = SearchableComboBox()
         self.cb_upg_target.currentIndexChanged.connect(self._on_upg_target_changed)
         self.cb_upg_target_qty = QuantitySelector(50)
         self.cb_upg_target_qty.setEditable(False)
         self.cb_upg_target_qty.setToolTip("تعداد بر اساس موجودی محمولهٔ هدف تعیین می‌شود.")
+        self.cb_upg_target_qty.qtyChanged.connect(self._update_upg_part_qty_limit)
         self.cb_upg_part = SearchableComboBox()
+        self.cb_upg_part.currentIndexChanged.connect(self._on_upg_part_changed)
         self.cb_upg_part_qty = QuantitySelector(10)
         self.cb_upg_part_qty.setEditable(False)
         self.cb_upg_part_qty.setToolTip("تعداد بر اساس موجودی قطعهٔ مصرفی تعیین می‌شود.")
@@ -2640,26 +2644,56 @@ class MainWindow(QMainWindow):
         self._add_scrollable_tab(tab, "🔧 ارتقای کالا")
 
     def _on_upg_target_changed(self):
-        """مورد ۶: پر شدن خودکار کادر مشخصات جدید با مشخصات قبلی دستگاه جهت ویرایش راحت‌تر"""
-        t_id = self.cb_upg_target.currentData()
-        if not t_id:
+        """Populate final device specifications and cap count by the target batch stock."""
+        target_id = self.cb_upg_target.currentData()
+        if not target_id:
+            self._upg_target_available_qty = 0
+            self.cb_upg_target_qty.set_max_qty(1)
             self.ed_upg_new_specs.clear()
+            self._update_upg_part_qty_limit()
             return
         with self.db.get_connection() as conn:
             row = conn.execute(
                 """
-                SELECT b.final_specs, b.initial_specs, p.specs_json
+                SELECT b.remaining_qty, b.final_specs, p.specs_json
                 FROM batches b JOIN products p ON b.product_id = p.id
                 WHERE b.id = ?
-            """,
-                (t_id,),
+                """,
+                (target_id,),
             ).fetchone()
+        if not row:
+            self._upg_target_available_qty = 0
+            self.cb_upg_target_qty.set_max_qty(1)
+            self.ed_upg_new_specs.clear()
+            return
+        self._upg_target_available_qty = max(0, int(row["remaining_qty"] or 0))
+        self.cb_upg_target_qty.set_max_qty(max(1, self._upg_target_available_qty))
+        specs_txt = row["final_specs"] or ""
+        if not specs_txt and row["specs_json"]:
+            data = json.loads(row["specs_json"] or "{}")
+            specs_txt = " | ".join(f"{key}: {value}" for key, value in data.items())
+        self.ed_upg_new_specs.setText(specs_txt)
+        self._update_upg_part_qty_limit()
+
+    def _on_upg_part_changed(self, *_):
+        part_id = self.cb_upg_part.currentData()
+        self._upg_part_available_qty = 0
+        if part_id:
+            with self.db.get_connection() as conn:
+                row = conn.execute(
+                    "SELECT remaining_qty FROM batches WHERE id=?",
+                    (part_id,),
+                ).fetchone()
             if row:
-                specs_txt = row["final_specs"] or row["initial_specs"]
-                if not specs_txt and row["specs_json"]:
-                    d = json.loads(row["specs_json"] or "{}")
-                    specs_txt = " | ".join(f"{k}: {v}" for k, v in d.items())
-                self.ed_upg_new_specs.setText(specs_txt or "")
+                self._upg_part_available_qty = max(0, int(row["remaining_qty"] or 0))
+        self._update_upg_part_qty_limit()
+
+    def _update_upg_part_qty_limit(self, *_):
+        if not self.cb_upg_part.currentData():
+            return
+        target_qty = max(1, self.cb_upg_target_qty.get_qty())
+        max_per_target = self._upg_part_available_qty // target_qty
+        self.cb_upg_part_qty.set_max_qty(max(1, max_per_target))
 
     def _save_upgrade(self):
         t_id = self.cb_upg_target.currentData()
@@ -2671,6 +2705,20 @@ class MainWindow(QMainWindow):
             return
         if int(t_id) == int(p_id):
             QMessageBox.warning(self, "انتخاب نامعتبر", "محموله هدف و قطعه مصرفی باید متفاوت باشند.")
+            return
+        required_parts = (
+            self.cb_upg_target_qty.get_qty() * self.cb_upg_part_qty.get_qty()
+        )
+        with self.db.get_connection() as conn:
+            part_stock = conn.execute(
+                "SELECT remaining_qty FROM batches WHERE id=?",
+                (p_id,),
+            ).fetchone()
+        if not part_stock or required_parts > int(part_stock["remaining_qty"] or 0):
+            QMessageBox.warning(
+                self, "موجودی ناکافی",
+                "تعداد قطعات مصرفی درخواستی از موجودی فعلی محموله بیشتر است."
+            )
             return
         try:
             was_edit = self.selected_upgrade_id is not None
@@ -2763,10 +2811,12 @@ class MainWindow(QMainWindow):
         target_qty = max(1, int(upgrade["target_qty"]))
         per_unit = max(1, int(upgrade["part_qty_used"]) // target_qty)
         self.cb_upg_target_qty.setCurrentText(str(target_qty))
-        self.cb_upg_part_qty.set_max_qty(max(10, per_unit))
+        self.cb_upg_part_qty.set_max_qty(max(1, per_unit))
         self.cb_upg_part_qty.setCurrentText(str(per_unit))
+        self._on_upg_part_changed()
         self.pr_upg_labor.set_value(int(upgrade["labor_cost_unit"]))
         self.ed_upg_new_specs.setText(upgrade["new_specs"] or "")
+        self._update_upg_part_qty_limit()
         self.dt_upg_date.set_date(upgrade["upgrade_date"])
         self.ed_upg_serial.setText(upgrade["serial_number"] or "")
         self.chk_upg_add_cost.setChecked(
