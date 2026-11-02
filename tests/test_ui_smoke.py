@@ -571,6 +571,11 @@ def test_password_requirement_is_confirmed_when_checkbox_is_enabled(tmp_path, mo
                 ("stored-password-hash", "کارمند بدون رمز"),
             )
             conn.commit()
+        def accept_and_capture(_parent, title, message):
+            prompts.append((title, message))
+            return True
+
+        monkeypatch.setattr(main_module, "_ask_yes_no", accept_and_capture)
         window.chk_req_pass.setChecked(False)
         prompts.clear()
         window.chk_req_pass.setChecked(True)
