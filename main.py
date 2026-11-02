@@ -2329,7 +2329,7 @@ class MainWindow(QMainWindow):
         btn_rec_row.addWidget(btn_del_srv)
 
         f_rec.addRow("انتخاب خدمت *:", self.cb_srv_select)
-        f_rec.addRow("کارمند انجام‌دهنده:", self.cb_srv_seller)
+        f_rec.addRow("مسئول خدمت:", self.cb_srv_seller)
         f_rec.addRow("نام مشتری:", self.ed_srv_cust)
         f_rec.addRow("هزینه خدمت (تومان):", self.pr_srv_fee)
         f_rec.addRow("هزینه‌های جانبی (تومان):", self.pr_srv_side)
@@ -2351,7 +2351,7 @@ class MainWindow(QMainWindow):
                 "تاریخ و ساعت",
                 "نوع خدمت",
                 "نام خدمت",
-                "کارمند",
+                "مسئول خدمت",
                 "مشتری",
                 "هزینه خدمت (تومان)",
                 "تخفیف (-) / تشدید (+)",
@@ -2591,6 +2591,7 @@ class MainWindow(QMainWindow):
         self.cb_upg_part_qty = QuantitySelector(10)
         self.cb_upg_part_qty.setEditable(0)
         self.cb_upg_part.currentIndexChanged.connect(self._on_upg_part_changed)
+        self.cb_upg_part.currentTextChanged.connect(self._on_upg_part_changed)
         self.cb_upg_target_qty.qtyChanged.connect(self._on_upg_part_changed)
         self.pr_upg_labor = PriceInput(self.db)
         self.ed_upg_new_specs = SmartLineEdit("مشخصات فنی کالا پس از ارتقا...")
@@ -2830,8 +2831,8 @@ class MainWindow(QMainWindow):
             related_batches = conn.execute(
                 """SELECT b.*, p.category, p.sub_category, p.brand, p.model
                    FROM batches b JOIN products p ON p.id=b.product_id
-                   WHERE b.id IN (?, ?)""",
-                (upgrade["target_batch_id"], upgrade["part_batch_id"]),
+                   WHERE b.id=? OR (? IS NOT NULL AND b.id=?)""",
+                (upgrade["target_batch_id"], upgrade["part_batch_id"], upgrade["part_batch_id"]),
             ).fetchall() if upgrade else []
         if not upgrade:
             self._clear_upgrade_form()
@@ -2864,6 +2865,9 @@ class MainWindow(QMainWindow):
             self.cb_upg_target.setCurrentIndex(target_index)
         if part_index >= 0:
             self.cb_upg_part.setCurrentIndex(part_index)
+        else:
+            self.cb_upg_part.setCurrentIndex(-1)
+            self.cb_upg_part.setEditText(upgrade["manual_part_description"] or "")
 
         target_qty = max(1, int(upgrade["target_qty"]))
         per_unit = max(1, int(upgrade["part_qty_used"]) // target_qty)
@@ -3760,7 +3764,7 @@ class MainWindow(QMainWindow):
                     "تاریخ و ساعت",
                     "نوع خدمت",
                     "نام خدمت",
-                    "کارمند انجام‌دهنده",
+                    "مسئول خدمت",
                     "نام مشتری",
                     "هزینه خدمت (تومان)",
                     "هزینه‌های جانبی (تومان)",
@@ -5312,7 +5316,6 @@ class MainWindow(QMainWindow):
                 SELECT b.*, p.code AS p_code, p.category, p.sub_category, p.brand, p.model
                 FROM batches b
                 JOIN products p ON b.product_id=p.id
-                WHERE b.remaining_qty > 0
                 ORDER BY b.updated_at DESC, b.id DESC
             """
             ).fetchall()
