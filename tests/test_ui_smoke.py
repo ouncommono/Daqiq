@@ -581,9 +581,11 @@ def test_sale_batch_picker_shows_only_distinguishing_specifications(tmp_path, mo
     window = MainWindow(manager, active_employee=None)
     try:
         assert window.cb_sale_prod.count() == 1
-        assert window.cb_sale_prod.itemText(0) == (
+        visible_product_label = window.cb_sale_prod.itemText(0)
+        assert visible_product_label.replace("\u2066", "").replace("\u2069", "") == (
             "P-2000 | لپ‌تاپ عمومی / مالتی‌مدیا | ASUS G551"
         )
+        assert "\u2066" in visible_product_label and "\u2069" in visible_product_label
         assert window.cb_sale_batch.count() == 2
 
         labels = [
