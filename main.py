@@ -2764,14 +2764,17 @@ class MainWindow(QMainWindow):
                     f"موجودی کالای هدف «{target_row['batch_code']}» کافی نیست "
                     f"(موجودی: {target_row['remaining_qty']})."
                 )
+            target_has_stock = bool(target_row) and (
+                int(target_row["remaining_qty"]) >= requested_targets
+            )
             requested_parts = requested_targets * self.cb_upg_part_qty.get_qty()
             if p_id is not None and part_row:
-                if int(part_row["remaining_qty"]) >= requested_parts:
+                if target_has_stock and int(part_row["remaining_qty"]) >= requested_parts:
                     consume_stock = True
                 else:
                     warning_messages.append(
-                        f"موجودی قطعه «{part_row['batch_code']}» کافی نیست "
-                        f"(موجودی: {part_row['remaining_qty']}، مقدار درخواستی: {requested_parts}). "
+                        f"موجودی قطعه «{part_row['batch_code']}» یا کالای هدف برای این عملیات کافی نیست "
+                        f"(موجودی قطعه: {part_row['remaining_qty']}، مقدار قطعه درخواستی: {requested_parts}). "
                         "با تأیید شما ارتقا بدون کسر موجودی انجام می‌شود."
                     )
             else:
