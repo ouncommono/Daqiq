@@ -382,7 +382,6 @@ def test_sale_clear_resets_every_field_and_edited_products_move_to_top(
         timestamp_rows = conn.execute(
             "SELECT code, updated_at FROM products WHERE code IN ('P-EDIT-1','P-EDIT-2')"
         ).fetchall()
-        print("product timestamps before edit:", [dict(row) for row in timestamp_rows])
         product_id = conn.execute(
             "SELECT id FROM products WHERE code='P-EDIT-1'"
         ).fetchone()["id"]
@@ -397,8 +396,8 @@ def test_sale_clear_resets_every_field_and_edited_products_move_to_top(
         trigger_rows = conn.execute(
             "SELECT name, sql FROM sqlite_master WHERE type='trigger' AND tbl_name='products'"
         ).fetchall()
-        print("product timestamps after edit:", [dict(row) for row in after_edit])
-        print("product triggers:", [dict(row) for row in trigger_rows])
+        timestamp_map = {row["code"]: row["updated_at"] for row in after_edit}
+        assert timestamp_map["P-EDIT-1"] > timestamp_map["P-EDIT-2"], timestamp_map
 
     manager.add_batch(
         "C-EDIT-1", product_id, None, None, "PO-EDIT", "1405/01/01", 5,
@@ -678,6 +677,15 @@ def test_technical_attributes_follow_selected_subcategory_and_are_editable(
         assert window.specs_widget.fields["TDP"].count() == 3
 
         window.specs_widget.cb_sub.setCurrentText("کارت گرافیک (Graphic Card)")
+        print("custom catalog:", window.catalog_config.get("attributes", {}).get("قطعات"))
+        print(
+            "subcategory callback state:",
+            window.specs_widget.cb_sub.currentText(),
+            callable(window.specs_widget.on_subcategory_rebuilt),
+            list(window.specs_widget.fields),
+        )
+        window._apply_custom_specs_for_subcategory()
+        print("fields after explicit apply:", list(window.specs_widget.fields))
         assert "VRAM" in window.specs_widget.fields
         assert "TDP" not in window.specs_widget.fields
         assert window.specs_widget.fields["VRAM"].count() == 3
