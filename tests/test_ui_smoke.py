@@ -123,6 +123,24 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
         finally:
             calendar.close()
         assert isinstance(window.tabs.widget(9), SmoothScrollArea)
+
+        # Collapsible settings branches start closed, open on release, and close again.
+        security_toggle = next(
+            button for button in window.findChildren(QToolButton)
+            if button.text() == "امنیت و ورود کاربران"
+        )
+        security_body = security_toggle.parentWidget().layout().itemAt(1).widget()
+        assert not security_toggle.isChecked()
+        assert security_body.isHidden()
+        QTest.mouseClick(security_toggle, Qt.LeftButton)
+        qapp.processEvents()
+        assert security_toggle.isChecked()
+        assert not security_body.isHidden()
+        QTest.mouseClick(security_toggle, Qt.LeftButton)
+        qapp.processEvents()
+        assert not security_toggle.isChecked()
+        assert security_body.isHidden()
+
         assert isinstance(window.lst_cfg_subcategories, main_module.SmoothScrollListWidget)
         assert isinstance(window.lst_cfg_attributes, main_module.SmoothScrollListWidget)
         assert isinstance(window.lst_cfg_colors, main_module.SmoothScrollListWidget)
@@ -493,6 +511,18 @@ def test_sale_batch_picker_shows_only_distinguishing_specifications(tmp_path, mo
             window.cb_sale_batch.itemData(index, Qt.ToolTipRole)
             for index in range(window.cb_sale_batch.count())
         ]
+        target_tooltips = [
+            window.cb_upg_target.itemData(index, Qt.ToolTipRole)
+            for index in range(window.cb_upg_target.count())
+        ]
+        assert len(target_tooltips) == 2
+        assert all("کد محموله:" in tooltip for tooltip in target_tooltips)
+        assert all("دسته‌بندی:" in tooltip for tooltip in target_tooltips)
+        assert all("زیرمجموعه:" in tooltip for tooltip in target_tooltips)
+        assert all("برند:" in tooltip for tooltip in target_tooltips)
+        assert all("مدل:" in tooltip for tooltip in target_tooltips)
+        assert all("مشخصات اولیه" not in tooltip for tooltip in target_tooltips)
+        assert all("مشخصات نهایی" in tooltip for tooltip in target_tooltips)
         assert any("RAM: 8GB" in tooltip for tooltip in tooltips)
         assert any("RAM: 16GB" in tooltip for tooltip in tooltips)
         assert all("CPU: Core i7" not in tooltip for tooltip in tooltips)
