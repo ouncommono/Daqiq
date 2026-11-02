@@ -4072,14 +4072,15 @@ class MainWindow(QMainWindow):
         self.chk_req_pass.setToolTip(
             "در حالت فعال، تمام کارکنان فعال باید رمز داشته باشند و برای ورود آن را وارد کنند."
         )
-        security_hint = QLabel(
-            "پیش از فعال‌سازی، برای تمام کارکنان فعال رمز عبور تعیین کنید."
-        )
-        security_hint.setWordWrap(True)
-        security_hint.setStyleSheet("color: #64748b; font-size: 11px;")
+        self.lbl_security_hint = QLabel()
+        self.lbl_security_hint.setWordWrap(True)
+        self.lbl_security_hint.setStyleSheet("color: #64748b; font-size: 11px;")
+        self.chk_req_pass.toggled.connect(self._refresh_password_policy_hint)
         security_layout.addWidget(self.chk_req_pass)
-        security_layout.addWidget(security_hint)
-        layout.addWidget(gb_security)
+        security_layout.addWidget(self.lbl_security_hint)
+        layout.addWidget(
+            self._make_collapsible_settings_section("امنیت و ورود کاربران", gb_security)
+        )
 
         gb_gen = QGroupBox("تنظیمات عمومی فروش و نمایش")
         f_gen = QFormLayout(gb_gen)
@@ -4108,7 +4109,9 @@ class MainWindow(QMainWindow):
         f_gen.addRow("تعداد صفرهای اضافی قیمت:", self.cb_zero_count)
         f_gen.addRow("حالت باز شدن پنجره:", self.cb_win_mode)
         f_gen.addRow("نام فروشگاه:", self.ed_shop_name)
-        layout.addWidget(gb_gen)
+        layout.addWidget(
+            self._make_collapsible_settings_section("تنظیمات عمومی فروش و نمایش", gb_gen)
+        )
 
         # Per-database product taxonomy and catalog customization.
         gb_catalog = QGroupBox("مدیریت دسته‌بندی‌ها، زیرمجموعه‌ها، مشخصات فنی و رنگ‌ها")
@@ -4168,9 +4171,13 @@ class MainWindow(QMainWindow):
         self.lst_cfg_attributes.verticalScrollBar().setSingleStep(18)
         self.lst_cfg_attributes.setMaximumHeight(125)
         self.ed_cfg_attribute_name = QLineEdit()
-        self.ed_cfg_attribute_name.setPlaceholderText("نام ویژگی؛ مثلاً نوع پنل")
+        self.ed_cfg_attribute_name.setPlaceholderText("کلید ذخیره‌سازی؛ مثلاً CPU")
+        self.ed_cfg_attribute_label = QLineEdit()
+        self.ed_cfg_attribute_label.setPlaceholderText(
+            "عنوان نمایشی مستقل؛ مثلاً پردازنده (CPU)"
+        )
         self.ed_cfg_attribute_values = QLineEdit()
-        self.ed_cfg_attribute_values.setPlaceholderText("مقادیر اختیاری با جداکنندهٔ ویرگول")
+        self.ed_cfg_attribute_values.setPlaceholderText("مقادیر مجاز با جداکنندهٔ ویرگول")
         self.cb_cfg_attribute_subcategory = QComboBox()
         self.cb_cfg_attribute_subcategory.addItem("همهٔ زیرمجموعه‌ها", "")
         attr_layout.addWidget(QLabel("محدودهٔ زیرمجموعه:"))
@@ -4191,7 +4198,10 @@ class MainWindow(QMainWindow):
         attr_btn_row.addWidget(btn_update_attr)
         attr_btn_row.addWidget(btn_delete_attr)
         attr_layout.addWidget(self.lst_cfg_attributes)
+        attr_layout.addWidget(QLabel("کلید فنی و پایدار (برای ذخیره‌سازی):"))
         attr_layout.addWidget(self.ed_cfg_attribute_name)
+        attr_layout.addWidget(QLabel("عنوانی که در فرم و فهرست کالا نمایش داده می‌شود:"))
+        attr_layout.addWidget(self.ed_cfg_attribute_label)
         attr_layout.addWidget(self.ed_cfg_attribute_values)
         attr_layout.addLayout(attr_btn_row)
 
@@ -4219,14 +4229,30 @@ class MainWindow(QMainWindow):
         colors_layout.addWidget(self.ed_cfg_color)
         colors_layout.addLayout(color_btn_row)
 
-        catalog_grid.addWidget(gb_categories, 0, 0)
-        catalog_grid.addWidget(gb_subcategories, 0, 1)
-        catalog_grid.addWidget(gb_attributes, 1, 0)
-        catalog_grid.addWidget(gb_colors, 1, 1)
+        catalog_grid.addWidget(
+            self._make_collapsible_settings_section("دسته‌بندی‌های اصلی", gb_categories),
+            0, 0
+        )
+        catalog_grid.addWidget(
+            self._make_collapsible_settings_section("زیرمجموعه‌ها", gb_subcategories),
+            0, 1
+        )
+        catalog_grid.addWidget(
+            self._make_collapsible_settings_section("مشخصات فنی و عنوان نمایشی", gb_attributes),
+            1, 0
+        )
+        catalog_grid.addWidget(
+            self._make_collapsible_settings_section("رنگ‌های کالا", gb_colors),
+            1, 1
+        )
         self.cb_cfg_category.currentTextChanged.connect(
             self._refresh_catalog_management_lists
         )
-        layout.addWidget(gb_catalog)
+        layout.addWidget(
+            self._make_collapsible_settings_section(
+                "مدیریت دسته‌بندی‌ها و مشخصات کالا", gb_catalog
+            )
+        )
 
         gb_db = QGroupBox("پایگاه دادهٔ فعال و پشتیبان‌گیری خودکار")
         f_db = QFormLayout(gb_db)
@@ -4295,7 +4321,9 @@ class MainWindow(QMainWindow):
         f_db.addRow("حداکثر نسخه‌های پشتیبان خودکار:", self.sp_bk_retention)
         f_db.addRow(bk_btn_row)
         f_db.addRow(self.lbl_last_backup)
-        layout.addWidget(gb_db)
+        layout.addWidget(
+            self._make_collapsible_settings_section("پایگاه داده و پشتیبان‌گیری", gb_db)
+        )
 
         btn_save_set = QPushButton("💾 ذخیره تنظیمات")
         self.btn_save_settings = btn_save_set
@@ -4309,9 +4337,33 @@ class MainWindow(QMainWindow):
         )
         self._load_general_settings_form()
 
+    def _refresh_password_policy_hint(self, *_):
+        with self.db.get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS total,
+                       SUM(CASE WHEN password IS NULL OR TRIM(password)='' THEN 1 ELSE 0 END) AS missing
+                FROM employees WHERE is_active=1
+                """
+            ).fetchone()
+        total = int(row["total"] or 0) if row else 0
+        missing = int(row["missing"] or 0) if row else 0
+        if self.chk_req_pass.isChecked():
+            text = (
+                f"اجبار رمز عبور فعال است. {missing} نفر از {total} کارمند فعال هنوز رمز ندارند؛ "
+                "ورود این حساب‌ها تا زمان ثبت رمز مسدود خواهد بود."
+            )
+        else:
+            text = (
+                f"اجبار رمز عبور غیرفعال است. {missing} نفر از {total} کارمند فعال رمز ندارند. "
+                "با فعال‌سازی، ورود این کاربران بدون رمز ممکن نخواهد بود."
+            )
+        self.lbl_security_hint.setText(text)
+
     def _load_general_settings_form(self):
         cfg = self.db.cfg
         self.chk_req_pass.setChecked(bool(cfg.get("require_login_password", False)))
+        self._refresh_password_policy_hint()
         self.sp_set_profit.setValue(int(float(cfg.get("default_profit_pct", 20))))
 
         zero_count = str(cfg.get("zero_append_count", 3))
@@ -4401,7 +4453,13 @@ class MainWindow(QMainWindow):
         ):
             values = "، ".join(item.get("values", []))
             scope = item.get("subcategory") or "همهٔ زیرمجموعه‌ها"
-            label = item["name"] + (f" — {values}" if values else "") + f"  [{scope}]"
+            display_label = item.get("label") or item["name"]
+            title = (
+                item["name"]
+                if display_label == item["name"]
+                else f"{item['name']} ← {display_label}"
+            )
+            label = title + (f" — {values}" if values else "") + f"  [{scope}]"
             entry = QListWidgetItem(label)
             entry.setData(Qt.UserRole, definition_index)
             self.lst_cfg_attributes.addItem(entry)
@@ -4597,12 +4655,15 @@ class MainWindow(QMainWindow):
             value.strip() for value in self.ed_cfg_attribute_values.text().replace("،", ",").split(",")
             if value.strip()
         ]
+        display_label = self.ed_cfg_attribute_label.text().strip() or name
         definitions.append({
             "name": name,
+            "label": display_label,
             "values": list(dict.fromkeys(values)),
             "subcategory": selected_scope,
         })
         self.ed_cfg_attribute_name.clear()
+        self.ed_cfg_attribute_label.clear()
         self.ed_cfg_attribute_values.clear()
         self._refresh_catalog_management_lists()
 
@@ -4619,6 +4680,9 @@ class MainWindow(QMainWindow):
         )
         if definition:
             self.ed_cfg_attribute_name.setText(definition["name"])
+            self.ed_cfg_attribute_label.setText(
+                definition.get("label") or definition["name"]
+            )
             self.ed_cfg_attribute_values.setText(", ".join(definition.get("values", [])))
             scope_index = self.cb_cfg_attribute_subcategory.findData(
                 definition.get("subcategory", "") or ""
@@ -4662,11 +4726,13 @@ class MainWindow(QMainWindow):
         values = [
             value.strip() for value in raw_values.split(",") if value.strip()
         ]
+        new_label = self.ed_cfg_attribute_label.text().strip() or new_name
         if new_name != old_name:
             self._pending_attribute_renames.append(
                 (category, old_name, new_name, old_scope, new_scope)
             )
         current["name"] = new_name
+        current["label"] = new_label
         current["values"] = list(dict.fromkeys(values))
         current["subcategory"] = new_scope
         self._refresh_catalog_management_lists()
@@ -4972,12 +5038,11 @@ class MainWindow(QMainWindow):
                 suffix = " و ..." if len(missing_passwords) > 6 else ""
                 QMessageBox.warning(
                     self,
-                    "رمز عبور همه کارکنان لازم است",
-                    "برای فعال‌سازی این گزینه، ابتدا برای تمام کارکنان فعال رمز تعیین کنید:\n"
+                    "کاربران بدون رمز عبور",
+                    "گزینهٔ اجبار رمز عبور فعال می‌شود؛ اما کاربران زیر تا زمان تعیین رمز امکان ورود ندارند:\n"
                     + names + suffix,
                 )
-                effective_password_policy = current_password_policy
-
+                effective_password_policy = requested_password_policy
         try:
             # Apply taxonomy edits and persist the new configuration atomically.
             # Existing product rows are renamed only after the explicit Save action.
