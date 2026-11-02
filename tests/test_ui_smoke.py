@@ -14,12 +14,13 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFontMetrics
+from PySide6.QtTest import QTest
 
 import database as database_module
 import main as main_module
 from database import DatabaseManager
 from main import MainWindow, SmoothScrollArea
-from utils_and_widgets import JalaliCalendarDialog, _animate_scrollbar
+from utils_and_widgets import JalaliCalendarDialog, PriceInput, _animate_scrollbar
 
 
 @pytest.fixture(scope="session")
@@ -309,6 +310,32 @@ def test_database_refresh_keeps_services_suppliers_and_password_status_visible(
         window.close()
         qapp.processEvents()
 
+
+
+def test_price_input_replaces_value_on_focus_but_not_on_click(tmp_path, monkeypatch, qapp):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    price = PriceInput(manager, placeholder="قیمت خرید هر واحد")
+    price.set_value(123456)
+    price.show()
+    try:
+        price.setFocus()
+        qapp.processEvents()
+        QTest.mouseClick(price, Qt.LeftButton)
+        assert price.get_value() == 123456  # Focus/click alone must not clear the value.
+        QTest.keyClicks(price, "7")
+        assert price.get_value() == 7  # The first typed digit replaces the selected value.
+
+        price.clearFocus()
+        qapp.processEvents()
+        price.set_value(654321)
+        price.setFocus()
+        qapp.processEvents()
+        QTest.keyClicks(price, "9")
+        assert price.get_value() == 9  # Selecting the field again re-arms replace-on-type.
+    finally:
+        price.close()
 
 
 def test_first_run_database_wizard_validates_new_and_existing_files(tmp_path, monkeypatch, qapp):
