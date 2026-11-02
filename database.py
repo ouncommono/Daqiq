@@ -1402,8 +1402,15 @@ class DatabaseManager:
             # Upgrade never deducts target stock, so target availability is not a blocker.
             target_has_stock = int(target_b["remaining_qty"]) >= target_qty
             part_has_stock = bool(part_b) and int(part_b["remaining_qty"]) >= part_qty_total
-            # No inventory is deducted when either the target batch or its component
-            # is unavailable. The UI obtains the user's confirmation before this call.
+            if part_b and consume_stock and not target_has_stock:
+                raise ValueError(
+                    "موجودی کالای هدف کافی نیست؛ برای ادامه بدون کسر موجودی، تأیید کاربر لازم است."
+                )
+            if part_b and consume_stock and not part_has_stock:
+                raise ValueError(
+                    "موجودی قطعه کافی نیست؛ برای ادامه بدون کسر موجودی، تأیید کاربر لازم است."
+                )
+            # UI passes consume_stock=False only after the user approves the warning.
             stock_deducted_qty = (
                 part_qty_total
                 if part_b and consume_stock and target_has_stock and part_has_stock
