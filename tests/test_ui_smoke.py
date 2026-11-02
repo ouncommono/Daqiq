@@ -530,6 +530,39 @@ def test_custom_attribute_name_is_form_label_and_title_is_output_label(tmp_path,
         qapp.processEvents()
 
 
+def test_password_requirement_is_confirmed_when_checkbox_is_enabled(tmp_path, monkeypatch, qapp):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    with manager.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO employees (name, role, permissions, is_active) VALUES (?, ?, ?, 1)",
+            ("کارمند بدون رمز", "فروشنده", "فروش و خدمات"),
+        )
+        conn.commit()
+    window = MainWindow(manager, active_employee=None)
+    prompts = []
+
+    def reject(_parent, title, message):
+        prompts.append((title, message))
+        return False
+
+    try:
+        monkeypatch.setattr(main_module, "_ask_yes_no", reject)
+        window.chk_req_pass.setChecked(True)
+        assert not window.chk_req_pass.isChecked()
+        assert prompts and "کارمند بدون رمز" in prompts[0][1]
+        assert "اطمینان دارید" in prompts[0][1]
+
+        monkeypatch.setattr(main_module, "_ask_yes_no", lambda *_args: True)
+        window.chk_req_pass.setChecked(True)
+        assert window.chk_req_pass.isChecked()
+        assert not manager.cfg.get("require_login_password", False)
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
 def test_catalog_manager_selection_and_service_type_crud(tmp_path, monkeypatch, qapp):
     monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
     monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
@@ -557,6 +590,12 @@ def test_catalog_manager_selection_and_service_type_crud(tmp_path, monkeypatch, 
         window.ed_cfg_service_type.setText("شبکه و ارتباطات")
         window._rename_catalog_service_type()
         assert "شبکه و ارتباطات" in window._taxonomy_draft["service_types"]
+        renamed_item = next(
+            window.lst_cfg_service_types.item(i)
+            for i in range(window.lst_cfg_service_types.count())
+            if window.lst_cfg_service_types.item(i).text() == "شبکه و ارتباطات"
+        )
+        window.lst_cfg_service_types.setCurrentItem(renamed_item)
         window._delete_catalog_service_type()
         assert "شبکه و ارتباطات" not in window._taxonomy_draft["service_types"]
 
@@ -730,6 +769,8 @@ def test_sale_clear_form_resets_values_and_keeps_next_invoice_as_placeholder(
         today = __import__("jdatetime").date.today().strftime("%Y/%m/%d")
         window.ed_sale_inv.setText("MANUAL-INV")
         window.ed_sale_customer.setText("مشتری آزمایشی")
+        window.ed_sale_specs.setText("RAM: 16GB DDR5")
+        window.pr_sale_paid.set_value(500)
         window.ed_war_company.setText("Warranty")
         window.ed_sale_serial.setText("SERIAL-1")
         window.dt_war_start.set_date("1404/01/01")
@@ -741,6 +782,9 @@ def test_sale_clear_form_resets_values_and_keeps_next_invoice_as_placeholder(
         assert window.ed_sale_inv.text() == ""
         assert window.ed_sale_inv.placeholderText() == "INV-1001"
         assert window.ed_sale_customer.text() == ""
+        assert window.ed_sale_specs.text() == ""
+        assert window.pr_sale_actual.get_value() == 0
+        assert window.pr_sale_paid.get_value() == 0
         assert window.ed_war_company.text() == ""
         assert window.ed_sale_serial.text() == ""
         assert window.dt_war_start.get_date() == today
