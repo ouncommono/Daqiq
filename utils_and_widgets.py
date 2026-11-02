@@ -1352,7 +1352,9 @@ class DynamicSpecsWidget(QGroupBox):
             field_name = str(definition.get("name", "")).strip()
             if not field_name:
                 continue
-            form_label = str(definition.get("label") or field_name).strip()
+            # The feature name is always the form label. "label" is a storage/output
+            # title and may contain @reference syntax, not a widget caption.
+            form_label = field_name
             raw_values = definition.get("values", [])
             values = [
                 str(value).strip() for value in raw_values
