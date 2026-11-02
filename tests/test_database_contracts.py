@@ -138,6 +138,64 @@ def test_upgrade_on_empty_target_with_manual_component_never_changes_stock(manag
     assert upgrade["stock_deducted_qty"] == 0
 
 
+def test_upgrade_schema_rebuild_preserves_history_and_allows_manual_parts(manager):
+    product_id = create_product(manager)
+    target_id = create_batch(manager, product_id, code="C-MIGRATION-TARGET")
+    part_id = create_batch(manager, product_id, code="C-MIGRATION-PART")
+    with manager.get_connection() as conn:
+        conn.execute("DROP TABLE upgrades")
+        conn.execute("""
+            CREATE TABLE upgrades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                target_batch_id INTEGER NOT NULL,
+                target_qty INTEGER NOT NULL DEFAULT 1,
+                part_batch_id INTEGER NOT NULL,
+                part_qty_used INTEGER NOT NULL,
+                part_unit_cost INTEGER NOT NULL,
+                labor_cost_unit INTEGER DEFAULT 0,
+                added_cost_unit INTEGER DEFAULT 0,
+                old_specs TEXT DEFAULT '',
+                new_specs TEXT DEFAULT '',
+                upgrade_date TEXT NOT NULL,
+                technician_id INTEGER,
+                serial_number TEXT DEFAULT '',
+                notes TEXT DEFAULT '',
+                updated_at TEXT,
+                FOREIGN KEY(target_batch_id) REFERENCES batches(id),
+                FOREIGN KEY(part_batch_id) REFERENCES batches(id),
+                FOREIGN KEY(technician_id) REFERENCES employees(id)
+            )
+        """)
+        conn.execute(
+            """INSERT INTO upgrades (
+                id, target_batch_id, target_qty, part_batch_id, part_qty_used,
+                part_unit_cost, labor_cost_unit, added_cost_unit, old_specs, new_specs,
+                upgrade_date, technician_id, serial_number, notes, updated_at
+            ) VALUES (41, ?, 1, ?, 2, 75, 20, 95, 'RAM: 8GB', 'RAM: 16GB', ?, NULL, '', 'legacy', '00000000000000000042')""",
+            (target_id, part_id, "1405/01/02"),
+        )
+        conn.commit()
+
+    manager.init_db()
+
+    with manager.get_connection() as conn:
+        columns = {
+            row["name"]: row
+            for row in conn.execute("PRAGMA table_info(upgrades)").fetchall()
+        }
+        legacy = conn.execute("SELECT * FROM upgrades WHERE id=41").fetchone()
+
+    assert columns["part_batch_id"]["notnull"] == 0
+    assert legacy["target_batch_id"] == target_id
+    assert legacy["part_batch_id"] == part_id
+    assert legacy["part_qty_used"] == 2
+    assert legacy["stock_deducted_qty"] == 2
+    assert legacy["old_specs"] == "RAM: 8GB"
+    assert legacy["new_specs"] == "RAM: 16GB"
+    assert legacy["updated_at"] == "00000000000000000042"
+    assert legacy["manual_part_description"] == ""
+
+
 def test_upgrade_backend_rejects_unconfirmed_insufficient_inventory(manager):
     product_id = create_product(manager)
     target_id = create_batch(manager, product_id, code="C-GUARD-TARGET")
