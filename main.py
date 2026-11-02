@@ -4775,11 +4775,15 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "specs_widget") or self.specs_widget.cb_sub is None:
             return
         category = (self.cb_prod_cat.currentText() or "").strip()
-        subcategory = self.specs_widget.cb_sub.currentText().strip()
+        # SearchableComboBox normalizes Latin text to uppercase when reading its
+        # Python-level currentText(). Match scopes case-insensitively so stored labels
+        # such as "Graphic Card" remain compatible with the visible "GRAPHIC CARD".
+        subcategory = QComboBox.currentText(self.specs_widget.cb_sub).strip()
         definitions = self.catalog_config.get("attributes", {}).get(category, [])
         applicable = [
             item for item in definitions
-            if not item.get("subcategory") or item.get("subcategory") == subcategory
+            if not str(item.get("subcategory") or "").strip()
+            or str(item.get("subcategory") or "").strip().casefold() == subcategory.casefold()
         ]
         self.specs_widget.apply_custom_catalog(None, applicable)
 
