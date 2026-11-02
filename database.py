@@ -435,6 +435,25 @@ class DatabaseManager:
                     """
                 )
 
+                insert_trigger_name = f"trg_{table_name}_created_at"
+                conn.execute(
+                    f"""
+                    CREATE TRIGGER IF NOT EXISTS {insert_trigger_name}
+                    AFTER INSERT ON {table_name}
+                    FOR EACH ROW
+                    WHEN NEW.updated_at = 0
+                    BEGIN
+                        UPDATE {table_name}
+                        SET updated_at = (julianday('now') - 2440587.5) * 86400.0
+                        WHERE id = NEW.id;
+                    END
+                    """
+                )
+                conn.execute(
+                    f"CREATE INDEX IF NOT EXISTS idx_{table_name}_updated_at "
+                    f"ON {table_name}(updated_at DESC, id DESC)"
+                )
+
             # Remove the exact legacy generic supplier from the selector on upgraded
             # databases too, but retain its historical name on linked purchase rows.
             legacy_supplier_rows = conn.execute(
