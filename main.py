@@ -2710,7 +2710,9 @@ class MainWindow(QMainWindow):
                 (t_id,),
             ).fetchone()
             if row:
-                self.cb_upg_target_qty.set_max_qty(row["remaining_qty"])
+                # Target stock is advisory for upgrade; allow an explicit quantity
+                # and show a confirmation instead of disabling the operation.
+                self.cb_upg_target_qty.set_max_qty(300)
                 specs_txt = row["final_specs"] or row["initial_specs"] or ""
                 if not specs_txt and row["specs_json"]:
                     specs_dict = json.loads(row["specs_json"] or "{}")
@@ -2729,9 +2731,9 @@ class MainWindow(QMainWindow):
             part = conn.execute(
                 "SELECT remaining_qty FROM batches WHERE id=?", (part_id,)
             ).fetchone()
-        available = int(part["remaining_qty"]) if part else 0
-        max_per_target = available // max(1, target_qty)
-        self.cb_upg_part_qty.set_max_qty(max(1, max_per_target))
+        # Inventory sufficiency is a confirmation decision during Save, not a
+        # quantity-picker restriction: permit the requested quantity even at zero stock.
+        self.cb_upg_part_qty.set_max_qty(300)
         self.cb_upg_part_qty.setEnabled(True)
 
     def _save_upgrade(self):
