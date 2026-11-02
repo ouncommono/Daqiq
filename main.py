@@ -1380,10 +1380,10 @@ class MainWindow(QMainWindow):
         self.ed_batch_inv = SmartLineEdit("شماره فاکتور خرید")
         self.dt_batch_date = JalaliDateEdit(default_today=True)
         self.cb_batch_qty = QuantitySelector(500)
-        self.pr_batch_buy = PriceInput(self.db)
-        self.pr_batch_extra = PriceInput(self.db)
-        self.pr_batch_suggest = PriceInput(self.db)
-        self.pr_batch_paid = PriceInput(self.db)
+        self.pr_batch_buy = PriceInput(self.db, placeholder="بهای خرید هر واحد به تومان")
+        self.pr_batch_extra = PriceInput(self.db, placeholder="هزینه‌های جانبی کل محموله به تومان")
+        self.pr_batch_suggest = PriceInput(self.db, placeholder="قیمت فروش پیشنهادی هر واحد به تومان")
+        self.pr_batch_paid = PriceInput(self.db, placeholder="مبلغ پرداخت‌شده به تأمین‌کننده به تومان")
 
         # بند ۱۲: گزینه انتخاب وضعیت تسویه
         self.cb_batch_status = QComboBox()
@@ -1700,7 +1700,7 @@ class MainWindow(QMainWindow):
         self.cb_sale_qty.setToolTip("تعداد قابل انتخاب بر اساس موجودی محمولهٔ انتخاب‌شده محدود می‌شود.")
         self.cb_sale_qty.qtyChanged.connect(self._recalc_sale_live)
 
-        self.pr_sale_suggest = PriceInput(self.db)
+        self.pr_sale_suggest = PriceInput(self.db, placeholder="قیمت پیشنهادی محموله (خودکار)")
         self.pr_sale_suggest.setReadOnly(True)
         self.pr_sale_suggest.setStyleSheet(
             "background-color: #e2e8f0; color: #475569; font-weight: bold;"
@@ -1708,8 +1708,8 @@ class MainWindow(QMainWindow):
         self.pr_sale_suggest.setToolTip(
             "قیمت پیشنهادی از بخش ثبت خرید و محموله‌ها دریافت می‌شود و در فاکتور فروش قابل تغییر نیست."
         )
-        self.pr_sale_actual = PriceInput(self.db)
-        self.pr_sale_paid = PriceInput(self.db)
+        self.pr_sale_actual = PriceInput(self.db, placeholder="قیمت فروش هر واحد به تومان")
+        self.pr_sale_paid = PriceInput(self.db, placeholder="مبلغ دریافتی از مشتری به تومان")
 
         # بند ۱۲: کنترل وضعیت تسویه فاکتور فروش
         self.cb_sale_status = QComboBox()
@@ -2210,8 +2210,8 @@ class MainWindow(QMainWindow):
             self.ed_srv_code, "service_catalog", "code", "S-", 1001
         )
         self.ed_srv_name = SmartLineEdit("عنوان خدمت (مثلاً نصب ویندوز، نصب آنتی‌ویروس...)")
-        self.pr_srv_def_fee = PriceInput(self.db)
-        self.pr_srv_def_side = PriceInput(self.db)
+        self.pr_srv_def_fee = PriceInput(self.db, placeholder="هزینهٔ پایهٔ خدمت به تومان")
+        self.pr_srv_def_side = PriceInput(self.db, placeholder="هزینهٔ جانبی پیش‌فرض به تومان")
 
         f_cat.addRow("نوع خدمت:", self.cb_srv_type)
         f_cat.addRow("کد خدمت:", self.ed_srv_code)
@@ -2256,15 +2256,15 @@ class MainWindow(QMainWindow):
         self.cb_srv_select.currentIndexChanged.connect(self._on_srv_catalog_picked)
         self.cb_srv_seller = SearchableComboBox()
         self.ed_srv_cust = SmartLineEdit("نام مشتری (اختیاری)")
-        self.pr_srv_fee = PriceInput(self.db)
+        self.pr_srv_fee = PriceInput(self.db, placeholder="هزینهٔ خدمت انتخاب‌شده به تومان")
         self.pr_srv_fee.setReadOnly(True)
         self.pr_srv_fee.setStyleSheet("background-color: #e2e8f0; color: #475569; font-weight: bold;")
         self.pr_srv_fee.setToolTip("این مبلغ از فهرست خدمات خوانده می‌شود. برای اعمال تخفیف یا تشدید، «مبلغ دریافتی» را تغییر دهید.")
-        self.pr_srv_side = PriceInput(self.db)
+        self.pr_srv_side = PriceInput(self.db, placeholder="هزینه‌های جانبی این فاکتور به تومان")
         self.cb_srv_status = QComboBox()
         self.cb_srv_status.addItems(["تسویه‌شده", "تسویه‌نشده", "تسویه جزئی"])
         self.cb_srv_status.currentTextChanged.connect(self._on_srv_status_changed)
-        self.pr_srv_paid = PriceInput(self.db)
+        self.pr_srv_paid = PriceInput(self.db, placeholder="مبلغ دریافت‌شده برای این فاکتور به تومان")
         self.ed_srv_desc = SmartLineEdit("توضیحات خدمات انجام شده...")
         
         # نمایش زنده تخفیف/تشدید و سود خالص خدمت
@@ -2561,7 +2561,7 @@ class MainWindow(QMainWindow):
         self.cb_upg_part_qty = QuantitySelector(10)
         self.cb_upg_part_qty.setEditable(False)
         self.cb_upg_part_qty.setToolTip("تعداد بر اساس موجودی قطعهٔ مصرفی تعیین می‌شود.")
-        self.pr_upg_labor = PriceInput(self.db)
+        self.pr_upg_labor = PriceInput(self.db, placeholder="اجرت ارتقای هر دستگاه به تومان")
         self.ed_upg_new_specs = SmartLineEdit("مشخصات فنی کالا پس از ارتقا...")
         self.dt_upg_date = JalaliDateEdit(default_today=True)
         self.cb_upg_tech = SearchableComboBox()
