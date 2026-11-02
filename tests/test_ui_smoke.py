@@ -74,6 +74,15 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
             for index in range(window.lst_cfg_subcategories.count())
         ]
         assert window.ed_search_sales is not None
+        assert window.ed_rep_search is not None
+        assert not hasattr(window, "ed_search_reports")
+        assert all(field.isReadOnly() for field in (
+            window.ed_prod_code, window.ed_batch_code, window.ed_sale_inv, window.ed_srv_code
+        ))
+        assert not window.cb_sale_qty.isEditable()
+        assert not window.cb_upg_target_qty.isEditable()
+        assert not window.cb_upg_part_qty.isEditable()
+        assert window.cb_batch_qty.isEditable()
 
         # Technical keywords remain searchable but never become part of the visible item.
         product_combo = window.cb_sale_prod
@@ -104,6 +113,14 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
         assert window.dt_batch_date.ed_day.width() >= 48
         assert window.dt_batch_date.ed_month.width() >= 48
         assert window.dt_batch_date.width() < 250
+        calendar = JalaliCalendarDialog("1405/01/01", window)
+        try:
+            assert calendar.cb_year.count() == 201
+            assert calendar.cb_year.itemText(0) == "1400"
+            assert calendar.cb_year.itemText(200) == "1600"
+            assert calendar.cb_day.count() == 31
+        finally:
+            calendar.close()
         assert isinstance(window.tabs.widget(9), SmoothScrollArea)
         assert isinstance(window.lst_cfg_subcategories, main_module.SmoothScrollListWidget)
         assert isinstance(window.lst_cfg_attributes, main_module.SmoothScrollListWidget)
