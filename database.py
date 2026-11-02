@@ -829,7 +829,7 @@ class DatabaseManager:
         if not clauses:
             return
         rows = conn.execute(
-            "SELECT * FROM upgrades WHERE " + " OR ".join(clauses) + " ORDER BY id DESC",
+            "SELECT * FROM upgrades WHERE " + " OR ".join(clauses) + " ORDER BY updated_at DESC, id DESC",
             params,
         ).fetchall()
         removed_ids = set(batch_ids)
@@ -872,7 +872,7 @@ class DatabaseManager:
         if not clauses:
             return
         rows = conn.execute(
-            "SELECT id,batch_id,qty FROM sales WHERE " + " OR ".join(clauses) + " ORDER BY id DESC",
+            "SELECT id,batch_id,qty FROM sales WHERE " + " OR ".join(clauses) + " ORDER BY updated_at DESC, id DESC",
             params,
         ).fetchall()
         removed_batches = set(batch_ids)
@@ -1305,7 +1305,7 @@ class DatabaseManager:
                 if not previous_upgrade:
                     raise ValueError("رکورد ارتقای انتخاب‌شده یافت نشد.")
                 latest = conn.execute(
-                    "SELECT id FROM upgrades WHERE target_batch_id=? ORDER BY id DESC LIMIT 1",
+                    "SELECT id FROM upgrades WHERE target_batch_id=? ORDER BY updated_at DESC, id DESC LIMIT 1",
                     (previous_upgrade["target_batch_id"],),
                 ).fetchone()
                 if not latest or int(latest["id"]) != int(upgrade_id):
@@ -1400,7 +1400,7 @@ class DatabaseManager:
             if not upgrade:
                 raise ValueError("رکورد ارتقا یافت نشد.")
             latest = conn.execute(
-                "SELECT id FROM upgrades WHERE target_batch_id=? ORDER BY id DESC LIMIT 1",
+                "SELECT id FROM upgrades WHERE target_batch_id=? ORDER BY updated_at DESC, id DESC LIMIT 1",
                 (upgrade["target_batch_id"],),
             ).fetchone()
             if not latest or int(latest["id"]) != int(upgrade_id):
