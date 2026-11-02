@@ -500,6 +500,9 @@ class MainWindow(QMainWindow):
         header = table.horizontalHeader()
         widths = []
         for column in range(table.columnCount()):
+            if table.isColumnHidden(column):
+                widths.append(1)
+                continue
             header_item = table.horizontalHeaderItem(column)
             header_text = header_item.text() if header_item else ""
             header_font = header_item.font() if header_item else header.font()
