@@ -1290,6 +1290,14 @@ class DynamicSpecsWidget(QGroupBox):
 
             display_label = str(definition.get("label") or field_name).strip()
             existing_widget = self.fields.get(field_name)
+            # Keep the stable storage key configurable while reusing a built-in
+            # control when a custom key is an explicit alias for that field.
+            field_aliases = {"VRAM": "حافظه VRAM"}
+            alias_name = field_aliases.get(field_name)
+            if existing_widget is None and alias_name:
+                existing_widget = self.fields.pop(alias_name, None)
+                if existing_widget is not None:
+                    self.fields[field_name] = existing_widget
             if existing_widget is not None:
                 if isinstance(existing_widget, QComboBox):
                     current_value = existing_widget.currentText()
@@ -1399,9 +1407,14 @@ class DynamicSpecsWidget(QGroupBox):
     def set_specs_dict(self, data: dict):
         if not isinstance(data, dict):
             return
+        field_aliases = {
+            "حافظه VRAM": "VRAM",
+            "VRAM": "حافظه VRAM",
+        }
         for k, val in data.items():
-            if k in self.fields:
-                w = self.fields[k]
+            field_name = k if k in self.fields else field_aliases.get(k)
+            if field_name in self.fields:
+                w = self.fields[field_name]
                 if isinstance(w, QComboBox):
                     w.setCurrentText(str(val))
                 else:
