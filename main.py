@@ -4242,8 +4242,11 @@ class MainWindow(QMainWindow):
         layout.addWidget(CollapsibleSection("تنظیمات عمومی فروش و نمایش", gb_gen))
 
         # Per-database product taxonomy and catalog customization.
-        gb_catalog = QGroupBox("مدیریت دسته‌بندی‌ها، زیرمجموعه‌ها، مشخصات فنی و رنگ‌ها")
-        catalog_grid = QGridLayout(gb_catalog)
+        gb_catalog = QGroupBox("مدیریت دسته‌بندی‌ها و خدمات")
+        catalog_layout = QVBoxLayout(gb_catalog)
+        self.catalog_tabs = QTabWidget()
+        products_page = QWidget()
+        catalog_grid = QGridLayout(products_page)
         catalog_grid.setHorizontalSpacing(10)
         catalog_grid.setVerticalSpacing(8)
 
@@ -4301,9 +4304,15 @@ class MainWindow(QMainWindow):
         self.ed_cfg_attribute_name = QLineEdit()
         self.ed_cfg_attribute_name.setPlaceholderText("نام ویژگی؛ مثلاً نوع پنل")
         self.ed_cfg_attribute_label = QLineEdit()
-        self.ed_cfg_attribute_label.setPlaceholderText("عنوان مستقل در فرم ثبت؛ اختیاری")
-        self.ed_cfg_attribute_display = QLineEdit()
-        self.ed_cfg_attribute_display.setPlaceholderText("عنوان مستقل در جدول؛ اختیاری")
+        self.ed_cfg_attribute_label.setPlaceholderText(
+            "عنوان برای ذخیره؛ خالی = نام ویژگی، @نام ویژگی = افزودن مقدار به ویژگی مرجع"
+        )
+        self.lbl_cfg_attribute_help = QLabel(
+            "راهنما: اگر عنوان را مثلاً «@رم» بنویسید، مقدار این ویژگی به مقدار ویژگی «رم» "
+            "اضافه می‌شود و خروجی به شکل «RAM: 8GB DDR4» نمایش داده خواهد شد."
+        )
+        self.lbl_cfg_attribute_help.setWordWrap(True)
+        self.lbl_cfg_attribute_help.setStyleSheet("color: #64748b; font-size: 11px;")
         self.ed_cfg_attribute_values = QLineEdit()
         self.ed_cfg_attribute_values.setPlaceholderText("مقادیر پیشنهادی با جداکنندهٔ ویرگول")
         self.cb_cfg_attribute_subcategory = QComboBox()
@@ -4327,8 +4336,9 @@ class MainWindow(QMainWindow):
         attr_btn_row.addWidget(btn_delete_attr)
         attr_layout.addWidget(self.lst_cfg_attributes)
         attr_layout.addWidget(self.ed_cfg_attribute_name)
+        attr_layout.addWidget(QLabel("عنوان (اختیاری):"))
         attr_layout.addWidget(self.ed_cfg_attribute_label)
-        attr_layout.addWidget(self.ed_cfg_attribute_display)
+        attr_layout.addWidget(self.lbl_cfg_attribute_help)
         attr_layout.addWidget(self.ed_cfg_attribute_values)
         attr_layout.addLayout(attr_btn_row)
 
@@ -4356,19 +4366,59 @@ class MainWindow(QMainWindow):
         colors_layout.addWidget(self.ed_cfg_color)
         colors_layout.addLayout(color_btn_row)
 
-        gb_categories.setTitle("")
-        catalog_grid.addWidget(CollapsibleSection("دسته‌بندی‌های اصلی", gb_categories), 0, 0)
-        gb_subcategories.setTitle("")
-        catalog_grid.addWidget(CollapsibleSection("زیرمجموعه‌ها", gb_subcategories), 0, 1)
-        gb_attributes.setTitle("")
-        catalog_grid.addWidget(CollapsibleSection("مشخصات فنی سفارشی", gb_attributes), 1, 0)
-        gb_colors.setTitle("")
-        catalog_grid.addWidget(CollapsibleSection("رنگ‌های قابل انتخاب", gb_colors), 1, 1)
+        catalog_grid.addWidget(gb_categories, 0, 0)
+        catalog_grid.addWidget(gb_subcategories, 0, 1)
+        catalog_grid.addWidget(gb_attributes, 1, 0)
+        catalog_grid.addWidget(gb_colors, 1, 1)
         self.cb_cfg_category.currentTextChanged.connect(
             self._refresh_catalog_management_lists
         )
-        gb_catalog.setTitle("")
-        layout.addWidget(CollapsibleSection("مدیریت دسته‌بندی‌ها و مشخصات کالا", gb_catalog))
+        self.cb_cfg_category.currentTextChanged.connect(
+            self._on_catalog_category_selected
+        )
+        self.lst_cfg_subcategories.currentItemChanged.connect(
+            self._on_catalog_subcategory_selected
+        )
+        self.lst_cfg_colors.currentItemChanged.connect(
+            self._on_catalog_color_selected
+        )
+
+        # Service types are managed beside the product catalog, not in a separate
+        # application tab. Existing service records retain their stored snapshots.
+        service_page = QWidget()
+        service_page_layout = QVBoxLayout(service_page)
+        gb_service_types = QGroupBox("مدیریت انواع خدمت")
+        service_types_layout = QVBoxLayout(gb_service_types)
+        self.lst_cfg_service_types = SmoothScrollListWidget()
+        self.lst_cfg_service_types.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
+        self.lst_cfg_service_types.verticalScrollBar().setSingleStep(18)
+        self.lst_cfg_service_types.setMaximumHeight(220)
+        self.ed_cfg_service_type = QLineEdit()
+        self.ed_cfg_service_type.setPlaceholderText("عنوان نوع خدمت...")
+        self.lst_cfg_service_types.currentItemChanged.connect(
+            self._on_catalog_service_type_selected
+        )
+        service_type_buttons = QHBoxLayout()
+        btn_add_service_type = QPushButton("افزودن نوع خدمت")
+        btn_add_service_type.clicked.connect(self._add_catalog_service_type)
+        btn_edit_service_type = QPushButton("ویرایش نوع خدمت")
+        btn_edit_service_type.setObjectName("btnSecondary")
+        btn_edit_service_type.clicked.connect(self._rename_catalog_service_type)
+        btn_delete_service_type = QPushButton("حذف نوع خدمت")
+        btn_delete_service_type.setObjectName("btnDanger")
+        btn_delete_service_type.clicked.connect(self._delete_catalog_service_type)
+        service_type_buttons.addWidget(btn_add_service_type)
+        service_type_buttons.addWidget(btn_edit_service_type)
+        service_type_buttons.addWidget(btn_delete_service_type)
+        service_types_layout.addWidget(self.lst_cfg_service_types)
+        service_types_layout.addWidget(self.ed_cfg_service_type)
+        service_types_layout.addLayout(service_type_buttons)
+        service_page_layout.addWidget(gb_service_types)
+        service_page_layout.addStretch()
+        self.catalog_tabs.addTab(products_page, "مدیریت کالاها")
+        self.catalog_tabs.addTab(service_page, "مدیریت خدمات")
+        catalog_layout.addWidget(self.catalog_tabs)
+        layout.addWidget(CollapsibleSection("مدیریت کالاها و خدمات", gb_catalog))
 
         gb_db = QGroupBox("پایگاه دادهٔ فعال و پشتیبان‌گیری خودکار")
         f_db = QFormLayout(gb_db)
