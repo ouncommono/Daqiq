@@ -391,6 +391,14 @@ def test_sale_clear_resets_every_field_and_edited_products_move_to_top(
             (product_id,),
         )
         conn.commit()
+        after_edit = conn.execute(
+            "SELECT code, updated_at FROM products WHERE code IN ('P-EDIT-1','P-EDIT-2')"
+        ).fetchall()
+        trigger_rows = conn.execute(
+            "SELECT name, sql FROM sqlite_master WHERE type='trigger' AND tbl_name='products'"
+        ).fetchall()
+        print("product timestamps after edit:", [dict(row) for row in after_edit])
+        print("product triggers:", [dict(row) for row in trigger_rows])
 
     manager.add_batch(
         "C-EDIT-1", product_id, None, None, "PO-EDIT", "1405/01/01", 5,
