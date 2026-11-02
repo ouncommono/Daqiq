@@ -950,12 +950,13 @@ class MainWindow(QMainWindow):
         if isinstance(content, QGroupBox):
             content.setTitle("")
         content.setVisible(False)
-        toggle.toggled.connect(
-            lambda expanded, body=content, button=toggle: (
-                body.setVisible(expanded),
-                button.setArrowType(Qt.DownArrow if expanded else Qt.RightArrow),
+        def update_expanded_state(expanded, body=content, button=toggle):
+            body.setVisible(bool(expanded))
+            button.setArrowType(
+                Qt.DownArrow if expanded else Qt.RightArrow
             )
-        )
+
+        toggle.toggled.connect(update_expanded_state)
         branch_layout.addWidget(toggle)
         branch_layout.addWidget(content)
         return wrapper
