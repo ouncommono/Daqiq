@@ -533,6 +533,7 @@ def test_technical_attributes_follow_selected_subcategory_and_are_editable(
                 },
                 {
                     "name": "VRAM",
+                    "label": "حافظه گرافیکی (VRAM)",
                     "values": ["4GB", "8GB"],
                     "subcategory": "کارت گرافیک (Graphic Card)",
                 },
@@ -552,6 +553,9 @@ def test_technical_attributes_follow_selected_subcategory_and_are_editable(
         assert "VRAM" in window.specs_widget.fields
         assert "TDP" not in window.specs_widget.fields
         assert window.specs_widget.fields["VRAM"].count() == 3
+        assert window.specs_widget.form_layout.labelForField(
+            window.specs_widget.fields["VRAM"]
+        ).text() == "حافظه گرافیکی (VRAM):"
     finally:
         window.close()
         qapp.processEvents()
