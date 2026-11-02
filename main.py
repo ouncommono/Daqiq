@@ -5408,7 +5408,7 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle(f"{shop_name} | سامانه حسابداری و مدیریت فروشگاه")
         if hasattr(self, "lbl_store_name"):
-            self.lbl_store_name.setText(f"\u2067{shop_name}\u2069")
+            self.lbl_store_name.setText(bidi_isolate_text(shop_name))
             self.lbl_store_name.setToolTip(f"نام فروشگاه: {shop_name}")
 
         self._apply_product_catalog_config()
