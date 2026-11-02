@@ -1,6 +1,7 @@
 # utils_and_widgets.py
 import datetime
 import re
+import weakref
 import jdatetime
 from PySide6.QtWidgets import (
     QWidget,
@@ -450,9 +451,18 @@ class CollapsibleSection(QWidget):
         layout.setSpacing(5)
         layout.addWidget(self.header)
         layout.addWidget(self.content)
-        self.header.toggled.connect(self._set_expanded)
+        # Keep only a weak reference in the signal closure. The header is a child of
+        # this widget, so a bound-method signal connection would form a Python/C++
+        # reference cycle that can outlive the parent window during Qt shutdown.
+        section_ref = weakref.ref(self)
+        self.header.clicked.connect(
+            lambda *_args, ref=section_ref: (
+                ref()._on_header_clicked() if ref() is not None else None
+            )
+        )
 
-    def _set_expanded(self, expanded: bool):
+    def _on_header_clicked(self):
+        expanded = self.header.isChecked()
         self.content.setVisible(expanded)
         title = self.header.text().lstrip("▸▾ ").strip()
         self.header.setText(("▾  " if expanded else "▸  ") + title)
@@ -1036,11 +1046,18 @@ class DynamicSpecsWidget(QGroupBox):
         self.set_category("لپ‌تاپ")
 
     def set_custom_field_callback(self, callback):
-        """Set a callback invoked after subcategory-specific fields are rebuilt."""
-        self._custom_field_callback = callback if callable(callback) else None
+        """Store bound callbacks weakly to avoid a MainWindow <-> widget cycle."""
+        if not callable(callback):
+            self._custom_field_callback = None
+        elif getattr(callback, "__self__", None) is not None:
+            self._custom_field_callback = weakref.WeakMethod(callback)
+        else:
+            self._custom_field_callback = callback
 
     def _notify_custom_field_callback(self, *_):
         callback = self._custom_field_callback
+        if isinstance(callback, weakref.WeakMethod):
+            callback = callback()
         if callback is not None:
             callback()
 
