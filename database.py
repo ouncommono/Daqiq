@@ -1421,7 +1421,7 @@ class DatabaseManager:
             part_unit_cost = int(part_b["unit_cost_price"]) if part_b else 0
             part_cost_share = (
                 part_unit_cost * part_qty_per_unit
-                if add_part_cost_to_product and stock_deducted_qty > 0 else 0
+                if add_part_cost_to_product and part_b else 0
             )
             added_cost_per_unit = part_cost_share + labor_cost_unit
             new_upgrade_cost = int(target_b["upgrade_cost_unit"]) + added_cost_per_unit
