@@ -1948,20 +1948,17 @@ class MainWindow(QMainWindow):
                 str(batch.get(key) or "") for key in searchable_batch_fields
             )
             search_text = f"{search_text} {product_search_text}".strip()
-            final_specs, _plain_tokens = self._parse_batch_specifications(
-                batch.get("final_specs") or batch.get("initial_specs") or ""
-            )
-            final_specs_text = self._format_specs_for_display(
-                final_specs, product_data.get("category")
-            )
+            if variant and variant != "بدون تفاوت ثبت‌شده":
+                variant_text = variant.replace("، ", "\n")
+                detail_text = f"تفاوت مشخصات نهایی:\n{variant_text}"
+            else:
+                detail_text = (
+                    f"قیمت پیشنهادی: {int(batch['suggested_sell_price']):,} تومان"
+                )
             full_tooltip = (
                 f"کد محموله: {batch['batch_code']}\n"
                 f"موجودی: {batch['remaining_qty']}\n"
-                f"قیمت پیشنهادی: {int(batch['suggested_sell_price']):,} تومان\n"
-                f"تاریخ خرید: {batch['purchase_date']}\n"
-                f"مشخصات نهایی:\n{self._format_specs_for_tooltip(final_specs, product_data.get('category')) or final_specs_text or '-'}\n"
-                f"شماره سریال: {batch.get('serial_numbers') or '-'}\n"
-                f"یادداشت: {batch.get('notes') or '-'}"
+                f"{detail_text}"
             )
             index = self.cb_sale_batch.count()
             self.cb_sale_batch.addItem(bidi_isolate_text(label), batch)
