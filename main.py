@@ -955,15 +955,15 @@ class MainWindow(QMainWindow):
         if isinstance(content, QGroupBox):
             content.setTitle("")
         content.setVisible(False)
-        def update_expanded_state(body=content, button=toggle):
-            expanded = button.isChecked()
-            body.setVisible(expanded)
-            button.setArrowType(
+        def update_expanded_state():
+            expanded = toggle.isChecked()
+            content.setVisible(expanded)
+            toggle.setArrowType(
                 Qt.DownArrow if expanded else Qt.RightArrow
             )
 
-        # clicked() is used without its boolean payload; the slot reads state
-        # from the button and avoids the PySide bool-signal teardown issue.
+        # Use a zero-argument slot so the Qt clicked(bool) payload is discarded;
+        # the current state is read directly from the button.
         toggle.clicked.connect(update_expanded_state)
         branch_layout.addWidget(toggle)
         branch_layout.addWidget(content)
