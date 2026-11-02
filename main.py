@@ -5253,6 +5253,8 @@ class MainWindow(QMainWindow):
         self._refresh_services_table()
         self._refresh_suppliers_table()
         self._refresh_employees_table()
+        if hasattr(self, "lbl_security_hint"):
+            self._refresh_password_policy_hint()
         self._refresh_dashboard()
         self._update_report_live()
         self._apply_employee_permissions()
@@ -5262,7 +5264,7 @@ class MainWindow(QMainWindow):
     def _refresh_combos(self):
         with self.db.get_connection() as conn:
             prods = conn.execute(
-                "SELECT * FROM products WHERE is_active=1 ORDER BY code ASC"
+                "SELECT * FROM products WHERE is_active=1 ORDER BY updated_at DESC, id DESC"
             ).fetchall()
             emps = conn.execute(
                 "SELECT * FROM employees WHERE is_active=1 ORDER BY updated_at DESC, id DESC"
@@ -5472,7 +5474,7 @@ class MainWindow(QMainWindow):
                        COALESCE(SUM(b.sold_qty), 0) as sold_qty
                 FROM products p
                 LEFT JOIN batches b ON p.id = b.product_id
-                GROUP BY p.id ORDER BY p.id DESC
+                GROUP BY p.id ORDER BY p.updated_at DESC, p.id DESC
             """).fetchall()
 
         data = []
