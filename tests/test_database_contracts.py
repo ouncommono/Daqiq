@@ -92,6 +92,107 @@ def test_add_batch_and_sale_persist_warranty_days(manager):
     assert batch["sold_qty"] == 1
 
 
+def test_upgrade_on_empty_target_with_manual_component_never_changes_stock(manager):
+    product_id = create_product(manager)
+    target_id = create_batch(manager, product_id, code="C-TARGET-EMPTY", quantity=2)
+    part_id = create_batch(manager, product_id, code="C-PART-AVAILABLE", quantity=1)
+    with manager.get_connection() as conn:
+        conn.execute(
+            "UPDATE batches SET remaining_qty=0, sold_qty=initial_qty WHERE id=?",
+            (target_id,),
+        )
+        part_before = conn.execute(
+            "SELECT remaining_qty FROM batches WHERE id=?", (part_id,)
+        ).fetchone()["remaining_qty"]
+        target_before = conn.execute(
+            "SELECT unit_cost_price FROM batches WHERE id=?", (target_id,)
+        ).fetchone()["unit_cost_price"]
+        conn.commit()
+
+    manager.upgrade_batch_product(
+        target_id, 1, None, 1, 25, "RAM: 16GB DDR4",
+        "1405/01/03", None,
+        manual_part_description="RAM 16GB (قطعه خارج از فهرست)",
+        consume_stock=False,
+    )
+
+    with manager.get_connection() as conn:
+        target = conn.execute(
+            "SELECT remaining_qty, unit_cost_price, final_specs FROM batches WHERE id=?",
+            (target_id,),
+        ).fetchone()
+        part_after = conn.execute(
+            "SELECT remaining_qty FROM batches WHERE id=?", (part_id,)
+        ).fetchone()["remaining_qty"]
+        upgrade = conn.execute(
+            "SELECT part_batch_id, manual_part_description, stock_deducted_qty "
+            "FROM upgrades ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+
+    assert target["remaining_qty"] == 0
+    assert target["unit_cost_price"] == target_before + 25
+    assert target["final_specs"] == "RAM: 16GB DDR4"
+    assert part_after == part_before
+    assert upgrade["part_batch_id"] is None
+    assert upgrade["manual_part_description"] == "RAM 16GB (قطعه خارج از فهرست)"
+    assert upgrade["stock_deducted_qty"] == 0
+
+
+def test_confirmed_upgrade_with_unavailable_selected_component_does_not_go_negative(manager):
+    product_id = create_product(manager)
+    target_id = create_batch(manager, product_id, code="C-TARGET")
+    part_id = create_batch(manager, product_id, code="C-PART", quantity=1)
+    with manager.get_connection() as conn:
+        conn.execute(
+            "UPDATE batches SET remaining_qty=0, sold_qty=initial_qty WHERE id=?",
+            (part_id,),
+        )
+        conn.commit()
+
+    manager.upgrade_batch_product(
+        target_id, 1, part_id, 1, 10, "SSD: 1TB",
+        "1405/01/04", None, consume_stock=False,
+    )
+    with manager.get_connection() as conn:
+        part = conn.execute(
+            "SELECT remaining_qty, sold_qty FROM batches WHERE id=?", (part_id,)
+        ).fetchone()
+        upgrade = conn.execute(
+            "SELECT stock_deducted_qty FROM upgrades ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    assert part["remaining_qty"] == 0
+    assert upgrade["stock_deducted_qty"] == 0
+
+
+def test_sale_specifications_are_saved_and_updated_as_sold_snapshot(manager):
+    product_id = create_product(manager)
+    batch_id = create_batch(manager, product_id, code="C-SALE-SPECS")
+    invoice = manager.add_sale(
+        "INV-SPECS", product_id, batch_id, None, "مشتری",
+        1, 150, 150, 0, "1405/01/01 12:00:00",
+        settlement_status="تسویه‌نشده",
+        specifications="RAM: 8GB DDR4",
+    )
+    with manager.get_connection() as conn:
+        sale_id = conn.execute(
+            "SELECT id FROM sales WHERE invoice_number=?", (invoice,)
+        ).fetchone()["id"]
+
+    manager.update_sale(
+        sale_id, None, "مشتری", 1, 150, 160, 0,
+        "", "", 0, "", "", "", "تسویه‌نشده",
+        warranty_days=0,
+        specifications="RAM: 16GB DDR5",
+    )
+    with manager.get_connection() as conn:
+        sale = conn.execute(
+            "SELECT specifications, actual_unit_price FROM sales WHERE id=?",
+            (sale_id,),
+        ).fetchone()
+    assert sale["specifications"] == "RAM: 16GB DDR5"
+    assert sale["actual_unit_price"] == 160
+
+
 def test_supplier_delete_retains_historical_name_and_purchase(manager):
     product_id = create_product(manager)
     supplier_id = create_supplier(manager, "شرکت نمونه")
@@ -431,6 +532,7 @@ def test_product_catalog_configuration_is_persisted_per_database(manager, tmp_pa
     assert config["subcategories"]["تجهیزات جدید"] == ["دستگاه هوشمند"]
     assert config["attributes"]["تجهیزات جدید"][0]["values"] == ["نسل ۵", "نسل ۶"]
     assert config["colors"] == ["مشکی", "نقره‌ای"]
+    assert config["service_types"] == ["نرم‌افزاری", "سخت‌افزاری"]
 
 
 
@@ -529,6 +631,7 @@ def test_catalog_config_reader_recovers_from_malformed_nested_values(manager):
         "subcategories": {},
         "attributes": {"لپ‌تاپ": [{"name": "RAM", "values": [], "subcategory": ""}]},
         "colors": [],
+        "service_types": ["نرم‌افزاری", "سخت‌افزاری"],
     }
 
 
