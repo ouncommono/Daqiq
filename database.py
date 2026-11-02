@@ -1400,12 +1400,15 @@ class DatabaseManager:
                 raise ValueError("محموله هدف یا محموله قطعه یافت نشد.")
             # The target batch may be out of stock (for example, a customer-owned device).
             # Upgrade never deducts target stock, so target availability is not a blocker.
-            if part_b and consume_stock and int(part_b["remaining_qty"]) < part_qty_total:
-                raise ValueError(
-                    f"موجودی قطعه ارتقا کافی نیست. موجودی فعلی: {part_b['remaining_qty']} عدد."
-                )
-
-            stock_deducted_qty = part_qty_total if part_b and consume_stock else 0
+            target_has_stock = int(target_b["remaining_qty"]) >= target_qty
+            part_has_stock = bool(part_b) and int(part_b["remaining_qty"]) >= part_qty_total
+            # No inventory is deducted when either the target batch or its component
+            # is unavailable. The UI obtains the user's confirmation before this call.
+            stock_deducted_qty = (
+                part_qty_total
+                if part_b and consume_stock and target_has_stock and part_has_stock
+                else 0
+            )
             if stock_deducted_qty:
                 conn.execute(
                     """UPDATE batches SET sold_qty=sold_qty+?, remaining_qty=remaining_qty-?
