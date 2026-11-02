@@ -5502,7 +5502,7 @@ class MainWindow(QMainWindow):
             final_specs = str(batch.get("final_specs") or "").strip()
             final_spec_lines = [
                 self._format_technical_text(segment.strip())
-                for segment in re.split(r"[|؛;\\n]+", final_specs)
+                for segment in re.split(r"[|؛;\n]+", final_specs)
                 if segment.strip()
             ]
             tooltip_lines = [
