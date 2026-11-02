@@ -1388,11 +1388,8 @@ class DynamicSpecsWidget(QGroupBox):
             self.fields = {"مشخصه فنی": ed_custom}
             self.sub_layout.addRow("مشخصات فنی قطعه:", ed_custom)
 
-        # Re-apply user-defined attributes after the built-in subcategory controls
-        # have been rebuilt; otherwise a category change silently drops custom keys.
-        callback = self.on_subcategory_rebuilt
-        if callable(callback):
-            callback()
+        # The owning form reconnects its catalog callback after this built-in
+        # rebuild, ensuring user-defined fields are applied exactly once.
 
     def get_sub_category(self) -> str:
         if self.cb_sub:
