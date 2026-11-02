@@ -379,6 +379,10 @@ def test_sale_clear_resets_every_field_and_edited_products_move_to_top(
         "Acme", "Second", {"RAM": "16GB"}, "", 1, 20,
     )
     with manager.get_connection() as conn:
+        timestamp_rows = conn.execute(
+            "SELECT code, updated_at FROM products WHERE code IN ('P-EDIT-1','P-EDIT-2')"
+        ).fetchall()
+        print("product timestamps before edit:", [dict(row) for row in timestamp_rows])
         product_id = conn.execute(
             "SELECT id FROM products WHERE code='P-EDIT-1'"
         ).fetchone()["id"]
