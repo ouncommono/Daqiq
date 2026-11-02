@@ -443,12 +443,12 @@ class PriceInput(QLineEdit):
 
     valueChanged = Signal(int)
 
-    def __init__(self, db_manager, parent=None):
+    def __init__(self, db_manager, parent=None, placeholder="مبلغ به تومان"):
         super().__init__(parent)
         self.db = db_manager
         self._raw_typed = False
         self._pending_focus_select = False
-        self.setPlaceholderText("مبلغ (تومان)")
+        self.setPlaceholderText(str(placeholder or "مبلغ به تومان"))
         zero_count = int(self.db.cfg.get("zero_append_count", 3) or 0)
         self.setToolTip(
             "مبلغ را به تومان وارد کنید (بدون صفر اضافی)"
