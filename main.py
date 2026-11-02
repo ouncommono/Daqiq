@@ -5301,13 +5301,20 @@ class MainWindow(QMainWindow):
                    WHERE is_active=1 AND (password IS NULL OR TRIM(password)='') 
                    ORDER BY updated_at DESC, id DESC"""
             ).fetchall()
-        if not missing_passwords:
-            return
-        names = "\n".join(f"• {row['name']}" for row in missing_passwords)
+        if missing_passwords:
+            names = "\n".join(f"• {row['name']}" for row in missing_passwords)
+            impact_text = (
+                "کارکنان زیر رمز عبور ندارند و پس از فعال‌سازی این قابلیت تا زمان تعریف رمز "
+                "نمی‌توانند وارد برنامه شوند:\n\n"
+                f"{names}"
+            )
+        else:
+            impact_text = (
+                "تمام کارکنان فعال در حال حاضر رمز عبور دارند و با فعال‌سازی این گزینه "
+                "ورود همهٔ آن‌ها با رمز عبور انجام خواهد شد."
+            )
         message = (
-            "کارکنان زیر رمز عبور ندارند و پس از فعال‌سازی این قابلیت تا زمان تعریف رمز "
-            "نمی‌توانند وارد برنامه شوند:\n\n"
-            f"{names}\n\n"
+            f"{impact_text}\n\n"
             "آیا از فعال‌کردن اجبار ورود با رمز عبور اطمینان دارید؟"
         )
         if not _ask_yes_no(self, "تأیید اجبار ورود با رمز عبور", message):
