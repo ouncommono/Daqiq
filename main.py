@@ -2721,16 +2721,6 @@ class MainWindow(QMainWindow):
                 self._on_upg_part_changed()
 
     def _on_upg_part_changed(self, *_):
-        part_id = self.cb_upg_part.currentData()
-        target_qty = self.cb_upg_target_qty.get_qty()
-        if not part_id:
-            self.cb_upg_part_qty.set_max_qty(50)
-            self.cb_upg_part_qty.setEnabled(True)
-            return
-        with self.db.get_connection() as conn:
-            part = conn.execute(
-                "SELECT remaining_qty FROM batches WHERE id=?", (part_id,)
-            ).fetchone()
         # Inventory sufficiency is a confirmation decision during Save, not a
         # quantity-picker restriction: permit the requested quantity even at zero stock.
         self.cb_upg_part_qty.set_max_qty(300)
