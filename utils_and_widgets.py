@@ -1,5 +1,7 @@
 # utils_and_widgets.py
 import datetime
+import re
+import weakref
 import jdatetime
 from PySide6.QtWidgets import (
     QWidget,
@@ -15,12 +17,40 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QGroupBox,
     QFormLayout,
+    QScrollArea,
+    QTableWidget,
+    QListWidget,
+    QAbstractItemView,
 )
-from PySide6.QtCore import Qt, Signal, QModelIndex, QSortFilterProxyModel
+from PySide6.QtCore import (
+    Qt,
+    Signal,
+    QModelIndex,
+    QSortFilterProxyModel,
+    QPropertyAnimation,
+    QEasingCurve,
+    QAbstractAnimation,
+)
 from PySide6.QtGui import QIntValidator
 from PySide6.QtWidgets import QSizePolicy
 
 PERSIAN_ARABIC_MAP = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
+
+_LTR_TOKEN_RE = re.compile(
+    r"(?<![A-Za-z0-9])([A-Za-z][A-Za-z0-9._/+%-]*:|[A-Za-z][A-Za-z0-9._/+%-]*|\d+(?:[.,]\d+)?(?:[A-Za-z]+|%))"
+)
+_BIDI_CONTROL_RE = re.compile(r"[\u2066-\u2069\u200e\u200f]")
+
+
+def bidi_isolate_text(value) -> str:
+    """Keep Latin/number fragments in their logical order inside Persian UI text."""
+    text = "" if value is None else str(value)
+    return _LTR_TOKEN_RE.sub(lambda match: "\u2066" + match.group(1) + "\u2069", text)
+
+
+def strip_bidi_controls(value) -> str:
+    """Remove invisible directional controls before searching or parsing visible UI text."""
+    return _BIDI_CONTROL_RE.sub("", "" if value is None else str(value))
 
 # فهرست جامع دسته‌بندی‌های اصلی فروشگاه (بند ۱ و ۲)
 MAIN_CATEGORIES = [
@@ -34,6 +64,59 @@ MAIN_CATEGORIES = [
     "ماشین‌های اداری",
     "سایر موارد",
 ]
+
+# زیرمجموعه‌های پیش‌فرض برای شروع؛ پس از ذخیره قابل تغییر توسط هر فروشگاه هستند.
+DEFAULT_SUBCATEGORIES = {
+    "لپ‌تاپ": [
+        "لپ‌تاپ عمومی / مالتی‌مدیا", "لپ‌تاپ گیمینگ (Gaming)",
+        "لپ‌تاپ مهندسی و رندرینگ", "لپ‌تاپ استوک / صنعتی",
+        "اولترابوک / تبلت‌شو", "مک‌بوک (MacBook)", "سایر موارد",
+    ],
+    "قطعات": [
+        "سایر موارد", "پردازنده (CPU)", "رم کامپیوتر (RAM PC)",
+        "رم لپ‌تاپ (RAM Laptop)", "حافظه اس‌اس‌دی (SSD)",
+        "هارد دیسک اینترنال (HDD)", "کارت گرافیک (Graphic Card)",
+        "مادربرد (Motherboard)", "پاور / منبع تغذیه کیس (Power)",
+        "فن و خنک‌کننده (Cooling / Fan)", "صفحه‌نمایش لپ‌تاپ (LED / LCD Panel)",
+        "باتری لپ‌تاپ (Laptop Battery)", "کیبورد تعمیراتی لپ‌تاپ (Internal Keyboard)",
+        "قاب، لولا و فلت لپ‌تاپ", "کارت شبکه و صدا اینترنال",
+        "درایو نوری (DVD RW / Caddy)",
+    ],
+    "لوازم جانبی": [
+        "سایر موارد", "ماوس (Mouse)", "کیبورد (Keyboard)",
+        "پک کمبو ماوس و کیبورد", "هدست، هدفون و هندزفری", "اسپیکر (Speaker)",
+        "فلش مموری (Flash Memory)", "هارد اکسترنال (External HDD)",
+        "اس‌اس‌دی اکسترنال (External SSD)", "کول‌پد لپ‌تاپ (Coolpad)",
+        "کیف و کوله‌پشتی لپ‌تاپ", "هاب USB و Type-C",
+        "کابل تصویر (HDMI / DisplayPort / VGA)", "کابل برق، شبکه و افزایش طول",
+        "مبدل و دانگل (Converter / Dongle)", "ماوس‌پد (Mouse Pad)",
+        "وب‌کم و میکروفون (Webcam / Mic)", "گیم‌پد و دسته بازی (Gamepad)",
+        "خمیر سیلیکون و اسپری تمیزکننده",
+    ],
+    "مانیتور": [
+        "مانیتور اداری و خانگی", "مانیتور گیمینگ (Gaming)",
+        "مانیتور طراحی و صنعتی", "مانیتور استوک", "مانیتور منحنی (Curved)",
+    ],
+    "کیس و مینی‌کیس": [
+        "مینی‌کیس استوک (Mini Case)", "کیس کامل اسمبل‌شده (PC)",
+        "آل‌این‌وان (All-in-One)", "تین‌کلاینت (Thin Client)",
+        "پوسته کیس خالی (Case Chassis)",
+    ],
+    "آداپتور و تغذیه": [
+        "شارژر و آداپتور لپ‌تاپ", "آداپتور مانیتور و مینی‌کیس",
+        "آداپتور مودم و سوئیچ (9V/12V)", "محافظ برق و چندراهی",
+        "برق اضطراری (UPS) و باتری UPS", "کابل برق سهند / سه‌پین / دوپین",
+    ],
+    "شبکه و مودم": [
+        "سایر موارد", "مودم ADSL / VDSL", "مودم سیم‌کارتی 4G / 5G / TD-LTE",
+        "روتر و اکسس‌پوینت بی‌سیم", "سوئیچ شبکه (5/8/16/24 پورت)",
+        "کارت شبکه USB / PCIe",
+    ],
+    "ماشین‌های اداری": [
+        "سایر موارد", "پرینتر و چندکاره", "اسکنر", "کارتریج و تونر",
+    ],
+    "سایر موارد": ["سایر موارد"],
+}
 
 # فهرست جامع پردازنده‌های قدیمی و جدید (بند ۲)
 CPU_LIST = [
@@ -119,6 +202,66 @@ GPU_LIST = [
 ]
 
 
+# فهرست ویژگی‌های فنی اولیه؛ هر فروشگاه می‌تواند مقادیر و محدودهٔ زیرمجموعه را تغییر دهد.
+DEFAULT_ATTRIBUTES = {
+    "لپ‌تاپ": [
+        {"name": "CPU", "values": CPU_LIST[1:]},
+        {"name": "RAM", "values": RAM_CAPACITIES[1:]},
+        {"name": "نوع RAM", "values": ["DDR3 / DDR3L", "DDR4", "DDR5", "LPDDR4 / LPDDR5"]},
+        {"name": "Storage", "values": STORAGE_LIST[1:]},
+        {"name": "Graphic", "values": GPU_LIST[1:]},
+        {"name": "صفحه‌نمایش", "values": [
+            "13.3 اینچ", "14 اینچ HD/FHD", "15.6 اینچ HD",
+            "15.6 اینچ FHD IPS", "15.6 اینچ 144Hz/165Hz",
+            "16 اینچ FHD+/2K", "17.3 اینچ FHD",
+        ]},
+    ],
+    "قطعات": [
+        {"name": "ظرفیت", "values": RAM_CAPACITIES[1:], "subcategory": "رم کامپیوتر (RAM PC)"},
+        {"name": "ظرفیت", "values": RAM_CAPACITIES[1:], "subcategory": "رم لپ‌تاپ (RAM Laptop)"},
+        {"name": "نوع رابط", "values": ["SATA", "NVMe", "PCIe"], "subcategory": "حافظه اس‌اس‌دی (SSD)"},
+        {"name": "ظرفیت", "values": [], "subcategory": "هارد دیسک اینترنال (HDD)"},
+        {"name": "نوع سوکت", "values": [], "subcategory": "پردازنده (CPU)"},
+    ],
+    "لوازم جانبی": [
+        {"name": "نوع اتصال / پورت", "values": [
+            "باسیم (USB)", "بی‌سیم (دانگل 2.4GHz)", "بلوتوث (Bluetooth)",
+            "دوحالته و سه‌حالته", "Type-C", "جک ۳.۵ میلی‌متری صدا",
+            "HDMI / DisplayPort / VGA",
+        ]},
+        {"name": "مشخصه", "values": []},
+    ],
+    "مانیتور": [
+        {"name": "سایز", "values": ["19 اینچ", "20 اینچ", "22 اینچ", "24 اینچ", "27 اینچ", "32 اینچ", "34 اینچ"]},
+        {"name": "پنل", "values": ["IPS", "VA", "TN", "OLED", "Nano IPS"]},
+        {"name": "نرخ بروزرسانی", "values": ["60Hz", "75Hz", "100Hz", "144Hz", "165Hz", "180Hz", "240Hz"]},
+        {"name": "پورت‌ها", "values": ["HDMI + VGA", "HDMI + DisplayPort", "HDMI + DP + Type-C", "VGA + DVI"]},
+    ],
+    "کیس و مینی‌کیس": [
+        {"name": "CPU", "values": CPU_LIST[1:]},
+        {"name": "RAM", "values": RAM_CAPACITIES[1:]},
+        {"name": "Storage", "values": STORAGE_LIST[1:]},
+        {"name": "Graphic", "values": GPU_LIST[1:]},
+    ],
+    "آداپتور و تغذیه": [
+        {"name": "ولتاژ", "values": ["5V", "9V", "12V", "19V", "19.5V", "20V", "220V AC"]},
+        {"name": "آمپر و توان", "values": ["1A / 1.5A / 2A", "2.31A (45W)", "3.25A (65W)", "4.5A (90W)", "6.75A / 7.7A (135W-150W)"]},
+        {"name": "نوع سوکت", "values": ["سوکت معمولی (5.5x2.5)", "سوکت سوزنی آبی/مشکی HP/Dell", "سوکت USB / مستطیلی Lenovo", "سوکت Type-C PD"]},
+    ],
+    "شبکه و مودم": [
+        {"name": "استاندارد شبکه", "values": ["Wi-Fi 4", "Wi-Fi 5", "Wi-Fi 6", "Wi-Fi 6E", "Wi-Fi 7", "4G", "5G"]},
+        {"name": "تعداد پورت", "values": []},
+    ],
+    "ماشین‌های اداری": [
+        {"name": "نوع چاپ", "values": ["لیزری", "جوهرافشان", "حرارتی", "سوزنی"]},
+        {"name": "رنگ چاپ", "values": ["سیاه و سفید", "رنگی"]},
+    ],
+    "سایر موارد": [
+        {"name": "مشخصه", "values": []},
+    ],
+}
+
+
 def normalize_digits(text: str) -> str:
     if not text:
         return ""
@@ -160,6 +303,166 @@ def add_jalali_days(start_date_str: str, days: int) -> str:
         return result.strftime("%Y/%m/%d")
     except Exception:
         return start_date_str
+
+
+
+
+def _animate_scrollbar(owner, scrollbar, amount):
+    """Accumulate successive wheel ticks against the pending animation target."""
+    if not amount or scrollbar.maximum() <= scrollbar.minimum():
+        return False
+
+    animation = getattr(owner, "_wheel_animation", None)
+    base_value = scrollbar.value()
+    if animation is not None and animation.state() == QAbstractAnimation.Running:
+        try:
+            base_value = int(animation.endValue())
+        except (TypeError, ValueError):
+            base_value = scrollbar.value()
+
+    target = max(
+        scrollbar.minimum(),
+        min(scrollbar.maximum(), base_value - int(amount)),
+    )
+    if target == scrollbar.value():
+        if animation is not None and animation.state() == QAbstractAnimation.Running:
+            animation.stop()
+        return True
+
+    if animation is not None:
+        animation.stop()
+        animation.deleteLater()
+        owner._wheel_animation = None
+
+    animation = QPropertyAnimation(scrollbar, b"value", owner)
+    animation.setDuration(180)
+    animation.setEasingCurve(QEasingCurve.OutCubic)
+    animation.setStartValue(scrollbar.value())
+    animation.setEndValue(target)
+
+    def release_animation():
+        if getattr(owner, "_wheel_animation", None) is animation:
+            owner._wheel_animation = None
+        animation.deleteLater()
+
+    animation.finished.connect(release_animation)
+    owner._wheel_animation = animation
+    animation.start()
+    return True
+
+
+def _wheel_amount(event, horizontal=False):
+    """Normalize mouse-wheel and touchpad deltas to pixel-like scroll steps."""
+    pixel_delta = event.pixelDelta()
+    angle_delta = event.angleDelta()
+    if horizontal:
+        amount = pixel_delta.x() or pixel_delta.y() or angle_delta.x() or angle_delta.y()
+    else:
+        amount = pixel_delta.y() or pixel_delta.x() or angle_delta.y() or angle_delta.x()
+        if not pixel_delta.y() and not pixel_delta.x():
+            amount = int(amount)
+    return int(amount)
+
+
+class SmoothScrollArea(QScrollArea):
+    """A pixel-based scroll area with accumulated, eased mouse-wheel animation."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWidgetResizable(True)
+        self.setFrameShape(QScrollArea.NoFrame)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self._wheel_animation = None
+
+    def wheelEvent(self, event):
+        horizontal = bool(event.modifiers() & Qt.ShiftModifier)
+        scrollbar = (
+            self.horizontalScrollBar() if horizontal else self.verticalScrollBar()
+        )
+        amount = _wheel_amount(event, horizontal=horizontal)
+        if not amount or scrollbar.maximum() <= scrollbar.minimum():
+            return super().wheelEvent(event)
+        if _animate_scrollbar(self, scrollbar, amount):
+            event.accept()
+        else:
+            super().wheelEvent(event)
+
+
+class SmoothScrollTableWidget(QTableWidget):
+    """Table widget with smooth pixel scrolling, including when the cursor is over a table."""
+
+    def __init__(self, rows=0, columns=0, parent=None):
+        super().__init__(rows, columns, parent)
+        self._wheel_animation = None
+
+    def wheelEvent(self, event):
+        horizontal = bool(event.modifiers() & Qt.ShiftModifier)
+        scrollbar = (
+            self.horizontalScrollBar() if horizontal else self.verticalScrollBar()
+        )
+        amount = _wheel_amount(event, horizontal=horizontal)
+        if not amount or scrollbar.maximum() <= scrollbar.minimum():
+            return super().wheelEvent(event)
+        if _animate_scrollbar(self, scrollbar, amount):
+            event.accept()
+        else:
+            super().wheelEvent(event)
+
+
+class SmoothScrollListWidget(QListWidget):
+    """List widget with the same eased wheel scrolling as pages and tables."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._wheel_animation = None
+        self.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
+        self.verticalScrollBar().setSingleStep(18)
+
+    def wheelEvent(self, event):
+        amount = _wheel_amount(event, horizontal=False)
+        scrollbar = self.verticalScrollBar()
+        if not amount or scrollbar.maximum() <= scrollbar.minimum():
+            return super().wheelEvent(event)
+        if _animate_scrollbar(self, scrollbar, amount):
+            event.accept()
+        else:
+            super().wheelEvent(event)
+
+
+class CollapsibleSection(QWidget):
+    """Compact, keyboard-accessible section whose content is collapsed by default."""
+
+    def __init__(self, title: str, content: QWidget, parent=None):
+        super().__init__(parent)
+        self.content = content
+        self.header = QPushButton(f"▸  {title}")
+        self._expanded = False
+        self.header.setMinimumHeight(38)
+        self.header.setStyleSheet(
+            "QPushButton { text-align: right; font-weight: 700; padding: 8px 12px; "
+            "border: 1px solid #cbd5e1; border-radius: 7px; background: palette(base); }"
+            "QPushButton:checked { border-color: #64748b; }"
+        )
+        self.content.hide()
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(5)
+        layout.addWidget(self.header)
+        layout.addWidget(self.content)
+        # Use pressed(), which has no Python bool payload. Expansion state is kept
+        # in this widget instead of relying on QPushButton's checkable state.
+        self.header.pressed.connect(self._on_header_pressed)
+
+    def _on_header_pressed(self):
+        self._expanded = not self._expanded
+        title = self.header.text().lstrip("▸▾ ").strip()
+        if self._expanded:
+            self.content.show()
+            self.header.setText("▾  " + title)
+        else:
+            self.content.hide()
+            self.header.setText("▸  " + title)
 
 
 class SmartLineEdit(QLineEdit):
@@ -206,6 +509,14 @@ class PriceInput(QLineEdit):
         self.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.textEdited.connect(self._on_edited)
         self.editingFinished.connect(self._apply_auto_zeros)
+
+    def focusInEvent(self, event):
+        super().focusInEvent(event)
+        self.selectAll()
+
+    def mousePressEvent(self, event):
+        super().mousePressEvent(event)
+        self.selectAll()
 
     def _on_edited(self, txt):
         self._raw_typed = True
@@ -352,8 +663,38 @@ class JalaliCalendarDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("انتخاب تاریخ شمسی")
         self.setLayoutDirection(Qt.RightToLeft)
-        self.setFixedSize(390, 350)
+        self.setFixedSize(470, 438)
         self.selected_date = initial_date_str
+
+        dark = False
+        ancestor = parent
+        while ancestor is not None:
+            if hasattr(ancestor, "db"):
+                dark = ancestor.db.cfg.get("theme", "light") == "dark"
+                break
+            ancestor = ancestor.parentWidget() if hasattr(ancestor, "parentWidget") else None
+
+        self._calendar_colors = {
+            "surface": "#263244" if dark else "#ffffff",
+            "base": "#1e293b" if dark else "#f8fafc",
+            "text": "#e5eaf2" if dark else "#0f172a",
+            "muted": "#aab6c8" if dark else "#475569",
+            "border": "#46556c" if dark else "#cbd5e1",
+            "selected": "#2563eb",
+            "disabled": "#334155" if dark else "#e2e8f0",
+        }
+        colors = self._calendar_colors
+        self.setStyleSheet(
+            f"QDialog {{ background: {colors['base']}; color: {colors['text']}; }}"
+            f"QLabel {{ color: {colors['text']}; }}"
+            f"QComboBox {{ background: {colors['surface']}; color: {colors['text']}; "
+            f"border: 1px solid {colors['border']}; border-radius: 6px; padding: 5px; min-height: 30px; }}"
+            f"QComboBox QAbstractItemView {{ background: {colors['surface']}; color: {colors['text']}; "
+            f"selection-background-color: {colors['selected']}; selection-color: #ffffff; }}"
+            f"QPushButton {{ background: {colors['surface']}; color: {colors['text']}; "
+            f"border: 1px solid {colors['border']}; border-radius: 6px; padding: 6px 10px; }}"
+            f"QPushButton:hover {{ border: 1px solid {colors['selected']}; }}"
+        )
 
         try:
             p = [int(x) for x in normalize_digits(initial_date_str).split("/")]
@@ -375,22 +716,20 @@ class JalaliCalendarDialog(QDialog):
 
         self.cb_year = QComboBox()
         self.cb_year.setEditable(True)
-        self.cb_year.addItems([str(year) for year in range(1405, 1501)])
+        self.cb_year.addItems([str(year) for year in range(1400, 1601)])
         self.cb_year.setInsertPolicy(QComboBox.NoInsert)
         self.cb_year.setCurrentText(str(self.cur_year))
-        self.cb_year.setMinimumWidth(105)
-        self.cb_year.setMinimumHeight(32)
+        self.cb_year.setMinimumWidth(115)
+        self.cb_year.setMinimumHeight(38)
         self.cb_year.lineEdit().setAlignment(Qt.AlignCenter)
-        self.cb_year.lineEdit().setValidator(QIntValidator(1405, 1500, self.cb_year))
-        self.cb_year.setStyleSheet(
-            "font-size: 14px; font-weight: bold; color: #0f172a; background: #ffffff; padding: 3px;"
-        )
+        self.cb_year.lineEdit().setValidator(QIntValidator(1400, 1600, self.cb_year))
+        self.cb_year.setStyleSheet("font-size: 15px; font-weight: bold;")
         self.cb_year.currentTextChanged.connect(self._refresh_grid)
 
         self.cb_month = QComboBox()
-        self.cb_month.setMinimumWidth(135)
-        self.cb_month.setMinimumHeight(34)
-        self.cb_month.setStyleSheet("font-size: 14px; font-weight: bold;")
+        self.cb_month.setMinimumWidth(165)
+        self.cb_month.setMinimumHeight(38)
+        self.cb_month.setStyleSheet("font-size: 15px; font-weight: bold;")
         months = [
             "فروردین",
             "اردیبهشت",
@@ -410,47 +749,62 @@ class JalaliCalendarDialog(QDialog):
         self.cb_month.setCurrentIndex(self.cur_month - 1)
         self.cb_month.currentIndexChanged.connect(self._refresh_grid)
 
+        self.cb_day = QComboBox()
+        self.cb_day.setMinimumWidth(74)
+        self.cb_day.setMinimumHeight(38)
+        self.cb_day.setStyleSheet("font-size: 15px; font-weight: bold;")
+        self.cb_day.addItems([f"{day:02d}" for day in range(1, 32)])
+        self.cb_day.setCurrentIndex(max(0, min(30, self.cur_day - 1)))
+        self.cb_day.activated.connect(self._on_day_combo_activated)
+
         btn_today = QPushButton("برو به امروز")
-        btn_today.setMinimumHeight(34)
+        btn_today.setMinimumHeight(38)
         btn_today.clicked.connect(self._go_today)
 
         lbl_y = QLabel("سال:")
         lbl_y.setStyleSheet("font-weight: bold; font-size: 14px;")
         lbl_m = QLabel("ماه:")
         lbl_m.setStyleSheet("font-weight: bold; font-size: 14px;")
+        lbl_d = QLabel("روز:")
+        lbl_d.setStyleSheet("font-weight: bold; font-size: 14px;")
 
         year_row.addWidget(lbl_y)
         year_row.addWidget(self.cb_year)
         year_row.addStretch()
+        year_row.addWidget(btn_today)
         nav.addLayout(year_row)
 
         month_row = QHBoxLayout()
         month_row.addWidget(lbl_m)
         month_row.addWidget(self.cb_month)
+        month_row.addSpacing(8)
+        month_row.addWidget(lbl_d)
+        month_row.addWidget(self.cb_day)
         month_row.addStretch()
-        month_row.addWidget(btn_today)
         nav.addLayout(month_row)
         layout.addLayout(nav)
 
         self.grid = QGridLayout()
-        self.grid.setSpacing(3)
+        self.grid.setSpacing(5)
         days_header = ["ش", "ی", "د", "س", "چ", "پ", "ج"]
         for col, d_name in enumerate(days_header):
             lbl = QLabel(d_name)
             lbl.setAlignment(Qt.AlignCenter)
             lbl.setStyleSheet(
-                "font-weight: bold; font-size: 12px; color: #1e40af; padding: 2px;"
+                f"font-weight: bold; font-size: 14px; color: {colors['muted']}; padding: 4px;"
             )
+            lbl.setMinimumHeight(30)
             self.grid.addWidget(lbl, 0, col)
 
         self.day_buttons = []
         for r in range(1, 7):
             for c in range(7):
                 btn = QPushButton("")
-                btn.setFixedSize(36, 30)
+                btn.setFixedSize(50, 42)
                 btn.setStyleSheet(
-                    "background: #ffffff; color: #0f172a; font-size: 12px; "
-                    "font-weight: bold; border: 1px solid #cbd5e1; border-radius: 4px;"
+                    f"background: {colors['surface']}; color: {colors['text']}; "
+                    f"font-size: 15px; font-weight: bold; border: 1px solid {colors['border']}; "
+                    "border-radius: 6px;"
                 )
                 btn.clicked.connect(self._on_day_clicked)
                 self.grid.addWidget(btn, r, c)
@@ -463,22 +817,38 @@ class JalaliCalendarDialog(QDialog):
         t = jdatetime.date.today()
         self.cb_year.setCurrentText(str(t.year))
         self.cb_month.setCurrentIndex(t.month - 1)
+        self.cb_day.setCurrentIndex(t.day - 1)
         self.selected_date = t.strftime("%Y/%m/%d")
+        self.accept()
+
+    def _on_day_combo_activated(self, index):
+        try:
+            year = int(normalize_digits(self.cb_year.currentText()))
+            month = int(self.cb_month.currentData())
+            day = int(self.cb_day.itemText(index))
+            jdatetime.date(year, month, day)
+        except (TypeError, ValueError):
+            return
+        self.selected_date = f"{year:04d}/{month:02d}/{day:02d}"
         self.accept()
 
     def _refresh_grid(self):
         # Clear the calendar first; typing an incomplete year must never crash the dialog.
+        colors = self._calendar_colors
         for button in self.day_buttons:
             button.setText("")
-            button.setEnabled(False)
-            button.setStyleSheet("background: #f1f5f9; border: none;")
+            button.setEnabled(0)
+            button.setStyleSheet(
+                f"background: {colors['disabled']}; color: {colors['muted']}; "
+                "border: none; border-radius: 6px;"
+            )
 
         raw_year = normalize_digits(self.cb_year.currentText()).strip()
         try:
             year = int(raw_year)
         except (TypeError, ValueError):
             return
-        if not 1405 <= year <= 1500:
+        if not 1400 <= year <= 1600:
             return
 
         month = self.cb_month.currentData()
@@ -497,20 +867,30 @@ class JalaliCalendarDialog(QDialog):
         else:
             max_days = 30 if first_day.isleap() else 29
 
+        for day_index in range(self.cb_day.count()):
+            item = self.cb_day.model().item(day_index)
+            if item is not None:
+                flags = item.flags()
+                if day_index < max_days:
+                    item.setFlags(flags | Qt.ItemIsEnabled)
+                else:
+                    item.setFlags(flags & ~Qt.ItemIsEnabled)
+
         for day in range(1, max_days + 1):
             index = start_weekday + day - 1
             button = self.day_buttons[index]
             button.setText(str(day))
-            button.setEnabled(True)
+            button.setEnabled(1)
             if year == self.cur_year and month == self.cur_month and day == self.cur_day:
                 button.setStyleSheet(
-                    "background-color: #2563eb; color: white; font-size: 12px; "
-                    "font-weight: bold; border-radius: 6px;"
+                    f"background-color: {colors['selected']}; color: white; "
+                    "font-size: 15px; font-weight: bold; border-radius: 6px;"
                 )
             else:
                 button.setStyleSheet(
-                    "background-color: #ffffff; color: #0f172a; font-size: 12px; "
-                    "font-weight: bold; border: 1px solid #cbd5e1; border-radius: 6px;"
+                    f"background-color: {colors['surface']}; color: {colors['text']}; "
+                    f"font-size: 15px; font-weight: bold; border: 1px solid {colors['border']}; "
+                    "border-radius: 6px;"
                 )
 
 
@@ -524,7 +904,7 @@ class JalaliCalendarDialog(QDialog):
         except (TypeError, ValueError):
             return
         m = self.cb_month.currentData()
-        if m is None or not 1405 <= y <= 1500:
+        if m is None or not 1400 <= y <= 1600:
             return
         try:
             jdatetime.date(y, int(m), d)
@@ -549,31 +929,31 @@ class JalaliDateEdit(QWidget):
         layout.setSpacing(2)
 
         self.ed_day = QLineEdit()
-        self.ed_day.setFixedWidth(46)
-        self.ed_day.setFixedHeight(34)
+        self.ed_day.setFixedWidth(50)
+        self.ed_day.setFixedHeight(36)
         self.ed_day.setStyleSheet("font-size: 12px; padding: 2px;")
         self.ed_day.setMaxLength(2)
         self.ed_day.setAlignment(Qt.AlignCenter)
         self.ed_day.setPlaceholderText("روز")
 
         self.ed_month = QLineEdit()
-        self.ed_month.setFixedWidth(46)
-        self.ed_month.setFixedHeight(34)
+        self.ed_month.setFixedWidth(50)
+        self.ed_month.setFixedHeight(36)
         self.ed_month.setStyleSheet("font-size: 12px; padding: 2px;")
         self.ed_month.setMaxLength(2)
         self.ed_month.setAlignment(Qt.AlignCenter)
         self.ed_month.setPlaceholderText("ماه")
 
         self.ed_year = QLineEdit()
-        self.ed_year.setFixedWidth(58)
-        self.ed_year.setFixedHeight(34)
+        self.ed_year.setFixedWidth(68)
+        self.ed_year.setFixedHeight(36)
         self.ed_year.setStyleSheet("font-size: 12px; padding: 2px;")
         self.ed_year.setMaxLength(4)
         self.ed_year.setAlignment(Qt.AlignCenter)
         self.ed_year.setPlaceholderText("سال")
 
         self.btn_cal = QPushButton("📅")
-        self.btn_cal.setFixedSize(30, 32)
+        self.btn_cal.setFixedSize(34, 36)
         self.btn_cal.setToolTip("انتخاب از تقویم شمسی")
         self.btn_cal.clicked.connect(self._open_calendar)
 
@@ -654,15 +1034,33 @@ class DynamicSpecsWidget(QGroupBox):
     """
 
     def __init__(self, parent=None):
-        super().__init__("زیرمجموعه و مشخصات فنی کالا (امکان انتخاب از لیست یا تایپ دستی)", parent)
+        super().__init__("انتخاب زیرمجموعه و مشخصات فنی کالا", parent)
         self.main_layout = QVBoxLayout(self)
         self.form_widget = QWidget()
         self.form_layout = QFormLayout(self.form_widget)
         self.main_layout.addWidget(self.form_widget)
         self.current_category = "لپ‌تاپ"
         self.fields = {}
+        self._custom_field_widgets = {}
         self.cb_sub = None
+        self._custom_field_callback = None
         self.set_category("لپ‌تاپ")
+
+    def set_custom_field_callback(self, callback):
+        """Store bound callbacks weakly to avoid a MainWindow <-> widget cycle."""
+        if not callable(callback):
+            self._custom_field_callback = None
+        elif getattr(callback, "__self__", None) is not None:
+            self._custom_field_callback = weakref.WeakMethod(callback)
+        else:
+            self._custom_field_callback = callback
+
+    def _notify_custom_field_callback(self, *_):
+        callback = self._custom_field_callback
+        if isinstance(callback, weakref.WeakMethod):
+            callback = callback()
+        if callback is not None:
+            callback()
 
     def _clear_form(self):
         while self.form_layout.count():
@@ -670,6 +1068,7 @@ class DynamicSpecsWidget(QGroupBox):
             if item.widget():
                 item.widget().deleteLater()
         self.fields.clear()
+        self._custom_field_widgets.clear()
         self.cb_sub = None
 
     def set_category(self, category: str):
@@ -677,9 +1076,11 @@ class DynamicSpecsWidget(QGroupBox):
         self._clear_form()
 
         self.cb_sub = SearchableComboBox()
-        self.cb_sub.setToolTip("می‌توانید زیرمجموعه را از لیست انتخاب کنید یا مستقیم تایپ نمایید")
+        self.cb_sub.setEditable(0)
+        self.cb_sub.setToolTip("زیرمجموعه را از فهرست انتخاب کنید")
 
         if self.current_category == "لپ‌تاپ":
+            self.cb_sub.currentTextChanged.connect(self._notify_custom_field_callback)
             self.cb_sub.addItems(
                 [
                     "لپ‌تاپ عمومی / مالتی‌مدیا",
@@ -755,7 +1156,7 @@ class DynamicSpecsWidget(QGroupBox):
             )
             self.cb_sub.setCurrentText("سایر موارد")
             self.cb_sub.currentTextChanged.connect(self._rebuild_part_subfields)
-            self.form_layout.addRow("نوع قطعه (قابل تایپ):", self.cb_sub)
+            self.form_layout.addRow("نوع قطعه:", self.cb_sub)
 
             self.sub_container = QWidget()
             self.sub_layout = QFormLayout(self.sub_container)
@@ -764,6 +1165,7 @@ class DynamicSpecsWidget(QGroupBox):
             self._rebuild_part_subfields("سایر موارد")
 
         elif self.current_category == "لوازم جانبی":
+            self.cb_sub.currentTextChanged.connect(self._notify_custom_field_callback)
             self.cb_sub.addItems(
                 [
                     "سایر موارد",
@@ -804,11 +1206,12 @@ class DynamicSpecsWidget(QGroupBox):
             )
             ed_extra = SmartLineEdit("ویژگی تکمیلی (مثلاً طول کابل، ظرفیت، رنگ...)")
             self.fields = {"نوع اتصال / پورت": cb_conn, "مشخصه": ed_extra}
-            self.form_layout.addRow("نوع لوازم جانبی (قابل تایپ):", self.cb_sub)
+            self.form_layout.addRow("نوع لوازم جانبی:", self.cb_sub)
             self.form_layout.addRow("نوع اتصال / پورت:", cb_conn)
             self.form_layout.addRow("مشخصات تکمیلی:", ed_extra)
 
         elif self.current_category == "مانیتور":
+            self.cb_sub.currentTextChanged.connect(self._notify_custom_field_callback)
             self.cb_sub.addItems(
                 [
                     "مانیتور اداری و خانگی",
@@ -834,6 +1237,7 @@ class DynamicSpecsWidget(QGroupBox):
             self.form_layout.addRow("پورت‌های ورودی:", cb_ports)
 
         elif self.current_category == "کیس و مینی‌کیس":
+            self.cb_sub.currentTextChanged.connect(self._notify_custom_field_callback)
             self.cb_sub.addItems(
                 [
                     "مینی‌کیس استوک (Mini Case)",
@@ -859,6 +1263,7 @@ class DynamicSpecsWidget(QGroupBox):
             self.form_layout.addRow("گرافیک (GPU):", cb_gpu)
 
         elif self.current_category == "آداپتور و تغذیه":
+            self.cb_sub.currentTextChanged.connect(self._notify_custom_field_callback)
             self.cb_sub.addItems(
                 [
                     "شارژر و آداپتور لپ‌تاپ",
@@ -882,7 +1287,8 @@ class DynamicSpecsWidget(QGroupBox):
             self.form_layout.addRow("نوع سری / سوکت:", cb_tip)
 
         else:
-            # شبکه و مودم، ماشین‌های اداری، سایر موارد یا دسته تایپ شده دستی
+            # شبکه و مودم، ماشین‌های اداری و سایر موارد
+            self.cb_sub.currentTextChanged.connect(self._notify_custom_field_callback)
             self.cb_sub.addItems(
                 [
                     "سایر موارد",
@@ -898,8 +1304,88 @@ class DynamicSpecsWidget(QGroupBox):
             )
             ed_spec = SmartLineEdit("مشخصات فنی، پورت‌ها یا توضیحات تخصصی...")
             self.fields = {"مشخصات": ed_spec}
-            self.form_layout.addRow("زیرمجموعه (قابل تایپ دستی):", self.cb_sub)
+            self.form_layout.addRow("زیرمجموعه:", self.cb_sub)
             self.form_layout.addRow("مشخصات فنی:", ed_spec)
+
+    def apply_custom_catalog(self, subcategories=None, custom_fields=None):
+        """Apply user-managed subcategories and extra specification fields."""
+        if self.cb_sub is not None and isinstance(subcategories, list):
+            current = self.cb_sub.currentText()
+            self.cb_sub.blockSignals(True)
+            self.cb_sub.clear()
+            self.cb_sub.addItems(subcategories)
+            self.cb_sub.setEditable(0)
+            if current in subcategories:
+                self.cb_sub.setCurrentText(current)
+            elif subcategories:
+                self.cb_sub.setCurrentIndex(0)
+            else:
+                self.cb_sub.setCurrentText("")
+            self.cb_sub.blockSignals(False)
+            if self.current_category == "قطعات":
+                self._rebuild_part_subfields(self.cb_sub.currentText())
+
+        # Remove custom widgets from the previously selected subcategory before
+        # adding the next set. Built-in fields remain in place and can be reconfigured.
+        for field_name, widget in list(self._custom_field_widgets.items()):
+            if self.fields.get(field_name) is widget:
+                self.fields.pop(field_name, None)
+            # QFormLayout.removeRow(row) owns and destroys the row widgets. Calling
+            # deleteLater() afterwards can target an already-deleted Shiboken wrapper.
+            try:
+                row, _role = self.form_layout.getWidgetPosition(widget)
+                if row >= 0:
+                    self.form_layout.removeRow(row)
+            except RuntimeError:
+                # The Qt parent may already have destroyed this widget during a
+                # category rebuild; clearing the Python reference is sufficient.
+                pass
+        self._custom_field_widgets.clear()
+
+        if not isinstance(custom_fields, list):
+            return
+        for definition in custom_fields:
+            if not isinstance(definition, dict):
+                continue
+            field_name = str(definition.get("name", "")).strip()
+            if not field_name:
+                continue
+            form_label = str(definition.get("label") or field_name).strip()
+            raw_values = definition.get("values", [])
+            values = [
+                str(value).strip() for value in raw_values
+                if str(value).strip()
+            ] if isinstance(raw_values, list) else []
+
+            existing_widget = self.fields.get(field_name)
+            if existing_widget is not None:
+                if isinstance(existing_widget, QComboBox):
+                    current_value = existing_widget.currentText()
+                    existing_widget.blockSignals(True)
+                    existing_widget.clear()
+                    existing_widget.addItem("")
+                    existing_widget.addItems(list(dict.fromkeys(values)))
+                    if current_value in values:
+                        existing_widget.setCurrentText(current_value)
+                    existing_widget.blockSignals(False)
+                field_label = self.form_layout.labelForField(existing_widget)
+                if field_label is None:
+                    field_label = self.sub_layout.labelForField(existing_widget)
+                if isinstance(field_label, QLabel):
+                    field_label.setText(f"{form_label}:")
+                existing_widget.setToolTip(f"مشخصه سفارشی: {form_label}")
+                continue
+
+            if values:
+                widget = SearchableComboBox()
+                widget.addItem("")
+                widget.addItems(list(dict.fromkeys(values)))
+            else:
+                widget = SmartLineEdit(f"{field_name}...")
+            widget.setToolTip(f"مشخصه سفارشی: {form_label}")
+            self.fields[field_name] = widget
+            self._custom_field_widgets[field_name] = widget
+            self.form_layout.addRow(f"{form_label}:", widget)
 
     def _rebuild_part_subfields(self, part_type: str):
         while self.sub_layout.count():
@@ -960,6 +1446,9 @@ class DynamicSpecsWidget(QGroupBox):
             ed_custom = SmartLineEdit("مشخصه فنی قطعه (مثلاً سوکت، ولتاژ، سایز پنل...)")
             self.fields = {"مشخصه فنی": ed_custom}
             self.sub_layout.addRow("مشخصات فنی قطعه:", ed_custom)
+
+        # Run only after the built-in fields for the newly selected part type exist.
+        self._notify_custom_field_callback()
 
     def get_sub_category(self) -> str:
         if self.cb_sub:

@@ -3,14 +3,29 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from PySide6.QtWidgets import QApplication, QBoxLayout, QCompleter, QSizePolicy
+from PySide6.QtWidgets import (
+    QApplication,
+    QBoxLayout,
+    QCompleter,
+    QSizePolicy,
+    QToolButton,
+    QScrollBar,
+    QWidget,
+)
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFontMetrics
 
 import database as database_module
 import main as main_module
 from database import DatabaseManager
-from main import MainWindow
+from main import MainWindow, SmoothScrollArea
+from utils_and_widgets import (
+    JalaliCalendarDialog,
+    PriceInput,
+    _animate_scrollbar,
+    bidi_isolate_text,
+    strip_bidi_controls,
+)
 
 
 @pytest.fixture(scope="session")
@@ -44,8 +59,27 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
         assert window.btn_theme.isEnabled()
         assert window.btn_table_width.isEnabled()
         assert window.tbl_batches.columnCount() >= 22
+        assert isinstance(window.tbl_batches, main_module.SmoothScrollTableWidget)
+
+        # Repeated wheel events accumulate against the previous animation target.
+        scroll_owner = QWidget()
+        scroll_bar = QScrollBar()
+        scroll_bar.setRange(0, 1000)
+        scroll_bar.setValue(500)
+        assert _animate_scrollbar(scroll_owner, scroll_bar, 120)
+        first_target = int(scroll_owner._wheel_animation.endValue())
+        assert first_target == 380
+        assert _animate_scrollbar(scroll_owner, scroll_bar, 120)
+        second_target = int(scroll_owner._wheel_animation.endValue())
+        assert second_target == 260
         assert not hasattr(window, "chk_zero_enabled")
         assert window.lbl_live_clock.toolTip()
+        assert window.lst_cfg_subcategories.count() > 0
+        assert "لپ‌تاپ عمومی / مالتی‌مدیا" in [
+            window.lst_cfg_subcategories.item(index).text()
+            for index in range(window.lst_cfg_subcategories.count())
+        ]
+        assert window.ed_search_sales is not None
 
         # Technical keywords remain searchable but never become part of the visible item.
         product_combo = window.cb_sale_prod
@@ -70,9 +104,18 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
         )
         assert measured_widths[20] >= expected_header_width
 
-        assert window.dt_batch_date.ed_day.width() >= 42
-        assert window.dt_batch_date.ed_month.width() >= 42
-        assert window.dt_batch_date.width() < 220
+        assert window.dt_rep_from.get_date() == "1405/01/01"
+        assert window.cb_rep_preset.currentText() == "بازه انتخابی دستی"
+        assert window.sp_bk_interval.minimum() == 1
+        assert window.dt_batch_date.ed_day.width() >= 48
+        assert window.dt_batch_date.ed_month.width() >= 48
+        assert window.dt_batch_date.width() < 250
+        assert isinstance(window.tabs.widget(9), SmoothScrollArea)
+        assert isinstance(window.lst_cfg_subcategories, main_module.SmoothScrollListWidget)
+        assert isinstance(window.lst_cfg_attributes, main_module.SmoothScrollListWidget)
+        assert isinstance(window.lst_cfg_colors, main_module.SmoothScrollListWidget)
+        assert isinstance(window.lst_recent_databases, main_module.SmoothScrollListWidget)
+        assert window.btn_save_settings.sizePolicy().horizontalPolicy() == QSizePolicy.Expanding
 
     finally:
         window.close()
@@ -137,6 +180,13 @@ def test_database_refresh_keeps_services_suppliers_and_password_status_visible(
         # A real sqlite3.Row batch is loaded during initial startup and refresh.
         assert window.cb_sale_prod.count() == 1
         assert window.cb_sale_batch.count() == 1
+        # Purchase picker hides long specs in the row but includes them in its search and hover text.
+        assert "DDR5" not in window.cb_batch_prod.itemText(0)
+        assert window.cb_batch_prod._search_proxy.rowCount() >= 1
+        assert "DDR5" in window.cb_batch_prod.itemData(0, Qt.ToolTipRole)
+        window.cb_batch_prod._search_proxy.set_query("DDR5")
+        assert window.cb_batch_prod._search_proxy.rowCount() == 1
+        window.cb_batch_prod._search_proxy.set_query("")
         assert "DDR5" not in window.cb_sale_batch.itemText(0)
         window.cb_sale_batch._search_proxy.set_query("DDR5")
         assert window.cb_sale_batch._search_proxy.rowCount() == 1
@@ -247,3 +297,538 @@ def test_database_refresh_keeps_services_suppliers_and_password_status_visible(
     finally:
         window.close()
         qapp.processEvents()
+
+
+
+def test_first_run_database_wizard_validates_new_and_existing_files(tmp_path, monkeypatch, qapp):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+
+    new_path = tmp_path / "first-run" / "store.db"
+    create_dialog = main_module.DatabaseBootstrapDialog(str(new_path))
+    create_dialog._validate_and_accept()
+    assert create_dialog.selected_path == str(new_path)
+    assert not new_path.exists()
+    create_dialog.close()
+
+    existing_path = tmp_path / "existing.db"
+    DatabaseManager(str(existing_path))
+    connect_dialog = main_module.DatabaseBootstrapDialog(str(existing_path))
+    connect_dialog.rb_existing.setChecked(True)
+    connect_dialog._validate_and_accept()
+    assert connect_dialog.selected_path == str(existing_path)
+    connect_dialog.close()
+
+
+def test_sale_batch_picker_shows_only_distinguishing_specifications(tmp_path, monkeypatch, qapp):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    manager.add_product(
+        "P-2000", "", "لپ‌تاپ", "لپ‌تاپ عمومی / مالتی‌مدیا",
+        "ASUS", "G551", {"CPU": "Core i7", "RAM": "8GB"}, "", 1, 20,
+    )
+    with manager.get_connection() as conn:
+        product_id = conn.execute(
+            "SELECT id FROM products WHERE code='P-2000'"
+        ).fetchone()["id"]
+
+    manager.add_batch(
+        "C-2001", product_id, None, None, "PO-1", "1405/01/01", 2,
+        100, 0, 150, 0, "", "CPU: Core i7 | RAM: 8GB | SSD: 512GB",
+        "سری اول", "تسویه‌نشده",
+    )
+    manager.add_batch(
+        "C-2002", product_id, None, None, "PO-2", "1405/01/02", 2,
+        100, 0, 150, 0, "", "CPU: Core i7 | RAM: 16GB | SSD: 512GB",
+        "سری دوم", "تسویه‌نشده",
+    )
+
+    window = MainWindow(manager, active_employee=None)
+    try:
+        assert window.cb_sale_prod.count() == 1
+        assert strip_bidi_controls(window.cb_sale_prod.itemText(0)) == (
+            "P-2000 | لپ‌تاپ عمومی / مالتی‌مدیا | ASUS G551"
+        )
+        assert window.cb_sale_batch.count() == 2
+
+        labels = [
+            strip_bidi_controls(window.cb_sale_batch.itemText(index))
+            for index in range(window.cb_sale_batch.count())
+        ]
+        assert any("RAM: 8GB" in label for label in labels)
+        assert any("RAM: 16GB" in label for label in labels)
+        assert all("CPU:" not in label and "SSD:" not in label for label in labels)
+
+        missing_spec_labels = MainWindow._batch_variant_labels([
+            {"id": 1, "final_specs": "CPU: Core i7 | RAM: 8GB"},
+            {"id": 2, "final_specs": "CPU: Core i7"},
+        ])
+        assert missing_spec_labels[2] == "RAM: ثبت نشده"
+
+        tooltips = [
+            strip_bidi_controls(window.cb_sale_batch.itemData(index, Qt.ToolTipRole))
+            for index in range(window.cb_sale_batch.count())
+        ]
+        assert any("RAM: 8GB" in tooltip for tooltip in tooltips)
+        assert any("RAM: 16GB" in tooltip for tooltip in tooltips)
+        assert all("CPU: Core i7" not in tooltip and "SSD: 512GB" not in tooltip for tooltip in tooltips)
+        assert all("مشخصات اولیه" not in tooltip for tooltip in tooltips)
+
+        window.cb_sale_batch._search_proxy.set_query("SSD: 512GB")
+        assert window.cb_sale_batch._search_proxy.rowCount() == 2
+        window.cb_sale_batch._search_proxy.set_query("16GB")
+        assert window.cb_sale_batch._search_proxy.rowCount() == 1
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
+def test_settings_are_drafts_until_saved_and_recent_database_x_keeps_the_file(
+    tmp_path, monkeypatch, qapp
+):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    monkeypatch.setattr(
+        main_module.QMessageBox, "information", lambda *args, **kwargs: None
+    )
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    manager.cfg["auto_backup_interval_min"] = 60
+    manager.cfg["default_profit_pct"] = 20
+    database_module.save_app_config(manager.cfg)
+
+    other_path = tmp_path / "other" / "other.db"
+    DatabaseManager(str(other_path))
+    window = MainWindow(manager, active_employee=None)
+    try:
+        assert window.sp_bk_interval.value() == 60
+        assert window.sp_set_profit.value() == 20
+
+        window.sp_bk_interval.setValue(15)
+        window.sp_set_profit.setValue(45)
+        window.tabs.setCurrentIndex(0)
+        window.tabs.setCurrentIndex(window._settings_tab_index)
+
+        # Leaving Settings and returning must discard unsaved edits.
+        assert window.sp_bk_interval.value() == 60
+        assert window.sp_set_profit.value() == 20
+
+        manager.cfg["recent_databases"] = [manager.db_path, str(other_path)]
+        database_module.save_app_config(manager.cfg)
+        window._refresh_multi_db_combo()
+        assert window.lst_recent_databases.count() == 2
+        active_widget = window.lst_recent_databases.itemWidget(
+            window.lst_recent_databases.item(0)
+        )
+        active_x = [
+            button for button in active_widget.findChildren(QToolButton)
+            if button.text() == "×"
+        ][0]
+        assert not active_x.isEnabled()
+
+        other_widget = window.lst_recent_databases.itemWidget(
+            window.lst_recent_databases.item(1)
+        )
+        other_x = [
+            button for button in other_widget.findChildren(QToolButton)
+            if button.text() == "×"
+        ][0]
+        assert other_x.isEnabled()
+        other_x.click()
+        assert window.lst_recent_databases.count() == 1
+        assert os.path.isfile(other_path)  # X removes the recent path, not the file.
+
+        window.sp_bk_interval.setValue(25)
+        window.sp_set_profit.setValue(35)
+        window._save_general_settings()
+        assert manager.cfg["auto_backup_interval_min"] == 25
+        assert manager.cfg["default_profit_pct"] == 35
+
+        reloaded = DatabaseManager(str(tmp_path / "shop.db"))
+        assert reloaded.cfg["auto_backup_interval_min"] == 25
+        assert reloaded.cfg["default_profit_pct"] == 35
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
+def test_jalali_calendar_uses_theme_and_readable_day_cells(tmp_path, monkeypatch, qapp):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    window = MainWindow(manager, active_employee=None)
+    try:
+        manager.cfg["theme"] = "dark"
+        calendar = JalaliCalendarDialog("1405/01/01", window)
+        try:
+            assert calendar.width() >= 450
+            assert calendar.height() >= 420
+            assert calendar.day_buttons[0].width() >= 48
+            assert "#263244" in calendar.styleSheet()
+        finally:
+            calendar.close()
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
+
+def test_custom_attribute_form_and_table_labels_are_independent(tmp_path, monkeypatch, qapp):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    manager.save_product_catalog_config({
+        "categories": ["قطعات"],
+        "subcategories": {"قطعات": ["پردازنده (CPU)"]},
+        "attributes": {"قطعات": [{
+            "name": "CPU",
+            "label": "پردازنده (CPU)",
+            "display_name": "مدل پردازنده",
+            "values": ["Core i5", "Core i7"],
+            "subcategory": "پردازنده (CPU)",
+        }]},
+        "colors": [],
+    })
+    window = MainWindow(manager, active_employee=None)
+    try:
+        assert "CPU" in window.specs_widget.fields
+        field_widget = window.specs_widget.fields["CPU"]
+        assert field_widget.toolTip() == "مشخصه سفارشی: پردازنده (CPU)"
+        field_label = window.specs_widget.form_layout.labelForField(field_widget)
+        assert field_label.text() == "پردازنده (CPU):"
+        assert window._format_specs_for_display({"CPU": "Core i7"}, "قطعات") == (
+            "مدل پردازنده: Core i7"
+        )
+        assert window._format_specs_for_tooltip({"CPU": "Core i7"}, "قطعات") == (
+            "مدل پردازنده: Core i7"
+        )
+        definition = window.catalog_config["attributes"]["قطعات"][0]
+        definition.pop("display_name")
+        assert window._format_specs_for_display({"CPU": "Core i7"}, "قطعات") == (
+            "پردازنده (CPU): Core i7"
+        )
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
+def test_database_records_move_to_top_after_edit(tmp_path, monkeypatch):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    manager.add_product(
+        "P-3001", "", "لپ‌تاپ", "عمومی", "ASUS", "A1", {}, "", 1, 20
+    )
+    manager.add_product(
+        "P-3002", "", "لپ‌تاپ", "عمومی", "HP", "H1", {}, "", 1, 20
+    )
+    with manager.get_connection() as conn:
+        first_id = conn.execute(
+            "SELECT id FROM products WHERE code='P-3001'"
+        ).fetchone()["id"]
+        second_id = conn.execute(
+            "SELECT id FROM products WHERE code='P-3002'"
+        ).fetchone()["id"]
+    with manager.get_connection() as conn:
+        before = conn.execute(
+            "SELECT updated_at FROM products WHERE id=?", (first_id,)
+        ).fetchone()["updated_at"]
+        conn.execute("UPDATE products SET model='A1-Pro' WHERE id=?", (first_id,))
+        after = conn.execute(
+            "SELECT updated_at FROM products WHERE id=?", (first_id,)
+        ).fetchone()["updated_at"]
+        ordered = conn.execute(
+            "SELECT id FROM products ORDER BY updated_at DESC, id DESC"
+        ).fetchall()
+    assert after > before
+    assert [row["id"] for row in ordered] == [first_id, second_id]
+
+
+def test_settings_sections_start_collapsed(tmp_path, monkeypatch, qapp):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    window = MainWindow(manager, active_employee=None)
+    try:
+        from utils_and_widgets import CollapsibleSection
+        sections = window.findChildren(CollapsibleSection)
+        assert sections
+        assert all(not section._expanded for section in sections)
+        section = sections[0]
+        section.header.click()
+        qapp.processEvents()
+        assert section._expanded
+        assert not section.content.isHidden()
+        section.header.click()
+        qapp.processEvents()
+        assert not section._expanded
+        assert section.content.isHidden()
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
+def test_autogenerated_codes_are_placeholders_on_first_load(tmp_path, monkeypatch, qapp):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    window = MainWindow(manager, active_employee=None)
+    try:
+        fields = [
+            (window.ed_prod_code, "P-1001"),
+            (window.ed_batch_code, "C-1001"),
+            (window.ed_sale_inv, "INV-1001"),
+            (window.ed_srv_code, "S-1001"),
+        ]
+        for edit, next_code in fields:
+            assert edit.text() == ""
+            assert edit.placeholderText() == next_code
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
+def test_inventory_bound_quantities_are_not_editable(tmp_path, monkeypatch, qapp):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    window = MainWindow(manager, active_employee=None)
+    try:
+        assert not window.cb_sale_qty.isEditable()
+        assert not window.cb_upg_target_qty.isEditable()
+        assert not window.cb_upg_part_qty.isEditable()
+        assert window.cb_batch_qty.isEditable()
+        assert not window.cb_prod_cat.isEditable()
+        assert not window.specs_widget.cb_sub.isEditable()
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
+def test_calendar_year_range_and_day_picker_are_consistent(qapp):
+    calendar = JalaliCalendarDialog("1405/01/15")
+    try:
+        years = [calendar.cb_year.itemText(i) for i in range(calendar.cb_year.count())]
+        assert years[0] == "1400"
+        assert years[-1] == "1600"
+        assert len(years) == 201
+        assert calendar.cb_day.count() == 31
+
+        calendar.cb_month.setCurrentIndex(calendar.cb_month.findData(3))
+        assert calendar.cb_day.model().item(30).isEnabled()
+        calendar.cb_month.setCurrentIndex(calendar.cb_month.findData(7))
+        assert not calendar.cb_day.model().item(30).isEnabled()
+    finally:
+        calendar.close()
+
+
+def test_bidi_isolates_preserve_latin_specs_without_reversing_them():
+    mixed = "نوع RAM: 12GB و مدل CPU: Core i7"
+    rendered = bidi_isolate_text(mixed)
+    assert strip_bidi_controls(rendered) == mixed
+    assert "\u2066RAM:\u2069" in rendered
+    assert "\u206612GB\u2069" in rendered
+    assert "GB21" not in rendered
+
+
+def test_price_input_selects_the_full_amount_on_focus(tmp_path, monkeypatch, qapp):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    edit = PriceInput(manager)
+    try:
+        edit.set_value(1234567)
+        edit.show()
+        edit.setFocus()
+        qapp.processEvents()
+        assert edit.selectedText() == edit.text()
+    finally:
+        edit.close()
+        qapp.processEvents()
+
+
+def test_sale_clear_form_resets_values_and_keeps_next_invoice_as_placeholder(
+    tmp_path, monkeypatch, qapp
+):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    manager.add_product(
+        "P-2000", "", "لپ‌تاپ", "لپ‌تاپ عمومی / مالتی‌مدیا",
+        "ASUS", "G551", {"RAM": "8GB"}, "", 1, 20,
+    )
+    with manager.get_connection() as conn:
+        product_id = conn.execute(
+            "SELECT id FROM products WHERE code='P-2000'"
+        ).fetchone()["id"]
+    manager.add_batch(
+        "C-2000", product_id, None, None, "PO-2000", "1405/01/01", 3,
+        100, 0, 150, 0, "", "RAM: 8GB", "", "تسویه‌نشده",
+    )
+
+    window = MainWindow(manager, active_employee=None)
+    try:
+        today = __import__("jdatetime").date.today().strftime("%Y/%m/%d")
+        window.ed_sale_inv.setText("MANUAL-INV")
+        window.ed_sale_customer.setText("مشتری آزمایشی")
+        window.ed_war_company.setText("Warranty")
+        window.ed_sale_serial.setText("SERIAL-1")
+        window.dt_war_start.set_date("1404/01/01")
+        window.dt_war_end.set_date("1404/02/01")
+        window.pr_sale_actual.set_value(999)
+        window._clear_sale_form()
+
+        assert window.selected_sale_id is None
+        assert window.ed_sale_inv.text() == ""
+        assert window.ed_sale_inv.placeholderText() == "INV-1001"
+        assert window.ed_sale_customer.text() == ""
+        assert window.ed_war_company.text() == ""
+        assert window.ed_sale_serial.text() == ""
+        assert window.dt_war_start.get_date() == today
+        assert window.dt_war_end.get_date() == today
+        assert window.cb_sale_qty.currentText() == "1"
+        assert not window.cb_sale_qty.isEditable()
+        assert window.cb_sale_prod.currentData() is None
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
+def test_technical_attributes_follow_selected_subcategory_and_are_editable(
+    tmp_path, monkeypatch, qapp
+):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    manager.save_product_catalog_config({
+        "categories": ["قطعات"],
+        "subcategories": {
+            "قطعات": ["پردازنده (CPU)", "کارت گرافیک (Graphic Card)"]
+        },
+        "attributes": {
+            "قطعات": [
+                {
+                    "name": "TDP",
+                    "values": ["45W", "65W"],
+                    "subcategory": "پردازنده (CPU)",
+                },
+                {
+                    "name": "VRAM",
+                    "values": ["4GB", "8GB"],
+                    "subcategory": "کارت گرافیک (Graphic Card)",
+                },
+            ]
+        },
+        "colors": ["مشکی"],
+    })
+
+    window = MainWindow(manager, active_employee=None)
+    try:
+        assert window.cb_prod_cat.currentText() == "قطعات"
+        assert "TDP" in window.specs_widget.fields
+        assert "VRAM" not in window.specs_widget.fields
+        assert window.specs_widget.fields["TDP"].count() == 3
+
+        window.specs_widget.cb_sub.setCurrentText("کارت گرافیک (Graphic Card)")
+        assert "VRAM" in window.specs_widget.fields
+        assert "TDP" not in window.specs_widget.fields
+        assert window.specs_widget.fields["VRAM"].count() == 3
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
+
+def test_taxonomy_attribute_rename_and_pending_category_delete_preserve_product_data(
+    tmp_path, monkeypatch, qapp
+):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    monkeypatch.setattr(
+        main_module.QMessageBox, "information", lambda *args, **kwargs: None
+    )
+    monkeypatch.setattr(
+        main_module.QMessageBox, "warning", lambda *args, **kwargs: None
+    )
+
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    manager.add_product(
+        "P-TAX-1", "", "قطعات", "پردازنده (CPU)",
+        "Intel", "i5", {"TDP": "65W", "رنگ": "مشکی"}, "", 1, 20,
+    )
+
+    manager.save_product_catalog_config({
+        "categories": ["قطعات"],
+        "subcategories": {"قطعات": ["پردازنده (CPU)"]},
+        "attributes": {
+            "قطعات": [
+                {
+                    "name": "TDP",
+                    "values": ["45W", "65W"],
+                    "subcategory": "پردازنده (CPU)",
+                }
+            ]
+        },
+        "colors": ["مشکی"],
+    })
+
+    window = MainWindow(manager, active_employee=None)
+    try:
+        window.cb_cfg_category.setCurrentText("قطعات")
+        attribute_item = window.lst_cfg_attributes.item(0)
+        window.lst_cfg_attributes.setCurrentItem(attribute_item)
+        window.ed_cfg_attribute_name.setText("توان مصرفی")
+        window._update_catalog_attribute()
+
+        # Renaming the category and deleting it before Save must not bypass the
+        # guard for existing records whose category is still stored under the old name.
+        window.ed_cfg_category.setText("سخت‌افزار")
+        window._rename_catalog_category()
+        assert window.cb_cfg_category.currentText() == "سخت‌افزار"
+        window._delete_catalog_category()
+        assert "سخت‌افزار" in window._taxonomy_draft["categories"]
+
+        window._save_general_settings()
+        assert window.cb_rep_cat.findText("سخت‌افزار") >= 0
+        with manager.get_connection() as conn:
+            product = conn.execute(
+                "SELECT category, specs_json FROM products WHERE code='P-TAX-1'"
+            ).fetchone()
+        specs = __import__("json").loads(product["specs_json"])
+        assert product["category"] == "سخت‌افزار"
+        assert specs["توان مصرفی"] == "65W"
+        assert "TDP" not in specs
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
+def test_create_database_dialog_does_not_default_to_overwriting_invalid_file(
+    tmp_path, monkeypatch, qapp
+):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    monkeypatch.setattr(
+        main_module.QMessageBox,
+        "critical",
+        lambda *args, **kwargs: None,
+    )
+
+    corrupt = tmp_path / "corrupt.db"
+    corrupt.write_text("not a sqlite database", encoding="utf-8")
+    valid_path = tmp_path / "valid.db"
+    manager = DatabaseManager(str(valid_path))
+    del manager
+    assert main_module._is_valid_sqlite_database_file(str(valid_path))
+
+    # A different, healthy SQLite file is not automatically an accounting DB.
+    unrelated = tmp_path / "unrelated.db"
+    with database_module.sqlite3.connect(unrelated) as conn:
+        conn.execute("CREATE TABLE unrelated_records (id INTEGER PRIMARY KEY)")
+
+    for selected_path in (corrupt, unrelated):
+        dialog = main_module.DatabaseBootstrapDialog(str(selected_path))
+        dialog.rb_existing.setChecked(True)
+        dialog._validate_and_accept()
+        assert dialog.selected_path is None
+        dialog.close()

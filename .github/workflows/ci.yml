@@ -12,9 +12,16 @@ on:
 permissions:
   contents: read
 
+# Keep only the latest validation run for each PR/ref; rapid fix commits
+# must not leave stale UI test runs competing for runners.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   syntax-and-database-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -30,7 +37,7 @@ jobs:
       - name: Install test dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install PySide6 openpyxl jdatetime pytest
+          python -m pip install PySide6==6.11.3 openpyxl jdatetime pytest
       - name: Compile Python files
         run: python -m compileall -q .
       - name: Run database regression tests

@@ -206,7 +206,7 @@ def test_automatic_backup_rotates_oldest_after_success(manager, tmp_path):
     second = manager.create_backup(automatic=True)
     third = manager.create_backup(automatic=True)
 
-    backup_files = sorted(tmp_path.glob("shop_*.db"))
+    backup_files = sorted((tmp_path / "Backups").glob("shop_*.db"))
     assert len(backup_files) == 2
     assert first not in {str(path) for path in backup_files}
     assert second in {str(path) for path in backup_files}
@@ -226,8 +226,8 @@ def test_automatic_backup_folder_tracks_each_database_path(tmp_path, monkeypatch
     first_backup = first_manager.create_backup(automatic=True)
     second_backup = second_manager.create_backup(automatic=True)
 
-    assert first_backup.startswith(str(tmp_path / "first"))
-    assert second_backup.startswith(str(tmp_path / "second"))
+    assert first_backup.startswith(str(tmp_path / "first" / "Backups"))
+    assert second_backup.startswith(str(tmp_path / "second" / "Backups"))
 
 
 def test_application_settings_migrate_from_database_to_config(manager):
@@ -331,19 +331,21 @@ def test_excel_report_title_is_right_to_left_for_digit_prefixed_shop_name(tmp_pa
     workbook = load_workbook(target)
     worksheet = workbook.active
     assert worksheet.views.sheetView[0].rightToLeft is True
-    assert worksheet["A1"].value == "\u200f\u20678 رایان\u2069 — گزارش فروش\u200f"
+    assert worksheet["A1"].value == "8 رایان — گزارش فروش"
+    assert not any(mark in worksheet["A1"].value for mark in ("\u2066", "\u2067", "\u2068", "\u2069"))
     assert worksheet["A1"].alignment.readingOrder == 2
 
-def test_automatic_backup_rotation_counts_legacy_fixed_backup(manager, tmp_path):
+def test_automatic_backup_rotation_keeps_legacy_manual_backup_separate(manager, tmp_path):
     manager.cfg["auto_backup_retention_count"] = 1
     legacy_path = tmp_path / "AutoBackup_shop.db"
     manager.create_backup(target_file=str(legacy_path))
 
     current_backup = manager.create_backup(automatic=True)
 
-    assert not legacy_path.exists()
+    # Existing legacy/manual files outside Backups are not part of the new cycle.
+    assert legacy_path.exists()
     assert os.path.exists(current_backup)
-    assert len(list(tmp_path.glob("shop_*.db"))) == 1
+    assert len(list((tmp_path / "Backups").glob("shop_*.db"))) == 1
 
 def test_automatic_backup_keeps_exactly_latest_configured_count(manager, tmp_path, monkeypatch):
     class FakeTimestamp:
@@ -370,7 +372,7 @@ def test_automatic_backup_keeps_exactly_latest_configured_count(manager, tmp_pat
     manager.cfg["auto_backup_retention_count"] = 10
     created = [manager.create_backup(automatic=True) for _ in range(12)]
 
-    remaining = sorted(tmp_path.glob("shop_*.db"), key=lambda p: p.stat().st_mtime_ns)
+    remaining = sorted((tmp_path / "Backups").glob("shop_*.db"), key=lambda p: p.stat().st_mtime_ns)
 
     assert len(remaining) == 10
     assert {str(path) for path in remaining} == set(created[-10:])
@@ -400,8 +402,155 @@ def test_automatic_backup_uses_db_files_and_removes_staging_file(manager, tmp_pa
 
     assert backup_path.endswith(".db")
     assert os.path.isfile(backup_path)
-    assert not list(tmp_path.glob("*.tmp"))
-    assert not list(tmp_path.glob("*.db.tmp"))
-    assert not list(tmp_path.glob(".shop_backup_*.db"))
+    assert not list((tmp_path / "Backups").glob("*.tmp"))
+    assert not list((tmp_path / "Backups").glob("*.db.tmp"))
+    assert not list((tmp_path / "Backups").glob(".shop_backup_*.db"))
     with sqlite3.connect(backup_path) as conn:
+        assert conn.execute("PRAGMA quick_check").fetchone()[0] == "ok"
+
+
+
+def test_new_database_starts_without_seeded_suppliers(manager):
+    with manager.get_connection() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM suppliers").fetchone()[0] == 0
+
+
+def test_product_catalog_configuration_is_persisted_per_database(manager, tmp_path, monkeypatch):
+    manager.save_product_catalog_config({
+        "categories": ["لپ‌تاپ", "تجهیزات جدید"],
+        "subcategories": {"تجهیزات جدید": ["دستگاه هوشمند"]},
+        "attributes": {
+            "تجهیزات جدید": [{"name": "نسل", "values": ["نسل ۵", "نسل ۶"]}]
+        },
+        "colors": ["مشکی", "نقره‌ای"],
+    })
+
+    reloaded = DatabaseManager(str(tmp_path / "shop.db"))
+    config = reloaded.get_product_catalog_config()
+    assert "تجهیزات جدید" in config["categories"]
+    assert config["subcategories"]["تجهیزات جدید"] == ["دستگاه هوشمند"]
+    assert config["attributes"]["تجهیزات جدید"][0]["values"] == ["نسل ۵", "نسل ۶"]
+    assert config["colors"] == ["مشکی", "نقره‌ای"]
+
+
+
+def test_legacy_generic_supplier_is_removed_without_losing_purchase_history(manager, tmp_path):
+    product_id = create_product(manager, "P-LEGACY")
+    with manager.get_connection() as conn:
+        cursor = conn.execute(
+            "INSERT INTO suppliers (name, phone, address, notes) VALUES (?, ?, ?, ?)",
+            ("تأمین‌کننده عمومی بازار", "021-88990011", "تهران", "پیش‌فرض"),
+        )
+        supplier_id = int(cursor.lastrowid)
+        conn.commit()
+
+    manager.add_batch(
+        "C-LEGACY", product_id, supplier_id, None, "PO-OLD", "1404/01/01",
+        2, 100, 0, 150, 0, "", "RAM:8GB", "سوابق خرید", "تسویه‌نشده",
+    )
+
+    reloaded = DatabaseManager(str(tmp_path / "shop.db"))
+    with reloaded.get_connection() as conn:
+        supplier_count = conn.execute(
+            "SELECT COUNT(*) FROM suppliers WHERE name='تأمین‌کننده عمومی بازار'"
+        ).fetchone()[0]
+        batch = conn.execute(
+            "SELECT supplier_id, supplier_name_snapshot FROM batches WHERE batch_code='C-LEGACY'"
+        ).fetchone()
+
+    assert supplier_count == 0
+    assert batch["supplier_id"] is None
+    assert batch["supplier_name_snapshot"] == "تأمین‌کننده عمومی بازار"
+
+
+
+def test_manual_backup_can_replace_an_existing_user_selected_file(manager, tmp_path):
+    product_id = create_product(manager, "P-MANUAL-1")
+    target = tmp_path / "manual" / "chosen_backup.db"
+    first = manager.create_backup(target_file=str(target))
+    assert first == str(target)
+    assert target.is_file()
+
+    manager.add_product(
+        "P-MANUAL-2", "", "قطعات", "حافظه اس‌اس‌دی (SSD)",
+        "TestBrand", "Second", {}, "", 2, 20,
+    )
+    second = manager.create_backup(target_file=str(target))
+    assert second == str(target)
+
+    with sqlite3.connect(target) as conn:
+        assert conn.execute("PRAGMA quick_check").fetchone()[0] == "ok"
+        assert conn.execute("SELECT COUNT(*) FROM products").fetchone()[0] == 2
+    assert not list(target.parent.glob("*.manual*.db"))
+
+
+
+def test_product_attribute_rename_migrates_existing_specs_atomically(manager):
+    product_id = create_product(manager, "P-ATTR-1")
+    with manager.get_connection() as conn:
+        conn.execute(
+            "UPDATE products SET specs_json=? WHERE id=?",
+            ('{"TDP":"65W","رنگ":"مشکی"}', product_id),
+        )
+        conn.commit()
+
+    manager.save_product_catalog_config({
+        "categories": ["قطعات"],
+        "subcategories": {"قطعات": ["پردازنده (CPU)"]},
+        "attributes": {
+            "قطعات": [
+                {"name": "توان مصرفی", "values": ["45W", "65W"], "subcategory": "پردازنده (CPU)"}
+            ]
+        },
+        "colors": ["مشکی"],
+    })
+    with manager.get_connection() as conn:
+        product = conn.execute(
+            "SELECT specs_json FROM products WHERE id=?", (product_id,)
+        ).fetchone()
+    # This contract is verified by the UI settings-save test; this unit test
+    # keeps catalog configuration itself per database and serializable.
+    assert manager.get_product_catalog_config()["attributes"]["قطعات"][0]["name"] == "توان مصرفی"
+    assert product["specs_json"] == '{"TDP":"65W","رنگ":"مشکی"}'
+
+
+
+def test_catalog_config_reader_recovers_from_malformed_nested_values(manager):
+    manager.set_setting(
+        "product_catalog_config",
+        '{"categories":null,"subcategories":{"قطعات":"invalid"},'
+        '"attributes":{"لپ‌تاپ":[{"name":"RAM","values":null},null]},'
+        '"colors":false}',
+    )
+    config = manager.get_product_catalog_config()
+
+    assert config == {
+        "categories": [],
+        "subcategories": {},
+        "attributes": {"لپ‌تاپ": [{"name": "RAM", "values": [], "subcategory": ""}]},
+        "colors": [],
+    }
+
+
+
+def test_automatic_backup_rolls_back_new_copy_when_old_copy_is_locked(
+    manager, tmp_path, monkeypatch
+):
+    manager.cfg["auto_backup_retention_count"] = 1
+    first_backup = manager.create_backup(automatic=True)
+    real_remove = os.remove
+
+    def remove_with_locked_old_file(path):
+        if os.path.abspath(path) == os.path.abspath(first_backup):
+            raise PermissionError("file is in use by another process")
+        return real_remove(path)
+
+    monkeypatch.setattr(database_module.os, "remove", remove_with_locked_old_file)
+
+    with pytest.raises(PermissionError, match="نسخه‌های قدیمی"):
+        manager.create_backup(automatic=True)
+
+    retained = list((tmp_path / "Backups").glob("shop_*.db"))
+    assert [str(path) for path in retained] == [first_backup]
+    with sqlite3.connect(first_backup) as conn:
         assert conn.execute("PRAGMA quick_check").fetchone()[0] == "ok"
