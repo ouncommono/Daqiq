@@ -35,6 +35,50 @@ def _rtl_report_title(shop_name: str, title: str) -> str:
     return f"{clean_shop_name} — {clean_title}" if clean_shop_name else clean_title
 
 
+def _format_catalog_specs(specs: dict, category: str, catalog_config: dict) -> str:
+    """Use the catalog's @reference rule in inventory exports as in the UI."""
+    definitions = catalog_config.get("attributes", {}).get(category or "", [])
+    by_name = {
+        str(item.get("name") or "").strip(): item
+        for item in definitions
+        if isinstance(item, dict) and str(item.get("name") or "").strip()
+    }
+    values = {}
+    order = []
+    deferred = []
+    for raw_name, raw_value in (specs or {}).items():
+        name = str(raw_name).strip()
+        value = str(raw_value or "").strip()
+        if not name or not value:
+            continue
+        title = str(by_name.get(name, {}).get("label") or "").strip()
+        if title.startswith("@"):
+            reference = title[1:].strip()
+            if reference:
+                deferred.append((reference, value))
+            continue
+        if name not in values:
+            order.append(name)
+            values[name] = value
+        else:
+            values[name] = f"{values[name]} {value}".strip()
+    for reference, value in deferred:
+        if reference not in values:
+            order.append(reference)
+            values[reference] = value
+        else:
+            values[reference] = f"{values[reference]} {value}".strip()
+    rendered = []
+    for name in order:
+        title = str(by_name.get(name, {}).get("label") or name).strip()
+        if not title or title.startswith("@"):
+            title = name
+        rendered.append(f"{title}: {_clean_excel_value(values[name])}")
+    return " | ".join(rendered)
+
+
+
+
 def _style_worksheet_professional(ws, title: str, headers: list, data_rows: list):
     """طراحی حرفه‌ای و چشم‌نواز جدول‌های اکسل با راست‌چین کامل، رنگ‌بندی متناوب و عرض خودکار"""
     ws.views.sheetView[0].rightToLeft = True
@@ -116,6 +160,7 @@ def export_safe_inventory_excel(db: DatabaseManager, file_path: str, shop_name: 
         "موجودی فعلی",
     ]
 
+    catalog_config = db.get_product_catalog_config()
     with db.get_connection() as conn:
         rows = conn.execute("""
             SELECT p.code, p.name, p.category, p.sub_category, p.brand, p.model,
@@ -137,7 +182,9 @@ def export_safe_inventory_excel(db: DatabaseManager, file_path: str, shop_name: 
         sub_text = r["sub_category"] or "-"
         brand_model = f"{r['brand']} {r['model']}".strip() or r["name"]
         specs_dict = json.loads(r["specs_json"] or "{}")
-        specs_str = " | ".join(f"{k}: {v}" for k, v in specs_dict.items())
+        specs_str = _format_catalog_specs(
+            specs_dict, r["category"], catalog_config
+        )
         if r["description"]:
             specs_str = (
                 f"{specs_str} - {r['description']}".strip(" -")
