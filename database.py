@@ -1404,10 +1404,8 @@ class DatabaseManager:
             )
             if not target_b or (part_batch_id is not None and not part_b):
                 raise ValueError("محموله هدف یا محموله قطعه یافت نشد.")
-            if int(target_b["remaining_qty"]) < target_qty:
-                raise ValueError(
-                    f"موجودی محموله هدف برای ارتقا کافی نیست. موجودی فعلی: {target_b['remaining_qty']} عدد."
-                )
+            # The target batch may be out of stock (for example, a customer-owned device).
+            # Upgrade never deducts target stock, so target availability is not a blocker.
             if part_b and consume_stock and int(part_b["remaining_qty"]) < part_qty_total:
                 raise ValueError(
                     f"موجودی قطعه ارتقا کافی نیست. موجودی فعلی: {part_b['remaining_qty']} عدد."
