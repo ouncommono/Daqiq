@@ -138,6 +138,28 @@ def test_upgrade_on_empty_target_with_manual_component_never_changes_stock(manag
     assert upgrade["stock_deducted_qty"] == 0
 
 
+def test_upgrade_backend_rejects_unconfirmed_insufficient_inventory(manager):
+    product_id = create_product(manager)
+    target_id = create_batch(manager, product_id, code="C-GUARD-TARGET")
+    part_id = create_batch(manager, product_id, code="C-GUARD-PART", quantity=1)
+    with manager.get_connection() as conn:
+        conn.execute(
+            "UPDATE batches SET remaining_qty=0, sold_qty=initial_qty WHERE id=?",
+            (part_id,),
+        )
+        conn.commit()
+
+    with pytest.raises(ValueError, match="موجودی قطعه کافی نیست"):
+        manager.upgrade_batch_product(
+            target_id, 1, part_id, 1, 10, "SSD: 1TB",
+            "1405/01/04", None, consume_stock=True,
+        )
+    with manager.get_connection() as conn:
+        assert conn.execute(
+            "SELECT COUNT(*) FROM upgrades"
+        ).fetchone()[0] == 0
+
+
 def test_confirmed_upgrade_with_unavailable_selected_component_does_not_go_negative(manager):
     product_id = create_product(manager)
     target_id = create_batch(manager, product_id, code="C-TARGET")
