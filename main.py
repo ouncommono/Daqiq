@@ -2873,7 +2873,10 @@ class MainWindow(QMainWindow):
         self._upgrade_original_part_qty_used = int(upgrade["part_qty_used"])
 
         # Keep exhausted historical batches selectable: editing reverses their old consumption first.
-        for batch in related_batches:
+        for batch_row in related_batches:
+            # sqlite3.Row supports keyed access but not dict.get(); normalize
+            # once because the hover formatter intentionally uses optional keys.
+            batch = dict(batch_row)
             batch_id = int(batch["id"])
             product_title = self._format_product_picker_label(dict(batch))
             label = f"{batch['batch_code']} | {product_title} | موجودی: {batch['remaining_qty']}"
