@@ -564,6 +564,19 @@ def test_password_requirement_is_confirmed_when_checkbox_is_enabled(tmp_path, mo
         window.chk_req_pass.setChecked(True)
         assert window.chk_req_pass.isChecked()
         assert not manager.cfg.get("require_login_password", False)
+
+        with manager.get_connection() as conn:
+            conn.execute(
+                "UPDATE employees SET password=? WHERE name=?",
+                ("stored-password-hash", "کارمند بدون رمز"),
+            )
+            conn.commit()
+        window.chk_req_pass.setChecked(False)
+        prompts.clear()
+        window.chk_req_pass.setChecked(True)
+        assert window.chk_req_pass.isChecked()
+        assert prompts and "تمام کارکنان فعال" in prompts[0][1]
+        assert "اطمینان دارید" in prompts[0][1]
     finally:
         window.close()
         qapp.processEvents()
