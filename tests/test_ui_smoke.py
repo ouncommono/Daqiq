@@ -130,15 +130,13 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
             if button.text() == "امنیت و ورود کاربران"
         )
         security_body = security_toggle.parentWidget().layout().itemAt(1).widget()
-        assert not security_toggle.isChecked()
+        assert not security_toggle.isCheckable()
         assert security_body.isHidden()
         QTest.mouseClick(security_toggle, Qt.LeftButton)
         qapp.processEvents()
-        assert security_toggle.isChecked()
         assert not security_body.isHidden()
         QTest.mouseClick(security_toggle, Qt.LeftButton)
         qapp.processEvents()
-        assert not security_toggle.isChecked()
         assert security_body.isHidden()
 
         assert isinstance(window.lst_cfg_subcategories, main_module.SmoothScrollListWidget)
