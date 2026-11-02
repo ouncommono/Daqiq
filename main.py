@@ -4458,7 +4458,9 @@ class MainWindow(QMainWindow):
 
     def _load_general_settings_form(self):
         cfg = self.db.cfg
+        self.chk_req_pass.blockSignals(True)
         self.chk_req_pass.setChecked(bool(cfg.get("require_login_password", False)))
+        self.chk_req_pass.blockSignals(False)
         self.sp_set_profit.setValue(int(float(cfg.get("default_profit_pct", 20))))
 
         zero_count = str(cfg.get("zero_append_count", 3))
@@ -5117,29 +5119,32 @@ class MainWindow(QMainWindow):
         if ext_path:
             self._switch_to_database_path(ext_path)
 
-    def _save_general_settings(self):
-        requested_password_policy = self.chk_req_pass.isChecked()
-        current_password_policy = bool(self.db.cfg.get("require_login_password", False))
-        effective_password_policy = requested_password_policy
+    def _confirm_password_policy_change(self, enabled):
+        """Ask for explicit confirmation at the moment password enforcement is enabled."""
+        if not enabled or bool(self.db.cfg.get("require_login_password", False)):
+            return
+        with self.db.get_connection() as conn:
+            missing_passwords = conn.execute(
+                """SELECT name FROM employees
+                   WHERE is_active=1 AND (password IS NULL OR TRIM(password)='') 
+                   ORDER BY updated_at DESC, id DESC"""
+            ).fetchall()
+        if not missing_passwords:
+            return
+        names = "\n".join(f"• {row['name']}" for row in missing_passwords)
+        message = (
+            "کارکنان زیر رمز عبور ندارند و پس از فعال‌سازی این قابلیت تا زمان تعریف رمز "
+            "نمی‌توانند وارد برنامه شوند:\n\n"
+            f"{names}\n\n"
+            "آیا از فعال‌کردن اجبار ورود با رمز عبور اطمینان دارید؟"
+        )
+        if not _ask_yes_no(self, "تأیید اجبار ورود با رمز عبور", message):
+            self.chk_req_pass.blockSignals(True)
+            self.chk_req_pass.setChecked(False)
+            self.chk_req_pass.blockSignals(False)
 
-        if requested_password_policy:
-            with self.db.get_connection() as conn:
-                missing_passwords = conn.execute(
-                    """SELECT name FROM employees
-                       WHERE is_active=1 AND (password IS NULL OR TRIM(password)='')"""
-                ).fetchall()
-            if missing_passwords:
-                names = "، ".join(row["name"] for row in missing_passwords[:6])
-                suffix = " و ..." if len(missing_passwords) > 6 else ""
-                QMessageBox.warning(
-                    self,
-                    "رمز عبور همه کارکنان لازم است",
-                    "اجبار رمز عبور فعال می‌شود؛ کارکنان زیر تا زمان تعیین رمز عبور نمی‌توانند وارد برنامه شوند:\n"
-                    + names + suffix,
-                )
-                # Enabling is permitted; users without a password are blocked at login
-                # and asked to contact an administrator until a password is created.
-                effective_password_policy = requested_password_policy
+    def _save_general_settings(self):
+        effective_password_policy = self.chk_req_pass.isChecked()
 
         try:
             # Apply taxonomy edits and persist the new configuration atomically.
