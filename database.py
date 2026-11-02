@@ -401,6 +401,52 @@ class DatabaseManager:
                         f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}"
                     )
 
+            # Add a last-modified timestamp to operational records. Triggers update it
+            # on both inserts and edits, allowing every screen to sort by recent activity
+            # without changing primary keys or breaking historical foreign-key links.
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS activity_clock (
+                    id INTEGER PRIMARY KEY CHECK (id=1),
+                    tick INTEGER NOT NULL DEFAULT 0
+                )
+            """)
+            conn.execute(
+                "INSERT OR IGNORE INTO activity_clock (id, tick) VALUES (1, 0)"
+            )
+            for table_name in (
+                "products", "batches", "sales", "upgrades", "service_catalog",
+                "service_records", "suppliers", "employees",
+            ):
+                columns = {
+                    row["name"]
+                    for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+                }
+                if "updated_at" not in columns:
+                    conn.execute(f"ALTER TABLE {table_name} ADD COLUMN updated_at TEXT")
+                conn.execute(f"""
+                    CREATE TRIGGER IF NOT EXISTS trg_{table_name}_updated_at_insert
+                    AFTER INSERT ON {table_name}
+                    FOR EACH ROW
+                    BEGIN
+                        UPDATE activity_clock SET tick = tick + 1 WHERE id = 1;
+                        UPDATE {table_name}
+                        SET updated_at = printf('%020d', (SELECT tick FROM activity_clock WHERE id=1))
+                        WHERE id = NEW.id;
+                    END
+                """)
+                conn.execute(f"""
+                    CREATE TRIGGER IF NOT EXISTS trg_{table_name}_updated_at_update
+                    AFTER UPDATE ON {table_name}
+                    FOR EACH ROW
+                    WHEN NEW.updated_at IS OLD.updated_at
+                    BEGIN
+                        UPDATE activity_clock SET tick = tick + 1 WHERE id = 1;
+                        UPDATE {table_name}
+                        SET updated_at = printf('%020d', (SELECT tick FROM activity_clock WHERE id=1))
+                        WHERE id = NEW.id;
+                    END
+                """)
+
             # Remove the exact legacy generic supplier from the selector on upgraded
             # databases too, but retain its historical name on linked purchase rows.
             legacy_supplier_rows = conn.execute(
@@ -536,6 +582,8 @@ class DatabaseManager:
                         values = []
                     normalized_items.append({
                         "name": name,
+                        "label": str(item.get("label", "") or "").strip(),
+                        "display_name": str(item.get("display_name", "") or "").strip(),
                         "values": list(dict.fromkeys(
                             str(value).strip() for value in values
                             if value is not None and str(value).strip()
@@ -601,6 +649,8 @@ class DatabaseManager:
                     raise ValueError(f"مقادیر مشخصهٔ «{name}» باید به‌صورت فهرست باشند.")
                 clean_items.append({
                     "name": name,
+                    "label": str(item.get("label", "") or "").strip(),
+                    "display_name": str(item.get("display_name", "") or "").strip(),
                     "values": list(dict.fromkeys(
                         str(value).strip() for value in values
                         if value is not None and str(value).strip()
@@ -1252,6 +1302,10 @@ class DatabaseManager:
             ).fetchone()
             if not target_b or not part_b:
                 raise ValueError("محموله هدف یا محموله قطعه یافت نشد.")
+            if int(target_b["remaining_qty"]) < target_qty:
+                raise ValueError(
+                    f"موجودی محموله هدف برای ارتقا کافی نیست. موجودی فعلی: {target_b['remaining_qty']} عدد."
+                )
             if int(part_b["remaining_qty"]) < part_qty_total:
                 raise ValueError(
                     f"موجودی قطعه ارتقا کافی نیست. موجودی فعلی: {part_b['remaining_qty']} عدد."

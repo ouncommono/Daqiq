@@ -19,7 +19,13 @@ import database as database_module
 import main as main_module
 from database import DatabaseManager
 from main import MainWindow, SmoothScrollArea
-from utils_and_widgets import JalaliCalendarDialog, _animate_scrollbar
+from utils_and_widgets import (
+    JalaliCalendarDialog,
+    PriceInput,
+    _animate_scrollbar,
+    bidi_isolate_text,
+    strip_bidi_controls,
+)
 
 
 @pytest.fixture(scope="session")
@@ -341,13 +347,13 @@ def test_sale_batch_picker_shows_only_distinguishing_specifications(tmp_path, mo
     window = MainWindow(manager, active_employee=None)
     try:
         assert window.cb_sale_prod.count() == 1
-        assert window.cb_sale_prod.itemText(0) == (
+        assert strip_bidi_controls(window.cb_sale_prod.itemText(0)) == (
             "P-2000 | لپ‌تاپ عمومی / مالتی‌مدیا | ASUS G551"
         )
         assert window.cb_sale_batch.count() == 2
 
         labels = [
-            window.cb_sale_batch.itemText(index)
+            strip_bidi_controls(window.cb_sale_batch.itemText(index))
             for index in range(window.cb_sale_batch.count())
         ]
         assert any("RAM: 8GB" in label for label in labels)
@@ -361,7 +367,7 @@ def test_sale_batch_picker_shows_only_distinguishing_specifications(tmp_path, mo
         assert missing_spec_labels[2] == "RAM: ثبت نشده"
 
         tooltips = [
-            window.cb_sale_batch.itemData(index, Qt.ToolTipRole)
+            strip_bidi_controls(window.cb_sale_batch.itemData(index, Qt.ToolTipRole))
             for index in range(window.cb_sale_batch.count())
         ]
         assert all("CPU: Core i7" in tooltip and "SSD: 512GB" in tooltip for tooltip in tooltips)
@@ -462,6 +468,193 @@ def test_jalali_calendar_uses_theme_and_readable_day_cells(tmp_path, monkeypatch
         window.close()
         qapp.processEvents()
 
+
+
+def test_custom_attribute_form_and_table_labels_are_independent(tmp_path, monkeypatch, qapp):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    manager.save_product_catalog_config({
+        "categories": ["قطعات"],
+        "subcategories": {"قطعات": ["پردازنده (CPU)"]},
+        "attributes": {"قطعات": [{
+            "name": "CPU",
+            "label": "پردازنده (CPU)",
+            "display_name": "مدل پردازنده",
+            "values": ["Core i5", "Core i7"],
+            "subcategory": "پردازنده (CPU)",
+        }]},
+        "colors": [],
+    })
+    window = MainWindow(manager, active_employee=None)
+    try:
+        assert "CPU" in window.specs_widget.fields
+        field_widget = window.specs_widget.fields["CPU"]
+        assert field_widget.toolTip() == "مشخصه سفارشی: پردازنده (CPU)"
+        field_label = window.specs_widget.form_layout.labelForField(field_widget)
+        assert field_label.text() == "پردازنده (CPU):"
+        assert window._format_specs_for_display({"CPU": "Core i7"}, "قطعات") == (
+            "مدل پردازنده: Core i7"
+        )
+        assert window._format_specs_for_tooltip({"CPU": "Core i7"}, "قطعات") == (
+            "مدل پردازنده: Core i7"
+        )
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
+def test_database_records_move_to_top_after_edit(tmp_path, monkeypatch):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    manager.add_product(
+        "P-3001", "", "لپ‌تاپ", "عمومی", "ASUS", "A1", {}, "", 1, 20
+    )
+    manager.add_product(
+        "P-3002", "", "لپ‌تاپ", "عمومی", "HP", "H1", {}, "", 1, 20
+    )
+    with manager.get_connection() as conn:
+        first_id = conn.execute(
+            "SELECT id FROM products WHERE code='P-3001'"
+        ).fetchone()["id"]
+        second_id = conn.execute(
+            "SELECT id FROM products WHERE code='P-3002'"
+        ).fetchone()["id"]
+    with manager.get_connection() as conn:
+        before = conn.execute(
+            "SELECT updated_at FROM products WHERE id=?", (first_id,)
+        ).fetchone()["updated_at"]
+        conn.execute("UPDATE products SET model='A1-Pro' WHERE id=?", (first_id,))
+        after = conn.execute(
+            "SELECT updated_at FROM products WHERE id=?", (first_id,)
+        ).fetchone()["updated_at"]
+        ordered = conn.execute(
+            "SELECT id FROM products ORDER BY updated_at DESC, id DESC"
+        ).fetchall()
+    assert after > before
+    assert [row["id"] for row in ordered] == [first_id, second_id]
+
+
+def test_settings_sections_start_collapsed(tmp_path, monkeypatch, qapp):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    window = MainWindow(manager, active_employee=None)
+    try:
+        from utils_and_widgets import CollapsibleSection
+        sections = window.findChildren(CollapsibleSection)
+        assert sections
+        assert all(not section.header.isChecked() for section in sections)
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
+def test_inventory_bound_quantities_are_not_editable(tmp_path, monkeypatch, qapp):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    window = MainWindow(manager, active_employee=None)
+    try:
+        assert not window.cb_sale_qty.isEditable()
+        assert not window.cb_upg_target_qty.isEditable()
+        assert not window.cb_upg_part_qty.isEditable()
+        assert window.cb_batch_qty.isEditable()
+        assert not window.cb_prod_cat.isEditable()
+        assert not window.specs_widget.cb_sub.isEditable()
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
+def test_calendar_year_range_and_day_picker_are_consistent(qapp):
+    calendar = JalaliCalendarDialog("1405/01/15")
+    try:
+        years = [calendar.cb_year.itemText(i) for i in range(calendar.cb_year.count())]
+        assert years[0] == "1400"
+        assert years[-1] == "1600"
+        assert len(years) == 201
+        assert calendar.cb_day.count() == 31
+
+        calendar.cb_month.setCurrentIndex(calendar.cb_month.findData(3))
+        assert calendar.cb_day.model().item(30).isEnabled()
+        calendar.cb_month.setCurrentIndex(calendar.cb_month.findData(7))
+        assert not calendar.cb_day.model().item(30).isEnabled()
+    finally:
+        calendar.close()
+
+
+def test_bidi_isolates_preserve_latin_specs_without_reversing_them():
+    mixed = "نوع RAM: 12GB و مدل CPU: Core i7"
+    rendered = bidi_isolate_text(mixed)
+    assert strip_bidi_controls(rendered) == mixed
+    assert "\u2066RAM:\u2069" in rendered
+    assert "\u206612GB\u2069" in rendered
+    assert "GB21" not in rendered
+
+
+def test_price_input_selects_the_full_amount_on_focus(tmp_path, monkeypatch, qapp):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    edit = PriceInput(manager)
+    try:
+        edit.set_value(1234567)
+        edit.show()
+        edit.setFocus()
+        qapp.processEvents()
+        assert edit.selectedText() == edit.text()
+    finally:
+        edit.close()
+        qapp.processEvents()
+
+
+def test_sale_clear_form_resets_values_and_keeps_next_invoice_as_placeholder(
+    tmp_path, monkeypatch, qapp
+):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    manager.add_product(
+        "P-2000", "", "لپ‌تاپ", "لپ‌تاپ عمومی / مالتی‌مدیا",
+        "ASUS", "G551", {"RAM": "8GB"}, "", 1, 20,
+    )
+    with manager.get_connection() as conn:
+        product_id = conn.execute(
+            "SELECT id FROM products WHERE code='P-2000'"
+        ).fetchone()["id"]
+    manager.add_batch(
+        "C-2000", product_id, None, None, "PO-2000", "1405/01/01", 3,
+        100, 0, 150, 0, "", "RAM: 8GB", "", "تسویه‌نشده",
+    )
+
+    window = MainWindow(manager, active_employee=None)
+    try:
+        today = __import__("jdatetime").date.today().strftime("%Y/%m/%d")
+        window.ed_sale_inv.setText("MANUAL-INV")
+        window.ed_sale_customer.setText("مشتری آزمایشی")
+        window.ed_war_company.setText("Warranty")
+        window.ed_sale_serial.setText("SERIAL-1")
+        window.dt_war_start.set_date("1404/01/01")
+        window.dt_war_end.set_date("1404/02/01")
+        window.pr_sale_actual.set_value(999)
+        window._clear_sale_form()
+
+        assert window.selected_sale_id is None
+        assert window.ed_sale_inv.text() == ""
+        assert window.ed_sale_inv.placeholderText() == "INV-1001"
+        assert window.ed_sale_customer.text() == ""
+        assert window.ed_war_company.text() == ""
+        assert window.ed_sale_serial.text() == ""
+        assert window.dt_war_start.get_date() == today
+        assert window.dt_war_end.get_date() == today
+        assert window.cb_sale_qty.currentText() == "1"
+        assert not window.cb_sale_qty.isEditable()
+        assert window.cb_sale_prod.currentData() is None
+    finally:
+        window.close()
+        qapp.processEvents()
 
 
 def test_technical_attributes_follow_selected_subcategory_and_are_editable(

@@ -1,5 +1,6 @@
 # utils_and_widgets.py
 import datetime
+import re
 import jdatetime
 from PySide6.QtWidgets import (
     QWidget,
@@ -33,6 +34,22 @@ from PySide6.QtGui import QIntValidator
 from PySide6.QtWidgets import QSizePolicy
 
 PERSIAN_ARABIC_MAP = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
+
+_LTR_TOKEN_RE = re.compile(
+    r"(?<![A-Za-z0-9])([A-Za-z][A-Za-z0-9._/+%-]*:|[A-Za-z][A-Za-z0-9._/+%-]*|\d+(?:[.,]\d+)?(?:[A-Za-z]+|%))"
+)
+_BIDI_CONTROL_RE = re.compile(r"[\u2066-\u2069\u200e\u200f]")
+
+
+def bidi_isolate_text(value) -> str:
+    """Keep Latin/number fragments in their logical order inside Persian UI text."""
+    text = "" if value is None else str(value)
+    return _LTR_TOKEN_RE.sub(lambda match: "\u2066" + match.group(1) + "\u2069", text)
+
+
+def strip_bidi_controls(value) -> str:
+    """Remove invisible directional controls before searching or parsing visible UI text."""
+    return _BIDI_CONTROL_RE.sub("", "" if value is None else str(value))
 
 # فهرست جامع دسته‌بندی‌های اصلی فروشگاه (بند ۱ و ۲)
 MAIN_CATEGORIES = [
@@ -412,6 +429,35 @@ class SmoothScrollListWidget(QListWidget):
             super().wheelEvent(event)
 
 
+class CollapsibleSection(QWidget):
+    """Compact, keyboard-accessible section whose content is collapsed by default."""
+
+    def __init__(self, title: str, content: QWidget, parent=None):
+        super().__init__(parent)
+        self.content = content
+        self.header = QPushButton(f"▸  {title}")
+        self.header.setCheckable(True)
+        self.header.setChecked(False)
+        self.header.setMinimumHeight(38)
+        self.header.setStyleSheet(
+            "QPushButton { text-align: right; font-weight: 700; padding: 8px 12px; "
+            "border: 1px solid #cbd5e1; border-radius: 7px; background: palette(base); }"
+            "QPushButton:checked { border-color: #64748b; }"
+        )
+        self.content.setVisible(False)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(5)
+        layout.addWidget(self.header)
+        layout.addWidget(self.content)
+        self.header.toggled.connect(self._set_expanded)
+
+    def _set_expanded(self, expanded: bool):
+        self.content.setVisible(expanded)
+        title = self.header.text().lstrip("▸▾ ").strip()
+        self.header.setText(("▾  " if expanded else "▸  ") + title)
+
+
 class SmartLineEdit(QLineEdit):
     """فیلد متنی که اعداد را انگلیسی و تمام حروف انگلیسی را به طور واقعی بزرگ (UPPERCASE) ذخیره می‌کند"""
 
@@ -456,6 +502,14 @@ class PriceInput(QLineEdit):
         self.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.textEdited.connect(self._on_edited)
         self.editingFinished.connect(self._apply_auto_zeros)
+
+    def focusInEvent(self, event):
+        super().focusInEvent(event)
+        self.selectAll()
+
+    def mousePressEvent(self, event):
+        super().mousePressEvent(event)
+        self.selectAll()
 
     def _on_edited(self, txt):
         self._raw_typed = True
@@ -655,13 +709,13 @@ class JalaliCalendarDialog(QDialog):
 
         self.cb_year = QComboBox()
         self.cb_year.setEditable(True)
-        self.cb_year.addItems([str(year) for year in range(1300, 1501)])
+        self.cb_year.addItems([str(year) for year in range(1400, 1601)])
         self.cb_year.setInsertPolicy(QComboBox.NoInsert)
         self.cb_year.setCurrentText(str(self.cur_year))
         self.cb_year.setMinimumWidth(115)
         self.cb_year.setMinimumHeight(38)
         self.cb_year.lineEdit().setAlignment(Qt.AlignCenter)
-        self.cb_year.lineEdit().setValidator(QIntValidator(1300, 1500, self.cb_year))
+        self.cb_year.lineEdit().setValidator(QIntValidator(1400, 1600, self.cb_year))
         self.cb_year.setStyleSheet("font-size: 15px; font-weight: bold;")
         self.cb_year.currentTextChanged.connect(self._refresh_grid)
 
@@ -688,6 +742,14 @@ class JalaliCalendarDialog(QDialog):
         self.cb_month.setCurrentIndex(self.cur_month - 1)
         self.cb_month.currentIndexChanged.connect(self._refresh_grid)
 
+        self.cb_day = QComboBox()
+        self.cb_day.setMinimumWidth(74)
+        self.cb_day.setMinimumHeight(38)
+        self.cb_day.setStyleSheet("font-size: 15px; font-weight: bold;")
+        self.cb_day.addItems([f"{day:02d}" for day in range(1, 32)])
+        self.cb_day.setCurrentIndex(max(0, min(30, self.cur_day - 1)))
+        self.cb_day.activated.connect(self._on_day_combo_activated)
+
         btn_today = QPushButton("برو به امروز")
         btn_today.setMinimumHeight(38)
         btn_today.clicked.connect(self._go_today)
@@ -696,17 +758,22 @@ class JalaliCalendarDialog(QDialog):
         lbl_y.setStyleSheet("font-weight: bold; font-size: 14px;")
         lbl_m = QLabel("ماه:")
         lbl_m.setStyleSheet("font-weight: bold; font-size: 14px;")
+        lbl_d = QLabel("روز:")
+        lbl_d.setStyleSheet("font-weight: bold; font-size: 14px;")
 
         year_row.addWidget(lbl_y)
         year_row.addWidget(self.cb_year)
         year_row.addStretch()
+        year_row.addWidget(btn_today)
         nav.addLayout(year_row)
 
         month_row = QHBoxLayout()
         month_row.addWidget(lbl_m)
         month_row.addWidget(self.cb_month)
+        month_row.addSpacing(8)
+        month_row.addWidget(lbl_d)
+        month_row.addWidget(self.cb_day)
         month_row.addStretch()
-        month_row.addWidget(btn_today)
         nav.addLayout(month_row)
         layout.addLayout(nav)
 
@@ -743,7 +810,19 @@ class JalaliCalendarDialog(QDialog):
         t = jdatetime.date.today()
         self.cb_year.setCurrentText(str(t.year))
         self.cb_month.setCurrentIndex(t.month - 1)
+        self.cb_day.setCurrentIndex(t.day - 1)
         self.selected_date = t.strftime("%Y/%m/%d")
+        self.accept()
+
+    def _on_day_combo_activated(self, index):
+        try:
+            year = int(normalize_digits(self.cb_year.currentText()))
+            month = int(self.cb_month.currentData())
+            day = int(self.cb_day.itemText(index))
+            jdatetime.date(year, month, day)
+        except (TypeError, ValueError):
+            return
+        self.selected_date = f"{year:04d}/{month:02d}/{day:02d}"
         self.accept()
 
     def _refresh_grid(self):
@@ -762,7 +841,7 @@ class JalaliCalendarDialog(QDialog):
             year = int(raw_year)
         except (TypeError, ValueError):
             return
-        if not 1300 <= year <= 1500:
+        if not 1400 <= year <= 1600:
             return
 
         month = self.cb_month.currentData()
@@ -780,6 +859,11 @@ class JalaliCalendarDialog(QDialog):
             max_days = 30
         else:
             max_days = 30 if first_day.isleap() else 29
+
+        for day_index in range(self.cb_day.count()):
+            item = self.cb_day.model().item(day_index)
+            if item is not None:
+                item.setEnabled(day_index < max_days)
 
         for day in range(1, max_days + 1):
             index = start_weekday + day - 1
@@ -809,7 +893,7 @@ class JalaliCalendarDialog(QDialog):
         except (TypeError, ValueError):
             return
         m = self.cb_month.currentData()
-        if m is None or not 1300 <= y <= 1500:
+        if m is None or not 1400 <= y <= 1600:
             return
         try:
             jdatetime.date(y, int(m), d)
@@ -964,7 +1048,8 @@ class DynamicSpecsWidget(QGroupBox):
         self._clear_form()
 
         self.cb_sub = SearchableComboBox()
-        self.cb_sub.setToolTip("می‌توانید زیرمجموعه را از لیست انتخاب کنید یا مستقیم تایپ نمایید")
+        self.cb_sub.setEditable(False)
+        self.cb_sub.setToolTip("زیرمجموعه را از فهرست انتخاب کنید")
 
         if self.current_category == "لپ‌تاپ":
             self.cb_sub.addItems(
@@ -1195,7 +1280,7 @@ class DynamicSpecsWidget(QGroupBox):
             self.cb_sub.blockSignals(True)
             self.cb_sub.clear()
             self.cb_sub.addItems(subcategories)
-            self.cb_sub.setEditable(True)
+            self.cb_sub.setEditable(False)
             if current in subcategories:
                 self.cb_sub.setCurrentText(current)
             elif subcategories:
@@ -1211,8 +1296,16 @@ class DynamicSpecsWidget(QGroupBox):
         for field_name, widget in list(self._custom_field_widgets.items()):
             if self.fields.get(field_name) is widget:
                 self.fields.pop(field_name, None)
-            self.form_layout.removeRow(widget)
-            widget.deleteLater()
+            # QFormLayout.removeRow(row) owns and destroys the row widgets. Calling
+            # deleteLater() afterwards can target an already-deleted Shiboken wrapper.
+            try:
+                row, _role = self.form_layout.getWidgetPosition(widget)
+                if row >= 0:
+                    self.form_layout.removeRow(row)
+            except RuntimeError:
+                # The Qt parent may already have destroyed this widget during a
+                # category rebuild; clearing the Python reference is sufficient.
+                pass
         self._custom_field_widgets.clear()
 
         if not isinstance(custom_fields, list):
@@ -1223,6 +1316,7 @@ class DynamicSpecsWidget(QGroupBox):
             field_name = str(definition.get("name", "")).strip()
             if not field_name:
                 continue
+            form_label = str(definition.get("label") or field_name).strip()
             raw_values = definition.get("values", [])
             values = [
                 str(value).strip() for value in raw_values
@@ -1249,10 +1343,10 @@ class DynamicSpecsWidget(QGroupBox):
                 widget.addItems(list(dict.fromkeys(values)))
             else:
                 widget = SmartLineEdit(f"{field_name}...")
-            widget.setToolTip(f"مشخصه سفارشی: {field_name}")
+            widget.setToolTip(f"مشخصه سفارشی: {form_label}")
             self.fields[field_name] = widget
             self._custom_field_widgets[field_name] = widget
-            self.form_layout.addRow(f"{field_name}:", widget)
+            self.form_layout.addRow(f"{form_label}:", widget)
 
     def _rebuild_part_subfields(self, part_type: str):
         while self.sub_layout.count():

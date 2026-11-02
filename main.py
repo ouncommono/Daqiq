@@ -61,6 +61,9 @@ from utils_and_widgets import (
     SmoothScrollArea,
     SmoothScrollTableWidget,
     SmoothScrollListWidget,
+    CollapsibleSection,
+    bidi_isolate_text,
+    strip_bidi_controls,
 )
 from exporter import (
     export_safe_inventory_excel,
@@ -130,7 +133,7 @@ class LoginDialog(QDialog):
         self.cb_emp = SearchableComboBox()
         with self.db.get_connection() as conn:
             emps = conn.execute(
-                "SELECT * FROM employees WHERE is_active=1 ORDER BY id DESC"
+                "SELECT * FROM employees WHERE is_active=1 ORDER BY updated_at DESC, id DESC"
             ).fetchall()
             for employee in emps:
                 self.cb_emp.addItem(
@@ -376,7 +379,7 @@ def _resolve_startup_employee(db, parent=None):
     """Select a user at startup whenever there are multiple accounts or any account requires a password."""
     with db.get_connection() as conn:
         employees = conn.execute(
-            "SELECT * FROM employees WHERE is_active=1 ORDER BY id DESC"
+            "SELECT * FROM employees WHERE is_active=1 ORDER BY updated_at DESC, id DESC"
         ).fetchall()
     if not employees:
         return None, True
@@ -893,17 +896,53 @@ class MainWindow(QMainWindow):
         return self.tabs.addTab(scroll, title)
 
     def _add_table_search(self, parent_layout, table, key, placeholder):
+        """Place compact search beside the page action buttons."""
         search = SmartLineEdit(placeholder)
         search.setMinimumHeight(34)
+        search.setMinimumWidth(190)
+        search.setMaximumWidth(360)
         search.setToolTip("جست‌وجو در تمام ستون‌های جدول")
         search.setClearButtonEnabled(True)
         search.textChanged.connect(
             lambda query, target=table: self._filter_table_rows(target, query)
         )
-        parent_layout.addWidget(search)
+        parent_layout.addWidget(search, 1)
         self._table_search_fields[table] = search
         setattr(self, f"ed_search_{key}", search)
         return search
+
+    def _set_generated_code_placeholder(self, edit, table, column, prefix, start_num=1001):
+        """Show the next code as a hint; keep the actual field empty for DB allocation."""
+        edit.clear()
+        edit.setPlaceholderText(
+            self.db.generate_next_code(table, column, prefix, start_num)
+        )
+
+    def _format_specs_for_display(self, specs, category=""):
+        definitions = self.catalog_config.get("attributes", {}).get(category or "", [])
+        display_names = {
+            item.get("name"): (item.get("display_name") or item.get("name"))
+            for item in definitions
+            if isinstance(item, dict) and item.get("name")
+        }
+        return " | ".join(
+            f"{display_names.get(key, key)}: {str(value).strip()}"
+            for key, value in (specs or {}).items()
+            if str(value).strip()
+        )
+
+    def _format_specs_for_tooltip(self, specs, category=""):
+        definitions = self.catalog_config.get("attributes", {}).get(category or "", [])
+        display_names = {
+            item.get("name"): (item.get("display_name") or item.get("name"))
+            for item in definitions
+            if isinstance(item, dict) and item.get("name")
+        }
+        return "\n".join(
+            f"{display_names.get(key, key)}: {str(value).strip()}"
+            for key, value in (specs or {}).items()
+            if str(value).strip()
+        )
 
     def _filter_table_rows(self, table, query):
         query = normalize_digits(str(query or "")).strip().casefold()
@@ -915,8 +954,8 @@ class MainWindow(QMainWindow):
             for column in range(table.columnCount()):
                 item = table.item(row, column)
                 if item:
-                    values.append(item.text())
-                    values.append(item.toolTip())
+                    values.append(strip_bidi_controls(item.text()))
+                    values.append(strip_bidi_controls(item.toolTip()))
             haystack = normalize_digits(" ".join(values)).casefold()
             table.setRowHidden(row, query not in haystack)
 
@@ -937,8 +976,9 @@ class MainWindow(QMainWindow):
         for r_idx, row_values in enumerate(rows_data):
             for c_idx, val in enumerate(row_values):
                 text_val = "" if val is None else str(val)
-                item = QTableWidgetItem(text_val)
-                item.setToolTip(text_val)
+                display_text = bidi_isolate_text(text_val)
+                item = QTableWidgetItem(display_text)
+                item.setToolTip(display_text)
                 if highlight_col is not None and c_idx == highlight_col:
                     if text_val in ("ناموجود", "کم‌موجود", "تسویه‌نشده") or text_val.startswith("-"):
                         item.setForeground(QColor("#dc2626"))
@@ -1055,11 +1095,12 @@ class MainWindow(QMainWindow):
         f_layout = QFormLayout(gb_form)
 
         self.ed_prod_code = SmartLineEdit("P-1001")
-        # بند ۱ و ۲: کمبوباکس دسته‌بندی اصلی با قابلیت تایپ دستی برای کالاهای ناشناخته
+        self.ed_prod_code.setToolTip("در صورت خالی بودن، کد بعدی به‌صورت خودکار تخصیص می‌یابد.")
         self.cb_prod_cat = SearchableComboBox()
+        self.cb_prod_cat.setEditable(False)
         product_categories = self.catalog_config.get("categories") or list(MAIN_CATEGORIES)
         self.cb_prod_cat.addItems(list(dict.fromkeys(product_categories)))
-        self.cb_prod_cat.setToolTip("دسته‌بندی اصلی را انتخاب کنید یا در صورت جدید بودن، مستقیم تایپ نمایید")
+        self.cb_prod_cat.setToolTip("دسته‌بندی اصلی را از فهرست انتخاب کنید.")
 
         self.ed_prod_brand = SmartLineEdit("مثلاً ASUS, Lenovo, HP, Logitech...")
         self.ed_prod_model = SmartLineEdit("مدل کالا (مثلاً G102, VivoBook 15...)")
@@ -1083,7 +1124,7 @@ class MainWindow(QMainWindow):
         self.ed_prod_desc = SmartLineEdit("توضیحات تکمیلی کالا...")
 
         f_layout.addRow("کد کالا (شناسه):", self.ed_prod_code)
-        f_layout.addRow("دسته‌بندی اصلی (قابل تایپ) *:", self.cb_prod_cat)
+        f_layout.addRow("دسته‌بندی اصلی *:", self.cb_prod_cat)
         f_layout.addRow("برند کالا:", self.ed_prod_brand)
         f_layout.addRow("مدل کالا:", self.ed_prod_model)
         f_layout.addRow("رنگ کالا:", self.cb_prod_color)
@@ -1146,13 +1187,22 @@ class MainWindow(QMainWindow):
 
     def _clear_product_form(self):
         self.selected_product_id = None
-        self.ed_prod_code.setText(
-            self.db.generate_next_code("products", "code", "P-", 1001)
-        )
+        self._set_generated_code_placeholder(self.ed_prod_code, "products", "code", "P-")
+        self.cb_prod_cat.setCurrentIndex(0)
+        self._configure_product_specs(self.cb_prod_cat.currentText())
         self.ed_prod_brand.clear()
         self.ed_prod_model.clear()
-        self.cb_prod_color.setCurrentText("")
+        self.cb_prod_color.setCurrentIndex(0)
+        self.sp_prod_reorder.setValue(3)
+        self.sp_prod_profit.setValue(int(float(self.db.cfg.get("default_profit_pct", 20))))
         self.ed_prod_desc.clear()
+        if self.specs_widget.cb_sub is not None:
+            self.specs_widget.cb_sub.setCurrentIndex(0)
+        for widget in self.specs_widget.fields.values():
+            if isinstance(widget, QComboBox):
+                widget.setCurrentIndex(0)
+            elif isinstance(widget, QLineEdit):
+                widget.clear()
         self.tbl_products.clearSelection()
 
     def _save_new_product(self):
@@ -1173,8 +1223,12 @@ class MainWindow(QMainWindow):
             return
         try:
             code = self.ed_prod_code.text().strip()
-            with self.db.get_connection() as conn:
-                duplicate = conn.execute("SELECT id FROM products WHERE code=?", (code,)).fetchone()
+            duplicate = None
+            if code:
+                with self.db.get_connection() as conn:
+                    duplicate = conn.execute(
+                        "SELECT id FROM products WHERE code=?", (code,)
+                    ).fetchone()
             target_id = None
             if duplicate:
                 msg = QMessageBox(self)
@@ -1188,7 +1242,7 @@ class MainWindow(QMainWindow):
                     return
                 target_id = int(duplicate["id"])
             args = (
-                code, "", cat, sub, brand, model, specs_dict,
+                code or None, "", cat, sub, brand, model, specs_dict,
                 self.ed_prod_desc.text().strip(),
                 self.sp_prod_reorder.value(), self.sp_prod_profit.value(),
             )
@@ -1303,6 +1357,7 @@ class MainWindow(QMainWindow):
             grid.setColumnStretch(column, 0)
 
         self.ed_batch_code = SmartLineEdit("C-1001")
+        self.ed_batch_code.setToolTip("در صورت خالی بودن، کد محموله بعدی خودکار تخصیص می‌یابد.")
         self.cb_batch_prod = SearchableComboBox()
         self.cb_batch_prod.setToolTip("نام دسته‌بندی، زیرگروه (مثلاً کیبورد)، برند، مدل یا کد کالا را تایپ کنید")
         self.cb_batch_prod.currentIndexChanged.connect(self._on_batch_prod_changed)
@@ -1406,7 +1461,7 @@ class MainWindow(QMainWindow):
             ]
         )
         self.tbl_batches.itemSelectionChanged.connect(self._on_batch_row_selected)
-        self._add_table_search(layout, self.tbl_batches, "batches", "🔍 جست‌وجو در خریدها و محموله‌ها...")
+        self._add_table_search(btn_row, self.tbl_batches, "batches", "🔍 جست‌وجو در خریدها و محموله‌ها...")
         layout.addWidget(self.tbl_batches)
 
         self._add_scrollable_tab(tab, "🚚 ثبت خرید و محموله‌ها")
@@ -1415,7 +1470,7 @@ class MainWindow(QMainWindow):
         prod = self.cb_batch_prod.currentData()
         if prod:
             specs = json.loads(prod.get("specs_json") or "{}")
-            specs_str = " | ".join(f"{k}:{v}" for k, v in specs.items())
+            specs_str = self._format_specs_for_display(specs, prod.get("category"))
             desc = (prod.get("description") or "").strip()
             combined = f"{specs_str} - {desc}".strip(" -") if desc else specs_str
             self.ed_batch_serial.setText(combined)
@@ -1423,10 +1478,12 @@ class MainWindow(QMainWindow):
 
     def _clear_batch_form(self):
         self.selected_batch_id = None
-        self.ed_batch_code.setText(
-            self.db.generate_next_code("batches", "batch_code", "C-", 1001)
-        )
+        self._set_generated_code_placeholder(self.ed_batch_code, "batches", "batch_code", "C-")
+        self.cb_batch_prod.setCurrentIndex(0)
+        self.cb_batch_supplier.setCurrentIndex(0)
+        self.cb_batch_buyer.setCurrentIndex(0)
         self.ed_batch_inv.clear()
+        self.dt_batch_date.set_date(jdatetime.date.today().strftime("%Y/%m/%d"))
         self.cb_batch_qty.setCurrentText("1")
         self.pr_batch_buy.set_value(0)
         self.pr_batch_extra.set_value(0)
@@ -1484,8 +1541,12 @@ class MainWindow(QMainWindow):
                 self.pr_batch_suggest.get_value(), self.pr_batch_paid.get_value(),
                 "", custom_specs_or_notes, self.cb_batch_status.currentText(),
             )
-            with self.db.get_connection() as conn:
-                duplicate = conn.execute("SELECT id FROM batches WHERE batch_code=?", (code,)).fetchone()
+            duplicate = None
+            if code:
+                with self.db.get_connection() as conn:
+                    duplicate = conn.execute(
+                        "SELECT id FROM batches WHERE batch_code=?", (code,)
+                    ).fetchone()
             if duplicate:
                 msg = QMessageBox(self)
                 msg.setWindowTitle("کد محموله تکراری")
@@ -1503,7 +1564,7 @@ class MainWindow(QMainWindow):
                 )
             else:
                 self.db.add_batch(
-                    code, prod["id"], *batch_values[:10],
+                    code or None, prod["id"], *batch_values[:10],
                     custom_specs_or_notes, batch_values[10], batch_values[11],
                 )
             self.refresh_all_data()
@@ -1603,6 +1664,7 @@ class MainWindow(QMainWindow):
             grid.setColumnStretch(column, 0)
 
         self.ed_sale_inv = SmartLineEdit("INV-1001")
+        self.ed_sale_inv.setToolTip("در صورت خالی بودن، شماره فاکتور بعدی خودکار تخصیص می‌یابد.")
         self.cb_sale_prod = SearchableComboBox()
         self.cb_sale_prod.setToolTip(
             "می‌توانید نام زیرگروه (مثلاً کیبورد، ماوس، مانیتور)، برند، مدل یا کد کالا را تایپ کنید"
@@ -1613,6 +1675,7 @@ class MainWindow(QMainWindow):
         self.cb_sale_seller = SearchableComboBox()
         self.ed_sale_customer = SmartLineEdit("نام مشتری (اختیاری)")
         self.cb_sale_qty = QuantitySelector(100)
+        self.cb_sale_qty.setEditable(False)
         self.cb_sale_qty.qtyChanged.connect(self._recalc_sale_live)
 
         self.pr_sale_suggest = PriceInput(self.db)
@@ -1738,7 +1801,7 @@ class MainWindow(QMainWindow):
             ]
         )
         self.tbl_sales.itemSelectionChanged.connect(self._on_sale_row_selected)
-        self._add_table_search(layout, self.tbl_sales, "sales", "🔍 جست‌وجو در فاکتورها و فروش‌ها...")
+        self._add_table_search(btn_row, self.tbl_sales, "sales", "🔍 جست‌وجو در فاکتورها و فروش‌ها...")
         layout.addWidget(self.tbl_sales)
 
         self._add_scrollable_tab(tab, "🛒 ثبت فروش")
@@ -1851,7 +1914,7 @@ class MainWindow(QMainWindow):
                 """
                 SELECT * FROM batches
                 WHERE product_id=? AND remaining_qty > 0
-                ORDER BY id DESC
+                ORDER BY updated_at DESC, id DESC
                 """,
                 (product_data["id"],),
             ).fetchall()
@@ -1875,32 +1938,46 @@ class MainWindow(QMainWindow):
             ]
             if variant and variant != "بدون تفاوت ثبت‌شده":
                 visible_parts.append(f"تفاوت: {variant}")
-            elif variant:
-                visible_parts.append("مشخصات یکسان")
+            else:
+                visible_parts.append(
+                    f"قیمت پیشنهادی: {int(batch['suggested_sell_price']):,} تومان"
+                )
             label = " | ".join(visible_parts)
 
             search_text = " ".join(
                 str(batch.get(key) or "") for key in searchable_batch_fields
             )
             search_text = f"{search_text} {product_search_text}".strip()
+            final_specs, _plain_tokens = self._parse_batch_specifications(
+                batch.get("final_specs") or batch.get("initial_specs") or ""
+            )
+            final_specs_text = self._format_specs_for_display(
+                final_specs, product_data.get("category")
+            )
             full_tooltip = (
                 f"کد محموله: {batch['batch_code']}\n"
                 f"موجودی: {batch['remaining_qty']}\n"
-                f"تاریخ خرید: {batch['purchase_date']}\n"
                 f"قیمت پیشنهادی: {int(batch['suggested_sell_price']):,} تومان\n"
-                f"مشخصات اولیه: {batch.get('initial_specs') or '-'}\n"
-                f"مشخصات نهایی: {batch.get('final_specs') or '-'}\n"
+                f"تاریخ خرید: {batch['purchase_date']}\n"
+                f"مشخصات نهایی:\n{self._format_specs_for_tooltip(final_specs, product_data.get('category')) or final_specs_text or '-'}\n"
                 f"شماره سریال: {batch.get('serial_numbers') or '-'}\n"
                 f"یادداشت: {batch.get('notes') or '-'}"
             )
             index = self.cb_sale_batch.count()
-            self.cb_sale_batch.addItem(label, batch)
+            self.cb_sale_batch.addItem(bidi_isolate_text(label), batch)
             self.cb_sale_batch.setItemSearchText(index, search_text)
-            self.cb_sale_batch.setItemData(index, full_tooltip, Qt.ToolTipRole)
+            self.cb_sale_batch.setItemData(
+                index, bidi_isolate_text(full_tooltip), Qt.ToolTipRole
+            )
 
     def _on_sale_batch_changed(self):
         b = self.cb_sale_batch.currentData()
         if not b:
+            self.cb_sale_qty.set_max_qty(1)
+            self.pr_sale_suggest.set_value(0)
+            self.pr_sale_actual.set_value(0)
+            self.pr_sale_paid.set_value(0)
+            self._recalc_sale_live()
             return
         self.cb_sale_qty.set_max_qty(b["remaining_qty"])
         sug = int(b["suggested_sell_price"])
@@ -1910,11 +1987,10 @@ class MainWindow(QMainWindow):
 
     def _clear_sale_form(self):
         self.selected_sale_id = None
-        self.ed_sale_inv.setText(
-            self.db.generate_next_code("sales", "invoice_number", "INV-", 1001)
-        )
+        self._set_generated_code_placeholder(self.ed_sale_inv, "sales", "invoice_number", "INV-")
+        self.cb_sale_prod.setCurrentIndex(-1)
+        self.cb_sale_seller.setCurrentIndex(-1)
         self.ed_sale_customer.clear()
-        self.cb_sale_qty.setCurrentText("1")
         self.cb_sale_status.setCurrentIndex(0)
         self.ed_war_company.clear()
         self.cb_war_months.setCurrentIndex(0)
@@ -1923,7 +1999,9 @@ class MainWindow(QMainWindow):
         self.dt_war_end.set_date(today)
         self.ed_sale_serial.clear()
         self.tbl_sales.clearSelection()
+        self.cb_sale_qty.setCurrentText("1")
         self._on_sale_batch_changed()
+        self._recalc_sale_live()
 
     def _on_sale_status_changed(self, st):
         tot = self.pr_sale_actual.get_value() * self.cb_sale_qty.get_qty()
@@ -1993,8 +2071,8 @@ class MainWindow(QMainWindow):
                 warranty_days=self.cb_war_months.currentData() or 0,
             )
             self.refresh_all_data()
-            self.ed_sale_inv.setText(
-                self.db.generate_next_code("sales", "invoice_number", "INV-", 1001)
+            self._set_generated_code_placeholder(
+                self.ed_sale_inv, "sales", "invoice_number", "INV-"
             )
         except Exception as e:
             QMessageBox.critical(self, "خطا در ثبت فروش", str(e))
@@ -2104,6 +2182,7 @@ class MainWindow(QMainWindow):
         self.cb_srv_type = QComboBox()
         self.cb_srv_type.addItems(["نرم‌افزاری", "سخت‌افزاری"])
         self.ed_srv_code = SmartLineEdit("S-1001")
+        self.ed_srv_code.setToolTip("در صورت خالی بودن، کد خدمت بعدی خودکار تخصیص می‌یابد.")
         self.ed_srv_name = SmartLineEdit("عنوان خدمت (مثلاً نصب ویندوز، نصب آنتی‌ویروس...)")
         self.pr_srv_def_fee = PriceInput(self.db)
         self.pr_srv_def_side = PriceInput(self.db)
@@ -2138,7 +2217,7 @@ class MainWindow(QMainWindow):
         )
         self.tbl_srv_catalog.setMaximumHeight(160)
         self.tbl_srv_catalog.itemSelectionChanged.connect(self._on_srv_catalog_table_selected)
-        self._add_table_search(v_cat, self.tbl_srv_catalog, "service_catalog", "🔍 جست‌وجو در فهرست تعرفه‌های خدمات...")
+        self._add_table_search(cat_btns, self.tbl_srv_catalog, "service_catalog", "🔍 جست‌وجو در فهرست تعرفه‌های خدمات...")
         v_cat.addWidget(self.tbl_srv_catalog)
 
         # ب) ثبت انجام خدمت برای مشتری
@@ -2220,13 +2299,14 @@ class MainWindow(QMainWindow):
             ]
         )
         self.tbl_services.itemSelectionChanged.connect(self._on_srv_rec_selected)
-        self._add_table_search(layout, self.tbl_services, "service_records", "🔍 جست‌وجو در فاکتورهای خدمات...")
+        self._add_table_search(btn_rec_row, self.tbl_services, "service_records", "🔍 جست‌وجو در فاکتورهای خدمات...")
         layout.addWidget(self.tbl_services)
         self._add_scrollable_tab(tab, "🛠️ مدیریت خدمات")
         
     def _clear_service_cat_form(self):
         self.selected_srv_cat_id = None
-        self.ed_srv_code.setText(self.db.generate_next_code("service_catalog", "code", "S-", 1001))
+        self._set_generated_code_placeholder(self.ed_srv_code, "service_catalog", "code", "S-")
+        self.cb_srv_type.setCurrentIndex(0)
         self.ed_srv_name.clear()
         self.pr_srv_def_fee.set_value(0)
         self.pr_srv_def_side.set_value(0)
@@ -2234,11 +2314,16 @@ class MainWindow(QMainWindow):
 
     def _clear_service_rec_form(self):
         self.selected_srv_rec_id = None
+        self.cb_srv_select.setCurrentIndex(0)
+        self.cb_srv_seller.setCurrentIndex(0)
         self.ed_srv_cust.clear()
         self.ed_srv_desc.clear()
         self.cb_srv_status.setCurrentIndex(0)
+        self.pr_srv_side.set_value(0)
+        self.pr_srv_paid.set_value(0)
         self.tbl_services.clearSelection()
         self._on_srv_catalog_picked()
+        self._recalc_srv_live_summary()
 
     def _recalc_srv_live_summary(self):
         base_fee = self.pr_srv_fee.get_value()
@@ -2265,14 +2350,12 @@ class MainWindow(QMainWindow):
 
         try:
             code = self.ed_srv_code.text().strip()
-            if not code:
-                code = self.db.generate_next_code("service_catalog", "code", "S-", 1001)
-                self.ed_srv_code.setText(code)
-
-            with self.db.get_connection() as conn:
-                duplicate = conn.execute(
-                    "SELECT id FROM service_catalog WHERE code=?", (code,)
-                ).fetchone()
+            duplicate = None
+            if code:
+                with self.db.get_connection() as conn:
+                    duplicate = conn.execute(
+                        "SELECT id FROM service_catalog WHERE code=?", (code,)
+                    ).fetchone()
 
             target_id = None
             if duplicate:
@@ -2436,8 +2519,12 @@ class MainWindow(QMainWindow):
         self.cb_upg_target = SearchableComboBox()
         self.cb_upg_target.currentIndexChanged.connect(self._on_upg_target_changed)
         self.cb_upg_target_qty = QuantitySelector(50)
+        self.cb_upg_target_qty.setEditable(False)
         self.cb_upg_part = SearchableComboBox()
         self.cb_upg_part_qty = QuantitySelector(10)
+        self.cb_upg_part_qty.setEditable(False)
+        self.cb_upg_part.currentIndexChanged.connect(self._on_upg_part_changed)
+        self.cb_upg_target_qty.qtyChanged.connect(self._on_upg_part_changed)
         self.pr_upg_labor = PriceInput(self.db)
         self.ed_upg_new_specs = SmartLineEdit("مشخصات فنی کالا پس از ارتقا...")
         self.dt_upg_date = JalaliDateEdit(default_today=True)
@@ -2509,7 +2596,7 @@ class MainWindow(QMainWindow):
             ]
         )
         self.tbl_upgrades.itemSelectionChanged.connect(self._on_upgrade_selected)
-        self._add_table_search(layout, self.tbl_upgrades, "upgrades", "🔍 جست‌وجو در سوابق ارتقای کالا...")
+        self._add_table_search(upg_btn_row, self.tbl_upgrades, "upgrades", "🔍 جست‌وجو در سوابق ارتقا...")
         layout.addWidget(self.tbl_upgrades)
         self._add_scrollable_tab(tab, "🔧 ارتقای کالا")
 
@@ -2518,22 +2605,43 @@ class MainWindow(QMainWindow):
         t_id = self.cb_upg_target.currentData()
         if not t_id:
             self.ed_upg_new_specs.clear()
+            self.cb_upg_target_qty.set_max_qty(1)
+            self._on_upg_part_changed()
             return
         with self.db.get_connection() as conn:
             row = conn.execute(
                 """
-                SELECT b.final_specs, b.initial_specs, p.specs_json
+                SELECT b.remaining_qty, b.final_specs, b.initial_specs,
+                       p.specs_json, p.category
                 FROM batches b JOIN products p ON b.product_id = p.id
                 WHERE b.id = ?
             """,
                 (t_id,),
             ).fetchone()
             if row:
-                specs_txt = row["final_specs"] or row["initial_specs"]
+                self.cb_upg_target_qty.set_max_qty(row["remaining_qty"])
+                specs_txt = row["final_specs"] or row["initial_specs"] or ""
                 if not specs_txt and row["specs_json"]:
-                    d = json.loads(row["specs_json"] or "{}")
-                    specs_txt = " | ".join(f"{k}:{v}" for k, v in d.items())
+                    specs_dict = json.loads(row["specs_json"] or "{}")
+                    specs_txt = self._format_specs_for_display(specs_dict, row["category"])
                 self.ed_upg_new_specs.setText(specs_txt or "")
+                self._on_upg_part_changed()
+
+    def _on_upg_part_changed(self, *_):
+        part_id = self.cb_upg_part.currentData()
+        target_qty = self.cb_upg_target_qty.get_qty()
+        if not part_id:
+            self.cb_upg_part_qty.set_max_qty(1)
+            self.cb_upg_part_qty.setEnabled(False)
+            return
+        with self.db.get_connection() as conn:
+            part = conn.execute(
+                "SELECT remaining_qty FROM batches WHERE id=?", (part_id,)
+            ).fetchone()
+        available = int(part["remaining_qty"]) if part else 0
+        max_per_target = available // max(1, target_qty)
+        self.cb_upg_part_qty.set_max_qty(max(1, max_per_target))
+        self.cb_upg_part_qty.setEnabled(max_per_target >= 1)
 
     def _save_upgrade(self):
         t_id = self.cb_upg_target.currentData()
@@ -2541,6 +2649,11 @@ class MainWindow(QMainWindow):
         if not t_id or not p_id:
             QMessageBox.warning(
                 self, "خطا", "محموله کالای هدف و محموله قطعه مصرفی را انتخاب کنید."
+            )
+            return
+        if not self.cb_upg_part_qty.isEnabled():
+            QMessageBox.warning(
+                self, "موجودی ناکافی", "موجودی قطعه برای تعداد انتخاب‌شدهٔ کالای هدف کافی نیست."
             )
             return
         if int(t_id) == int(p_id):
@@ -2574,11 +2687,14 @@ class MainWindow(QMainWindow):
     def _clear_upgrade_form(self):
         self.selected_upgrade_id = None
         self.tbl_upgrades.clearSelection()
-        self.cb_upg_target.setCurrentIndex(0)
-        self.cb_upg_part.setCurrentIndex(0)
+        self.cb_upg_target.setCurrentIndex(-1)
+        self.cb_upg_part.setCurrentIndex(-1)
+        self.cb_upg_tech.setCurrentIndex(-1)
         self.cb_upg_target_qty.setCurrentText("1")
         self.cb_upg_part_qty.setCurrentText("1")
+        self.cb_upg_part_qty.setEnabled(False)
         self.pr_upg_labor.set_value(0)
+        self.ed_upg_new_specs.clear()
         self.ed_upg_serial.clear()
         self.chk_upg_add_cost.setChecked(False)
         self.dt_upg_date.set_date(jdatetime.date.today().strftime("%Y/%m/%d"))
@@ -2623,7 +2739,7 @@ class MainWindow(QMainWindow):
                     item_index = combo.count()
                     combo.addItem(label, batch_id)
                     combo.setItemSearchText(item_index, searchable)
-                    combo.setItemData(item_index, tooltip, Qt.ToolTipRole)
+                    combo.setItemData(item_index, bidi_isolate_text(tooltip), Qt.ToolTipRole)
 
         target_index = self.cb_upg_target.findData(int(upgrade["target_batch_id"]))
         part_index = self.cb_upg_part.findData(int(upgrade["part_batch_id"]))
@@ -2724,7 +2840,7 @@ class MainWindow(QMainWindow):
             ]
         )
         self.tbl_suppliers.itemSelectionChanged.connect(self._on_supplier_selected)
-        self._add_table_search(layout, self.tbl_suppliers, "suppliers", "🔍 جست‌وجو در تأمین‌کنندگان...")
+        self._add_table_search(btn_sup_row, self.tbl_suppliers, "suppliers", "🔍 جست‌وجو در تأمین‌کنندگان...")
         layout.addWidget(self.tbl_suppliers)
         self._add_scrollable_tab(tab, "💳 تأمین‌کنندگان و بدهی‌ها")
 
@@ -2929,9 +3045,6 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.lbl_rep_totals)
 
         self.tbl_report = self._create_table(["ستون ۱"])
-        self._add_table_search(
-            layout, self.tbl_report, "reports", "🔍 جست‌وجو در ردیف‌های گزارش..."
-        )
         layout.addWidget(self.tbl_report)
 
         self.cb_rep_type.currentIndexChanged.connect(self._update_report_live)
@@ -2950,8 +3063,8 @@ class MainWindow(QMainWindow):
         today_g = today_j.togregorian()
 
         if preset == "همه زمان‌ها":
-            self.dt_rep_from.set_date("1395/01/01")
-            self.dt_rep_to.set_date("1450/12/29")
+            self.dt_rep_from.set_date("1400/01/01")
+            self.dt_rep_to.set_date("1600/12/29")
         elif preset == "امروز":
             s = today_j.strftime("%Y/%m/%d")
             self.dt_rep_from.set_date(s)
@@ -3144,7 +3257,7 @@ class MainWindow(QMainWindow):
                     JOIN products p ON s.product_id=p.id
                     JOIN batches b ON s.batch_id=b.id
                     LEFT JOIN employees e ON s.seller_employee_id=e.id
-                    ORDER BY s.id DESC
+                    ORDER BY s.updated_at DESC, s.id DESC
                 """).fetchall()
                 sum_sale, sum_prof, sum_disc = 0, 0, 0
                 for r in q:
@@ -3244,7 +3357,7 @@ class MainWindow(QMainWindow):
                     JOIN products p ON b.product_id=p.id
                     LEFT JOIN suppliers sup ON b.supplier_id=sup.id
                     LEFT JOIN employees e ON b.buyer_employee_id=e.id
-                    ORDER BY b.id DESC
+                    ORDER BY b.updated_at DESC, b.id DESC
                 """).fetchall()
                 sum_buy, sum_debt, sum_b_prof = 0, 0, 0
                 for r in q:
@@ -3328,7 +3441,7 @@ class MainWindow(QMainWindow):
                            COALESCE((SELECT SUM(total_amount) FROM sales s WHERE s.product_id=p.id), 0) as prod_rev,
                            COALESCE((SELECT SUM(total_profit) FROM sales s WHERE s.product_id=p.id), 0) as prod_prof
                     FROM products p
-                    ORDER BY p.code ASC
+                    ORDER BY p.updated_at DESC, p.id DESC
                 """).fetchall()
                 sum_stock, sum_prof = 0, 0
                 for r in q:
@@ -3338,7 +3451,7 @@ class MainWindow(QMainWindow):
                     if rep_type.startswith("۸.") and rem > int(r["reorder_point"]):
                         continue
                     specs = json.loads(r["specs_json"] or "{}")
-                    specs_str = " | ".join(f"{k}:{v}" for k, v in specs.items())
+                    specs_str = self._format_specs_for_display(specs, r["category"])
                     search_pool = f"{r['code']} {r['category']} {r['sub_category']} {r['brand']} {r['model']} {specs_str}".lower()
                     if q_txt and q_txt not in search_pool:
                         continue
@@ -3542,7 +3655,7 @@ class MainWindow(QMainWindow):
                 q = conn.execute("""
                     SELECT sr.*, e.name as emp_name FROM service_records sr
                     LEFT JOIN employees e ON sr.seller_employee_id=e.id
-                    ORDER BY sr.id DESC
+                    ORDER BY sr.updated_at DESC, sr.id DESC
                 """).fetchall()
                 sum_fee, sum_side, sum_net = 0, 0, 0
                 for r in q:
@@ -3712,7 +3825,7 @@ class MainWindow(QMainWindow):
             ]
         )
         self.tbl_employees.itemSelectionChanged.connect(self._on_emp_selected)
-        self._add_table_search(layout, self.tbl_employees, "employees", "🔍 جست‌وجو در کارکنان...")
+        self._add_table_search(btn_row, self.tbl_employees, "employees", "🔍 جست‌وجو در کارکنان...")
         layout.addWidget(self.tbl_employees)
 
         self._add_scrollable_tab(tab, "👤 مدیریت کارمندان")
@@ -3946,7 +4059,8 @@ class MainWindow(QMainWindow):
         security_hint.setStyleSheet("color: #64748b; font-size: 11px;")
         security_layout.addWidget(self.chk_req_pass)
         security_layout.addWidget(security_hint)
-        layout.addWidget(gb_security)
+        gb_security.setTitle("")
+        layout.addWidget(CollapsibleSection("امنیت و ورود کاربران", gb_security))
 
         gb_gen = QGroupBox("تنظیمات عمومی فروش و نمایش")
         f_gen = QFormLayout(gb_gen)
@@ -3975,7 +4089,8 @@ class MainWindow(QMainWindow):
         f_gen.addRow("تعداد صفرهای اضافی قیمت:", self.cb_zero_count)
         f_gen.addRow("حالت باز شدن پنجره:", self.cb_win_mode)
         f_gen.addRow("نام فروشگاه:", self.ed_shop_name)
-        layout.addWidget(gb_gen)
+        gb_gen.setTitle("")
+        layout.addWidget(CollapsibleSection("تنظیمات عمومی فروش و نمایش", gb_gen))
 
         # Per-database product taxonomy and catalog customization.
         gb_catalog = QGroupBox("مدیریت دسته‌بندی‌ها، زیرمجموعه‌ها، مشخصات فنی و رنگ‌ها")
@@ -4036,8 +4151,12 @@ class MainWindow(QMainWindow):
         self.lst_cfg_attributes.setMaximumHeight(125)
         self.ed_cfg_attribute_name = QLineEdit()
         self.ed_cfg_attribute_name.setPlaceholderText("نام ویژگی؛ مثلاً نوع پنل")
+        self.ed_cfg_attribute_label = QLineEdit()
+        self.ed_cfg_attribute_label.setPlaceholderText("عنوان مستقل در فرم ثبت؛ اختیاری")
+        self.ed_cfg_attribute_display = QLineEdit()
+        self.ed_cfg_attribute_display.setPlaceholderText("عنوان مستقل در جدول؛ اختیاری")
         self.ed_cfg_attribute_values = QLineEdit()
-        self.ed_cfg_attribute_values.setPlaceholderText("مقادیر اختیاری با جداکنندهٔ ویرگول")
+        self.ed_cfg_attribute_values.setPlaceholderText("مقادیر پیشنهادی با جداکنندهٔ ویرگول")
         self.cb_cfg_attribute_subcategory = QComboBox()
         self.cb_cfg_attribute_subcategory.addItem("همهٔ زیرمجموعه‌ها", "")
         attr_layout.addWidget(QLabel("محدودهٔ زیرمجموعه:"))
@@ -4059,6 +4178,8 @@ class MainWindow(QMainWindow):
         attr_btn_row.addWidget(btn_delete_attr)
         attr_layout.addWidget(self.lst_cfg_attributes)
         attr_layout.addWidget(self.ed_cfg_attribute_name)
+        attr_layout.addWidget(self.ed_cfg_attribute_label)
+        attr_layout.addWidget(self.ed_cfg_attribute_display)
         attr_layout.addWidget(self.ed_cfg_attribute_values)
         attr_layout.addLayout(attr_btn_row)
 
@@ -4086,14 +4207,19 @@ class MainWindow(QMainWindow):
         colors_layout.addWidget(self.ed_cfg_color)
         colors_layout.addLayout(color_btn_row)
 
-        catalog_grid.addWidget(gb_categories, 0, 0)
-        catalog_grid.addWidget(gb_subcategories, 0, 1)
-        catalog_grid.addWidget(gb_attributes, 1, 0)
-        catalog_grid.addWidget(gb_colors, 1, 1)
+        gb_categories.setTitle("")
+        catalog_grid.addWidget(CollapsibleSection("دسته‌بندی‌های اصلی", gb_categories), 0, 0)
+        gb_subcategories.setTitle("")
+        catalog_grid.addWidget(CollapsibleSection("زیرمجموعه‌ها", gb_subcategories), 0, 1)
+        gb_attributes.setTitle("")
+        catalog_grid.addWidget(CollapsibleSection("مشخصات فنی سفارشی", gb_attributes), 1, 0)
+        gb_colors.setTitle("")
+        catalog_grid.addWidget(CollapsibleSection("رنگ‌های قابل انتخاب", gb_colors), 1, 1)
         self.cb_cfg_category.currentTextChanged.connect(
             self._refresh_catalog_management_lists
         )
-        layout.addWidget(gb_catalog)
+        gb_catalog.setTitle("")
+        layout.addWidget(CollapsibleSection("مدیریت دسته‌بندی‌ها و مشخصات کالا", gb_catalog))
 
         gb_db = QGroupBox("پایگاه دادهٔ فعال و پشتیبان‌گیری خودکار")
         f_db = QFormLayout(gb_db)
@@ -4162,7 +4288,8 @@ class MainWindow(QMainWindow):
         f_db.addRow("حداکثر نسخه‌های پشتیبان خودکار:", self.sp_bk_retention)
         f_db.addRow(bk_btn_row)
         f_db.addRow(self.lbl_last_backup)
-        layout.addWidget(gb_db)
+        gb_db.setTitle("")
+        layout.addWidget(CollapsibleSection("پایگاه داده و پشتیبان‌گیری", gb_db))
 
         btn_save_set = QPushButton("💾 ذخیره تنظیمات")
         self.btn_save_settings = btn_save_set
@@ -4268,7 +4395,8 @@ class MainWindow(QMainWindow):
         ):
             values = "، ".join(item.get("values", []))
             scope = item.get("subcategory") or "همهٔ زیرمجموعه‌ها"
-            label = item["name"] + (f" — {values}" if values else "") + f"  [{scope}]"
+            display_name = item.get("display_name") or item["name"]
+            label = display_name + (f" — {values}" if values else "") + f"  [{scope}]"
             entry = QListWidgetItem(label)
             entry.setData(Qt.UserRole, definition_index)
             self.lst_cfg_attributes.addItem(entry)
@@ -4466,10 +4594,14 @@ class MainWindow(QMainWindow):
         ]
         definitions.append({
             "name": name,
+            "label": self.ed_cfg_attribute_label.text().strip(),
+            "display_name": self.ed_cfg_attribute_display.text().strip(),
             "values": list(dict.fromkeys(values)),
             "subcategory": selected_scope,
         })
         self.ed_cfg_attribute_name.clear()
+        self.ed_cfg_attribute_label.clear()
+        self.ed_cfg_attribute_display.clear()
         self.ed_cfg_attribute_values.clear()
         self._refresh_catalog_management_lists()
 
@@ -4486,6 +4618,8 @@ class MainWindow(QMainWindow):
         )
         if definition:
             self.ed_cfg_attribute_name.setText(definition["name"])
+            self.ed_cfg_attribute_label.setText(definition.get("label", ""))
+            self.ed_cfg_attribute_display.setText(definition.get("display_name", ""))
             self.ed_cfg_attribute_values.setText(", ".join(definition.get("values", [])))
             scope_index = self.cb_cfg_attribute_subcategory.findData(
                 definition.get("subcategory", "") or ""
@@ -4534,6 +4668,8 @@ class MainWindow(QMainWindow):
                 (category, old_name, new_name, old_scope, new_scope)
             )
         current["name"] = new_name
+        current["label"] = self.ed_cfg_attribute_label.text().strip()
+        current["display_name"] = self.ed_cfg_attribute_display.text().strip()
         current["values"] = list(dict.fromkeys(values))
         current["subcategory"] = new_scope
         self._refresh_catalog_management_lists()
@@ -4840,10 +4976,12 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(
                     self,
                     "رمز عبور همه کارکنان لازم است",
-                    "برای فعال‌سازی این گزینه، ابتدا برای تمام کارکنان فعال رمز تعیین کنید:\n"
+                    "اجبار رمز عبور فعال می‌شود؛ کارکنان زیر تا زمان تعیین رمز اجازه ورود نخواهند داشت:\n"
                     + names + suffix,
                 )
-                effective_password_policy = current_password_policy
+                # Enabling is permitted; users without a password are blocked at login
+                # and asked to contact an administrator until a password is created.
+                effective_password_policy = requested_password_policy
 
         try:
             # Apply taxonomy edits and persist the new configuration atomically.
@@ -5011,10 +5149,10 @@ class MainWindow(QMainWindow):
     def _refresh_combos(self):
         with self.db.get_connection() as conn:
             prods = conn.execute(
-                "SELECT * FROM products WHERE is_active=1 ORDER BY code ASC"
+                "SELECT * FROM products WHERE is_active=1 ORDER BY updated_at DESC, id DESC"
             ).fetchall()
             emps = conn.execute(
-                "SELECT * FROM employees WHERE is_active=1 ORDER BY id DESC"
+                "SELECT * FROM employees WHERE is_active=1 ORDER BY updated_at DESC, id DESC"
             ).fetchall()
             if self._is_scoped_access() and self.active_employee:
                 active_id = int(self.active_employee["id"])
@@ -5023,23 +5161,23 @@ class MainWindow(QMainWindow):
                 sups = conn.execute(
                     """SELECT DISTINCT s.* FROM suppliers s
                        JOIN batches b ON b.supplier_id=s.id
-                       WHERE b.buyer_employee_id=? ORDER BY s.id DESC""",
+                       WHERE b.buyer_employee_id=? ORDER BY s.updated_at DESC, s.id DESC""",
                     (int(self.active_employee["id"]),),
                 ).fetchall()
             else:
                 sups = conn.execute(
-                    "SELECT * FROM suppliers ORDER BY id DESC"
+                    "SELECT * FROM suppliers ORDER BY updated_at DESC, id DESC"
                 ).fetchall()
             srvs = conn.execute(
-                "SELECT * FROM service_catalog WHERE is_active=1 ORDER BY id DESC"
+                "SELECT * FROM service_catalog WHERE is_active=1 ORDER BY updated_at DESC, id DESC"
             ).fetchall()
             batches = conn.execute(
                 """
-                SELECT b.*, p.category, p.sub_category, p.brand, p.model
+                SELECT b.*, p.code AS p_code, p.category, p.sub_category, p.brand, p.model
                 FROM batches b
                 JOIN products p ON b.product_id=p.id
                 WHERE b.remaining_qty > 0
-                ORDER BY b.id DESC
+                ORDER BY b.updated_at DESC, b.id DESC
             """
             ).fetchall()
             sale_product_ids = {
@@ -5061,11 +5199,18 @@ class MainWindow(QMainWindow):
                 specs = {}
             if not isinstance(specs, dict):
                 specs = {}
-            specs_short = "، ".join(str(value) for value in specs.values() if str(value).strip())
+            specs_short = self._format_specs_for_display(specs, product.get("category"))
             product_description = str(product.get("description") or "")
-            # Keep the visible label compact; all technical details remain searchable
-            # and are available on hover so long specs do not overwhelm the picker.
-            visible_label = self._format_product_picker_label(product)
+            visible_label = bidi_isolate_text(self._format_product_picker_label(product))
+            product_hover = (
+                f"کد کالا: {product.get('code') or '-'}\n"
+                f"دسته‌بندی اصلی: {product.get('category') or '-'}\n"
+                f"زیرمجموعه: {product.get('sub_category') or '-'}\n"
+                f"برند: {product.get('brand') or '-'}\n"
+                f"مدل: {product.get('model') or '-'}\n"
+                f"مشخصات نهایی:\n{self._format_specs_for_tooltip(specs, product.get('category')) or '-'}\n"
+                f"توضیحات: {product_description or '-'}"
+            )
             batch_index = self.cb_batch_prod.count()
             self.cb_batch_prod.addItem(visible_label, product)
             self.cb_batch_prod.setItemSearchText(
@@ -5074,13 +5219,11 @@ class MainWindow(QMainWindow):
                 f"{product['brand']} {product['model']} {specs_short} {product_description}",
             )
             self.cb_batch_prod.setItemData(
-                batch_index,
-                f"{visible_label}\nمشخصات کامل: {specs_short or '-'}\nتوضیحات: {product_description or '-'}",
-                Qt.ToolTipRole,
+                batch_index, bidi_isolate_text(product_hover), Qt.ToolTipRole
             )
 
             if int(product["id"]) in sale_product_ids:
-                sale_label = self._format_product_picker_label(product)
+                sale_label = bidi_isolate_text(self._format_product_picker_label(product))
                 sale_index = self.cb_sale_prod.count()
                 self.cb_sale_prod.addItem(sale_label, product)
                 self.cb_sale_prod.setItemSearchText(
@@ -5089,9 +5232,7 @@ class MainWindow(QMainWindow):
                     f"{product['brand']} {product['model']} {specs_short} {product_description}",
                 )
                 self.cb_sale_prod.setItemData(
-                    sale_index,
-                    f"{sale_label}\nمشخصات فنی: {specs_short or '-'}\nتوضیحات: {product_description or '-'}",
-                    Qt.ToolTipRole,
+                    sale_index, bidi_isolate_text(product_hover), Qt.ToolTipRole
                 )
         self.cb_batch_prod.blockSignals(False)
         self.cb_sale_prod.blockSignals(False)
@@ -5141,7 +5282,7 @@ class MainWindow(QMainWindow):
                 f"{service['default_fee']:,} تومان"
             )
             index = self.cb_srv_select.count()
-            self.cb_srv_select.addItem(label, service)
+            self.cb_srv_select.addItem(bidi_isolate_text(label), service)
             self.cb_srv_select.setItemSearchText(
                 index,
                 f"{service['code']} {service['name']} {service['service_type']} "
@@ -5169,30 +5310,39 @@ class MainWindow(QMainWindow):
                 f"{label} {batch.get('initial_specs') or ''} "
                 f"{batch.get('final_specs') or ''} {batch.get('serial_numbers') or ''}"
             ).strip()
+            final_specs_dict, _tokens = self._parse_batch_specifications(
+                batch.get("final_specs") or batch.get("initial_specs") or ""
+            )
+            final_specs_text = self._format_specs_for_display(
+                final_specs_dict, batch.get("category")
+            )
             tooltip = (
-                f"{label}\nمشخصات اولیه: {batch.get('initial_specs') or '-'}\n"
-                f"مشخصات نهایی: {batch.get('final_specs') or '-'}\n"
+                f"کد محموله: {batch['batch_code']}\n"
+                f"کد کالا: {batch.get('p_code') or '-'}\n"
+                f"دسته‌بندی اصلی: {batch.get('category') or '-'}\n"
+                f"زیرمجموعه: {batch.get('sub_category') or '-'}\n"
+                f"برند: {batch.get('brand') or '-'}\n"
+                f"مدل: {batch.get('model') or '-'}\n"
+                f"موجودی: {batch['remaining_qty']}\n"
+                f"قیمت پیشنهادی: {int(batch['suggested_sell_price']):,} تومان\n"
+                f"مشخصات نهایی:\n{self._format_specs_for_tooltip(final_specs_dict, batch.get('category')) or final_specs_text or '-'}\n"
                 f"شماره سریال: {batch.get('serial_numbers') or '-'}"
             )
             for combo in (self.cb_upg_target, self.cb_upg_part):
                 item_index = combo.count()
-                combo.addItem(label, batch["id"])
+                combo.addItem(bidi_isolate_text(label), batch["id"])
                 combo.setItemSearchText(item_index, searchable)
-                combo.setItemData(item_index, tooltip, Qt.ToolTipRole)
+                combo.setItemData(item_index, bidi_isolate_text(tooltip), Qt.ToolTipRole)
         self._on_upg_target_changed()
 
-        if not self.selected_product_id:
-            self.ed_prod_code.setText(
-                self.db.generate_next_code("products", "code", "P-", 1001)
-            )
-        if not self.selected_batch_id:
-            self.ed_batch_code.setText(
-                self.db.generate_next_code("batches", "batch_code", "C-", 1001)
-            )
-        if not self.selected_sale_id:
-            self.ed_sale_inv.setText(
-                self.db.generate_next_code("sales", "invoice_number", "INV-", 1001)
-            )
+        if not self.selected_product_id and not self.ed_prod_code.text().strip():
+            self.ed_prod_code.setPlaceholderText(self.db.generate_next_code("products", "code", "P-", 1001))
+        if not self.selected_batch_id and not self.ed_batch_code.text().strip():
+            self.ed_batch_code.setPlaceholderText(self.db.generate_next_code("batches", "batch_code", "C-", 1001))
+        if not self.selected_sale_id and not self.ed_sale_inv.text().strip():
+            self.ed_sale_inv.setPlaceholderText(self.db.generate_next_code("sales", "invoice_number", "INV-", 1001))
+        if not self.selected_srv_cat_id and not self.ed_srv_code.text().strip():
+            self.ed_srv_code.setPlaceholderText(self.db.generate_next_code("service_catalog", "code", "S-", 1001))
 
     def _refresh_products_table(self):
         q = self.ed_prod_search.text().strip().lower()
@@ -5203,13 +5353,13 @@ class MainWindow(QMainWindow):
                        COALESCE(SUM(b.sold_qty), 0) as sold_qty
                 FROM products p
                 LEFT JOIN batches b ON p.id = b.product_id
-                GROUP BY p.id ORDER BY p.id DESC
+                GROUP BY p.id ORDER BY p.updated_at DESC, p.id DESC
             """).fetchall()
 
         data = []
         for r in rows:
             specs = json.loads(r["specs_json"] or "{}")
-            specs_str = " | ".join(f"{k}:{v}" for k, v in specs.items())
+            specs_str = self._format_specs_for_display(specs, r["category"])
             search_pool = f"{r['code']} {r['category']} {r['sub_category']} {r['brand']} {r['model']} {specs_str} {r['description']}".lower()
             if q and q not in search_pool:
                 continue
@@ -5247,7 +5397,7 @@ class MainWindow(QMainWindow):
                 JOIN products p ON b.product_id=p.id
                 LEFT JOIN suppliers sup ON b.supplier_id=sup.id
                 LEFT JOIN employees e ON b.buyer_employee_id=e.id
-                ORDER BY b.id DESC
+                ORDER BY b.updated_at DESC, b.id DESC
             """).fetchall()
         data = []
         for r in rows:
@@ -5291,7 +5441,7 @@ class MainWindow(QMainWindow):
                 JOIN products p ON s.product_id=p.id
                 JOIN batches b ON s.batch_id=b.id
                 LEFT JOIN employees e ON s.seller_employee_id=e.id
-                ORDER BY s.id DESC
+                ORDER BY s.updated_at DESC, s.id DESC
             """).fetchall()
         data = []
         for r in rows:
@@ -5338,7 +5488,7 @@ class MainWindow(QMainWindow):
                 JOIN batches b1 ON u.target_batch_id=b1.id
                 JOIN batches b2 ON u.part_batch_id=b2.id
                 LEFT JOIN employees e ON u.technician_id=e.id
-                ORDER BY u.id DESC
+                ORDER BY u.updated_at DESC, u.id DESC
             """).fetchall()
         data = []
         for r in rows:
@@ -5362,12 +5512,12 @@ class MainWindow(QMainWindow):
     def _refresh_services_table(self):
         with self.db.get_connection() as conn:
             cat_rows = conn.execute(
-                "SELECT * FROM service_catalog WHERE is_active=1 ORDER BY id DESC"
+                "SELECT * FROM service_catalog WHERE is_active=1 ORDER BY updated_at DESC, id DESC"
             ).fetchall()
             rec_rows = conn.execute("""
                 SELECT sr.*, e.name as emp_name FROM service_records sr
                 LEFT JOIN employees e ON sr.seller_employee_id=e.id
-                ORDER BY sr.id DESC
+                ORDER BY sr.updated_at DESC, sr.id DESC
             """).fetchall()
 
         cat_data = [
@@ -5414,7 +5564,7 @@ class MainWindow(QMainWindow):
                 FROM suppliers s
                 LEFT JOIN batches b ON s.id = b.supplier_id
                 GROUP BY s.id
-                ORDER BY s.id DESC
+                ORDER BY s.updated_at DESC, s.id DESC
             """).fetchall()
         data = []
         for r in rows:
@@ -5436,7 +5586,7 @@ class MainWindow(QMainWindow):
     def _refresh_employees_table(self):
         with self.db.get_connection() as conn:
             rows = conn.execute(
-                "SELECT * FROM employees ORDER BY id DESC"
+                "SELECT * FROM employees ORDER BY updated_at DESC, id DESC"
             ).fetchall()
         data = [
             [
@@ -5530,7 +5680,7 @@ class MainWindow(QMainWindow):
                     """SELECT p.code,p.category,p.sub_category,p.brand,p.model,p.reorder_point,
                        COALESCE(SUM(b.remaining_qty),0) AS rem
                        FROM products p LEFT JOIN batches b ON p.id=b.product_id
-                       GROUP BY p.id HAVING rem<=p.reorder_point ORDER BY rem ASC"""
+                       GROUP BY p.id HAVING rem<=p.reorder_point ORDER BY p.updated_at DESC, p.id DESC"""
                 ).fetchall()
                 employee_performance = conn.execute(
                     """SELECT e.name, COUNT(s.id) AS cnt,
@@ -5538,7 +5688,7 @@ class MainWindow(QMainWindow):
                        COALESCE(SUM(s.total_discount),0) AS disc,
                        COALESCE(SUM(s.total_profit),0) AS prof
                        FROM employees e LEFT JOIN sales s ON e.id=s.seller_employee_id
-                       GROUP BY e.id ORDER BY e.id DESC"""
+                       GROUP BY e.id ORDER BY e.updated_at DESC, e.id DESC"""
                 ).fetchall()
 
         if scoped and warehouse_role:
