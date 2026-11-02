@@ -468,8 +468,12 @@ def test_upgrade_edit_accounts_for_the_previous_component_consumption(
 ):
     monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
     monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    errors = []
     monkeypatch.setattr(main_module.QMessageBox, "information", lambda *args, **kwargs: None)
-    monkeypatch.setattr(main_module.QMessageBox, "critical", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        main_module.QMessageBox, "critical",
+        lambda *args, **kwargs: errors.append(args[2] if len(args) > 2 else ""),
+    )
     manager = DatabaseManager(str(tmp_path / "shop.db"))
 
     manager.add_product(
@@ -541,6 +545,7 @@ def test_upgrade_edit_accounts_for_the_previous_component_consumption(
                 "SELECT target_qty, part_qty_used FROM upgrades WHERE id=?",
                 (window.tbl_upgrades.item(0, 0).text(),),
             ).fetchone()
+        assert not errors, errors
         assert part_after_edit == 0
         assert saved_upgrade["target_qty"] == 2
         assert saved_upgrade["part_qty_used"] == 4
