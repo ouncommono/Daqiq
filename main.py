@@ -3247,22 +3247,26 @@ class MainWindow(QMainWindow):
                     "مانده حساب (تومان)",
                     "سود خالص (تومان)",
                     "وضعیت تسویه",
+                    "مشخصات فنی",
                 ]
                 s_rows = conn.execute("""
                     SELECT 'فروش کالا' as t_type, s.invoice_number as ref, s.sale_datetime as dt,
                            p.code, p.category, p.sub_category, (p.brand || ' ' || p.model) as title,
+                           COALESCE(NULLIF(s.specifications,''), NULLIF(b.final_specs,''), NULLIF(b.initial_specs,''), '') as specs,
                            e.id as emp_id, e.name as emp_name, s.customer_name as party,
                            s.qty, s.actual_unit_price as u_price, s.suggested_unit_price as sug_price,
                            (s.unit_cost_price * s.qty) as cost_total, s.total_amount as amt,
                            s.paid_amount as paid, s.total_profit as prof, s.settlement_status as st
                     FROM sales s
                     JOIN products p ON s.product_id=p.id
+                    LEFT JOIN batches b ON s.batch_id=b.id
                     LEFT JOIN employees e ON s.seller_employee_id=e.id
                 """).fetchall()
 
                 b_rows = conn.execute("""
                     SELECT 'خرید محموله' as t_type, b.batch_code as ref, b.purchase_date as dt,
                            p.code, p.category, p.sub_category, (p.brand || ' ' || p.model) as title,
+                           COALESCE(NULLIF(b.final_specs,''), NULLIF(b.initial_specs,''), '') as specs,
                            e.id as emp_id, e.name as emp_name, COALESCE(sup.name,b.supplier_name_snapshot) as party,
                            b.initial_qty as qty, b.unit_purchase_price as u_price, b.unit_purchase_price as sug_price,
                            b.extra_cost_total as cost_total,
@@ -3277,7 +3281,7 @@ class MainWindow(QMainWindow):
                 srv_rows = conn.execute("""
                     SELECT 'خدمات' as t_type, sr.invoice_number as ref, sr.service_datetime as dt,
                            'SRV' as code, 'خدمات' as category, sr.service_type as sub_category,
-                           sr.service_name as title, e.id as emp_id, e.name as emp_name,
+                           sr.service_name as title, '' as specs, e.id as emp_id, e.name as emp_name,
                            sr.customer_name as party, 1 as qty, sr.service_fee as u_price,
                            sr.service_fee as sug_price, sr.side_cost as cost_total,
                            sr.service_fee as amt, sr.paid_amount as paid,
@@ -3326,6 +3330,7 @@ class MainWindow(QMainWindow):
                             r["category"],
                             r["sub_category"] or "-",
                             r["title"].strip() or r["sub_category"],
+                            r["specs"] or "-",
                             r["emp_name"] or "-",
                             r["party"] or "-",
                             r["qty"],
@@ -3339,6 +3344,7 @@ class MainWindow(QMainWindow):
                             r["st"],
                         ]
                     )
+                rows_data.sort(key=lambda row: str(row[2] or ""), reverse=True)
                 summary_text = (
                     f"مجموع فروش و خدمات: {total_income:,} تومان   |   "
                     f"مجموع خریدها: {total_buy:,} تومان   |   "
@@ -3371,10 +3377,11 @@ class MainWindow(QMainWindow):
                     "شرکت گارانتی",
                     "انقضای گارانتی",
                     "شماره سریال",
+                    "مشخصات فنی",
                 ]
                 q = conn.execute("""
                     SELECT s.*, p.code, p.category, p.sub_category, p.brand, p.model,
-                           b.batch_code, e.name as emp_name
+                           b.batch_code, b.final_specs, b.initial_specs, e.name as emp_name
                     FROM sales s
                     JOIN products p ON s.product_id=p.id
                     JOIN batches b ON s.batch_id=b.id
@@ -3429,6 +3436,7 @@ class MainWindow(QMainWindow):
                             r["warranty_company"] or "-",
                             r["warranty_end"] or "-",
                             r["serial_number"] or "-",
+                            r["specifications"] or r["final_specs"] or r["initial_specs"] or "-",
                         ]
                     )
                 summary_text = (
@@ -3815,6 +3823,16 @@ class MainWindow(QMainWindow):
                     f"سود خالص خدمات: {sum_net:,} تومان"
                 )
 
+        if rows_data:
+            date_columns = [
+                index for index, header in enumerate(headers)
+                if "تاریخ" in str(header) or "زمان" in str(header)
+            ]
+            if date_columns:
+                date_column = date_columns[0]
+                rows_data.sort(
+                    key=lambda row: str(row[date_column] or ""), reverse=True
+                )
         self.tbl_report.setSortingEnabled(False)
         self.tbl_report.clear()
         self.tbl_report.setColumnCount(len(headers))
