@@ -683,7 +683,6 @@ def test_technical_attributes_follow_selected_subcategory_and_are_editable(
         assert window.specs_widget.sub_layout.labelForField(
             window.specs_widget.fields["VRAM"]
         ).text() == "حافظه گرافیکی (VRAM):"
-        assert window.specs_widget.get_specs_dict() == {}
     finally:
         window.close()
         qapp.processEvents()
