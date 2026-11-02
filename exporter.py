@@ -6,7 +6,7 @@ import jdatetime
 import openpyxl
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from database import DatabaseManager
-from utils_and_widgets import add_jalali_months, normalize_digits
+from utils_and_widgets import add_jalali_months, normalize_digits, strip_bidi_controls
 
 
 def get_next_excel_filename(directory: str, prefix: str = "R") -> str:
@@ -19,11 +19,19 @@ def get_next_excel_filename(directory: str, prefix: str = "R") -> str:
     return os.path.join(directory, candidate)
 
 
+def _clean_excel_value(value):
+    """Remove directional control characters without changing the logical value."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return strip_bidi_controls(value).strip()
+    return value
+
+
 def _rtl_report_title(shop_name: str, title: str) -> str:
-    """Return clean report text; let Excel's cell reading order handle RTL."""
-    bidi_controls = dict.fromkeys(map(ord, "\u061c\u200e\u200f\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069"))
-    clean_shop_name = (shop_name or "").translate(bidi_controls).strip()
-    clean_title = (title or "").translate(bidi_controls).strip()
+    """Return clean report text; Excel applies paragraph direction contextually."""
+    clean_shop_name = _clean_excel_value(shop_name)
+    clean_title = _clean_excel_value(title)
     return f"{clean_shop_name} — {clean_title}" if clean_shop_name else clean_title
 
 
@@ -65,14 +73,16 @@ def _style_worksheet_professional(ws, title: str, headers: list, data_rows: list
     body_font = Font(name="Tahoma", size=10, color="0F172A")
 
     for r_idx, r_vals in enumerate(data_rows, start=3):
-        ws.append(r_vals)
+        clean_values = [_clean_excel_value(value) for value in r_vals]
+        ws.append(clean_values)
         ws.row_dimensions[r_idx].height = 22
         row_fill = even_fill if r_idx % 2 == 0 else odd_fill
         for c_idx in range(1, col_count + 1):
             cell = ws.cell(row=r_idx, column=c_idx)
             cell.font = body_font
             cell.fill = row_fill
-            cell.alignment = Alignment(horizontal="center", vertical="center")
+            # Contextual reading direction prevents forced RTL on Latin-only cells.
+            cell.alignment = Alignment(horizontal="center", vertical="center", readingOrder=0)
             cell.border = thin_border
 
     # تنظیم هوشمند عرض ستون‌ها
@@ -116,7 +126,7 @@ def export_safe_inventory_excel(db: DatabaseManager, file_path: str, shop_name: 
             WHERE p.is_active = 1
             GROUP BY p.id
             HAVING total_rem > 0
-            ORDER BY p.category ASC, p.code ASC
+            ORDER BY p.updated_at DESC, p.id DESC
         """).fetchall()
 
     data_rows = []
@@ -170,13 +180,13 @@ def export_table_to_excel(
     start_data_row = 3
     if summary_text:
         ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=col_count)
-        ws.cell(2, 1, summary_text).font = Font(name="Tahoma", size=10, bold=True, color="1E3A8A")
+        ws.cell(2, 1, _clean_excel_value(summary_text)).font = Font(name="Tahoma", size=10, bold=True, color="1E3A8A")
         ws.cell(2, 1).fill = PatternFill("solid", fgColor="DBEAFE")
         ws.cell(2, 1).alignment = Alignment(horizontal="center", vertical="center", readingOrder=2)
         ws.row_dimensions[2].height = 22
         start_data_row = 4
 
-    ws.append(headers)
+    ws.append([_clean_excel_value(value) for value in headers])
     header_row_idx = start_data_row - 1
     for c_idx in range(1, col_count + 1):
         cell = ws.cell(header_row_idx, c_idx)
@@ -192,12 +202,12 @@ def export_table_to_excel(
     )
 
     for r_vals in data_rows:
-        ws.append(r_vals)
+        ws.append([_clean_excel_value(value) for value in r_vals])
 
     for row in ws.iter_rows(min_row=start_data_row, max_row=ws.max_row, max_col=col_count):
         for cell in row:
             cell.font = Font(name="Tahoma", size=10)
-            cell.alignment = Alignment(horizontal="center", vertical="center")
+            cell.alignment = Alignment(horizontal="center", vertical="center", readingOrder=0)
             cell.border = thin_border
 
     for col in range(1, col_count + 1):
