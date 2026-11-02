@@ -1515,9 +1515,12 @@ class MainWindow(QMainWindow):
         self.selected_batch_id = None
         self._set_generated_code_placeholder(self.ed_batch_code, "batches", "batch_code", "C-")
         self.cb_batch_prod.setCurrentIndex(-1)
+        self.cb_batch_prod.clearEditText()
         self.cb_batch_supplier.setCurrentIndex(-1)
+        self.cb_batch_supplier.clearEditText()
         self.cb_batch_buyer.setCurrentIndex(0)
         self.ed_batch_inv.clear()
+        self.ed_batch_serial.clear()
         self.dt_batch_date.set_date(jdatetime.date.today().strftime("%Y/%m/%d"))
         self.cb_batch_qty.setCurrentText("1")
         self.pr_batch_buy.set_value(0)
@@ -2031,7 +2034,9 @@ class MainWindow(QMainWindow):
         self.selected_sale_id = None
         self._set_generated_code_placeholder(self.ed_sale_inv, "sales", "invoice_number", "INV-")
         self.cb_sale_prod.setCurrentIndex(-1)
+        self.cb_sale_prod.clearEditText()
         self.cb_sale_seller.setCurrentIndex(-1)
+        self.cb_sale_seller.clearEditText()
         self.ed_sale_customer.clear()
         self.ed_sale_specs.clear()
         self.pr_sale_actual.set_value(0)
@@ -2386,7 +2391,9 @@ class MainWindow(QMainWindow):
     def _clear_service_rec_form(self):
         self.selected_srv_rec_id = None
         self.cb_srv_select.setCurrentIndex(-1)
+        self.cb_srv_select.clearEditText()
         self.cb_srv_seller.setCurrentIndex(-1)
+        self.cb_srv_seller.clearEditText()
         self.ed_srv_cust.clear()
         self.ed_srv_desc.clear()
         self.cb_srv_status.setCurrentIndex(0)
