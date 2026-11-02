@@ -1487,7 +1487,10 @@ class MainWindow(QMainWindow):
         prod = self.cb_batch_prod.currentData()
         if prod:
             specs = json.loads(prod.get("specs_json") or "{}")
-            specs_str = " | ".join(f"{k}:{v}" for k, v in specs.items())
+            specs_str = " | ".join(
+                f"{self._bidi_safe_text(k)}: {self._bidi_safe_text(v)}"
+                for k, v in specs.items()
+            )
             desc = (prod.get("description") or "").strip()
             combined = f"{specs_str} - {desc}".strip(" -") if desc else specs_str
             self.ed_batch_serial.setText(combined)
@@ -1958,10 +1961,17 @@ class MainWindow(QMainWindow):
                 str(batch["batch_code"]),
                 f"موجودی: {int(batch['remaining_qty'])}",
             ]
-            if variant and variant != "بدون تفاوت ثبت‌شده":
+            has_distinguishing_specs = bool(
+                variant and variant != "بدون تفاوت ثبت‌شده"
+            )
+            if has_distinguishing_specs:
                 visible_parts.append(f"تفاوت: {variant}")
-            elif variant:
-                visible_parts.append("مشخصات یکسان")
+                hover_detail = f"مشخصات متمایز: {variant}"
+            else:
+                visible_parts.append(
+                    f"قیمت پیشنهادی: {int(batch['suggested_sell_price']):,} تومان"
+                )
+                hover_detail = f"قیمت پیشنهادی: {int(batch['suggested_sell_price']):,} تومان"
             label = " | ".join(visible_parts)
 
             search_text = " ".join(
@@ -1970,13 +1980,8 @@ class MainWindow(QMainWindow):
             search_text = f"{search_text} {product_search_text}".strip()
             full_tooltip = (
                 f"کد محموله: {batch['batch_code']}\n"
-                f"موجودی: {batch['remaining_qty']}\n"
-                f"تاریخ خرید: {batch['purchase_date']}\n"
-                f"قیمت پیشنهادی: {int(batch['suggested_sell_price']):,} تومان\n"
-                f"مشخصات اولیه: {batch.get('initial_specs') or '-'}\n"
-                f"مشخصات نهایی: {batch.get('final_specs') or '-'}\n"
-                f"شماره سریال: {batch.get('serial_numbers') or '-'}\n"
-                f"یادداشت: {batch.get('notes') or '-'}"
+                f"موجودی: {int(batch['remaining_qty'])}\n"
+                f"{hover_detail}"
             )
             index = self.cb_sale_batch.count()
             self.cb_sale_batch.addItem(label, batch)
@@ -2653,7 +2658,7 @@ class MainWindow(QMainWindow):
                 specs_txt = row["final_specs"] or row["initial_specs"]
                 if not specs_txt and row["specs_json"]:
                     d = json.loads(row["specs_json"] or "{}")
-                    specs_txt = " | ".join(f"{k}:{v}" for k, v in d.items())
+                    specs_txt = " | ".join(f"{k}: {v}" for k, v in d.items())
                 self.ed_upg_new_specs.setText(specs_txt or "")
 
     def _save_upgrade(self):
@@ -3460,7 +3465,10 @@ class MainWindow(QMainWindow):
                     if rep_type.startswith("۸.") and rem > int(r["reorder_point"]):
                         continue
                     specs = json.loads(r["specs_json"] or "{}")
-                    specs_str = " | ".join(f"{k}:{v}" for k, v in specs.items())
+                    specs_str = " | ".join(
+                f"{self._bidi_safe_text(k)}: {self._bidi_safe_text(v)}"
+                for k, v in specs.items()
+            )
                     search_pool = f"{r['code']} {r['category']} {r['sub_category']} {r['brand']} {r['model']} {specs_str}".lower()
                     if q_txt and q_txt not in search_pool:
                         continue
@@ -5160,7 +5168,7 @@ class MainWindow(QMainWindow):
             ).fetchall()
             batches = conn.execute(
                 """
-                SELECT b.*, p.category, p.sub_category, p.brand, p.model
+                SELECT b.*, p.code AS product_code, p.category, p.sub_category, p.brand, p.model
                 FROM batches b
                 JOIN products p ON b.product_id=p.id
                 WHERE b.remaining_qty > 0
@@ -5186,11 +5194,26 @@ class MainWindow(QMainWindow):
                 specs = {}
             if not isinstance(specs, dict):
                 specs = {}
+            specs_lines = [
+                f"{self._bidi_safe_text(key)}: {self._bidi_safe_text(value)}"
+                for key, value in specs.items()
+                if str(value).strip()
+            ]
             specs_short = "، ".join(str(value) for value in specs.values() if str(value).strip())
-            product_description = str(product.get("description") or "")
-            # Keep the visible label compact; all technical details remain searchable
-            # and are available on hover so long specs do not overwhelm the picker.
+            product_description = str(product.get("description") or "").strip()
             visible_label = self._format_product_picker_label(product)
+            hover_lines = [
+                f"کد کالا: {product.get('code') or '-'}",
+                f"دسته‌بندی: {self._bidi_safe_text(product.get('category') or '-')}",
+                f"زیرمجموعه: {self._bidi_safe_text(product.get('sub_category') or '-')}",
+                f"برند: {self._bidi_safe_text(product.get('brand') or '-')}",
+                f"مدل: {self._bidi_safe_text(product.get('model') or '-')}",
+                "مشخصات نهایی:",
+                *(specs_lines or ["-"]),
+                f"توضیحات: {product_description or '-'}",
+            ]
+            hover_text = "\n".join(hover_lines)
+
             batch_index = self.cb_batch_prod.count()
             self.cb_batch_prod.addItem(visible_label, product)
             self.cb_batch_prod.setItemSearchText(
@@ -5198,11 +5221,7 @@ class MainWindow(QMainWindow):
                 f"{product['category']} {product['sub_category']} {product['code']} "
                 f"{product['brand']} {product['model']} {specs_short} {product_description}",
             )
-            self.cb_batch_prod.setItemData(
-                batch_index,
-                f"{visible_label}\nمشخصات کامل: {specs_short or '-'}\nتوضیحات: {product_description or '-'}",
-                Qt.ToolTipRole,
-            )
+            self.cb_batch_prod.setItemData(batch_index, hover_text, Qt.ToolTipRole)
 
             if int(product["id"]) in sale_product_ids:
                 sale_label = self._format_product_picker_label(product)
@@ -5213,11 +5232,7 @@ class MainWindow(QMainWindow):
                     f"{product['category']} {product['sub_category']} {product['code']} "
                     f"{product['brand']} {product['model']} {specs_short} {product_description}",
                 )
-                self.cb_sale_prod.setItemData(
-                    sale_index,
-                    f"{sale_label}\nمشخصات فنی: {specs_short or '-'}\nتوضیحات: {product_description or '-'}",
-                    Qt.ToolTipRole,
-                )
+                self.cb_sale_prod.setItemData(sale_index, hover_text, Qt.ToolTipRole)
         self.cb_batch_prod.blockSignals(False)
         self.cb_sale_prod.blockSignals(False)
         self._on_sale_prod_changed()
@@ -5288,17 +5303,28 @@ class MainWindow(QMainWindow):
             product_title = self._format_product_picker_label(batch)
             label = (
                 f"{batch['batch_code']} | {product_title} | "
-                f"موجودی: {batch['remaining_qty']}"
+                f"موجودی: {int(batch['remaining_qty'])}"
             )
             searchable = (
-                f"{label} {batch.get('initial_specs') or ''} "
-                f"{batch.get('final_specs') or ''} {batch.get('serial_numbers') or ''}"
+                f"{label} {batch.get('final_specs') or ''} "
+                f"{batch.get('serial_numbers') or ''}"
             ).strip()
-            tooltip = (
-                f"{label}\nمشخصات اولیه: {batch.get('initial_specs') or '-'}\n"
-                f"مشخصات نهایی: {batch.get('final_specs') or '-'}\n"
-                f"شماره سریال: {batch.get('serial_numbers') or '-'}"
-            )
+            final_specs = str(batch.get("final_specs") or "").strip()
+            final_spec_lines = [
+                self._bidi_safe_text(segment.strip())
+                for segment in re.split(r"[|؛;\\n]+", final_specs)
+                if segment.strip()
+            ]
+            tooltip_lines = [
+                f"کد محموله: {batch['batch_code']}",
+                f"کد کالا: {batch.get('product_code') or '-'}",
+                f"مشخصات کالا: {self._bidi_safe_text(product_title)}",
+                f"موجودی فعلی: {int(batch['remaining_qty'])}",
+                "مشخصات نهایی محموله:",
+                *(final_spec_lines or ["-"]),
+                f"شماره سریال: {batch.get('serial_numbers') or '-'}",
+            ]
+            tooltip = "\n".join(tooltip_lines)
             for combo in (self.cb_upg_target, self.cb_upg_part):
                 item_index = combo.count()
                 combo.addItem(label, batch["id"])
@@ -5334,7 +5360,10 @@ class MainWindow(QMainWindow):
         data = []
         for r in rows:
             specs = json.loads(r["specs_json"] or "{}")
-            specs_str = " | ".join(f"{k}:{v}" for k, v in specs.items())
+            specs_str = " | ".join(
+                f"{self._bidi_safe_text(k)}: {self._bidi_safe_text(v)}"
+                for k, v in specs.items()
+            )
             search_pool = f"{r['code']} {r['category']} {r['sub_category']} {r['brand']} {r['model']} {specs_str} {r['description']}".lower()
             if q and q not in search_pool:
                 continue
