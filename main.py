@@ -957,6 +957,20 @@ class MainWindow(QMainWindow):
         pattern = r"[A-Za-z][A-Za-z0-9._/+#+-]*(?:\s+[A-Za-z][A-Za-z0-9._/+#+-]*)*"
         return re.sub(pattern, lambda match: "\u2066" + match.group(0) + "\u2069", text)
 
+    @classmethod
+    def _format_technical_text(cls, value):
+        """Normalize key/value spacing and isolate Latin tokens for RTL displays."""
+        raw = str(value or "").strip()
+        if not raw:
+            return ""
+        parts = re.split(r"([|؛;\n]+)", raw)
+        for index in range(0, len(parts), 2):
+            segment = parts[index]
+            match = re.match(r"^\s*([^:|؛;\n]+?)\s*:\s*(.*?)\s*$", segment)
+            if match:
+                parts[index] = f"{match.group(1).strip()}: {match.group(2).strip()}"
+        return cls._bidi_safe_text("".join(parts))
+
     def _make_collapsible_settings_section(self, title, content):
         """Create a keyboard-accessible, initially collapsed settings branch."""
         wrapper = QWidget()
@@ -1940,8 +1954,8 @@ class MainWindow(QMainWindow):
             labels[int(batch["id"])] = "، ".join(pieces) if pieces else "بدون تفاوت ثبت‌شده"
         return labels
 
-    @staticmethod
-    def _format_product_picker_label(product, *, include_specs=False):
+    @classmethod
+    def _format_product_picker_label(cls, product, *, include_specs=False):
         category = str(product.get("category") or "سایر موارد").strip()
         subcategory = str(product.get("sub_category") or "").strip()
         brand_model = " ".join(
@@ -1965,7 +1979,7 @@ class MainWindow(QMainWindow):
                 )
                 if short_specs:
                     parts.append(short_specs)
-        return " | ".join(part for part in parts if part)
+        return cls._format_technical_text(" | ".join(part for part in parts if part))
 
     def _on_sale_prod_changed(self):
         """Load batches and display only the technical differences between variants."""
@@ -2841,7 +2855,7 @@ class MainWindow(QMainWindow):
                 f"برند: {self._bidi_safe_text(batch.get('brand') or '-')}",
                 f"مدل: {self._bidi_safe_text(batch.get('model') or '-')}",
                 f"موجودی: {int(batch['remaining_qty'])}",
-                f"مشخصات نهایی: {self._bidi_safe_text(batch.get('final_specs') or '-')}",
+                f"مشخصات نهایی: {self._format_technical_text(batch.get('final_specs') or '-')}",
                 f"شماره سریال: {self._bidi_safe_text(batch.get('serial_numbers') or '-')}",
             ]
             tooltip = "\n".join(tooltip_lines)
@@ -3525,7 +3539,7 @@ class MainWindow(QMainWindow):
                             f"{debt:,}",
                             f"{int(r['batch_profit']):,}",
                             r["settlement_status"],
-                            f"{self._bidi_safe_text(r['final_specs'])} "
+                            f"{self._format_technical_text(r['final_specs'])} "
                             f"{self._bidi_safe_text(r['serial_numbers'])}".strip() or "-",
                         ]
                     )
@@ -5487,7 +5501,7 @@ class MainWindow(QMainWindow):
             ).strip()
             final_specs = str(batch.get("final_specs") or "").strip()
             final_spec_lines = [
-                self._bidi_safe_text(segment.strip())
+                self._format_technical_text(segment.strip())
                 for segment in re.split(r"[|؛;\\n]+", final_specs)
                 if segment.strip()
             ]
@@ -5610,7 +5624,7 @@ class MainWindow(QMainWindow):
                     r["settlement_status"],
                     f"{r['paid_amount']:,}",
                     f"{debt:,}",
-                    f"{self._bidi_safe_text(r['final_specs'])} "
+                    f"{self._format_technical_text(r['final_specs'])} "
                     f"{self._bidi_safe_text(r['serial_numbers'])}".strip(),
                     f"{tot_bill:,}",
                     r["updated_at"],
@@ -5688,8 +5702,8 @@ class MainWindow(QMainWindow):
                     r["part_qty_used"],
                     f"{r['part_unit_cost']:,}",
                     f"{r['labor_cost_unit']:,}",
-                    self._bidi_safe_text(r["old_specs"]),
-                    self._bidi_safe_text(r["new_specs"]),
+                    self._format_technical_text(r["old_specs"]),
+                    self._format_technical_text(r["new_specs"]),
                     r["upgrade_date"],
                     r["tech_name"] or "-",
                     r["updated_at"],
