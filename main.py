@@ -969,6 +969,12 @@ class MainWindow(QMainWindow):
             match = re.match(r"^\s*([^:|؛;\n]+?)\s*:\s*(.*?)\s*$", segment)
             if match:
                 parts[index] = f"{match.group(1).strip()}: {match.group(2).strip()}"
+        for index in range(1, len(parts), 2):
+            separator = parts[index]
+            if "\n" in separator:
+                parts[index] = "\n" * separator.count("\n")
+            else:
+                parts[index] = f" {separator.strip()} "
         return cls._bidi_safe_text("".join(parts))
 
     def _make_collapsible_settings_section(self, title, content):
