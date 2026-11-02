@@ -40,5 +40,7 @@ jobs:
           python -m pip install PySide6 openpyxl jdatetime pytest
       - name: Compile Python files
         run: python -m compileall -q .
-      - name: Run database regression tests
-        run: python -m pytest -q
+      - name: Run database contract tests
+        run: python -m pytest -q tests/test_database_contracts.py
+      - name: Run Qt UI regression tests
+        run: python -m pytest -q tests/test_ui_smoke.py
