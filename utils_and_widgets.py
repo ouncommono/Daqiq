@@ -1,6 +1,7 @@
 # utils_and_widgets.py
 import datetime
 import jdatetime
+import re
 from PySide6.QtWidgets import (
     QWidget,
     QHBoxLayout,
@@ -446,6 +447,7 @@ class PriceInput(QLineEdit):
         super().__init__(parent)
         self.db = db_manager
         self._raw_typed = False
+        self._pending_focus_select = False
         self.setPlaceholderText("مبلغ (تومان)")
         zero_count = int(self.db.cfg.get("zero_append_count", 3) or 0)
         self.setToolTip(
@@ -456,6 +458,22 @@ class PriceInput(QLineEdit):
         self.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.textEdited.connect(self._on_edited)
         self.editingFinished.connect(self._apply_auto_zeros)
+
+    def focusInEvent(self, event):
+        super().focusInEvent(event)
+        self._pending_focus_select = not self.isReadOnly()
+        if self._pending_focus_select:
+            self.selectAll()
+
+    def mousePressEvent(self, event):
+        super().mousePressEvent(event)
+        if self._pending_focus_select and not self.isReadOnly():
+            self.selectAll()
+            self._pending_focus_select = False
+
+    def focusOutEvent(self, event):
+        self._pending_focus_select = False
+        super().focusOutEvent(event)
 
     def _on_edited(self, txt):
         self._raw_typed = True
@@ -655,13 +673,13 @@ class JalaliCalendarDialog(QDialog):
 
         self.cb_year = QComboBox()
         self.cb_year.setEditable(True)
-        self.cb_year.addItems([str(year) for year in range(1300, 1501)])
+        self.cb_year.addItems([str(year) for year in range(1400, 1601)])
         self.cb_year.setInsertPolicy(QComboBox.NoInsert)
         self.cb_year.setCurrentText(str(self.cur_year))
         self.cb_year.setMinimumWidth(115)
         self.cb_year.setMinimumHeight(38)
         self.cb_year.lineEdit().setAlignment(Qt.AlignCenter)
-        self.cb_year.lineEdit().setValidator(QIntValidator(1300, 1500, self.cb_year))
+        self.cb_year.lineEdit().setValidator(QIntValidator(1400, 1600, self.cb_year))
         self.cb_year.setStyleSheet("font-size: 15px; font-weight: bold;")
         self.cb_year.currentTextChanged.connect(self._refresh_grid)
 
@@ -700,13 +718,22 @@ class JalaliCalendarDialog(QDialog):
         year_row.addWidget(lbl_y)
         year_row.addWidget(self.cb_year)
         year_row.addStretch()
+        year_row.addWidget(btn_today)
         nav.addLayout(year_row)
 
         month_row = QHBoxLayout()
         month_row.addWidget(lbl_m)
         month_row.addWidget(self.cb_month)
+        month_row.addWidget(QLabel("روز:"))
+        self.cb_day = QComboBox()
+        self.cb_day.addItems([f"{day:02d}" for day in range(1, 32)])
+        self.cb_day.setMinimumWidth(72)
+        self.cb_day.setMinimumHeight(38)
+        self.cb_day.setStyleSheet("font-size: 15px; font-weight: bold;")
+        self.cb_day.setCurrentText(f"{self.cur_day:02d}")
+        self.cb_day.currentTextChanged.connect(self._select_day_from_combo)
+        month_row.addWidget(self.cb_day)
         month_row.addStretch()
-        month_row.addWidget(btn_today)
         nav.addLayout(month_row)
         layout.addLayout(nav)
 
@@ -743,7 +770,21 @@ class JalaliCalendarDialog(QDialog):
         t = jdatetime.date.today()
         self.cb_year.setCurrentText(str(t.year))
         self.cb_month.setCurrentIndex(t.month - 1)
+        self.cb_day.blockSignals(True)
+        self.cb_day.setCurrentText(f"{t.day:02d}")
+        self.cb_day.blockSignals(False)
         self.selected_date = t.strftime("%Y/%m/%d")
+        self.accept()
+
+    def _select_day_from_combo(self, day_text):
+        try:
+            year = int(normalize_digits(self.cb_year.currentText()).strip())
+            month = int(self.cb_month.currentData())
+            day = int(normalize_digits(day_text))
+            selected = jdatetime.date(year, month, day)
+        except (TypeError, ValueError):
+            return
+        self.selected_date = selected.strftime("%Y/%m/%d")
         self.accept()
 
     def _refresh_grid(self):
@@ -762,7 +803,7 @@ class JalaliCalendarDialog(QDialog):
             year = int(raw_year)
         except (TypeError, ValueError):
             return
-        if not 1300 <= year <= 1500:
+        if not 1400 <= year <= 1600:
             return
 
         month = self.cb_month.currentData()
@@ -809,12 +850,15 @@ class JalaliCalendarDialog(QDialog):
         except (TypeError, ValueError):
             return
         m = self.cb_month.currentData()
-        if m is None or not 1300 <= y <= 1500:
+        if m is None or not 1400 <= y <= 1600:
             return
         try:
             jdatetime.date(y, int(m), d)
         except ValueError:
             return
+        self.cb_day.blockSignals(True)
+        self.cb_day.setCurrentText(f"{d:02d}")
+        self.cb_day.blockSignals(False)
         self.selected_date = f"{y:04d}/{int(m):02d}/{d:02d}"
         self.accept()
 
@@ -1188,8 +1232,27 @@ class DynamicSpecsWidget(QGroupBox):
             self.form_layout.addRow("زیرمجموعه (قابل تایپ دستی):", self.cb_sub)
             self.form_layout.addRow("مشخصات فنی:", ed_spec)
 
+    def _remove_custom_field_widgets(self):
+        """Remove only live custom widgets; tolerate Qt objects already destroyed by a rebuild."""
+        for field_name, widget in list(self._custom_field_widgets.items()):
+            if self.fields.get(field_name) is widget:
+                self.fields.pop(field_name, None)
+            try:
+                self.form_layout.removeRow(widget)
+            except RuntimeError:
+                pass
+            try:
+                widget.deleteLater()
+            except RuntimeError:
+                pass
+        self._custom_field_widgets.clear()
+
     def apply_custom_catalog(self, subcategories=None, custom_fields=None):
         """Apply user-managed subcategories and extra specification fields."""
+        # Remove old custom controls *before* rebuilding part-specific controls. The
+        # rebuild replaces Qt children and can invalidate wrappers held in this map.
+        self._remove_custom_field_widgets()
+
         if self.cb_sub is not None and isinstance(subcategories, list):
             current = self.cb_sub.currentText()
             self.cb_sub.blockSignals(True)
@@ -1205,15 +1268,6 @@ class DynamicSpecsWidget(QGroupBox):
             self.cb_sub.blockSignals(False)
             if self.current_category == "قطعات":
                 self._rebuild_part_subfields(self.cb_sub.currentText())
-
-        # Remove custom widgets from the previously selected subcategory before
-        # adding the next set. Built-in fields remain in place and can be reconfigured.
-        for field_name, widget in list(self._custom_field_widgets.items()):
-            if self.fields.get(field_name) is widget:
-                self.fields.pop(field_name, None)
-            self.form_layout.removeRow(widget)
-            widget.deleteLater()
-        self._custom_field_widgets.clear()
 
         if not isinstance(custom_fields, list):
             return
@@ -1249,10 +1303,11 @@ class DynamicSpecsWidget(QGroupBox):
                 widget.addItems(list(dict.fromkeys(values)))
             else:
                 widget = SmartLineEdit(f"{field_name}...")
-            widget.setToolTip(f"مشخصه سفارشی: {field_name}")
+            display_label = str(definition.get("label") or field_name).strip()
+            widget.setToolTip(f"مشخصه سفارشی: {display_label}")
             self.fields[field_name] = widget
             self._custom_field_widgets[field_name] = widget
-            self.form_layout.addRow(f"{field_name}:", widget)
+            self.form_layout.addRow(f"{display_label}:", widget)
 
     def _rebuild_part_subfields(self, part_type: str):
         while self.sub_layout.count():
