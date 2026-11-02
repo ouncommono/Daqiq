@@ -1078,7 +1078,7 @@ class DynamicSpecsWidget(QGroupBox):
         self._clear_form()
 
         self.cb_sub = SearchableComboBox()
-        self.cb_sub.setEditable(False)
+        self.cb_sub.setEditable(0)
         self.cb_sub.setToolTip("زیرمجموعه را از فهرست انتخاب کنید")
 
         if self.current_category == "لپ‌تاپ":
@@ -1316,7 +1316,7 @@ class DynamicSpecsWidget(QGroupBox):
             self.cb_sub.blockSignals(True)
             self.cb_sub.clear()
             self.cb_sub.addItems(subcategories)
-            self.cb_sub.setEditable(False)
+            self.cb_sub.setEditable(0)
             if current in subcategories:
                 self.cb_sub.setCurrentText(current)
             elif subcategories:
