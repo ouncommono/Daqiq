@@ -16,6 +16,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QFontMetrics
 
 import database as database_module
+import exporter as exporter_module
 import main as main_module
 from database import DatabaseManager
 from main import MainWindow, SmoothScrollArea
@@ -524,6 +525,11 @@ def test_custom_attribute_name_is_form_label_and_title_is_output_label(tmp_path,
         window.catalog_config = manager.get_product_catalog_config()
         assert window._format_specs_for_display(
             {"نوع رم": "DDR4", "رم": "8GB"}, "لپ‌تاپ"
+        ) == "RAM: 8GB DDR4"
+        assert exporter_module._format_catalog_specs(
+            {"نوع رم": "DDR4", "رم": "8GB"},
+            "لپ‌تاپ",
+            window.catalog_config,
         ) == "RAM: 8GB DDR4"
     finally:
         window.close()
