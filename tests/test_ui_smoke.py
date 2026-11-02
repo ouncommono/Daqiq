@@ -501,10 +501,10 @@ def test_custom_attribute_name_is_form_label_and_title_is_output_label(tmp_path,
         field_label = window.specs_widget.form_layout.labelForField(field_widget)
         assert field_label.text() == "CPU:"
         assert window._format_specs_for_display({"CPU": "Core i7"}, "قطعات") == (
-            "مدل پردازنده: Core i7"
+            "پردازنده (CPU): Core i7"
         )
         assert window._format_specs_for_tooltip({"CPU": "Core i7"}, "قطعات") == (
-            "مدل پردازنده: Core i7"
+            "پردازنده (CPU): Core i7"
         )
         definition = window.catalog_config["attributes"]["قطعات"][0]
         definition["label"] = ""
@@ -525,6 +525,45 @@ def test_custom_attribute_name_is_form_label_and_title_is_output_label(tmp_path,
         assert window._format_specs_for_display(
             {"نوع رم": "DDR4", "رم": "8GB"}, "لپ‌تاپ"
         ) == "RAM: 8GB DDR4"
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
+def test_catalog_manager_selection_and_service_type_crud(tmp_path, monkeypatch, qapp):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    window = MainWindow(manager, active_employee=None)
+    try:
+        subcategory_item = window.lst_cfg_subcategories.item(0)
+        window.lst_cfg_subcategories.setCurrentItem(subcategory_item)
+        assert window.ed_cfg_subcategory.text() == subcategory_item.text()
+
+        color_item = window.lst_cfg_colors.item(0)
+        window.lst_cfg_colors.setCurrentItem(color_item)
+        assert window.ed_cfg_color.text() == color_item.text()
+
+        window.ed_cfg_service_type.setText("شبکه")
+        window._add_catalog_service_type()
+        assert "شبکه" in window._taxonomy_draft["service_types"]
+        network_item = next(
+            window.lst_cfg_service_types.item(i)
+            for i in range(window.lst_cfg_service_types.count())
+            if window.lst_cfg_service_types.item(i).text() == "شبکه"
+        )
+        window.lst_cfg_service_types.setCurrentItem(network_item)
+        assert window.ed_cfg_service_type.text() == "شبکه"
+        window.ed_cfg_service_type.setText("شبکه و ارتباطات")
+        window._rename_catalog_service_type()
+        assert "شبکه و ارتباطات" in window._taxonomy_draft["service_types"]
+        window._delete_catalog_service_type()
+        assert "شبکه و ارتباطات" not in window._taxonomy_draft["service_types"]
+
+        manager.save_product_catalog_config(window._taxonomy_draft)
+        assert manager.get_product_catalog_config()["service_types"] == (
+            window._taxonomy_draft["service_types"]
+        )
     finally:
         window.close()
         qapp.processEvents()
