@@ -451,15 +451,10 @@ class CollapsibleSection(QWidget):
         layout.setSpacing(5)
         layout.addWidget(self.header)
         layout.addWidget(self.content)
-        # Keep only a weak reference in the signal closure. The header is a child of
-        # this widget, so a bound-method signal connection would form a Python/C++
-        # reference cycle that can outlive the parent window during Qt shutdown.
-        section_ref = weakref.ref(self)
-        self.header.clicked.connect(
-            lambda *_args, ref=section_ref: (
-                ref()._on_header_clicked() if ref() is not None else None
-            )
-        )
+        # QAbstractButton.clicked carries a bool argument. Connect to a no-argument
+        # slot so the binding discards that payload instead of materializing it in a
+        # Python callback (some PySide/Python 3.11 builds mishandle bool refcounts).
+        self.header.clicked.connect(self._on_header_clicked)
 
     def _on_header_clicked(self):
         expanded = self.header.isChecked()
