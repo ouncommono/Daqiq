@@ -437,15 +437,15 @@ class CollapsibleSection(QWidget):
         super().__init__(parent)
         self.content = content
         self.header = QPushButton(f"▸  {title}")
-        self.header.setCheckable(True)
-        self.header.setChecked(False)
+        self.header.setCheckable(1)
+        self.header.setChecked(0)
         self.header.setMinimumHeight(38)
         self.header.setStyleSheet(
             "QPushButton { text-align: right; font-weight: 700; padding: 8px 12px; "
             "border: 1px solid #cbd5e1; border-radius: 7px; background: palette(base); }"
             "QPushButton:checked { border-color: #64748b; }"
         )
-        self.content.setVisible(False)
+        self.content.hide()
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(5)
@@ -463,9 +463,13 @@ class CollapsibleSection(QWidget):
 
     def _on_header_clicked(self):
         expanded = self.header.isChecked()
-        self.content.setVisible(expanded)
         title = self.header.text().lstrip("▸▾ ").strip()
-        self.header.setText(("▾  " if expanded else "▸  ") + title)
+        if expanded:
+            self.content.show()
+            self.header.setText("▾  " + title)
+        else:
+            self.content.hide()
+            self.header.setText("▸  " + title)
 
 
 class SmartLineEdit(QLineEdit):
@@ -840,7 +844,7 @@ class JalaliCalendarDialog(QDialog):
         colors = self._calendar_colors
         for button in self.day_buttons:
             button.setText("")
-            button.setEnabled(False)
+            button.setEnabled(0)
             button.setStyleSheet(
                 f"background: {colors['disabled']}; color: {colors['muted']}; "
                 "border: none; border-radius: 6px;"
@@ -873,13 +877,17 @@ class JalaliCalendarDialog(QDialog):
         for day_index in range(self.cb_day.count()):
             item = self.cb_day.model().item(day_index)
             if item is not None:
-                item.setEnabled(day_index < max_days)
+                flags = item.flags()
+                if day_index < max_days:
+                    item.setFlags(flags | Qt.ItemIsEnabled)
+                else:
+                    item.setFlags(flags & ~Qt.ItemIsEnabled)
 
         for day in range(1, max_days + 1):
             index = start_weekday + day - 1
             button = self.day_buttons[index]
             button.setText(str(day))
-            button.setEnabled(True)
+            button.setEnabled(1)
             if year == self.cur_year and month == self.cur_month and day == self.cur_day:
                 button.setStyleSheet(
                     f"background-color: {colors['selected']}; color: white; "

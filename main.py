@@ -605,7 +605,7 @@ class MainWindow(QMainWindow):
             self.btn_safe_export.setEnabled(not is_scoped)
         if hasattr(self, "btn_switch_user"):
             # تغییر کاربر بخشی از جریان دسترسی است و برای همه نقش‌ها در دسترس می‌ماند.
-            self.btn_switch_user.setEnabled(True)
+            self.btn_switch_user.setEnabled(1)
 
 
     def _apply_styles(self):
@@ -1097,7 +1097,7 @@ class MainWindow(QMainWindow):
         self.ed_prod_code = SmartLineEdit("P-1001")
         self.ed_prod_code.setToolTip("در صورت خالی بودن، کد بعدی به‌صورت خودکار تخصیص می‌یابد.")
         self.cb_prod_cat = SearchableComboBox()
-        self.cb_prod_cat.setEditable(False)
+        self.cb_prod_cat.setEditable(0)
         product_categories = self.catalog_config.get("categories") or list(MAIN_CATEGORIES)
         self.cb_prod_cat.addItems(list(dict.fromkeys(product_categories)))
         self.cb_prod_cat.setToolTip("دسته‌بندی اصلی را از فهرست انتخاب کنید.")
@@ -1675,7 +1675,7 @@ class MainWindow(QMainWindow):
         self.cb_sale_seller = SearchableComboBox()
         self.ed_sale_customer = SmartLineEdit("نام مشتری (اختیاری)")
         self.cb_sale_qty = QuantitySelector(100)
-        self.cb_sale_qty.setEditable(False)
+        self.cb_sale_qty.setEditable(0)
         self.cb_sale_qty.qtyChanged.connect(self._recalc_sale_live)
 
         self.pr_sale_suggest = PriceInput(self.db)
@@ -2516,10 +2516,10 @@ class MainWindow(QMainWindow):
         self.cb_upg_target = SearchableComboBox()
         self.cb_upg_target.currentIndexChanged.connect(self._on_upg_target_changed)
         self.cb_upg_target_qty = QuantitySelector(50)
-        self.cb_upg_target_qty.setEditable(False)
+        self.cb_upg_target_qty.setEditable(0)
         self.cb_upg_part = SearchableComboBox()
         self.cb_upg_part_qty = QuantitySelector(10)
-        self.cb_upg_part_qty.setEditable(False)
+        self.cb_upg_part_qty.setEditable(0)
         self.cb_upg_part.currentIndexChanged.connect(self._on_upg_part_changed)
         self.cb_upg_target_qty.qtyChanged.connect(self._on_upg_part_changed)
         self.pr_upg_labor = PriceInput(self.db)
@@ -2629,7 +2629,7 @@ class MainWindow(QMainWindow):
         target_qty = self.cb_upg_target_qty.get_qty()
         if not part_id:
             self.cb_upg_part_qty.set_max_qty(1)
-            self.cb_upg_part_qty.setEnabled(False)
+            self.cb_upg_part_qty.setEnabled(0)
             return
         with self.db.get_connection() as conn:
             part = conn.execute(
@@ -2638,7 +2638,7 @@ class MainWindow(QMainWindow):
         available = int(part["remaining_qty"]) if part else 0
         max_per_target = available // max(1, target_qty)
         self.cb_upg_part_qty.set_max_qty(max(1, max_per_target))
-        self.cb_upg_part_qty.setEnabled(max_per_target >= 1)
+        self.cb_upg_part_qty.setEnabled(int(max_per_target >= 1))
 
     def _save_upgrade(self):
         t_id = self.cb_upg_target.currentData()
@@ -2689,7 +2689,7 @@ class MainWindow(QMainWindow):
         self.cb_upg_tech.setCurrentIndex(-1)
         self.cb_upg_target_qty.setCurrentText("1")
         self.cb_upg_part_qty.setCurrentText("1")
-        self.cb_upg_part_qty.setEnabled(False)
+        self.cb_upg_part_qty.setEnabled(0)
         self.pr_upg_labor.set_value(0)
         self.ed_upg_new_specs.clear()
         self.ed_upg_serial.clear()
