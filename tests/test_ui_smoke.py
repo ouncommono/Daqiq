@@ -312,6 +312,12 @@ def test_database_refresh_keeps_services_suppliers_and_password_status_visible(
 
 
 
+def test_bidi_isolation_keeps_latin_specifications_stable_in_persian_labels():
+    rendered = MainWindow._bidi_safe_text("پردازنده: Core i7 و RAM DDR5")
+    assert "\u2066Core i7\u2069" in rendered
+    assert "\u2066RAM DDR5\u2069" in rendered
+
+
 def test_price_input_replaces_value_on_focus_but_not_on_click(tmp_path, monkeypatch, qapp):
     monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
     monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
