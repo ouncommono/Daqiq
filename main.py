@@ -130,7 +130,7 @@ class LoginDialog(QDialog):
         self.cb_emp = SearchableComboBox()
         with self.db.get_connection() as conn:
             emps = conn.execute(
-                "SELECT * FROM employees WHERE is_active=1 ORDER BY id DESC"
+                "SELECT * FROM employees WHERE is_active=1 ORDER BY updated_at DESC, id DESC"
             ).fetchall()
             for employee in emps:
                 self.cb_emp.addItem(
@@ -376,7 +376,7 @@ def _resolve_startup_employee(db, parent=None):
     """Select a user at startup whenever there are multiple accounts or any account requires a password."""
     with db.get_connection() as conn:
         employees = conn.execute(
-            "SELECT * FROM employees WHERE is_active=1 ORDER BY id DESC"
+            "SELECT * FROM employees WHERE is_active=1 ORDER BY updated_at DESC, id DESC"
         ).fetchall()
     if not employees:
         return None, True
@@ -1858,7 +1858,7 @@ class MainWindow(QMainWindow):
         parsed_rows = []
         token_rows = []
         for batch in batches:
-            raw = batch.get("final_specs") or batch.get("initial_specs") or ""
+            raw = batch.get("final_specs") or ""
             parsed, tokens = cls._parse_batch_specifications(raw)
             parsed_rows.append(parsed)
             token_rows.append(tokens)
@@ -1939,7 +1939,7 @@ class MainWindow(QMainWindow):
                 """
                 SELECT * FROM batches
                 WHERE product_id=? AND remaining_qty > 0
-                ORDER BY id DESC
+                ORDER BY updated_at DESC, id DESC
                 """,
                 (product_data["id"],),
             ).fetchall()
@@ -3271,7 +3271,7 @@ class MainWindow(QMainWindow):
                     JOIN products p ON s.product_id=p.id
                     JOIN batches b ON s.batch_id=b.id
                     LEFT JOIN employees e ON s.seller_employee_id=e.id
-                    ORDER BY s.id DESC
+                    ORDER BY s.updated_at DESC, s.id DESC
                 """).fetchall()
                 sum_sale, sum_prof, sum_disc = 0, 0, 0
                 for r in q:
@@ -3371,7 +3371,7 @@ class MainWindow(QMainWindow):
                     JOIN products p ON b.product_id=p.id
                     LEFT JOIN suppliers sup ON b.supplier_id=sup.id
                     LEFT JOIN employees e ON b.buyer_employee_id=e.id
-                    ORDER BY b.id DESC
+                    ORDER BY b.updated_at DESC, b.id DESC
                 """).fetchall()
                 sum_buy, sum_debt, sum_b_prof = 0, 0, 0
                 for r in q:
@@ -3455,7 +3455,7 @@ class MainWindow(QMainWindow):
                            COALESCE((SELECT SUM(total_amount) FROM sales s WHERE s.product_id=p.id), 0) as prod_rev,
                            COALESCE((SELECT SUM(total_profit) FROM sales s WHERE s.product_id=p.id), 0) as prod_prof
                     FROM products p
-                    ORDER BY p.code ASC
+                    ORDER BY p.updated_at DESC, p.id DESC
                 """).fetchall()
                 sum_stock, sum_prof = 0, 0
                 for r in q:
@@ -3672,7 +3672,7 @@ class MainWindow(QMainWindow):
                 q = conn.execute("""
                     SELECT sr.*, e.name as emp_name FROM service_records sr
                     LEFT JOIN employees e ON sr.seller_employee_id=e.id
-                    ORDER BY sr.id DESC
+                    ORDER BY sr.updated_at DESC, sr.id DESC
                 """).fetchall()
                 sum_fee, sum_side, sum_net = 0, 0, 0
                 for r in q:
@@ -5212,7 +5212,7 @@ class MainWindow(QMainWindow):
                 "SELECT * FROM products WHERE is_active=1 ORDER BY code ASC"
             ).fetchall()
             emps = conn.execute(
-                "SELECT * FROM employees WHERE is_active=1 ORDER BY id DESC"
+                "SELECT * FROM employees WHERE is_active=1 ORDER BY updated_at DESC, id DESC"
             ).fetchall()
             if self._is_scoped_access() and self.active_employee:
                 active_id = int(self.active_employee["id"])
@@ -5221,15 +5221,15 @@ class MainWindow(QMainWindow):
                 sups = conn.execute(
                     """SELECT DISTINCT s.* FROM suppliers s
                        JOIN batches b ON b.supplier_id=s.id
-                       WHERE b.buyer_employee_id=? ORDER BY s.id DESC""",
+                       WHERE b.buyer_employee_id=? ORDER BY s.updated_at DESC, s.id DESC""",
                     (int(self.active_employee["id"]),),
                 ).fetchall()
             else:
                 sups = conn.execute(
-                    "SELECT * FROM suppliers ORDER BY id DESC"
+                    "SELECT * FROM suppliers ORDER BY updated_at DESC, id DESC"
                 ).fetchall()
             srvs = conn.execute(
-                "SELECT * FROM service_catalog WHERE is_active=1 ORDER BY id DESC"
+                "SELECT * FROM service_catalog WHERE is_active=1 ORDER BY updated_at DESC, id DESC"
             ).fetchall()
             batches = conn.execute(
                 """
@@ -5237,7 +5237,7 @@ class MainWindow(QMainWindow):
                 FROM batches b
                 JOIN products p ON b.product_id=p.id
                 WHERE b.remaining_qty > 0
-                ORDER BY b.id DESC
+                ORDER BY b.updated_at DESC, b.id DESC
             """
             ).fetchall()
             sale_product_ids = {
@@ -5466,7 +5466,7 @@ class MainWindow(QMainWindow):
                 JOIN products p ON b.product_id=p.id
                 LEFT JOIN suppliers sup ON b.supplier_id=sup.id
                 LEFT JOIN employees e ON b.buyer_employee_id=e.id
-                ORDER BY b.id DESC
+                ORDER BY b.updated_at DESC, b.id DESC
             """).fetchall()
         data = []
         for r in rows:
@@ -5510,7 +5510,7 @@ class MainWindow(QMainWindow):
                 JOIN products p ON s.product_id=p.id
                 JOIN batches b ON s.batch_id=b.id
                 LEFT JOIN employees e ON s.seller_employee_id=e.id
-                ORDER BY s.id DESC
+                ORDER BY s.updated_at DESC, s.id DESC
             """).fetchall()
         data = []
         for r in rows:
@@ -5557,7 +5557,7 @@ class MainWindow(QMainWindow):
                 JOIN batches b1 ON u.target_batch_id=b1.id
                 JOIN batches b2 ON u.part_batch_id=b2.id
                 LEFT JOIN employees e ON u.technician_id=e.id
-                ORDER BY u.id DESC
+                ORDER BY u.updated_at DESC, u.id DESC
             """).fetchall()
         data = []
         for r in rows:
@@ -5581,12 +5581,12 @@ class MainWindow(QMainWindow):
     def _refresh_services_table(self):
         with self.db.get_connection() as conn:
             cat_rows = conn.execute(
-                "SELECT * FROM service_catalog WHERE is_active=1 ORDER BY id DESC"
+                "SELECT * FROM service_catalog WHERE is_active=1 ORDER BY updated_at DESC, id DESC"
             ).fetchall()
             rec_rows = conn.execute("""
                 SELECT sr.*, e.name as emp_name FROM service_records sr
                 LEFT JOIN employees e ON sr.seller_employee_id=e.id
-                ORDER BY sr.id DESC
+                ORDER BY sr.updated_at DESC, sr.id DESC
             """).fetchall()
 
         cat_data = [
@@ -5633,7 +5633,7 @@ class MainWindow(QMainWindow):
                 FROM suppliers s
                 LEFT JOIN batches b ON s.id = b.supplier_id
                 GROUP BY s.id
-                ORDER BY s.id DESC
+                ORDER BY s.updated_at DESC, s.id DESC
             """).fetchall()
         data = []
         for r in rows:
@@ -5655,7 +5655,7 @@ class MainWindow(QMainWindow):
     def _refresh_employees_table(self):
         with self.db.get_connection() as conn:
             rows = conn.execute(
-                "SELECT * FROM employees ORDER BY id DESC"
+                "SELECT * FROM employees ORDER BY updated_at DESC, id DESC"
             ).fetchall()
         data = [
             [
@@ -5749,7 +5749,7 @@ class MainWindow(QMainWindow):
                     """SELECT p.code,p.category,p.sub_category,p.brand,p.model,p.reorder_point,
                        COALESCE(SUM(b.remaining_qty),0) AS rem
                        FROM products p LEFT JOIN batches b ON p.id=b.product_id
-                       GROUP BY p.id HAVING rem<=p.reorder_point ORDER BY rem ASC"""
+                       GROUP BY p.id HAVING rem<=p.reorder_point ORDER BY p.updated_at DESC, p.id DESC"""
                 ).fetchall()
                 employee_performance = conn.execute(
                     """SELECT e.name, COUNT(s.id) AS cnt,
@@ -5757,7 +5757,7 @@ class MainWindow(QMainWindow):
                        COALESCE(SUM(s.total_discount),0) AS disc,
                        COALESCE(SUM(s.total_profit),0) AS prof
                        FROM employees e LEFT JOIN sales s ON e.id=s.seller_employee_id
-                       GROUP BY e.id ORDER BY e.id DESC"""
+                       GROUP BY e.id ORDER BY e.updated_at DESC, e.id DESC"""
                 ).fetchall()
 
         if scoped and warehouse_role:
