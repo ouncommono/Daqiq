@@ -5641,10 +5641,25 @@ class MainWindow(QMainWindow):
     def _refresh_upgrades_table(self):
         with self.db.get_connection() as conn:
             rows = conn.execute("""
-                SELECT u.*, b1.batch_code as t_code, b2.batch_code as p_code, e.name as tech_name
+                SELECT u.*,
+                       b1.batch_code AS t_code,
+                       b2.batch_code AS p_code,
+                       p1.category AS target_category,
+                       p1.brand AS target_brand,
+                       p1.model AS target_model,
+                       COALESCE(sup1.name, b1.supplier_name_snapshot) AS target_supplier,
+                       p2.sub_category AS part_subcategory,
+                       p2.brand AS part_brand,
+                       p2.model AS part_model,
+                       COALESCE(sup2.name, b2.supplier_name_snapshot) AS part_supplier,
+                       e.name AS tech_name
                 FROM upgrades u
                 JOIN batches b1 ON u.target_batch_id=b1.id
-                JOIN batches b2 ON u.part_batch_id=b2.id
+                JOIN products p1 ON b1.product_id=p1.id
+                LEFT JOIN batches b2 ON u.part_batch_id=b2.id
+                LEFT JOIN products p2 ON b2.product_id=p2.id
+                LEFT JOIN suppliers sup1 ON b1.supplier_id=sup1.id
+                LEFT JOIN suppliers sup2 ON b2.supplier_id=sup2.id
                 LEFT JOIN employees e ON u.technician_id=e.id
                 ORDER BY u.updated_at DESC, u.id DESC
             """).fetchall()
@@ -5663,6 +5678,15 @@ class MainWindow(QMainWindow):
                     r["new_specs"],
                     r["upgrade_date"],
                     r["tech_name"] or "-",
+                    r["target_category"] or "-",
+                    r["target_brand"] or "-",
+                    r["target_model"] or "-",
+                    r["target_supplier"] or "-",
+                    r["p_code"] or r["manual_part_description"] or r["part_subcategory"] or "-",
+                    r["part_brand"] or "-",
+                    r["part_model"] or "-",
+                    r["part_supplier"] or "-",
+                    "کسر شد" if int(r["stock_deducted_qty"] or 0) > 0 else "بدون کسر موجودی",
                 ]
             )
         self._populate_table_safely(self.tbl_upgrades, data)
