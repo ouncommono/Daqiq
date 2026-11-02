@@ -971,6 +971,8 @@ class MainWindow(QMainWindow):
                 parts[index] = f"{match.group(1).strip()}: {match.group(2).strip()}"
         for index in range(1, len(parts), 2):
             separator = parts[index]
+            parts[index - 1] = parts[index - 1].rstrip()
+            parts[index + 1] = parts[index + 1].lstrip()
             if "\n" in separator:
                 parts[index] = "\n" * separator.count("\n")
             else:
