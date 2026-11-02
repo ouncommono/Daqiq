@@ -920,43 +920,50 @@ class MainWindow(QMainWindow):
         )
 
     def _format_specs_for_display(self, specs, category=""):
+        """Render specification values in logical order, supporting @parent titles."""
         definitions = self.catalog_config.get("attributes", {}).get(category or "", [])
-        display_names = {
-            item.get("name"): (item.get("display_name") or item.get("label") or item.get("name"))
-            for item in definitions
-            if isinstance(item, dict) and item.get("name")
-        }
-        rendered = {}
-        order = []
         definitions_by_name = {
             str(item.get("name") or "").strip(): item
-            for item in definitions if isinstance(item, dict) and item.get("name")
+            for item in definitions
+            if isinstance(item, dict) and str(item.get("name") or "").strip()
         }
-        for key, value in (specs or {}).items():
-            value = str(value).strip()
-            if not value:
+
+        rendered = {}
+        order = []
+        deferred_children = []
+        for raw_key, raw_value in (specs or {}).items():
+            key = str(raw_key).strip()
+            value = str(raw_value or "").strip()
+            if not key or not value:
                 continue
-            definition = definitions_by_name.get(str(key), {})
-            title = str(definition.get("label") or key).strip()
+            definition = definitions_by_name.get(key, {})
+            title = str(definition.get("label") or "").strip()
             if title.startswith("@"):
                 reference = title[1:].strip()
-                if not reference:
-                    continue
-                if reference not in rendered:
-                    rendered[reference] = value
-                    order.append(reference)
-                else:
-                    rendered[reference] = f"{rendered[reference]} {value}".strip()
+                if reference:
+                    deferred_children.append((reference, value))
                 continue
             if key not in rendered:
                 order.append(key)
-            rendered[key] = f"{rendered.get(key, '')} {value}".strip()
+                rendered[key] = value
+            else:
+                rendered[key] = f"{rendered[key]} {value}".strip()
+
+        # Process child attributes after their parent values so the combined text
+        # is stable even when JSON property order differs.
+        for reference, child_value in deferred_children:
+            if reference not in rendered:
+                rendered[reference] = child_value
+                order.append(reference)
+            else:
+                rendered[reference] = f"{rendered[reference]} {child_value}".strip()
+
         pieces = []
         for key in order:
-            definition = definitions_by_name.get(str(key), {})
+            definition = definitions_by_name.get(key, {})
             title = str(definition.get("label") or key).strip()
-            if title.startswith("@"):
-                title = str(key)
+            if title.startswith("@") or not title:
+                title = key
             pieces.append(f"{title}: {rendered[key]}")
         return " | ".join(pieces)
 
@@ -4614,6 +4621,95 @@ class MainWindow(QMainWindow):
         self.lst_cfg_service_types.clear()
         for service_type in self._taxonomy_draft.get("service_types", []):
             self.lst_cfg_service_types.addItem(service_type)
+
+    def _on_catalog_category_selected(self, category):
+        if category:
+            self.ed_cfg_category.setText(category)
+
+    def _on_catalog_subcategory_selected(self, current, _previous=None):
+        if current:
+            self.ed_cfg_subcategory.setText(current.text())
+
+    def _on_catalog_color_selected(self, current, _previous=None):
+        if current:
+            self.ed_cfg_color.setText(current.text())
+
+    def _on_catalog_service_type_selected(self, current, _previous=None):
+        if current:
+            self.ed_cfg_service_type.setText(current.text())
+
+    def _add_catalog_service_type(self):
+        name = self.ed_cfg_service_type.text().strip()
+        if not name:
+            return
+        values = self._taxonomy_draft.setdefault("service_types", [])
+        if name in values:
+            QMessageBox.information(self, "نوع خدمت تکراری", "این نوع خدمت قبلاً ثبت شده است.")
+            return
+        values.append(name)
+        self.ed_cfg_service_type.clear()
+        self._refresh_catalog_management_lists()
+
+    def _rename_catalog_service_type(self):
+        selected = self.lst_cfg_service_types.currentItem()
+        new_name = self.ed_cfg_service_type.text().strip()
+        if not selected or not new_name:
+            QMessageBox.information(self, "انتخاب نوع خدمت", "ابتدا یک نوع خدمت را انتخاب کنید.")
+            return
+        old_name = selected.text()
+        if old_name == new_name:
+            return
+        values = self._taxonomy_draft.setdefault("service_types", [])
+        if new_name in values:
+            QMessageBox.warning(self, "نام تکراری", "نوع خدمت دیگری با این نام وجود دارد.")
+            return
+        values[values.index(old_name)] = new_name
+
+        # Collapse chained renames into one database update.
+        source_name = old_name
+        for index, (source, target) in enumerate(self._pending_service_type_renames):
+            if target == old_name:
+                source_name = source
+                self._pending_service_type_renames.pop(index)
+                break
+        self._pending_service_type_renames.append((source_name, new_name))
+        self.ed_cfg_service_type.clear()
+        self._refresh_catalog_management_lists()
+
+    def _delete_catalog_service_type(self):
+        selected = self.lst_cfg_service_types.currentItem()
+        if not selected:
+            return
+        name = selected.text()
+        source_names = {name}
+        current_name = name
+        for old_name, new_name in reversed(self._pending_service_type_renames):
+            if current_name == new_name:
+                source_names.add(old_name)
+                current_name = old_name
+        marks = ",".join("?" for _ in source_names)
+        with self.db.get_connection() as conn:
+            used = conn.execute(
+                f"SELECT COUNT(*) FROM service_catalog WHERE service_type IN ({marks})",
+                tuple(source_names),
+            ).fetchone()[0]
+        if used:
+            QMessageBox.warning(
+                self, "نوع خدمت در حال استفاده است",
+                "این نوع خدمت در تعرفه‌های ثبت‌شده استفاده شده است. برای حفظ سوابق، ابتدا خدمات وابسته را تغییر دهید."
+            )
+            return
+        self._taxonomy_draft["service_types"] = [
+            value for value in self._taxonomy_draft.get("service_types", [])
+            if value != name
+        ]
+        self._pending_service_type_renames = [
+            (old_name, new_name)
+            for old_name, new_name in self._pending_service_type_renames
+            if new_name != name
+        ]
+        self.ed_cfg_service_type.clear()
+        self._refresh_catalog_management_lists()
 
     def _add_catalog_category(self):
         name = self.ed_cfg_category.text().strip()
