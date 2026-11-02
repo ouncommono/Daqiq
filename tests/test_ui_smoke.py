@@ -522,7 +522,10 @@ def test_upgrade_edit_accounts_for_the_previous_component_consumption(
     window = MainWindow(manager, active_employee=None)
     try:
         assert window.tbl_upgrades.rowCount() == 1
-        window.tbl_upgrades.selectRow(0)
+        selected_upgrade_cell = window.tbl_upgrades.item(0, 0)
+        assert selected_upgrade_cell is not None
+        window.tbl_upgrades.setCurrentCell(0, 0)
+        selected_upgrade_cell.setSelected(True)
         window._on_upgrade_selected()
 
         # The previous upgrade consumed all four parts. During editing those
