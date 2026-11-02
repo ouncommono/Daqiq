@@ -81,10 +81,12 @@ class _CollapsibleSectionController(QObject):
     @Slot()
     def _toggle_expanded_state(self):
         self._expanded = not self._expanded
-        self._body.setVisible(self._expanded)
-        self._button.setArrowType(
-            Qt.DownArrow if self._expanded else Qt.RightArrow
-        )
+        if self._expanded:
+            self._body.show()
+            self._button.setArrowType(Qt.DownArrow)
+        else:
+            self._body.hide()
+            self._button.setArrowType(Qt.RightArrow)
 
 
 PERSIAN_WEEKDAYS = {
@@ -965,7 +967,6 @@ class MainWindow(QMainWindow):
         toggle.setText(title)
         # Avoid checkable/boolean Qt signals; this button is a simple disclosure
         # control whose expanded state is owned by its QObject controller.
-        toggle.setCheckable(False)
         toggle.setArrowType(Qt.RightArrow)
         toggle.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         toggle.setMinimumHeight(38)
@@ -977,7 +978,7 @@ class MainWindow(QMainWindow):
         )
         if isinstance(content, QGroupBox):
             content.setTitle("")
-        content.setVisible(False)
+        content.hide()
         controller = _CollapsibleSectionController(
             toggle, content, parent=wrapper
         )
