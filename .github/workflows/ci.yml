@@ -42,5 +42,15 @@ jobs:
         run: python -m compileall -q .
       - name: Run database contract tests
         run: python -m pytest -q tests/test_database_contracts.py
-      - name: Run Qt UI regression tests
-        run: python -m pytest -q tests/test_ui_smoke.py
+      - name: Run Qt UI regression tests independently
+        shell: bash
+        run: |
+          mapfile -t test_ids < <(
+            python -m pytest --collect-only -q tests/test_ui_smoke.py |
+            grep '^tests/test_ui_smoke.py::'
+          )
+          for test_id in "${test_ids[@]}"; do
+            echo "::group::${test_id}"
+            python -m pytest -q "${test_id}"
+            echo "::endgroup::"
+          done
