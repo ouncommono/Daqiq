@@ -358,6 +358,74 @@ def test_first_run_database_wizard_validates_new_and_existing_files(tmp_path, mo
     connect_dialog.close()
 
 
+def test_sale_clear_resets_every_field_and_edited_products_move_to_top(
+    tmp_path, monkeypatch, qapp
+):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    manager.add_product(
+        "P-EDIT-1", "", "لپ‌تاپ", "لپ‌تاپ عمومی / مالتی‌مدیا",
+        "Acme", "First", {"RAM": "8GB"}, "", 1, 20,
+    )
+    manager.add_product(
+        "P-EDIT-2", "", "لپ‌تاپ", "لپ‌تاپ عمومی / مالتی‌مدیا",
+        "Acme", "Second", {"RAM": "16GB"}, "", 1, 20,
+    )
+    with manager.get_connection() as conn:
+        product_id = conn.execute(
+            "SELECT id FROM products WHERE code='P-EDIT-1'"
+        ).fetchone()["id"]
+        conn.execute(
+            "UPDATE products SET model='Edited after creation' WHERE id=?",
+            (product_id,),
+        )
+        conn.commit()
+
+    manager.add_batch(
+        "C-EDIT-1", product_id, None, None, "PO-EDIT", "1405/01/01", 5,
+        100, 0, 150, 0, "", "RAM: 8GB", "", "تسویه‌نشده",
+    )
+
+    window = MainWindow(manager, active_employee=None)
+    try:
+        # An edited old product returns to the top without changing its stable primary key.
+        assert window.tbl_products.item(0, 1).text() == "P-EDIT-1"
+
+        window.cb_sale_prod.setCurrentIndex(0)
+        window.cb_sale_batch.setCurrentIndex(0)
+        window.cb_sale_qty.setCurrentText("2")
+        window.ed_sale_customer.setText("مشتری آزمایشی")
+        window.pr_sale_actual.set_value(123456)
+        window.pr_sale_paid.set_value(50000)
+        window.ed_war_company.setText("شرکت گارانتی")
+        if window.cb_war_months.count() > 1:
+            window.cb_war_months.setCurrentIndex(1)
+        window.ed_sale_serial.setText("SERIAL-TEST")
+        window.dt_war_start.set_date("1404/01/01")
+        window.dt_war_end.set_date("1404/02/01")
+
+        window._clear_sale_form()
+
+        assert window.cb_sale_prod.currentIndex() == -1
+        assert window.cb_sale_batch.currentIndex() == -1
+        assert window.ed_sale_customer.text() == ""
+        assert window.cb_sale_qty.currentText() == "1"
+        assert window.pr_sale_actual.get_value() == 0
+        assert window.pr_sale_paid.get_value() == 0
+        assert window.pr_sale_suggest.get_value() == 0
+        assert window.ed_war_company.text() == ""
+        assert window.ed_sale_serial.text() == ""
+        assert window.cb_war_months.currentIndex() == 0
+        assert window.dt_war_start.get_date() == main_module.jdatetime.date.today().strftime("%Y/%m/%d")
+        assert window.dt_war_end.get_date() == window.dt_war_start.get_date()
+        assert window.ed_sale_inv.isReadOnly()
+        assert window.ed_sale_inv.text().startswith("INV-")
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
 def test_sale_batch_picker_shows_only_distinguishing_specifications(tmp_path, monkeypatch, qapp):
     monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
     monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
