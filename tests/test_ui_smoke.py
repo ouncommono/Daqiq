@@ -797,6 +797,11 @@ def test_technical_attributes_follow_selected_subcategory_and_are_editable(
         "colors": ["مشکی"],
     })
 
+    manager.add_product(
+        "P-LABEL-1", "", "قطعات", "کارت گرافیک (Graphic Card)",
+        "ASUS", "Test GPU", {"VRAM": "8GB"}, "", 1, 20,
+    )
+
     window = MainWindow(manager, active_employee=None)
     try:
         assert window.cb_prod_cat.currentText() == "قطعات"
@@ -811,6 +816,21 @@ def test_technical_attributes_follow_selected_subcategory_and_are_editable(
         assert window.specs_widget.sub_layout.labelForField(
             window.specs_widget.fields["VRAM"]
         ).text() == "حافظه گرافیکی (VRAM):"
+
+        # Stable storage key remains VRAM, but the table and form use the
+        # independently configured Persian display title.
+        window.specs_widget.fields["VRAM"].setCurrentText("8GB")
+        assert window.specs_widget.get_specs_dict() == {"VRAM": "8GB"}
+        product_row = next(
+            row for row in range(window.tbl_products.rowCount())
+            if window.tbl_products.item(row, 1).text() == "P-LABEL-1"
+        )
+        listed_specs = window.tbl_products.item(product_row, 6).text()
+        clean_listed_specs = (
+            listed_specs.replace("\u2066", "").replace("\u2069", "")
+        )
+        assert "حافظه گرافیکی (VRAM): 8GB" in clean_listed_specs
+        assert "VRAM: 8GB" not in clean_listed_specs
     finally:
         window.close()
         qapp.processEvents()
