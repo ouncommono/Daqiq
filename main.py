@@ -2902,7 +2902,10 @@ class MainWindow(QMainWindow):
             ]
         )
         self.tbl_suppliers.itemSelectionChanged.connect(self._on_supplier_selected)
-        self._add_table_search(layout, self.tbl_suppliers, "suppliers", "🔍 جست‌وجو در تأمین‌کنندگان...")
+        self._add_table_search(
+            layout, self.tbl_suppliers, "suppliers",
+            "جست‌وجو در نام، تلفن یا نشانی تأمین‌کننده...", action_row=btn_sup_row
+        )
         layout.addWidget(self.tbl_suppliers)
         self._add_scrollable_tab(tab, "💳 تأمین‌کنندگان و بدهی‌ها")
 
