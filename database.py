@@ -656,11 +656,8 @@ class DatabaseManager:
                         "subcategory": str(item.get("subcategory", "") or "").strip(),
                     }
                     label = str(item.get("label", "") or "").strip()
-                    display_name = str(item.get("display_name", "") or "").strip()
                     if label:
                         normalized_item["label"] = label
-                    if display_name:
-                        normalized_item["display_name"] = display_name
                     normalized_items.append(normalized_item)
                 attributes[str(category)] = normalized_items
 
@@ -738,11 +735,8 @@ class DatabaseManager:
                     "subcategory": str(item.get("subcategory", "") or "").strip(),
                 }
                 label = str(item.get("label", "") or "").strip()
-                display_name = str(item.get("display_name", "") or "").strip()
                 if label:
                     clean_item["label"] = label
-                if display_name:
-                    clean_item["display_name"] = display_name
                 clean_items.append(clean_item)
             clean_attributes[str(category)] = clean_items
 
