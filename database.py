@@ -428,7 +428,10 @@ class DatabaseManager:
                         UPDATE {table_name}
                         SET updated_at = MAX(
                             (julianday('now') - 2440587.5) * 86400.0,
-                            OLD.updated_at + 0.000001
+                            COALESCE(
+                                (SELECT MAX(updated_at) FROM {table_name}),
+                                OLD.updated_at
+                            ) + 0.001
                         )
                         WHERE id = NEW.id;
                     END
@@ -444,7 +447,13 @@ class DatabaseManager:
                     WHEN NEW.updated_at = 0
                     BEGIN
                         UPDATE {table_name}
-                        SET updated_at = (julianday('now') - 2440587.5) * 86400.0
+                        SET updated_at = MAX(
+                            (julianday('now') - 2440587.5) * 86400.0,
+                            COALESCE(
+                                (SELECT MAX(updated_at) FROM {table_name} WHERE id<>NEW.id),
+                                0
+                            ) + 0.001
+                        )
                         WHERE id = NEW.id;
                     END
                     """
@@ -587,15 +596,18 @@ class DatabaseManager:
                     values = item.get("values", [])
                     if not isinstance(values, list):
                         values = []
-                    normalized_items.append({
+                    normalized = {
                         "name": name,
                         "values": list(dict.fromkeys(
                             str(value).strip() for value in values
                             if value is not None and str(value).strip()
                         )),
                         "subcategory": str(item.get("subcategory", "") or "").strip(),
-                        "label": str(item.get("label", "") or "").strip(),
-                    })
+                    }
+                    display_label = str(item.get("label", "") or "").strip()
+                    if display_label:
+                        normalized["label"] = display_label
+                    normalized_items.append(normalized)
                 attributes[str(category)] = normalized_items
 
         colors = raw_colors if isinstance(raw_colors, list) else []
@@ -653,15 +665,18 @@ class DatabaseManager:
                 values = item.get("values", [])
                 if not isinstance(values, list):
                     raise ValueError(f"مقادیر مشخصهٔ «{name}» باید به‌صورت فهرست باشند.")
-                clean_items.append({
+                clean_item = {
                     "name": name,
                     "values": list(dict.fromkeys(
                         str(value).strip() for value in values
                         if value is not None and str(value).strip()
                     )),
                     "subcategory": str(item.get("subcategory", "") or "").strip(),
-                    "label": str(item.get("label", "") or "").strip(),
-                })
+                }
+                display_label = str(item.get("label", "") or "").strip()
+                if display_label:
+                    clean_item["label"] = display_label
+                clean_items.append(clean_item)
             clean_attributes[str(category)] = clean_items
 
         clean = {
