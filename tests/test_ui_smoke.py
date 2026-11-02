@@ -764,6 +764,56 @@ def test_price_input_selects_the_full_amount_on_focus(tmp_path, monkeypatch, qap
         qapp.processEvents()
 
 
+def test_all_remaining_clear_buttons_reset_requested_fields(tmp_path, monkeypatch, qapp):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    window = MainWindow(manager, active_employee=None)
+    try:
+        window.pr_batch_buy.set_value(111)
+        window.pr_batch_extra.set_value(222)
+        window.pr_batch_suggest.set_value(333)
+        window.pr_batch_paid.set_value(444)
+        window.ed_batch_inv.setText("PO-RESET")
+        window._clear_batch_form()
+        assert [
+            window.pr_batch_buy.get_value(),
+            window.pr_batch_extra.get_value(),
+            window.pr_batch_suggest.get_value(),
+            window.pr_batch_paid.get_value(),
+        ] == [0, 0, 0, 0]
+        assert window.ed_batch_inv.text() == ""
+        assert window.cb_batch_prod.currentIndex() == -1
+        assert window.cb_batch_supplier.currentIndex() == -1
+
+        window.pr_srv_def_fee.set_value(555)
+        window.pr_srv_def_side.set_value(666)
+        window._clear_service_cat_form()
+        assert window.pr_srv_def_fee.get_value() == 0
+        assert window.pr_srv_def_side.get_value() == 0
+
+        window.pr_srv_fee.set_value(777)
+        window.pr_srv_side.set_value(888)
+        window.pr_srv_paid.set_value(999)
+        window.ed_srv_cust.setText("مشتری آزمایش")
+        window._clear_service_rec_form()
+        assert [
+            window.pr_srv_fee.get_value(),
+            window.pr_srv_side.get_value(),
+            window.pr_srv_paid.get_value(),
+        ] == [0, 0, 0]
+        assert window.ed_srv_cust.text() == ""
+        assert window.cb_srv_select.currentIndex() == -1
+        assert window.cb_srv_seller.currentIndex() == -1
+
+        window.pr_upg_labor.set_value(1234)
+        window._clear_upgrade_form()
+        assert window.pr_upg_labor.get_value() == 0
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
 def test_sale_clear_form_resets_values_and_keeps_next_invoice_as_placeholder(
     tmp_path, monkeypatch, qapp
 ):
