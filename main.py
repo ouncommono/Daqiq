@@ -955,13 +955,16 @@ class MainWindow(QMainWindow):
         if isinstance(content, QGroupBox):
             content.setTitle("")
         content.setVisible(False)
-        def update_expanded_state(expanded, body=content, button=toggle):
-            body.setVisible(bool(expanded))
+        def update_expanded_state(body=content, button=toggle):
+            expanded = button.isChecked()
+            body.setVisible(expanded)
             button.setArrowType(
                 Qt.DownArrow if expanded else Qt.RightArrow
             )
 
-        toggle.toggled.connect(update_expanded_state)
+        # clicked() is used without its boolean payload; the slot reads state
+        # from the button and avoids the PySide bool-signal teardown issue.
+        toggle.clicked.connect(update_expanded_state)
         branch_layout.addWidget(toggle)
         branch_layout.addWidget(content)
         return wrapper
@@ -4154,7 +4157,7 @@ class MainWindow(QMainWindow):
         self.lbl_security_hint = QLabel()
         self.lbl_security_hint.setWordWrap(True)
         self.lbl_security_hint.setStyleSheet("color: #64748b; font-size: 11px;")
-        self.chk_req_pass.toggled.connect(self._refresh_password_policy_hint)
+        self.chk_req_pass.stateChanged.connect(self._refresh_password_policy_hint)
         security_layout.addWidget(self.chk_req_pass)
         security_layout.addWidget(self.lbl_security_hint)
         layout.addWidget(
@@ -4922,7 +4925,8 @@ class MainWindow(QMainWindow):
         definitions = self.catalog_config.get("attributes", {}).get(category, [])
         applicable = [
             item for item in definitions
-            if not item.get("subcategory") or item.get("subcategory") == subcategory
+            if not item.get("subcategory")
+            or str(item.get("subcategory") or "").strip().casefold() == subcategory.casefold()
         ]
         self.specs_widget.apply_custom_catalog(None, applicable)
 
