@@ -2616,6 +2616,8 @@ class MainWindow(QMainWindow):
         self.selected_upgrade_id = None
         self._upg_target_available_qty = 0
         self._upg_part_available_qty = 0
+        self._upgrade_original_part_batch_id = None
+        self._upgrade_original_part_qty_used = 0
         self.cb_upg_target = SearchableComboBox()
         self.cb_upg_target.currentIndexChanged.connect(self._on_upg_target_changed)
         self.cb_upg_target_qty = QuantitySelector(50)
@@ -2748,6 +2750,13 @@ class MainWindow(QMainWindow):
                 ).fetchone()
             if row:
                 self._upg_part_available_qty = max(0, int(row["remaining_qty"] or 0))
+                if (
+                    self.selected_upgrade_id is not None
+                    and int(part_id) == self._upgrade_original_part_batch_id
+                ):
+                    # The database restores the edited upgrade's previous
+                    # component consumption before applying the replacement.
+                    self._upg_part_available_qty += self._upgrade_original_part_qty_used
         self._update_upg_part_qty_limit()
 
     def _update_upg_part_qty_limit(self, *_):
@@ -2776,10 +2785,17 @@ class MainWindow(QMainWindow):
                 "SELECT remaining_qty FROM batches WHERE id=?",
                 (p_id,),
             ).fetchone()
-        if not part_stock or required_parts > int(part_stock["remaining_qty"] or 0):
+        available_part_qty = int(part_stock["remaining_qty"] or 0) if part_stock else 0
+        if (
+            part_stock
+            and self.selected_upgrade_id is not None
+            and int(p_id) == self._upgrade_original_part_batch_id
+        ):
+            available_part_qty += self._upgrade_original_part_qty_used
+        if not part_stock or required_parts > available_part_qty:
             QMessageBox.warning(
                 self, "موجودی ناکافی",
-                "تعداد قطعات مصرفی درخواستی از موجودی فعلی محموله بیشتر است."
+                "تعداد قطعات مصرفی درخواستی از موجودی قابل‌استفادهٔ محموله بیشتر است."
             )
             return
         try:
@@ -2809,6 +2825,9 @@ class MainWindow(QMainWindow):
 
     def _clear_upgrade_form(self):
         self.selected_upgrade_id = None
+        self._upgrade_original_part_batch_id = None
+        self._upgrade_original_part_qty_used = 0
+        self._upg_part_available_qty = 0
         self.tbl_upgrades.clearSelection()
         self.cb_upg_target.setCurrentIndex(-1)
         self.cb_upg_part.setCurrentIndex(-1)
@@ -2841,6 +2860,11 @@ class MainWindow(QMainWindow):
         if not upgrade:
             self._clear_upgrade_form()
             return
+
+        # Capture the original part consumption so the edit form can show the
+        # same effective availability that the database transaction will restore.
+        self._upgrade_original_part_batch_id = int(upgrade["part_batch_id"])
+        self._upgrade_original_part_qty_used = int(upgrade["part_qty_used"])
 
         # Keep exhausted historical batches selectable: editing reverses their old consumption first.
         for batch in related_batches:
