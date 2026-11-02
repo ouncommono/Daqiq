@@ -925,8 +925,8 @@ class MainWindow(QMainWindow):
     def _bidi_safe_text(value):
         """Isolate Latin technical tokens inside Persian text to prevent visual reordering."""
         text = str(value or "")
-        pattern = r"[A-Za-z][A-Za-z0-9._/+#+-]*(?:\\s+[A-Za-z][A-Za-z0-9._/+#+-]*)*"
-        return re.sub(pattern, lambda match: "\\u2066" + match.group(0) + "\\u2069", text)
+        pattern = r"[A-Za-z][A-Za-z0-9._/+#+-]*(?:\s+[A-Za-z][A-Za-z0-9._/+#+-]*)*"
+        return re.sub(pattern, lambda match: "\u2066" + match.group(0) + "\u2069", text)
 
     def _make_collapsible_settings_section(self, title, content):
         """Create a keyboard-accessible, initially collapsed settings branch."""
