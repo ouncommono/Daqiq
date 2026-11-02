@@ -979,6 +979,63 @@ class MainWindow(QMainWindow):
                 parts[index] = f" {separator.strip()} "
         return cls._bidi_safe_text("".join(parts))
 
+    def _get_spec_display_label(self, category, subcategory, storage_key):
+        """Resolve a technical field's display title without changing its stored key."""
+        category = str(category or "").strip()
+        subcategory = str(subcategory or "").strip()
+        storage_key = str(storage_key or "").strip()
+        definitions = self.catalog_config.get("attributes", {}).get(category, [])
+        aliases = {
+            "حافظه VRAM": "VRAM",
+            "VRAM": "حافظه VRAM",
+        }
+        candidate_keys = (storage_key, aliases.get(storage_key))
+        matching = [
+            item for item in definitions
+            if isinstance(item, dict)
+            and str(item.get("name") or "").strip() in candidate_keys
+        ]
+        for item in matching:
+            scope = str(item.get("subcategory") or "").strip()
+            if scope and scope.casefold() == subcategory.casefold():
+                return str(item.get("label") or item.get("name") or storage_key).strip()
+        for item in matching:
+            scope = str(item.get("subcategory") or "").strip()
+            if not scope:
+                return str(item.get("label") or item.get("name") or storage_key).strip()
+        return storage_key
+
+    def _format_product_spec_parts(self, category, subcategory, specs):
+        """Return display-ready technical fields while retaining stable storage keys."""
+        if not isinstance(specs, dict):
+            return []
+        parts = []
+        for storage_key, value in specs.items():
+            if value is None or not str(value).strip():
+                continue
+            display_label = self._get_spec_display_label(
+                category, subcategory, storage_key
+            )
+            parts.append(
+                self._format_technical_text(f"{display_label}: {str(value).strip()}")
+            )
+        return parts
+
+    def _format_product_specs(self, category, subcategory, specs):
+        return " | ".join(
+            self._format_product_spec_parts(category, subcategory, specs)
+        )
+
+    def _format_batch_specs(self, category, subcategory, raw_specs):
+        """Format final batch specs with configurable titles and safe RTL/LTR runs."""
+        parsed, plain_tokens = self._parse_batch_specifications(raw_specs)
+        parts = self._format_product_spec_parts(category, subcategory, parsed)
+        parts.extend(
+            self._format_technical_text(token)
+            for token in plain_tokens if str(token).strip()
+        )
+        return " | ".join(parts) if parts else self._format_technical_text(raw_specs)
+
     def _make_collapsible_settings_section(self, title, content):
         """Create a keyboard-accessible, initially collapsed settings branch."""
         wrapper = QWidget()
@@ -1557,9 +1614,8 @@ class MainWindow(QMainWindow):
         prod = self.cb_batch_prod.currentData()
         if prod:
             specs = json.loads(prod.get("specs_json") or "{}")
-            specs_str = " | ".join(
-                f"{self._bidi_safe_text(k)}: {self._bidi_safe_text(v)}"
-                for k, v in specs.items()
+            specs_str = self._format_product_specs(
+                prod["category"], prod["sub_category"], specs
             )
             desc = (prod.get("description") or "").strip()
             combined = f"{specs_str} - {desc}".strip(" -") if desc else specs_str
@@ -2035,6 +2091,11 @@ class MainWindow(QMainWindow):
                 variant and variant != "بدون تفاوت ثبت‌شده"
             )
             if has_distinguishing_specs:
+                variant = self._format_batch_specs(
+                    product_data.get("category"),
+                    product_data.get("sub_category"),
+                    variant,
+                )
                 visible_parts.append(f"تفاوت: {variant}")
                 hover_detail = f"مشخصات متمایز: {variant}"
             else:
@@ -3623,9 +3684,8 @@ class MainWindow(QMainWindow):
                     if rep_type.startswith("۸.") and rem > int(r["reorder_point"]):
                         continue
                     specs = json.loads(r["specs_json"] or "{}")
-                    specs_str = " | ".join(
-                        f"{self._bidi_safe_text(k)}: {self._bidi_safe_text(v)}"
-                        for k, v in specs.items()
+                    specs_str = self._format_product_specs(
+                        r["category"], r["sub_category"], specs
                     )
                     search_pool = f"{r['code']} {r['category']} {r['sub_category']} {r['brand']} {r['model']} {specs_str}".lower()
                     if q_txt and q_txt not in search_pool:
@@ -5429,11 +5489,9 @@ class MainWindow(QMainWindow):
                 specs = {}
             if not isinstance(specs, dict):
                 specs = {}
-            specs_lines = [
-                f"{self._bidi_safe_text(key)}: {self._bidi_safe_text(value)}"
-                for key, value in specs.items()
-                if str(value).strip()
-            ]
+            specs_lines = self._format_product_spec_parts(
+                product.get("category"), product.get("sub_category"), specs
+            )
             specs_short = "، ".join(str(value) for value in specs.values() if str(value).strip())
             product_description = str(product.get("description") or "").strip()
             visible_label = self._format_product_picker_label(product)
@@ -5545,11 +5603,12 @@ class MainWindow(QMainWindow):
                 f"{batch.get('serial_numbers') or ''}"
             ).strip()
             final_specs = str(batch.get("final_specs") or "").strip()
-            final_spec_lines = [
-                self._format_technical_text(segment.strip())
-                for segment in re.split(r"[|؛;\n]+", final_specs)
-                if segment.strip()
-            ]
+            final_spec_lines = (
+                self._format_batch_specs(
+                    batch.get("category"), batch.get("sub_category"), final_specs
+                ).split(" | ")
+                if final_specs else []
+            )
             tooltip_lines = [
                 f"کد محموله: {batch['batch_code']}",
                 f"کد کالا: {batch.get('product_code') or '-'}",
@@ -5598,9 +5657,8 @@ class MainWindow(QMainWindow):
         data = []
         for r in rows:
             specs = json.loads(r["specs_json"] or "{}")
-            specs_str = " | ".join(
-                f"{self._bidi_safe_text(k)}: {self._bidi_safe_text(v)}"
-                for k, v in specs.items()
+            specs_str = self._format_product_specs(
+                r["category"], r["sub_category"], specs
             )
             search_pool = f"{r['code']} {r['category']} {r['sub_category']} {r['brand']} {r['model']} {specs_str} {r['description']}".lower()
             if q and q not in search_pool:
