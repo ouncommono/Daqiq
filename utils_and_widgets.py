@@ -997,6 +997,7 @@ class DynamicSpecsWidget(QGroupBox):
         self.fields = {}
         self._custom_field_widgets = {}
         self.cb_sub = None
+        self.on_subcategory_rebuilt = None
         self.set_category("لپ‌تاپ")
 
     def _clear_form(self):
@@ -1386,6 +1387,12 @@ class DynamicSpecsWidget(QGroupBox):
             ed_custom = SmartLineEdit("مشخصه فنی قطعه (مثلاً سوکت، ولتاژ، سایز پنل...)")
             self.fields = {"مشخصه فنی": ed_custom}
             self.sub_layout.addRow("مشخصات فنی قطعه:", ed_custom)
+
+        # Re-apply user-defined attributes after the built-in subcategory controls
+        # have been rebuilt; otherwise a category change silently drops custom keys.
+        callback = self.on_subcategory_rebuilt
+        if callable(callback):
+            callback()
 
     def get_sub_category(self) -> str:
         if self.cb_sub:
