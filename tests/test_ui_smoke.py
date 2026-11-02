@@ -333,6 +333,10 @@ def test_bidi_isolation_keeps_latin_specifications_stable_in_persian_labels():
     assert "\u2066Core i7\u2069" in rendered
     assert "\u2066RAM DDR5\u2069" in rendered
 
+    formatted = MainWindow._format_technical_text("CPU:CORE I7 | نوع RAM:DDR5")
+    plain = formatted.replace("\u2066", "").replace("\u2069", "")
+    assert plain == "CPU: CORE I7 | نوع RAM: DDR5"
+
 
 def test_price_input_replaces_value_on_focus_but_not_on_click(tmp_path, monkeypatch, qapp):
     monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
