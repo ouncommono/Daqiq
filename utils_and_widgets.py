@@ -1098,6 +1098,7 @@ class DynamicSpecsWidget(QGroupBox):
         self.main_layout = QVBoxLayout(self)
         self.form_widget = QWidget()
         self.form_layout = QFormLayout(self.form_widget)
+        self.form_layout.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.main_layout.addWidget(self.form_widget)
         self.current_category = "لپ‌تاپ"
         self.fields = {}
@@ -1230,6 +1231,7 @@ class DynamicSpecsWidget(QGroupBox):
 
             self.sub_container = QWidget()
             self.sub_layout = QFormLayout(self.sub_container)
+            self.sub_layout.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
             self.sub_layout.setContentsMargins(0, 0, 0, 0)
             self.form_layout.addRow(self.sub_container)
             self._rebuild_part_subfields("سایر موارد")
