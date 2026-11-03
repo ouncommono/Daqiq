@@ -2425,9 +2425,9 @@ class MainWindow(QMainWindow):
         signed_diff_display = "\u200e" + signed_diff if signed_diff.startswith(("+", "-")) else signed_diff
         signed_color = "#dc2626" if signed_value < 0 else "#059669"
         self.lbl_sale_summary.setText(
-            f"تخفیف (-) / تشدید (+): {signed_diff_display} تومان   |   مبلغ کل فاکتور: {total_bill:,} تومان   |   سود فروش: {profit_total:,} تومان"
+            f"تخفیف (-) / تشدید (+): <span style='color:{signed_color};'>{signed_diff_display}</span> تومان"
+            f"   |   مبلغ کل فاکتور: {total_bill:,} تومان   |   سود فروش: {profit_total:,} تومان"
         )
-        self.lbl_sale_summary.setStyleSheet(f"color: {signed_color}; font-weight: bold;")
 
     def _recalc_warranty_end(self):
         m = self.cb_war_months.currentData() or 0
@@ -7257,7 +7257,7 @@ class MainWindow(QMainWindow):
                     """SELECT p.id AS product_id, p.code,p.category,p.sub_category,p.brand,p.model,
                        p.specs_json,p.reorder_point,
                        COALESCE(SUM(b.remaining_qty),0) AS rem,
-                       COALESCE(MAX(b.updated_at),'') AS last_batch_activity,
+                       MAX(NULLIF(b.updated_at,'')) AS last_batch_activity,
                        (SELECT b2.batch_code FROM batches b2 WHERE b2.product_id=p.id
                         ORDER BY b2.updated_at DESC, b2.id DESC LIMIT 1) AS latest_batch_code
                        FROM products p LEFT JOIN batches b ON p.id=b.product_id
