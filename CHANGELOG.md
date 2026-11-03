@@ -25,3 +25,29 @@
 
 ### Validation scope
 This release update preserves the existing business-table identifiers and relationships. It does not perform a wholesale redesign or rename of every legacy table/column. Manual Windows UI verification and the complete GitHub Actions test run are still required before a production release.
+
+## 1.2.0
+
+### Database and accounting
+- Standardized creation and modification audit timestamps to local `YYYY-MM-DD HH:MM:SS.fff` precision while preserving business transaction dates.
+- Replaced synthetic activity ticks with timestamp triggers and activity indexes based on `COALESCE(updated_at, created_at)`.
+- Centralized settlement-aware receivable calculations: settled services classify the received/service-cost difference as discount or surcharge with zero receivable; only partial and unsettled statuses carry balances.
+- Corrected service net-profit calculations to use the actual received amount less side costs.
+
+### Reports and operational UI
+- Expanded report sorting to include activity time (default), transaction date, amount, settlement, category, and responsible user.
+- Reorganized report types into practical sales/services, purchasing, stock, and user-performance groups.
+- Added service discount/surcharge and receivable columns; added red/green service price feedback.
+- Fixed one-item product selection initialization, editable warranty duration, read-only controlled selectors, responsive date controls, and scrollable technical specifications.
+- Applied compact RTL field caption alignment and English technical-specification display titles.
+
+### Settings, catalog, exports, and permissions
+- Separated product, service, colleague inventory export, and access-level settings into dedicated tabs.
+- Added shipment code as the second inventory export column; it and product code are selected by default, while suggested price and stock are unchecked.
+- Added per-module and per-action permission checkboxes with common role presets.
+- Consolidated the subcategory caption setting into main categories and fixed the geometry of the four catalog frames.
+- Compactly parameterized CPU family templates and localized every extra-price-zero option in Persian numerals.
+
+### Release validation
+- Added regression coverage for settlement accounting and the default colleague inventory export columns.
+- Automated CI and manual Qt desktop verification remain the final release checks.
