@@ -4845,7 +4845,36 @@ class MainWindow(QMainWindow):
         self._pending_attribute_renames = []
         self._pending_color_renames = []
         self._pending_service_type_renames = []
+
+        legacy_attribute_names = {
+            "CPU": ("پردازنده", "CPU"),
+            "RAM": ("ظرفیت رم", "RAM"),
+            "نوع RAM": ("نسل رم", "RAM Type"),
+            "Storage": ("حافظه داخلی", "Storage"),
+            "Graphic": ("پردازنده گرافیکی", "GPU"),
+            "GPU": ("پردازنده گرافیکی", "GPU"),
+            "Display": ("صفحه‌نمایش", "Display"),
+            "Panel": ("نوع پنل", "Panel"),
+            "Refresh Rate": ("نرخ نوسازی", "Refresh Rate"),
+            "Ports": ("درگاه‌ها", "Ports"),
+        }
+        for category, definitions in self._taxonomy_draft.get("attributes", {}).items():
+            for definition in definitions:
+                old_name = str(definition.get("name") or "").strip()
+                if old_name in legacy_attribute_names:
+                    new_name, default_title = legacy_attribute_names[old_name]
+                    scope = str(definition.get("subcategory") or "")
+                    definition["name"] = new_name
+                    if not str(definition.get("label") or "").strip():
+                        definition["label"] = default_title
+                    self._pending_attribute_renames.append(
+                        (category, old_name, new_name, scope, scope)
+                    )
         self._deduplicate_catalog_draft()
+
+        # Use the normalized draft immediately in product forms; persistence and
+        # JSON-key migration happen together when the user saves settings.
+        self.catalog_config = copy.deepcopy(self._taxonomy_draft)
 
         self.cb_cfg_category.blockSignals(True)
         self.cb_cfg_category.clear()
@@ -4854,6 +4883,10 @@ class MainWindow(QMainWindow):
         if self.cb_cfg_category.count():
             self.cb_cfg_category.setCurrentIndex(0)
         self._refresh_catalog_management_lists()
+        if hasattr(self, "specs_widget"):
+            current_category = self.cb_prod_cat.currentText()
+            if current_category:
+                self._configure_product_specs(current_category)
 
     def _refresh_catalog_management_lists(self, *_):
         if not hasattr(self, "_taxonomy_draft"):
