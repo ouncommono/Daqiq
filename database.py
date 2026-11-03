@@ -621,8 +621,7 @@ class DatabaseManager:
                              AND strftime('%Y-%m-%d %H:%M:%f', 'now', 'localtime') <= OLD.updated_at
                             THEN strftime(
                                 '%Y-%m-%d %H:%M:%f',
-                                julianday(OLD.updated_at) + (2.0 / 86400000.0),
-                                'localtime'
+                                julianday(OLD.updated_at) + (2.0 / 86400000.0)
                             )
                             ELSE strftime('%Y-%m-%d %H:%M:%f', 'now', 'localtime')
                         END
