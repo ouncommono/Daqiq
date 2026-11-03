@@ -181,7 +181,8 @@ CPU_LIST = [
 
 RAM_CAPACITIES = [
     "",
-    "2GB", "4GB", "8GB", "16GB", "32GB", "64GB", "128GB",
+    "2GB", "4GB", "6GB", "8GB", "12GB", "16GB", "20GB", "24GB",
+    "32GB", "48GB", "64GB", "96GB", "128GB",
 ]
 
 STORAGE_LIST = [
