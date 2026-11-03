@@ -166,7 +166,9 @@ def export_safe_inventory_excel(
         "stock": ("موجودی", 7),
     }
     if included_columns is None:
-        selected_columns = list(column_definitions)
+        selected_columns = [
+            "code", "batch_code", "category", "subcategory", "brand_model", "specs",
+        ]
     else:
         selected_columns = list(dict.fromkeys(
             key for key in included_columns if key in column_definitions
