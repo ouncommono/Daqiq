@@ -47,8 +47,19 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
         assert window.tabs.tabText(9).endswith("تنظیمات")
         assert window.lbl_app_version.text() == "نسخه برنامه: 1.2.0"
         assert [window.catalog_tabs.tabText(i) for i in range(window.catalog_tabs.count())] == [
-            "مدیریت کالاها", "مدیریت خدمات"
+            "مدیریت کالاها",
+            "مدیریت خدمات",
+            "تنظیمات خروجی موجودی همکار",
+            "مدیریت سطوح دسترسی",
         ]
+        assert len(window.inventory_export_column_checks) == 32
+        for key in ("code", "batch_code", "category", "subcategory", "brand_model", "specs"):
+            assert window.inventory_export_column_checks[key].isChecked()
+        assert not window.inventory_export_column_checks["suggested_price"].isChecked()
+        assert not window.inventory_export_column_checks["stock"].isChecked()
+        assert not window.inventory_export_column_checks["purchase_unit_price"].isChecked()
+        assert not window.inventory_export_column_checks["unit_cost_price"].isChecked()
+        assert not window.inventory_export_column_checks["profit_pct"].isChecked()
         assert window.lbl_store_name.text().strip("\u2067\u2069") == "فروشگاه من"
         assert "مدیریت فروش" not in window.lbl_store_name.text()
         assert window.lbl_active_user.text().startswith("👤 کاربر:")
