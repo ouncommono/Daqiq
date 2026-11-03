@@ -121,7 +121,8 @@ class DatabaseManager:
                     phone TEXT DEFAULT '',
                     password TEXT DEFAULT '',
                     permissions TEXT DEFAULT 'دسترسی کامل',
-                    is_active INTEGER DEFAULT 1
+                    is_active INTEGER DEFAULT 1,
+                    updated_at TEXT
                 )
             """)
 
@@ -131,7 +132,8 @@ class DatabaseManager:
                     name TEXT NOT NULL UNIQUE,
                     phone TEXT DEFAULT '',
                     address TEXT DEFAULT '',
-                    notes TEXT DEFAULT ''
+                    notes TEXT DEFAULT '',
+                    updated_at TEXT
                 )
             """)
 
@@ -140,7 +142,8 @@ class DatabaseManager:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL,
                     phone TEXT DEFAULT '',
-                    notes TEXT DEFAULT ''
+                    notes TEXT DEFAULT '',
+                    updated_at TEXT
                 )
             """)
 
@@ -157,7 +160,8 @@ class DatabaseManager:
                     description TEXT DEFAULT '',
                     reorder_point INTEGER DEFAULT 2,
                     default_profit_pct REAL DEFAULT 20.0,
-                    is_active INTEGER DEFAULT 1
+                    is_active INTEGER DEFAULT 1,
+                    updated_at TEXT
                 )
             """)
 
@@ -190,7 +194,8 @@ class DatabaseManager:
                     colors_json TEXT DEFAULT '[]',
                     FOREIGN KEY(product_id) REFERENCES products(id),
                     FOREIGN KEY(supplier_id) REFERENCES suppliers(id),
-                    FOREIGN KEY(buyer_employee_id) REFERENCES employees(id)
+                    FOREIGN KEY(buyer_employee_id) REFERENCES employees(id),
+                    updated_at TEXT
                 )
             """)
 
@@ -214,7 +219,8 @@ class DatabaseManager:
                     notes TEXT DEFAULT '',
                     FOREIGN KEY(target_batch_id) REFERENCES batches(id),
                     FOREIGN KEY(part_batch_id) REFERENCES batches(id),
-                    FOREIGN KEY(technician_id) REFERENCES employees(id)
+                    FOREIGN KEY(technician_id) REFERENCES employees(id),
+                    updated_at TEXT
                 )
             """)
 
@@ -251,7 +257,8 @@ class DatabaseManager:
                     colors_json TEXT DEFAULT '[]',
                     FOREIGN KEY(product_id) REFERENCES products(id),
                     FOREIGN KEY(batch_id) REFERENCES batches(id),
-                    FOREIGN KEY(seller_employee_id) REFERENCES employees(id)
+                    FOREIGN KEY(seller_employee_id) REFERENCES employees(id),
+                    updated_at TEXT
                 )
             """)
 
@@ -264,7 +271,8 @@ class DatabaseManager:
                     default_fee INTEGER NOT NULL,
                     default_side_cost INTEGER DEFAULT 0,
                     description TEXT DEFAULT '',
-                    is_active INTEGER DEFAULT 1
+                    is_active INTEGER DEFAULT 1,
+                    updated_at TEXT
                 )
             """)
 
@@ -275,7 +283,8 @@ class DatabaseManager:
                     old_fee INTEGER,
                     new_fee INTEGER,
                     change_date TEXT NOT NULL,
-                    FOREIGN KEY(service_id) REFERENCES service_catalog(id)
+                    FOREIGN KEY(service_id) REFERENCES service_catalog(id),
+                    updated_at TEXT
                 )
             """)
 
@@ -298,7 +307,8 @@ class DatabaseManager:
                     service_datetime TEXT NOT NULL,
                     description TEXT DEFAULT '',
                     FOREIGN KEY(service_id) REFERENCES service_catalog(id),
-                    FOREIGN KEY(seller_employee_id) REFERENCES employees(id)
+                    FOREIGN KEY(seller_employee_id) REFERENCES employees(id),
+                    updated_at TEXT
                 )
             """)
 
@@ -310,7 +320,8 @@ class DatabaseManager:
                     amount INTEGER NOT NULL,
                     payment_date TEXT NOT NULL,
                     payment_method TEXT DEFAULT 'کارت‌خوان',
-                    notes TEXT DEFAULT ''
+                    notes TEXT DEFAULT '',
+                    updated_at TEXT
                 )
             """)
 
@@ -319,7 +330,8 @@ class DatabaseManager:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     action_time TEXT NOT NULL,
                     action_type TEXT NOT NULL,
-                    details TEXT NOT NULL
+                    details TEXT NOT NULL,
+                    updated_at TEXT
                 )
             """)
 
@@ -349,8 +361,7 @@ class DatabaseManager:
                       SELECT 1 FROM batches WHERE batches.supplier_id=suppliers.id
                   )
                 """,
-                ("تأمین‌کننده عمومی بازار", "021-88990011", "تهران", "پیش‌فرض"),,
-                    updated_at TEXT
+                ("تأمین‌کننده عمومی بازار", "021-88990011", "تهران", "پیش‌فرض"),
             )
 
             # Remove only the two legacy sample employees created by older releases.
