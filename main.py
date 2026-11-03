@@ -1533,7 +1533,9 @@ class MainWindow(QMainWindow):
             if not key or not value:
                 continue
             definition = definitions_by_name.get(key, {})
-            title = str(definition.get("label") or "").strip()
+            title = str(
+                definition.get("display_name") or definition.get("label") or ""
+            ).strip()
             if title.startswith("@"):
                 reference = title[1:].strip()
                 if reference:
