@@ -45,7 +45,8 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QTimer, QObject, QEvent
 from PySide6.QtGui import QFont, QColor, QFontMetrics
 
-from database import DatabaseManager, load_app_config, save_app_config, hash_password
+from database import (DatabaseManager, load_app_config, save_app_config, hash_password,
+                      receivable_balance, service_financial_breakdown)
 from utils_and_widgets import (
     MAIN_CATEGORIES,
     DEFAULT_SUBCATEGORIES,
@@ -75,7 +76,7 @@ from exporter import (
     get_next_excel_filename,
 )
 
-APP_VERSION = "1.0.2"
+APP_VERSION = "1.2.0"
 
 DEFAULT_ACCESS_LEVELS = [
     {"name": "دسترسی کامل (مدیر کل)", "policy": "دسترسی کامل (مدیر کل)"},
@@ -231,15 +232,54 @@ def _ask_yes_no(parent, title: str, message: str) -> bool:
 
 
 def format_Signed_diff(actual_unit: int, suggested_unit: int, qty: int) -> str:
-    """
-    بند ۱۳: نمایش تخفیف با علامت (-) و فروش بالاتر از پیشنهادی (تشدید) با علامت (+) در یک ستون واحد
-    """
+    """Format a signed price difference as discount (-) or surcharge (+)."""
     diff = (int(actual_unit) - int(suggested_unit)) * int(qty)
     if diff < 0:
         return f"-{abs(diff):,}"
-    elif diff > 0:
+    if diff > 0:
         return f"+{diff:,}"
     return "0"
+
+
+def _report_sort_key(rows_data, headers, mode):
+    """Build a stable sort key from report metadata and visible column names."""
+    def find_column(candidates):
+        for candidate in candidates:
+            if candidate in headers:
+                return headers.index(candidate) + 1  # index 0 is hidden activity time
+        return None
+
+    def numeric(value):
+        clean = normalize_digits(str(value or "")).replace(",", "").replace("٬", "")
+        clean = clean.replace("تومان", "").strip()
+        try:
+            return float(clean)
+        except (TypeError, ValueError):
+            return 0.0
+
+    if mode == "activity_desc":
+        return lambda row: str(row[0] or "")
+    if mode.startswith("transaction_"):
+        index = find_column((
+            "تاریخ و ساعت", "تاریخ و ساعت فروش", "تاریخ خرید", "تاریخ",
+        ))
+        return lambda row: str(row[index] or "") if index is not None else str(row[0] or "")
+    if mode.startswith("amount_"):
+        index = find_column((
+            "مبلغ کل (تومان)", "مبلغ کل فاکتور", "مبلغ دریافتی (تومان)",
+            "هزینه خدمت (تومان)", "مجموع مبلغ فروش کالا", "قیمت فروش واحد",
+        ))
+        return lambda row: numeric(row[index]) if index is not None else 0.0
+    if mode == "settlement_asc":
+        index = find_column(("وضعیت تسویه",))
+        return lambda row: str(row[index] or "") if index is not None else ""
+    if mode == "category_asc":
+        index = find_column(("دسته‌بندی",))
+        return lambda row: str(row[index] or "") if index is not None else ""
+    if mode == "user_asc":
+        index = find_column(("کاربر ثبت‌کننده", "فروشنده", "مسئول خدمت", "مسئول خرید", "نام کاربر"))
+        return lambda row: str(row[index] or "") if index is not None else ""
+    return lambda row: str(row[0] or "")
 
 
 class LoginDialog(QDialog):
@@ -559,13 +599,18 @@ class MainWindow(QMainWindow):
         self._apply_employee_permissions()
 
     def _apply_global_rtl_alignment(self):
-        """Right-align section headings and field captions consistently across tabs."""
+        """Use compact right-anchored captions throughout the RTL interface."""
         for group_box in self.findChildren(QGroupBox):
             group_box.setAlignment(Qt.AlignRight)
         for label in self.findChildren(QLabel):
             if label.text().strip() == "/" or label.objectName() == "appVersion":
                 continue
             label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            label.setLayoutDirection(Qt.RightToLeft)
+            if label.objectName() not in {
+                "reportSummary", "saleSummary", "settingsHint", "activeDbPath",
+            }:
+                label.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
 
     def _switch_active_employee(self):
         with self.db.get_connection() as conn:
@@ -1789,7 +1834,9 @@ class MainWindow(QMainWindow):
         self.cb_batch_prod.setToolTip("نام دسته‌بندی، زیرگروه (مثلاً کیبورد)، برند، مدل یا کد کالا را تایپ کنید")
         self.cb_batch_prod.currentIndexChanged.connect(self._on_batch_prod_changed)
         self.cb_batch_supplier = SearchableComboBox()
+        self.cb_batch_supplier.setEditable(False)
         self.cb_batch_buyer = SearchableComboBox()
+        self.cb_batch_buyer.setEditable(False)
         self.ed_batch_inv = SmartLineEdit("شماره فاکتور خرید")
         self.dt_batch_date = JalaliDateEdit(default_today=True)
         self.cb_batch_qty = QuantitySelector(500)
@@ -2187,6 +2234,7 @@ class MainWindow(QMainWindow):
         self.cb_sale_batch = SearchableComboBox()
         self.cb_sale_batch.currentIndexChanged.connect(self._on_sale_batch_changed)
         self.cb_sale_seller = SearchableComboBox()
+        self.cb_sale_seller.setEditable(False)
         self.ed_sale_customer = SmartLineEdit("نام مشتری (اختیاری)")
         self.btn_sale_colors = ColorSelectionButton()
         self.ed_sale_specs = SmartLineEdit("مشخصات دقیق کالای فروخته‌شده؛ قابل ویرایش...")
@@ -2218,6 +2266,12 @@ class MainWindow(QMainWindow):
         self.ed_war_company = SmartLineEdit("شرکت گارانتی‌کننده")
         self.dt_war_start = JalaliDateEdit(default_today=True)
         self.cb_war_months = QComboBox()
+        self.cb_war_months.setEditable(True)
+        self.cb_war_months.setInsertPolicy(QComboBox.NoInsert)
+        self.cb_war_months.setCurrentText("بدون گارانتی")
+        self.cb_war_months.setToolTip(
+            "مدت را از فهرست انتخاب کنید یا تعداد روز/ماه را دستی وارد کنید."
+        )
         warranty_options = [
             ("بدون گارانتی", 0), ("۲ روز", 2), ("۱ هفته", 7), ("۲ هفته", 14),
             ("۱ ماه", 30), ("۲ ماه", 60), ("۳ ماه", 90), ("۶ ماه", 180),
@@ -2836,6 +2890,7 @@ class MainWindow(QMainWindow):
         self.cb_srv_select = SearchableComboBox()
         self.cb_srv_select.currentIndexChanged.connect(self._on_srv_catalog_picked)
         self.cb_srv_seller = SearchableComboBox()
+        self.cb_srv_seller.setEditable(False)
         self.ed_srv_cust = SmartLineEdit("نام مشتری (اختیاری)")
         self.pr_srv_fee = PriceInput(self.db)
         self.pr_srv_fee.setReadOnly(True)
@@ -2938,11 +2993,20 @@ class MainWindow(QMainWindow):
         base_fee = self.pr_srv_fee.get_value()
         paid_val = self.pr_srv_paid.get_value()
         side = self.pr_srv_side.get_value()
-        diff_str = format_Signed_diff(paid_val, base_fee, 1)
+        status = self.cb_srv_status.currentText()
+        adjustment, receivable = service_financial_breakdown(
+            base_fee, paid_val, status
+        )
+        diff_str = f"{adjustment:+,}" if adjustment else "0"
         diff_display = "\u200e" + diff_str if diff_str.startswith(("+", "-")) else diff_str
         net = paid_val - side
         self.lbl_srv_diff_summary.setText(
-            f"تخفیف (-) / تشدید (+): {diff_display} تومان   |   سود خالص خدمت: {net:,} تومان"
+            f"تخفیف (-) / تشدید (+): {diff_display} تومان   |   "
+            f"طلب/بدهی: {receivable:,} تومان   |   سود خالص خدمت: {net:,} تومان"
+        )
+        color = "#dc2626" if paid_val < base_fee else "#16a34a"
+        self.lbl_srv_diff_summary.setStyleSheet(
+            f"color: {color}; font-weight: bold;"
         )
 
     def _on_srv_status_changed(self, st):
@@ -3143,6 +3207,7 @@ class MainWindow(QMainWindow):
         self.ed_upg_new_specs = SmartLineEdit("مشخصات فنی کالا پس از ارتقا...")
         self.dt_upg_date = JalaliDateEdit(default_today=True)
         self.cb_upg_tech = SearchableComboBox()
+        self.cb_upg_tech.setEditable(False)
         self.ed_upg_serial = SmartLineEdit("شماره سریال کالا")
 
         # مورد ۶: پیش‌فرض اضافه نشدن هزینه قطعه به قیمت کل محصول ارتقا یافته، مگر با فعال کردن تیک
@@ -3608,23 +3673,29 @@ class MainWindow(QMainWindow):
         grid = QGridLayout(gb_flt)
 
         self.cb_rep_type = QComboBox()
-        self.cb_rep_type.addItems(
-            [
-                "همه (گزارش جامع خرید، فروش و خدمات)",
-                "۱. گزارش کامل تمام فروش‌ها",
-                "۲. گزارش کامل تمام خریدها (محموله‌ها)",
-                "۳. گزارش موجودی فعلی کالاها",
-                "۴. گزارش موجودی و سود به تفکیک محموله",
-                "۵. گزارش سود تجمعی هر کالا",
-                "۶. گزارش سود و عملکرد هر محموله",
-                "۷. گزارش جامع عملکرد هر کاربر / فروشنده",
-                "۸. گزارش کالاهای کم‌موجود (نیازمند خرید)",
-                "۹. گزارش بدهی به تأمین‌کنندگان",
-                "۱۰. گزارش فاکتورهای تسویه‌نشده (طلب و بدهی)",
-                "۱۱. گزارش تخفیف‌ها و تشدیدهای فروش",
-                "۱۲. گزارش کامل خدمات انجام‌شده",
-            ]
-        )
+        self.cb_rep_type.addItem("همه (گزارش جامع خرید، فروش و خدمات)")
+        self.cb_rep_type.insertSeparator(self.cb_rep_type.count())
+        self.cb_rep_type.addItems([
+            "۱. گزارش کامل تمام فروش‌ها",
+            "۱۱. گزارش تخفیف‌ها و تشدیدهای فروش",
+            "۱۲. گزارش کامل خدمات انجام‌شده",
+        ])
+        self.cb_rep_type.insertSeparator(self.cb_rep_type.count())
+        self.cb_rep_type.addItems([
+            "۲. گزارش کامل تمام خریدها (محموله‌ها)",
+            "۹. گزارش بدهی به تأمین‌کنندگان",
+        ])
+        self.cb_rep_type.insertSeparator(self.cb_rep_type.count())
+        self.cb_rep_type.addItems([
+            "۳. گزارش موجودی فعلی کالاها",
+            "۴. گزارش موجودی و سود به تفکیک محموله",
+            "۵. گزارش سود تجمعی هر کالا",
+            "۶. گزارش سود و عملکرد هر محموله",
+            "۸. گزارش کالاهای کم‌موجود (نیازمند خرید)",
+        ])
+        self.cb_rep_type.insertSeparator(self.cb_rep_type.count())
+        self.cb_rep_type.addItem("۷. گزارش جامع عملکرد هر کاربر / فروشنده")
+        self.cb_rep_type.addItem("۱۰. گزارش فاکتورهای تسویه‌نشده (طلب و بدهی)")
         if self._is_scoped_access():
             permission = self._permission_policy(self.active_employee.get("permissions") or "")
             if "ثبت خرید و انبارداری" in permission:
@@ -3665,7 +3736,9 @@ class MainWindow(QMainWindow):
         self.dt_rep_to = JalaliDateEdit(default_today=True)
 
         self.cb_rep_emp = SearchableComboBox()
+        self.cb_rep_emp.setEditable(False)
         self.cb_rep_cat = SearchableComboBox()
+        self.cb_rep_cat.setEditable(False)
         report_categories = (
             self.catalog_config.get("categories") or list(MAIN_CATEGORIES)
         )
@@ -3674,8 +3747,14 @@ class MainWindow(QMainWindow):
             "جست‌وجوی کد کالا، دسته‌بندی، زیرگروه (مثلاً کیبورد)، برند، مدل، فاکتور..."
         )
         self.cb_rep_sort = QComboBox()
-        self.cb_rep_sort.addItem("جدیدترین به قدیمی‌ترین", "desc")
-        self.cb_rep_sort.addItem("قدیمی‌ترین به جدیدترین", "asc")
+        self.cb_rep_sort.addItem("آخرین ویرایش / ایجاد (پیش‌فرض)", "activity_desc")
+        self.cb_rep_sort.addItem("تاریخ تراکنش: جدیدترین", "transaction_desc")
+        self.cb_rep_sort.addItem("تاریخ تراکنش: قدیمی‌ترین", "transaction_asc")
+        self.cb_rep_sort.addItem("مبلغ / قیمت: بیشترین", "amount_desc")
+        self.cb_rep_sort.addItem("مبلغ / قیمت: کمترین", "amount_asc")
+        self.cb_rep_sort.addItem("وضعیت تسویه", "settlement_asc")
+        self.cb_rep_sort.addItem("دسته‌بندی", "category_asc")
+        self.cb_rep_sort.addItem("کاربر / مسئول", "user_asc")
 
         btn_exp_excel = QPushButton("📥 خروجی اکسل از این گزارش")
         btn_exp_excel.setObjectName("btnSuccess")
@@ -3799,7 +3878,7 @@ class MainWindow(QMainWindow):
                 ]
                 s_rows = conn.execute("""
                     SELECT 'فروش کالا' as t_type, s.invoice_number as ref, s.sale_datetime as dt,
-                           s.updated_at AS _activity_at,
+                           COALESCE(s.updated_at, s.created_at) AS _activity_at,
                            p.code, p.category, p.sub_category, (p.brand || ' ' || p.model) as title,
                            COALESCE(NULLIF(s.specifications,''), NULLIF(b.final_specs,''), NULLIF(b.initial_specs,''), '') as specs,
                            e.id as emp_id, e.name as emp_name, s.customer_name as party,
@@ -3814,7 +3893,7 @@ class MainWindow(QMainWindow):
 
                 b_rows = conn.execute("""
                     SELECT 'خرید محموله' as t_type, b.batch_code as ref, b.purchase_date as dt,
-                           b.updated_at AS _activity_at,
+                           COALESCE(b.updated_at, b.created_at) AS _activity_at,
                            p.code, p.category, p.sub_category, (p.brand || ' ' || p.model) as title,
                            COALESCE(NULLIF(b.final_specs,''), NULLIF(b.initial_specs,''), '') as specs,
                            e.id as emp_id, e.name as emp_name, COALESCE(sup.name,b.supplier_name_snapshot) as party,
@@ -3830,7 +3909,7 @@ class MainWindow(QMainWindow):
 
                 srv_rows = conn.execute("""
                     SELECT 'خدمات' as t_type, sr.invoice_number as ref, sr.service_datetime as dt,
-                           sr.updated_at AS _activity_at,
+                           COALESCE(sr.updated_at, sr.created_at) AS _activity_at,
                            'SRV' as code, 'خدمات' as category, sr.service_type as sub_category,
                            sr.service_name as title, '' as specs, e.id as emp_id, e.name as emp_name,
                            sr.customer_name as party, 1 as qty, sr.service_fee as u_price,
@@ -3858,13 +3937,17 @@ class MainWindow(QMainWindow):
 
                     amt = int(r["amt"])
                     paid = int(r["paid"])
-                    rem_balance = max(0, amt - paid)
+                    rem_balance = receivable_balance(amt, paid, r["st"])
                     prof = int(r["prof"])
-                    diff_str = (
-                        format_Signed_diff(r["u_price"], r["sug_price"], r["qty"])
-                        if r["t_type"] == "فروش کالا"
-                        else "0"
-                    )
+                    if r["t_type"] == "فروش کالا":
+                        diff_str = format_Signed_diff(r["u_price"], r["sug_price"], r["qty"])
+                    elif r["t_type"] == "خدمات":
+                        adjustment, rem_balance = service_financial_breakdown(
+                            amt, paid, r["st"]
+                        )
+                        diff_str = f"{adjustment:+,}" if adjustment else "0"
+                    else:
+                        diff_str = "0"
 
                     if r["t_type"] == "خرید محموله":
                         total_buy += amt
@@ -3958,7 +4041,9 @@ class MainWindow(QMainWindow):
                     sum_sale += int(r["total_amount"])
                     sum_prof += int(r["total_profit"])
                     sum_disc += int(r["total_discount"])
-                    rem_pay = max(0, int(r["total_amount"]) - int(r["paid_amount"]))
+                    rem_pay = receivable_balance(
+                        r["total_amount"], r["paid_amount"], r["settlement_status"]
+                    )
                     signed_str = format_Signed_diff(
                         r["actual_unit_price"], r["suggested_unit_price"], r["qty"]
                     )
@@ -4054,7 +4139,9 @@ class MainWindow(QMainWindow):
                         continue
 
                     total_buy = (r["unit_purchase_price"] * r["initial_qty"]) + r["extra_cost_total"]
-                    debt = max(0, total_buy - r["paid_amount"])
+                    debt = receivable_balance(
+                        total_buy, r["paid_amount"], r["settlement_status"]
+                    )
                     if rep_type.startswith("۹.") and debt == 0:
                         continue
                     sum_buy += total_buy
@@ -4333,6 +4420,7 @@ class MainWindow(QMainWindow):
                     "مسئول خدمت",
                     "نام مشتری",
                     "هزینه خدمت (تومان)",
+                    "تخفیف (-) / تشدید (+)",
                     "هزینه‌های جانبی (تومان)",
                     "سود خالص خدمت (تومان)",
                     "مبلغ دریافتی (تومان)",
@@ -4345,7 +4433,7 @@ class MainWindow(QMainWindow):
                     LEFT JOIN employees e ON sr.seller_employee_id=e.id
                     ORDER BY sr.updated_at DESC, sr.id DESC
                 """).fetchall()
-                sum_fee, sum_side, sum_net = 0, 0, 0
+                sum_fee, sum_side, sum_net, sum_adjustment, sum_receivable = 0, 0, 0, 0, 0
                 for r in q:
                     dt = r["service_datetime"][:10]
                     if not (d_from <= dt <= d_to):
@@ -4357,7 +4445,11 @@ class MainWindow(QMainWindow):
                     sum_fee += int(r["service_fee"])
                     sum_side += int(r["side_cost"])
                     sum_net += int(r["net_profit"])
-                    rem_srv = max(0, int(r["service_fee"]) - int(r["paid_amount"]))
+                    adjustment, rem_srv = service_financial_breakdown(
+                        r["service_fee"], r["paid_amount"], r["settlement_status"]
+                    )
+                    sum_adjustment += adjustment
+                    sum_receivable += rem_srv
                     rows_data.append(
                         [
                             r["updated_at"] or r["service_datetime"] or "",
@@ -4368,6 +4460,7 @@ class MainWindow(QMainWindow):
                             r["emp_name"],
                             r["customer_name"] or "-",
                             f"{r['service_fee']:,}",
+                            f"{adjustment:+,}" if adjustment else "0",
                             f"{r['side_cost']:,}",
                             f"{r['net_profit']:,}",
                             f"{r['paid_amount']:,}",
@@ -4378,14 +4471,17 @@ class MainWindow(QMainWindow):
                     )
                 summary_text = (
                     f"کل هزینه خدمات: {sum_fee:,} تومان   |   "
-                    f"کل هزینه‌های جانبی: {sum_side:,} تومان   |   "
+                    f"تخفیف/تشدید: {sum_adjustment:+,} تومان   |   "
+                    f"طلب خدمات: {sum_receivable:,} تومان   |   "
+                    f"هزینه‌های جانبی: {sum_side:,} تومان   |   "
                     f"سود خالص خدمات: {sum_net:,} تومان"
                 )
 
         if rows_data:
+            sort_mode = self.cb_rep_sort.currentData() or "activity_desc"
             rows_data.sort(
-                key=lambda row: str(row[0] or ""),
-                reverse=self.cb_rep_sort.currentData() != "asc",
+                key=_report_sort_key(rows_data, headers, sort_mode),
+                reverse=sort_mode.endswith("_desc") or sort_mode == "activity_desc",
             )
             rows_data = [row[1:] for row in rows_data]
         self.tbl_report.setSortingEnabled(False)
@@ -4803,10 +4899,10 @@ class MainWindow(QMainWindow):
         self.cb_zero_count.addItem("افزودن ۲ صفر (×۱۰۰)", "2")
         self.cb_zero_count.addItem("افزودن ۳ صفر (×۱٬۰۰۰)", "3")
         self.cb_zero_count.addItem("افزودن ۴ صفر (×۱۰٬۰۰۰)", "4")
+        persian_digits = str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹")
         for zeros in (5, 6, 7, 8, 9, 10, 11, 12):
-            self.cb_zero_count.addItem(
-                f"افزودن {zeros} صفر (×{10 ** zeros:,})", str(zeros)
-            )
+            label = f"افزودن {zeros} صفر (×{10 ** zeros:,})".translate(persian_digits)
+            self.cb_zero_count.addItem(label, str(zeros))
 
         self.cb_win_mode = QComboBox()
         self.cb_win_mode.addItem("تمام‌صفحه", "1")
@@ -6581,6 +6677,9 @@ class MainWindow(QMainWindow):
                 )
         self.cb_batch_prod.blockSignals(False)
         self.cb_sale_prod.blockSignals(False)
+        if self.cb_batch_prod.count():
+            self.cb_batch_prod.setCurrentIndex(0)
+            self._on_batch_prod_changed()
         self.cb_sale_prod.setCurrentIndex(0)
         self._on_sale_prod_changed()
 
