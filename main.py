@@ -404,7 +404,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.db = db
         self.active_employee = active_employee
-        self.setWindowTitle("نرم‌افزار حسابداری، انبارداری و مدیریت فروشگاه کامپیوتر")
+        self.setWindowTitle(f"{(self.db.get_setting('shop_name', 'فروشگاه من') or 'فروشگاه من').strip()} | سامانه حسابداری و مدیریت فروشگاه")
         self.setLayoutDirection(Qt.RightToLeft)
         self.setWindowFlags(
             Qt.Window
@@ -413,7 +413,7 @@ class MainWindow(QMainWindow):
             | Qt.WindowCloseButtonHint
         )
         self.resize(1180, 740)
-        self.setMinimumSize(860, 540)
+        self.setMinimumSize(760, 520)
         self._tables_auto_fit = False
         self._table_default_widths = {}
         self._table_default_stretch = {}
@@ -966,7 +966,7 @@ class MainWindow(QMainWindow):
 
     def _add_scrollable_tab(self, tab: QWidget, title: str):
         """Wrap each page in a scroll area so compact windows never crush form controls."""
-        tab.setMinimumWidth(940)
+        tab.setMinimumWidth(0)
         scroll = SmoothScrollArea()
         scroll.setWidget(tab)
         return self.tabs.addTab(scroll, title)
@@ -1149,7 +1149,7 @@ class MainWindow(QMainWindow):
         gb_low = QGroupBox("⚠️ هشدار موجودی (کالاهای نیازمند خرید مجدد)")
         l_low = QVBoxLayout(gb_low)
         self.tbl_dash_low = self._create_table(
-            ["کد کالا", "مشخصات کالا", "دسته‌بندی", "زیرمجموعه", "موجودی فعلی", "حداقل موجودی", "وضعیت"]
+            ["کد کالا", "کد محموله", "مشخصات کالا", "مشخصات فنی", "موجودی فعلی", "حداقل موجودی", "وضعیت"]
         )
         self._add_table_search(
             l_low, self.tbl_dash_low, "dashboard_low",
@@ -2248,12 +2248,14 @@ class MainWindow(QMainWindow):
             self.pr_sale_paid.set_value(0)
 
         profit_total = (act_u - cost_u) * qty
+        signed_value = (act_u - sug_u) * qty
         signed_diff = format_Signed_diff(act_u, sug_u, qty)
         signed_diff_display = "\u200e" + signed_diff if signed_diff.startswith(("+", "-")) else signed_diff
-
+        signed_color = "#dc2626" if signed_value < 0 else "#059669"
         self.lbl_sale_summary.setText(
             f"تخفیف (-) / تشدید (+): {signed_diff_display} تومان   |   مبلغ کل فاکتور: {total_bill:,} تومان   |   سود فروش: {profit_total:,} تومان"
         )
+        self.lbl_sale_summary.setStyleSheet(f"color: {signed_color}; font-weight: bold;")
 
     def _recalc_warranty_end(self):
         m = self.cb_war_months.currentData() or 0
@@ -3837,7 +3839,7 @@ class MainWindow(QMainWindow):
             # ۷. گزارش جامع عملکرد هر کارمند
             elif rep_type.startswith("۷."):
                 headers = [
-                    "نام کارمند",
+                    "نام کاربر",
                     "نقش سازمانی",
                     "تعداد محموله خریداری‌شده",
                     "مبلغ کل خرید ثبت‌شده",
@@ -4105,7 +4107,7 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(tab)
         self.selected_emp_id = None
 
-        gb = QGroupBox("مدیریت کارمندان، نقش‌ها، سطوح دسترسی و رمز ورود")
+        gb = QGroupBox("مدیریت کاربران، نقش‌ها، سطوح دسترسی و رمز ورود")
         grid = QGridLayout(gb)
 
         self.ed_emp_name = SmartLineEdit("نام و نام خانوادگی کارمند...")
@@ -4133,7 +4135,7 @@ class MainWindow(QMainWindow):
         self.chk_emp_active = QCheckBox("کارمند فعال است")
         self.chk_emp_active.setChecked(True)
 
-        grid.addWidget(QLabel("نام کارمند *:"), 0, 0)
+        grid.addWidget(QLabel("نام کاربر *:"), 0, 0)
         grid.addWidget(self.ed_emp_name, 0, 1)
         grid.addWidget(QLabel("نقش:"), 0, 2)
         grid.addWidget(self.cb_emp_role, 0, 3)
@@ -4181,7 +4183,7 @@ class MainWindow(QMainWindow):
             ]
         )
         self.tbl_employees.itemSelectionChanged.connect(self._on_emp_selected)
-        self._add_table_search(btn_row, self.tbl_employees, "employees", "🔍 جست‌وجو در کارکنان...")
+        self._add_table_search(btn_row, self.tbl_employees, "employees", "🔍 جست‌وجو در کاربران...")
         layout.addWidget(self.tbl_employees)
 
         self._add_scrollable_tab(tab, "👤 مدیریت کاربران")
@@ -4365,10 +4367,10 @@ class MainWindow(QMainWindow):
         )
         btn_cancel = msg.addButton("انصراف", QMessageBox.RejectRole)
         btn_keep_data = msg.addButton(
-            "حذف کارمند بدون حذف داده‌های مربوط به آن", QMessageBox.AcceptRole
+            "فقط حذف کاربر", QMessageBox.AcceptRole
         )
         btn_del_data = msg.addButton(
-            "حذف کارمند و داده‌های مربوط به آن", QMessageBox.DestructiveRole
+            "حذف کاربر و داده‌های مربوط به آن", QMessageBox.DestructiveRole
         )
         _center_message_buttons(msg)
         msg.exec()
@@ -6563,10 +6565,15 @@ class MainWindow(QMainWindow):
                        FROM batches"""
                 ).fetchone()[0]
                 low_products = conn.execute(
-                    """SELECT p.code,p.category,p.sub_category,p.brand,p.model,p.reorder_point,
-                       COALESCE(SUM(b.remaining_qty),0) AS rem
+                    """SELECT p.id AS product_id, p.code,p.category,p.sub_category,p.brand,p.model,
+                       p.specs_json,p.reorder_point,
+                       COALESCE(SUM(b.remaining_qty),0) AS rem,
+                       COALESCE(MAX(b.updated_at),'') AS last_batch_activity,
+                       (SELECT b2.batch_code FROM batches b2 WHERE b2.product_id=p.id
+                        ORDER BY b2.updated_at DESC, b2.id DESC LIMIT 1) AS latest_batch_code
                        FROM products p LEFT JOIN batches b ON p.id=b.product_id
-                       GROUP BY p.id HAVING rem<=p.reorder_point ORDER BY p.updated_at DESC, p.id DESC"""
+                       GROUP BY p.id HAVING rem<=p.reorder_point
+                       ORDER BY COALESCE(last_batch_activity,p.updated_at) DESC, p.updated_at DESC, p.id DESC"""
                 ).fetchall()
                 employee_performance = conn.execute(
                     """SELECT e.name, COUNT(s.id) AS cnt,
@@ -6599,10 +6606,20 @@ class MainWindow(QMainWindow):
         low_data = []
         for row in low_products:
             status = "ناموجود" if int(row["rem"]) == 0 else "کم‌موجود"
-            title = f"{row['brand']} {row['model']}".strip() or row["sub_category"]
+            title_parts = [
+                str(row["sub_category"] or row["category"] or "").strip(),
+                str(row["brand"] or "").strip(),
+                str(row["model"] or "").strip(),
+            ]
+            title = " | ".join(part for part in title_parts if part) or row["category"]
+            try:
+                specs = json.loads(row["specs_json"] or "{}")
+            except (TypeError, ValueError, json.JSONDecodeError):
+                specs = {}
+            specs_text = self._format_specs_for_display(specs, row["category"]) or "-"
             low_data.append([
-                row["code"], title, row["category"], row["sub_category"],
-                row["rem"], row["reorder_point"], status,
+                row["code"], row["latest_batch_code"] or "-",
+                title, specs_text, row["rem"], row["reorder_point"], status,
             ])
         self._populate_table_safely(self.tbl_dash_low, low_data, highlight_col=6)
 
