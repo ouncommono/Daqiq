@@ -6697,13 +6697,16 @@ class MainWindow(QMainWindow):
             product_description = str(product.get("description") or "")
             visible_label = bidi_isolate_text(self._format_product_picker_label(product))
             product_hover = (
-                f"کد کالا: {product.get('code') or '-'}\n"
-                f"دسته‌بندی اصلی: {product.get('category') or '-'}\n"
-                f"زیرمجموعه: {product.get('sub_category') or '-'}\n"
-                f"برند: {product.get('brand') or '-'}\n"
-                f"مدل: {product.get('model') or '-'}\n"
-                f"مشخصات نهایی:\n{self._format_specs_for_tooltip(specs, product.get('category')) or '-'}\n"
-                f"توضیحات: {product_description or '-'}"
+                '<html><body dir="rtl" style="font-family:Tahoma;">'
+                f'<div dir="rtl">کد کالا: {html.escape(str(product.get("code") or "-"))}</div>'
+                f'<div dir="rtl">دسته‌بندی اصلی: {html.escape(str(product.get("category") or "-"))}</div>'
+                f'<div dir="rtl">زیرمجموعه: {html.escape(str(product.get("sub_category") or "-"))}</div>'
+                f'<div dir="rtl">برند: {html.escape(str(product.get("brand") or "-"))}</div>'
+                f'<div dir="rtl">مدل: {html.escape(str(product.get("model") or "-"))}</div>'
+                '<div dir="rtl">مشخصات نهایی:</div>'
+                f'{self._format_specs_for_tooltip(specs, product.get("category")) or "-"}'
+                f'<div dir="rtl">توضیحات: {html.escape(product_description or "-")}</div>'
+                '</body></html>'
             )
             batch_index = self.cb_batch_prod.count()
             self.cb_batch_prod.addItem(visible_label, product)
@@ -6812,16 +6815,19 @@ class MainWindow(QMainWindow):
                 final_specs_dict, batch.get("category")
             )
             tooltip = (
-                f"کد محموله: {batch['batch_code']}\n"
-                f"کد کالا: {batch.get('p_code') or '-'}\n"
-                f"دسته‌بندی اصلی: {batch.get('category') or '-'}\n"
-                f"زیرمجموعه: {batch.get('sub_category') or '-'}\n"
-                f"برند: {batch.get('brand') or '-'}\n"
-                f"مدل: {batch.get('model') or '-'}\n"
-                f"موجودی: {batch['remaining_qty']}\n"
-                f"قیمت پیشنهادی: {int(batch['suggested_sell_price']):,} تومان\n"
-                f"مشخصات نهایی:\n{self._format_specs_for_tooltip(final_specs_dict, batch.get('category')) or final_specs_text or '-'}\n"
-                f"شماره سریال: {batch.get('serial_numbers') or '-'}"
+                '<html><body dir="rtl" style="font-family:Tahoma;">'
+                f'<div dir="rtl">کد محموله: {html.escape(str(batch["batch_code"]))}</div>'
+                f'<div dir="rtl">کد کالا: {html.escape(str(batch.get("p_code") or "-"))}</div>'
+                f'<div dir="rtl">دسته‌بندی اصلی: {html.escape(str(batch.get("category") or "-"))}</div>'
+                f'<div dir="rtl">زیرمجموعه: {html.escape(str(batch.get("sub_category") or "-"))}</div>'
+                f'<div dir="rtl">برند: {html.escape(str(batch.get("brand") or "-"))}</div>'
+                f'<div dir="rtl">مدل: {html.escape(str(batch.get("model") or "-"))}</div>'
+                f'<div dir="rtl">موجودی: {int(batch["remaining_qty"])}</div>'
+                f'<div dir="rtl">قیمت پیشنهادی: {int(batch["suggested_sell_price"]):,} تومان</div>'
+                '<div dir="rtl">مشخصات نهایی:</div>'
+                f'{self._format_specs_for_tooltip(final_specs_dict, batch.get("category")) or html.escape(final_specs_text or "-")}'
+                f'<div dir="rtl">شماره سریال: {html.escape(str(batch.get("serial_numbers") or "-"))}</div>'
+                '</body></html>'
             )
             for combo in (self.cb_upg_target, self.cb_upg_part):
                 item_index = combo.count()
