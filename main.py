@@ -459,7 +459,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.db = db
         self.active_employee = active_employee
-        self.setWindowTitle(f"{(self.db.get_setting('shop_name', 'فروشگاه من') or 'فروشگاه من').strip()} | سامانه حسابداری و مدیریت فروشگاه")
+        self.setWindowTitle(f"\u2066{(self.db.get_setting('shop_name', 'فروشگاه من') or 'فروشگاه من').strip()}\u2069 | سامانه حسابداری و مدیریت فروشگاه")
         self.setLayoutDirection(Qt.RightToLeft)
         self.setWindowFlags(
             Qt.Window
@@ -6323,7 +6323,7 @@ class MainWindow(QMainWindow):
         self.active_employee = selected_employee
         save_app_config(self.db.cfg)
         shop_name = (self.db.get_setting("shop_name", "فروشگاه من") or "فروشگاه من").strip()
-        self.setWindowTitle(f"{shop_name} | سامانه حسابداری و مدیریت فروشگاه")
+        self.setWindowTitle(f"\u2066{shop_name}\u2069 | سامانه حسابداری و مدیریت فروشگاه")
         self.lbl_store_name.setText(bidi_isolate_text(shop_name))
         self.lbl_store_name.setToolTip(f"نام فروشگاه: {shop_name}")
 
@@ -6564,7 +6564,7 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "خطا در ذخیره تنظیمات", str(exc))
             return
 
-        self.setWindowTitle(f"{shop_name} | سامانه حسابداری و مدیریت فروشگاه")
+        self.setWindowTitle(f"\u2066{shop_name}\u2069 | سامانه حسابداری و مدیریت فروشگاه")
         if hasattr(self, "lbl_store_name"):
             self.lbl_store_name.setText(bidi_isolate_text(shop_name))
             self.lbl_store_name.setToolTip(f"نام فروشگاه: {shop_name}")
