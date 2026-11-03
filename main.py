@@ -4883,11 +4883,12 @@ class MainWindow(QMainWindow):
         catalog_grid.addWidget(gb_subcategories, 0, 1)
         catalog_grid.addWidget(gb_attributes, 1, 0)
         catalog_grid.addWidget(gb_colors, 1, 1)
-        self.cb_cfg_category.currentTextChanged.connect(
-            self._refresh_catalog_management_lists
-        )
+        # Save the previous category's caption before refreshing the visible editor.
         self.cb_cfg_category.currentTextChanged.connect(
             self._on_catalog_category_selected
+        )
+        self.cb_cfg_category.currentTextChanged.connect(
+            self._refresh_catalog_management_lists
         )
         self.lst_cfg_subcategories.currentItemChanged.connect(
             self._on_catalog_subcategory_selected
@@ -5583,10 +5584,22 @@ class MainWindow(QMainWindow):
 
 
     def _on_catalog_category_selected(self, category):
-        if category:
-            self.ed_cfg_category.setText(category)
-            configured = self._taxonomy_draft.get("subcategory_labels", {}).get(category, "")
-            self.ed_cfg_subcategory_label.setText(configured)
+        if not category:
+            return
+        previous_category = (
+            self.ed_cfg_category.text().strip()
+            if hasattr(self, "ed_cfg_category") else ""
+        )
+        if previous_category and hasattr(self, "ed_cfg_subcategory_label"):
+            previous_label = self.ed_cfg_subcategory_label.text().strip()
+            labels = self._taxonomy_draft.setdefault("subcategory_labels", {})
+            if previous_label:
+                labels[previous_category] = previous_label
+            else:
+                labels.pop(previous_category, None)
+        self.ed_cfg_category.setText(category)
+        configured = self._taxonomy_draft.get("subcategory_labels", {}).get(category, "")
+        self.ed_cfg_subcategory_label.setText(configured)
 
     def _on_catalog_subcategory_selected(self, current, _previous=None):
         if current:
