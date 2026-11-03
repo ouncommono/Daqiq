@@ -4982,8 +4982,16 @@ class MainWindow(QMainWindow):
         if not name:
             return
         values = self._taxonomy_draft.setdefault("service_types", [])
-        if name in values:
-            QMessageBox.information(self, "نوع خدمت تکراری", "این نوع خدمت قبلاً ثبت شده است.")
+        existing = next(
+            (value for value in values
+             if normalize_catalog_label(value) == normalize_catalog_label(name)),
+            None,
+        )
+        if existing is not None:
+            QMessageBox.information(
+                self, "نوع خدمت تکراری",
+                f"این نام با «{existing}» یکسان است؛ از همان مورد استفاده کنید."
+            )
             return
         values.append(name)
         self.ed_cfg_service_type.clear()
@@ -4999,8 +5007,17 @@ class MainWindow(QMainWindow):
         if old_name == new_name:
             return
         values = self._taxonomy_draft.setdefault("service_types", [])
-        if new_name in values:
-            QMessageBox.warning(self, "نام تکراری", "نوع خدمت دیگری با این نام وجود دارد.")
+        duplicate = next(
+            (value for value in values
+             if value != old_name
+             and normalize_catalog_label(value) == normalize_catalog_label(new_name)),
+            None,
+        )
+        if duplicate is not None:
+            QMessageBox.warning(
+                self, "نام تکراری",
+                f"نوع خدمت «{duplicate}» از قبل وجود دارد."
+            )
             return
         values[values.index(old_name)] = new_name
 
@@ -5062,8 +5079,16 @@ class MainWindow(QMainWindow):
         if not name:
             return
         categories = self._taxonomy_draft["categories"]
-        if name in categories:
-            QMessageBox.information(self, "دسته‌بندی موجود است", "این دسته‌بندی قبلاً ثبت شده است.")
+        existing = next(
+            (value for value in categories
+             if normalize_catalog_label(value) == normalize_catalog_label(name)),
+            None,
+        )
+        if existing is not None:
+            QMessageBox.information(
+                self, "دسته‌بندی موجود است",
+                f"این نام با دسته‌بندی «{existing}» یکسان است."
+            )
             return
         categories.append(name)
         self.cb_cfg_category.addItem(name)
@@ -5075,8 +5100,17 @@ class MainWindow(QMainWindow):
         new = self.ed_cfg_category.text().strip()
         if not old or not new or old == new:
             return
-        if new in self._taxonomy_draft["categories"]:
-            QMessageBox.warning(self, "نام تکراری", "دسته‌بندی دیگری با این نام وجود دارد.")
+        duplicate = next(
+            (value for value in self._taxonomy_draft["categories"]
+             if value != old
+             and normalize_catalog_label(value) == normalize_catalog_label(new)),
+            None,
+        )
+        if duplicate is not None:
+            QMessageBox.warning(
+                self, "نام تکراری",
+                f"دسته‌بندی «{duplicate}» از قبل وجود دارد."
+            )
             return
         index = self._taxonomy_draft["categories"].index(old)
         self._taxonomy_draft["categories"][index] = new
@@ -5132,7 +5166,17 @@ class MainWindow(QMainWindow):
         if not category or not name:
             return
         values = self._taxonomy_draft["subcategories"].setdefault(category, [])
-        if name not in values:
+        existing = next(
+            (value for value in values
+             if normalize_catalog_label(value) == normalize_catalog_label(name)),
+            None,
+        )
+        if existing is not None:
+            QMessageBox.information(
+                self, "زیرمجموعه موجود است",
+                f"این نام با زیرمجموعهٔ «{existing}» یکسان است."
+            )
+        else:
             values.append(name)
         self.ed_cfg_subcategory.clear()
         self._refresh_catalog_management_lists()
@@ -5219,7 +5263,8 @@ class MainWindow(QMainWindow):
             return
         linked_attributes = [
             definition for definition in self._taxonomy_draft["attributes"].get(category, [])
-            if (definition.get("subcategory") or "") == name
+            if normalize_catalog_label(definition.get("subcategory") or "")
+                == normalize_catalog_label(name)
         ]
         if linked_attributes:
             QMessageBox.warning(
@@ -5376,10 +5421,22 @@ class MainWindow(QMainWindow):
 
     def _add_catalog_color(self):
         color = self.ed_cfg_color.text().strip()
-        if color and color not in self._taxonomy_draft["colors"]:
-            self._taxonomy_draft["colors"].append(color)
-            self.ed_cfg_color.clear()
-            self._refresh_catalog_management_lists()
+        if not color:
+            return
+        existing = next(
+            (value for value in self._taxonomy_draft["colors"]
+             if normalize_catalog_label(value) == normalize_catalog_label(color)),
+            None,
+        )
+        if existing is not None:
+            QMessageBox.information(
+                self, "رنگ تکراری",
+                f"رنگ «{existing}» از قبل در فهرست وجود دارد."
+            )
+            return
+        self._taxonomy_draft["colors"].append(color)
+        self.ed_cfg_color.clear()
+        self._refresh_catalog_management_lists()
 
     def _rename_catalog_color(self):
         item = self.lst_cfg_colors.currentItem()
@@ -5387,8 +5444,19 @@ class MainWindow(QMainWindow):
         if not item or not new_name:
             return
         old_name = item.text()
-        if new_name != old_name and new_name in self._taxonomy_draft["colors"]:
-            QMessageBox.warning(self, "نام تکراری", "این رنگ قبلاً وجود دارد.")
+        if new_name == old_name:
+            return
+        duplicate = next(
+            (value for value in self._taxonomy_draft["colors"]
+             if value != old_name
+             and normalize_catalog_label(value) == normalize_catalog_label(new_name)),
+            None,
+        )
+        if duplicate is not None:
+            QMessageBox.warning(
+                self, "نام تکراری",
+                f"رنگ «{duplicate}» از قبل وجود دارد."
+            )
             return
         index = self._taxonomy_draft["colors"].index(old_name)
         self._taxonomy_draft["colors"][index] = new_name
@@ -5400,8 +5468,10 @@ class MainWindow(QMainWindow):
         item = self.lst_cfg_colors.currentItem()
         if item:
             color = item.text()
+            color_key = normalize_catalog_label(color)
             self._taxonomy_draft["colors"] = [
-                value for value in self._taxonomy_draft["colors"] if value != color
+                value for value in self._taxonomy_draft["colors"]
+                if normalize_catalog_label(value) != color_key
             ]
             self._refresh_catalog_management_lists()
 
