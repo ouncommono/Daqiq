@@ -6,6 +6,8 @@ import pytest
 
 import database as database_module
 from database import DatabaseManager
+from exporter import export_safe_inventory_excel
+from openpyxl import load_workbook
 
 
 @pytest.fixture
@@ -25,7 +27,7 @@ def create_product(manager, code="P-1001"):
     return int(row["id"])
 
 
-def create_employee(manager, name="کارمند آزمون"):
+def create_employee(manager, name="کاربر آزمون"):
     with manager.get_connection() as conn:
         cursor = conn.execute(
             "INSERT INTO employees (name, role, permissions) VALUES (?, ?, ?)",
@@ -74,6 +76,54 @@ def test_new_database_has_no_seeded_employees_and_codes_are_sequenced(manager):
     assert manager.generate_next_code("products", "code", "P-", 1001) == "P-1001"
     assert manager.generate_next_code("batches", "batch_code", "C-", 1001) == "C-1001"
     assert manager.generate_next_code("service_catalog", "code", "S-", 1001) == "S-1001"
+
+
+def test_new_schema_tracks_creation_and_update_activity(manager):
+    product_id = create_product(manager, "P-ACTIVITY")
+    with manager.get_connection() as conn:
+        product = conn.execute(
+            "SELECT created_at, updated_at FROM products WHERE id=?", (product_id,)
+        ).fetchone()
+        index_names = {
+            row["name"] for row in conn.execute("PRAGMA index_list(products)")
+        }
+        assert {"idx_products_activity"} <= index_names
+        created_at = product["created_at"]
+        first_updated_at = product["updated_at"]
+        assert created_at
+        assert first_updated_at
+
+        conn.execute(
+            "UPDATE products SET description=? WHERE id=?",
+            ("changed", product_id),
+        )
+        conn.commit()
+        updated = conn.execute(
+            "SELECT created_at, updated_at FROM products WHERE id=?", (product_id,)
+        ).fetchone()
+
+    assert updated["created_at"] == created_at
+    assert updated["updated_at"] > first_updated_at
+
+
+def test_colleague_inventory_export_honors_selected_columns(manager, tmp_path):
+    product_id = create_product(manager, "P-EXPORT")
+    create_batch(manager, product_id, code="C-EXPORT", suggested=175)
+    output_path = tmp_path / "colleague-inventory.xlsx"
+
+    export_safe_inventory_excel(
+        manager,
+        str(output_path),
+        included_columns=["code", "suggested_price"],
+    )
+
+    workbook = load_workbook(output_path, read_only=True)
+    worksheet = workbook["موجودی همکار"]
+    assert [cell.value for cell in worksheet[2]] == [
+        "کد کالا", "قیمت فروش (پیشنهادی)"
+    ]
+    assert [cell.value for cell in worksheet[3]] == ["P-EXPORT", 175]
+    workbook.close()
 
 
 def test_add_batch_and_sale_persist_warranty_days(manager):
@@ -534,7 +584,7 @@ def test_upgrade_migration_removes_only_legacy_sample_employees(manager):
         )
         conn.execute(
             "INSERT INTO employees (name, role, permissions) VALUES (?, ?, ?)",
-            ("کارمند واقعی", "فروشنده", "فروش و خدمات"),
+            ("کاربر واقعی", "فروشنده", "فروش و خدمات"),
         )
         conn.execute(
             "INSERT INTO employees (name, role, permissions) VALUES (?, ?, ?)",
@@ -551,7 +601,7 @@ def test_upgrade_migration_removes_only_legacy_sample_employees(manager):
             ).fetchall()
         ]
 
-    assert set(names) == {"کارمند واقعی", "مدیر واقعی"}
+    assert set(names) == {"کاربر واقعی", "مدیر واقعی"}
     with manager.get_connection() as conn:
         migrated_role = conn.execute(
             "SELECT role FROM employees WHERE name='مدیر واقعی'"
