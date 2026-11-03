@@ -7277,7 +7277,12 @@ class MainWindow(QMainWindow):
                 r["emp_name"],
                 r["customer_name"] or "-",
                 f"{r['service_fee']:,}",
-                format_Signed_diff(r["paid_amount"], r["service_fee"], 1),
+                (
+                    f"{service_financial_breakdown(r['service_fee'], r['paid_amount'], r['settlement_status'])[0]:+,}"
+                    if service_financial_breakdown(
+                        r["service_fee"], r["paid_amount"], r["settlement_status"]
+                    )[0] else "0"
+                ),
                 f"{r['side_cost']:,}",
                 f"{r['net_profit']:,}",
                 f"{r['paid_amount']:,}",
@@ -7294,7 +7299,19 @@ class MainWindow(QMainWindow):
                 SELECT s.*,
                        COUNT(b.id) as b_cnt,
                        COALESCE(SUM(b.unit_purchase_price*b.initial_qty + b.extra_cost_total), 0) as tot_buy,
-                       COALESCE(SUM(b.paid_amount), 0) as tot_paid
+                       COALESCE(SUM(b.paid_amount), 0) as tot_paid,
+                       COALESCE(SUM(
+                           CASE
+                               WHEN b.settlement_status IN ('تسویه جزئی', 'تسویه‌نشده')
+                               THEN MAX(
+                                   0,
+                                   b.unit_purchase_price * b.initial_qty
+                                   + COALESCE(b.extra_cost_total, 0)
+                                   - COALESCE(b.paid_amount, 0)
+                               )
+                               ELSE 0
+                           END
+                       ), 0) AS tot_debt
                 FROM suppliers s
                 LEFT JOIN batches b ON s.id = b.supplier_id
                 GROUP BY s.id
@@ -7302,7 +7319,7 @@ class MainWindow(QMainWindow):
             """).fetchall()
         data = []
         for r in rows:
-            debt = max(0, int(r["tot_buy"]) - int(r["tot_paid"]))
+            debt = int(r["tot_debt"] or 0)
             data.append(
                 [
                     r["id"],
