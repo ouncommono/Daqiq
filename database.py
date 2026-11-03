@@ -349,7 +349,8 @@ class DatabaseManager:
                       SELECT 1 FROM batches WHERE batches.supplier_id=suppliers.id
                   )
                 """,
-                ("تأمین‌کننده عمومی بازار", "021-88990011", "تهران", "پیش‌فرض"),
+                ("تأمین‌کننده عمومی بازار", "021-88990011", "تهران", "پیش‌فرض"),,
+                    updated_at TEXT
             )
 
             # Remove only the two legacy sample employees created by older releases.
@@ -572,6 +573,24 @@ class DatabaseManager:
                         WHERE id = NEW.id;
                     END
                 """)
+
+            # Activity indexes keep latest-record and latest-batch lookups efficient.
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_batches_product_activity "
+                "ON batches(product_id, updated_at DESC, id DESC)"
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_sales_activity "
+                "ON sales(updated_at DESC, id DESC)"
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_service_records_activity "
+                "ON service_records(updated_at DESC, id DESC)"
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_products_activity "
+                "ON products(updated_at DESC, id DESC)"
+            )
 
             # Remove the exact legacy generic supplier from the selector on upgraded
             # databases too, but retain its historical name on linked purchase rows.
