@@ -150,6 +150,21 @@ def _install_persian_message_boxes():
 _install_persian_message_boxes()
 
 
+class WholeRowCheckListWidget(QListWidget):
+    """Toggle checkable rows when the user clicks anywhere on the row, not only the indicator."""
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            item = self.itemAt(event.position().toPoint())
+            if item is not None and item.flags() & Qt.ItemIsUserCheckable:
+                item.setCheckState(
+                    Qt.Unchecked if item.checkState() == Qt.Checked else Qt.Checked
+                )
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
+
 def _ask_yes_no(parent, title: str, message: str) -> bool:
     """Persian, centered confirmation dialog with explicit yes/no actions."""
     dialog = QMessageBox(parent)
@@ -1714,7 +1729,7 @@ class MainWindow(QMainWindow):
         hint.setWordWrap(True)
         hint.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         layout.addWidget(hint)
-        choices = QListWidget(dialog)
+        choices = WholeRowCheckListWidget(dialog)
         choices.setSelectionMode(QAbstractItemView.NoSelection)
         for index in range(storage_widget.count()):
             source = storage_widget.item(index)
