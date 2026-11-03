@@ -148,99 +148,191 @@ def export_safe_inventory_excel(
     shop_name: str = "",
     included_columns=None,
 ):
-    """
-    Build a colleague-safe inventory export with user-selectable columns.
-    Only active products with positive stock are included; no purchase or margin data
-    is exported.
-    """
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "موجودی همکار"
-
-    column_definitions = {
-        "code": ("کد کالا", 0),
-        "batch_code": ("کد محموله", 1),
-        "category": ("دسته‌بندی", 2),
-        "subcategory": ("زیرمجموعه", 3),
-        "brand_model": ("برند و مدل", 4),
-        "specs": ("مشخصات فنی", 5),
-        "suggested_price": ("قیمت فروش پیشنهادی", 6),
-        "stock": ("موجودی", 7),
-    }
+    """Export one row per stocked shipment with configurable product/shipment fields."""
+    column_definitions = [
+        ("code", "کد کالا"),
+        ("batch_code", "کد محموله"),
+        ("product_name", "نام کالا"),
+        ("category", "دسته‌بندی"),
+        ("subcategory", "زیرمجموعه"),
+        ("brand_model", "برند و مدل"),
+        ("description", "توضیحات کالا"),
+        ("reorder_point", "حد سفارش مجدد"),
+        ("specs", "مشخصات فنی کالا"),
+        ("shipment_specs", "مشخصات فنی محموله"),
+        ("supplier", "تأمین‌کننده"),
+        ("buyer", "مسئول خرید"),
+        ("purchase_date", "تاریخ خرید"),
+        ("purchase_invoice", "شماره فاکتور خرید"),
+        ("purchase_status", "وضعیت تسویه خرید"),
+        ("purchase_paid_amount", "مبلغ پرداخت‌شده به تأمین‌کننده"),
+        ("serial_numbers", "شماره سریال"),
+        ("colors", "رنگ‌ها"),
+        ("initial_qty", "تعداد اولیه"),
+        ("sold_qty", "تعداد فروخته‌شده"),
+        ("returned_qty", "تعداد مرجوعی"),
+        ("stock", "موجودی فعلی"),
+        ("shipment_notes", "یادداشت محموله"),
+        ("warranty_history", "سوابق گارانتی فروش"),
+        ("batch_created_at", "زمان ثبت محموله"),
+        ("batch_updated_at", "آخرین ویرایش محموله"),
+        ("suggested_price", "قیمت فروش پیشنهادی"),
+        ("purchase_unit_price", "قیمت خرید واحد"),
+        ("unit_cost_price", "بهای تمام‌شده واحد"),
+        ("extra_cost_total", "هزینه‌های اضافی محموله"),
+        ("upgrade_cost_unit", "هزینه ارتقای واحد"),
+        ("profit_pct", "درصد سود"),
+    ]
+    labels = dict(column_definitions)
     if included_columns is None:
         selected_columns = [
             "code", "batch_code", "category", "subcategory", "brand_model", "specs",
         ]
     else:
+        valid_keys = set(labels)
         selected_columns = list(dict.fromkeys(
-            key for key in included_columns if key in column_definitions
+            key for key in included_columns if key in valid_keys
         ))
     if not selected_columns:
         raise ValueError("Select at least one inventory export column.")
 
-    headers = [column_definitions[key][0] for key in selected_columns]
-
+    headers = [labels[key] for key in selected_columns]
     catalog_config = db.get_product_catalog_config()
     with db.get_connection() as conn:
         rows = conn.execute("""
-            SELECT p.code, p.name, p.category, p.sub_category, p.brand, p.model,
-                   p.specs_json, p.description,
-                   COALESCE((
-                       SELECT GROUP_CONCAT(batch_code, ', ')
-                       FROM (
-                           SELECT batch_code FROM batches
-                           WHERE product_id = p.id
-                           ORDER BY COALESCE(updated_at, created_at) DESC, id DESC
-                       )
-                   ), '') AS batch_codes,
-                   COALESCE(SUM(b.remaining_qty), 0) as total_rem,
-                   MAX(b.updated_at) as last_batch_activity,
-                    COALESCE((
-                        SELECT b2.suggested_sell_price
-                        FROM batches b2
-                        WHERE b2.product_id = p.id
-                        ORDER BY b2.updated_at DESC, b2.id DESC
-                        LIMIT 1
-                    ), 0) AS latest_suggested_price
-            FROM products p
-            LEFT JOIN batches b ON p.id = b.product_id
-            WHERE p.is_active = 1
-            GROUP BY p.id
-            HAVING total_rem > 0
-            ORDER BY COALESCE(last_batch_activity, p.updated_at) DESC,
-                     p.updated_at DESC, p.id DESC
+            WITH warranty_history AS (
+                SELECT
+                    batch_id,
+                    GROUP_CONCAT(DISTINCT TRIM(
+                        COALESCE(NULLIF(warranty_company, ''), 'بدون نام شرکت')
+                        || CASE WHEN COALESCE(warranty_days, 0) > 0
+                                THEN ' - ' || warranty_days || ' روز' ELSE '' END
+                        || CASE WHEN COALESCE(warranty_start, '') <> ''
+                                THEN ' | از ' || warranty_start ELSE '' END
+                        || CASE WHEN COALESCE(warranty_end, '') <> ''
+                                THEN ' | تا ' || warranty_end ELSE '' END
+                    )) AS warranty_history
+                FROM sales
+                WHERE COALESCE(TRIM(warranty_company), '') <> ''
+                   OR COALESCE(warranty_days, 0) > 0
+                   OR COALESCE(warranty_start, '') <> ''
+                   OR COALESCE(warranty_end, '') <> ''
+                GROUP BY batch_id
+            )
+            SELECT
+                p.code,
+                p.name AS product_name,
+                p.reorder_point,
+                p.category,
+                p.sub_category,
+                p.brand,
+                p.model,
+                p.description,
+                p.specs_json,
+                b.batch_code,
+                b.final_specs,
+                b.initial_specs,
+                b.supplier_name_snapshot,
+                b.purchase_date,
+                b.invoice_number,
+                b.serial_numbers,
+                b.colors_json,
+                b.initial_qty,
+                b.sold_qty,
+                b.returned_qty,
+                b.suggested_sell_price,
+                b.remaining_qty,
+                b.settlement_status AS purchase_status,
+                b.paid_amount AS purchase_paid_amount,
+                b.unit_purchase_price,
+                b.unit_cost_price,
+                b.extra_cost_total,
+                b.upgrade_cost_unit,
+                b.profit_pct,
+                b.notes AS shipment_notes,
+                b.created_at AS batch_created_at,
+                b.updated_at AS batch_updated_at,
+                COALESCE(wh.warranty_history, '') AS warranty_history,
+                COALESCE(sup.name, b.supplier_name_snapshot, '') AS supplier_name,
+                COALESCE(emp.name, '') AS buyer_name
+            FROM batches b
+            JOIN products p ON p.id = b.product_id
+            LEFT JOIN suppliers sup ON sup.id = b.supplier_id
+            LEFT JOIN employees emp ON emp.id = b.buyer_employee_id
+            LEFT JOIN warranty_history wh ON wh.batch_id = b.id
+            WHERE p.is_active = 1 AND b.remaining_qty > 0
+            ORDER BY b.updated_at DESC, b.id DESC
         """).fetchall()
 
     data_rows = []
-    for r in rows:
-        cat_text = r["category"] or "سایر موارد"
-        sub_text = r["sub_category"] or "-"
-        brand_model = f"{r['brand']} {r['model']}".strip() or r["name"]
-        specs_dict = json.loads(r["specs_json"] or "{}")
-        specs_str = _format_catalog_specs(
-            specs_dict, r["category"], catalog_config
+    for row in rows:
+        try:
+            product_specs = json.loads(row["specs_json"] or "{}")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            product_specs = {}
+        if not isinstance(product_specs, dict):
+            product_specs = {}
+        product_specs_text = _format_catalog_specs(
+            product_specs, row["category"], catalog_config
         )
-        if r["description"]:
-            specs_str = (
-                f"{specs_str} - {r['description']}".strip(" -")
-                if specs_str
-                else r["description"]
+        shipment_specs = str(row["final_specs"] or row["initial_specs"] or "").strip()
+        try:
+            shipment_spec_data = json.loads(shipment_specs) if shipment_specs.startswith("{") else None
+        except (TypeError, ValueError, json.JSONDecodeError):
+            shipment_spec_data = None
+        if isinstance(shipment_spec_data, dict):
+            shipment_specs = _format_catalog_specs(
+                shipment_spec_data, row["category"], catalog_config
             )
+        try:
+            colors = json.loads(row["colors_json"] or "[]")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            colors = []
+        if not isinstance(colors, list):
+            colors = [str(colors)] if colors else []
 
-        values = [
-            r["code"],
-            r["batch_codes"] or "-",
-            cat_text,
-            sub_text,
-            brand_model,
-            specs_str or "-",
-            int(r["latest_suggested_price"]),
-            int(r["total_rem"]),
-        ]
-        data_rows.append([
-            values[column_definitions[key][1]] for key in selected_columns
-        ])
+        values = {
+            "code": row["code"],
+            "batch_code": row["batch_code"],
+            "product_name": row["product_name"] or "-",
+            "category": row["category"] or "سایر موارد",
+            "reorder_point": int(row["reorder_point"] or 0),
+            "subcategory": row["sub_category"] or "-",
+            "brand_model": (
+                f"{row['brand'] or ''} {row['model'] or ''}".strip()
+                or row["product_name"]
+            ),
+            "description": row["description"] or "-",
+            "specs": product_specs_text or "-",
+            "shipment_specs": shipment_specs or "-",
+            "supplier": row["supplier_name"] or "-",
+            "buyer": row["buyer_name"] or "-",
+            "purchase_date": row["purchase_date"] or "-",
+            "purchase_invoice": row["invoice_number"] or "-",
+            "serial_numbers": row["serial_numbers"] or "-",
+            "colors": "، ".join(str(value) for value in colors) or "-",
+            "initial_qty": int(row["initial_qty"] or 0),
+            "sold_qty": int(row["sold_qty"] or 0),
+            "returned_qty": int(row["returned_qty"] or 0),
+            "stock": int(row["remaining_qty"] or 0),
+            "purchase_status": row["purchase_status"] or "-",
+            "purchase_paid_amount": int(row["purchase_paid_amount"] or 0),
+            "purchase_unit_price": int(row["unit_purchase_price"] or 0),
+            "unit_cost_price": int(row["unit_cost_price"] or 0),
+            "extra_cost_total": int(row["extra_cost_total"] or 0),
+            "upgrade_cost_unit": int(row["upgrade_cost_unit"] or 0),
+            "profit_pct": float(row["profit_pct"] or 0),
+            "shipment_notes": row["shipment_notes"] or "-",
+            "warranty_history": (row["warranty_history"] or "").replace(",", "؛ ") or "-",
+            "batch_created_at": row["batch_created_at"] or "-",
+            "batch_updated_at": row["batch_updated_at"] or "-",
+            "suggested_price": int(row["suggested_sell_price"] or 0),
+        }
+        data_rows.append([values[key] for key in selected_columns])
 
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "موجودی همکار"
     report_title = _rtl_report_title(shop_name, "خروجی موجودی همکار")
     _style_worksheet_professional(ws, report_title, headers, data_rows)
     wb.save(file_path)
