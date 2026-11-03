@@ -1298,6 +1298,34 @@ def test_comprehensive_report_orders_by_last_edit_and_aligns_specification_colum
         qapp.processEvents()
 
 
+def test_subcategory_caption_drafts_survive_category_switching(tmp_path, monkeypatch, qapp):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    window = MainWindow(manager, active_employee=None)
+    try:
+        first_category = window.cb_cfg_category.itemText(0)
+        second_category = window.cb_cfg_category.itemText(1)
+        assert first_category and second_category and first_category != second_category
+
+        window.cb_cfg_category.setCurrentText(first_category)
+        window.ed_cfg_subcategory_label.setText("عنوان زیرمجموعهٔ سفارشی")
+        window.cb_cfg_category.setCurrentText(second_category)
+        assert window._taxonomy_draft["subcategory_labels"][first_category] == (
+            "عنوان زیرمجموعهٔ سفارشی"
+        )
+
+        window.ed_cfg_subcategory_label.setText("عنوان دستهٔ دوم")
+        window.cb_cfg_category.setCurrentText(first_category)
+        assert window.ed_cfg_subcategory_label.text() == "عنوان زیرمجموعهٔ سفارشی"
+        assert window._taxonomy_draft["subcategory_labels"][second_category] == (
+            "عنوان دستهٔ دوم"
+        )
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
 def test_dark_theme_updates_settings_and_read_only_field_contrast(tmp_path, monkeypatch, qapp):
     monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
     monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
