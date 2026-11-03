@@ -5087,25 +5087,34 @@ class MainWindow(QMainWindow):
         if old == new:
             return
         values = self._taxonomy_draft["subcategories"].setdefault(category, [])
-        if new in values:
-            QMessageBox.warning(self, "نام تکراری", "این زیرمجموعه قبلاً وجود دارد.")
-            return
-        values[values.index(old)] = new
-        self._pending_subcategory_renames.append((category, old, new))
+        new_key = normalize_catalog_label(new)
+        duplicate = next(
+            (value for value in values
+             if value != old and normalize_catalog_label(value) == new_key),
+            None,
+        )
+        if duplicate is not None:
+            # The target spelling is already represented; merge this alias into it.
+            values.remove(old)
+            canonical = duplicate
+        else:
+            values[values.index(old)] = new
+            canonical = new
+        self._pending_subcategory_renames.append((category, old, canonical))
         self._pending_attribute_renames = [
             (
                 pending_category,
                 old_name,
                 new_name,
-                new if old_scope == old else old_scope,
-                new if new_scope == old else new_scope,
+                canonical if normalize_catalog_label(old_scope) == normalize_catalog_label(old) else old_scope,
+                canonical if normalize_catalog_label(new_scope) == normalize_catalog_label(old) else new_scope,
             )
             for pending_category, old_name, new_name, old_scope, new_scope
             in self._pending_attribute_renames
         ]
         for definition in self._taxonomy_draft["attributes"].get(category, []):
-            if (definition.get("subcategory") or "") == old:
-                definition["subcategory"] = new
+            if normalize_catalog_label(definition.get("subcategory") or "") == normalize_catalog_label(old):
+                definition["subcategory"] = canonical
         self.ed_cfg_subcategory.clear()
         self._refresh_catalog_management_lists()
 
@@ -5172,8 +5181,9 @@ class MainWindow(QMainWindow):
         definitions = self._taxonomy_draft["attributes"].setdefault(category, [])
         selected_scope = self.cb_cfg_attribute_subcategory.currentData() or ""
         if any(
-            item["name"] == name
-            and (item.get("subcategory", "") or "") == selected_scope
+            normalize_catalog_label(item.get("name")) == normalize_catalog_label(name)
+            and normalize_catalog_label(item.get("subcategory") or "")
+                == normalize_catalog_label(selected_scope)
             for item in definitions
         ):
             QMessageBox.warning(
