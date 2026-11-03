@@ -5661,61 +5661,106 @@ class MainWindow(QMainWindow):
                         "UPDATE products SET category=? WHERE category=?",
                         (new_category, old_category),
                     )
-                for category, old_subcategory, new_subcategory in self._pending_subcategory_renames:
-                    conn.execute(
-                        "UPDATE products SET sub_category=? WHERE category=? AND sub_category=?",
-                        (new_subcategory, category, old_subcategory),
-                    )
 
-                for category, old_name, new_name, old_scope, _new_scope in self._pending_attribute_renames:
+                # Match subcategory aliases by normalized Persian spelling so
+                # existing rows with/without ZWNJ are moved to one canonical label.
+                for category, old_subcategory, new_subcategory in self._pending_subcategory_renames:
+                    rows = conn.execute(
+                        "SELECT id, sub_category FROM products WHERE category=?",
+                        (category,),
+                    ).fetchall()
+                    for row in rows:
+                        if normalize_catalog_label(row["sub_category"]) == normalize_catalog_label(old_subcategory):
+                            conn.execute(
+                                "UPDATE products SET sub_category=? WHERE id=?",
+                                (new_subcategory, row["id"]),
+                            )
+
+                for category, old_name, new_name, old_scope, new_scope in self._pending_attribute_renames:
                     if not old_name or not new_name or old_name == new_name:
                         continue
-                    if old_scope:
-                        attribute_rows = conn.execute(
-                            "SELECT id, specs_json FROM products WHERE category=? AND sub_category=?",
-                            (category, old_scope),
-                        ).fetchall()
-                    else:
-                        attribute_rows = conn.execute(
-                            "SELECT id, specs_json FROM products WHERE category=?",
-                            (category,),
-                        ).fetchall()
-                    for product_row in attribute_rows:
-                        try:
-                            specs = json.loads(product_row["specs_json"] or "{}")
-                        except (TypeError, ValueError, json.JSONDecodeError):
-                            continue
-                        if not isinstance(specs, dict) or old_name not in specs:
-                            continue
-                        if new_name not in specs:
-                            specs[new_name] = specs[old_name]
-                        del specs[old_name]
-                        conn.execute(
-                            "UPDATE products SET specs_json=? WHERE id=?",
-                            (json.dumps(specs, ensure_ascii=False), product_row["id"]),
-                        )
-
-                if self._pending_color_renames:
                     product_rows = conn.execute(
-                        "SELECT id, specs_json FROM products"
+                        "SELECT id, sub_category, specs_json FROM products WHERE category=?",
+                        (category,),
                     ).fetchall()
+                    old_scope_key = normalize_catalog_label(old_scope)
+                    new_scope_key = normalize_catalog_label(new_scope)
+                    relevant_scope_keys = {key for key in (old_scope_key, new_scope_key) if key}
+                    old_name_key = normalize_catalog_label(old_name)
+                    new_name_key = normalize_catalog_label(new_name)
                     for product_row in product_rows:
+                        if relevant_scope_keys and normalize_catalog_label(product_row["sub_category"]) not in relevant_scope_keys:
+                            continue
                         try:
                             specs = json.loads(product_row["specs_json"] or "{}")
                         except (TypeError, ValueError, json.JSONDecodeError):
                             continue
                         if not isinstance(specs, dict):
                             continue
-                        changed = False
-                        for old_color, new_color in self._pending_color_renames:
-                            if specs.get("رنگ") == old_color:
-                                specs["رنگ"] = new_color
-                                changed = True
-                        if changed:
-                            conn.execute(
-                                "UPDATE products SET specs_json=? WHERE id=?",
-                                (json.dumps(specs, ensure_ascii=False), product_row["id"]),
-                            )
+                        matching_keys = [
+                            key for key in specs
+                            if normalize_catalog_label(key) == old_name_key
+                        ]
+                        if not matching_keys and old_name_key == new_name_key:
+                            matching_keys = [
+                                key for key in specs
+                                if normalize_catalog_label(key) == new_name_key
+                            ]
+                        if not matching_keys:
+                            continue
+                        values = [specs[key] for key in matching_keys]
+                        if new_name in specs and new_name not in matching_keys:
+                            values.append(specs[new_name])
+                        text_values = list(dict.fromkeys(
+                            str(value).strip() for value in values
+                            if value is not None and str(value).strip()
+                        ))
+                        for key in matching_keys:
+                            specs.pop(key, None)
+                        if text_values:
+                            specs[new_name] = " ".join(text_values)
+                        conn.execute(
+                            "UPDATE products SET specs_json=? WHERE id=?",
+                            (json.dumps(specs, ensure_ascii=False), product_row["id"]),
+                        )
+
+                # Colour is a batch attribute. Keep each invoice's own colour snapshot,
+                # while applying a catalogue rename consistently to existing records.
+                if self._pending_color_renames:
+                    for table_name in ("batches", "sales"):
+                        rows = conn.execute(
+                            f"SELECT id, colors_json FROM {table_name}"
+                        ).fetchall()
+                        for row in rows:
+                            try:
+                                colors = json.loads(row["colors_json"] or "[]")
+                            except (TypeError, ValueError, json.JSONDecodeError):
+                                colors = []
+                            if not isinstance(colors, list):
+                                continue
+                            changed = False
+                            renamed = []
+                            for color in colors:
+                                value = str(color).strip()
+                                for old_color, new_color in self._pending_color_renames:
+                                    if normalize_catalog_label(value) == normalize_catalog_label(old_color):
+                                        value = new_color
+                                        changed = True
+                                        break
+                                renamed.append(value)
+                            unique_colors = []
+                            seen_color_keys = set()
+                            for color in renamed:
+                                key = normalize_catalog_label(color)
+                                if key and key not in seen_color_keys:
+                                    unique_colors.append(color)
+                                    seen_color_keys.add(key)
+                            if changed or unique_colors != colors:
+                                conn.execute(
+                                    f"UPDATE {table_name} SET colors_json=? WHERE id=?",
+                                    (json.dumps(unique_colors, ensure_ascii=False), row["id"]),
+                                )
+
                 for old_type, new_type in self._pending_service_type_renames:
                     conn.execute(
                         "UPDATE service_catalog SET service_type=? WHERE service_type=?",
