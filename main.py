@@ -5228,39 +5228,63 @@ class MainWindow(QMainWindow):
             return
 
         definition_index = selected.data(Qt.UserRole)
-        definitions = self._taxonomy_draft["attributes"].get(category, [])
+        definitions = self._taxonomy_draft["attributes"].setdefault(category, [])
         if not isinstance(definition_index, int) or not 0 <= definition_index < len(definitions):
             return
 
         current = definitions[definition_index]
-        old_name = current.get("name", "")
-        old_scope = current.get("subcategory", "") or ""
+        old_name = str(current.get("name") or "").strip()
+        old_scope = str(current.get("subcategory") or "").strip()
         new_name = self.ed_cfg_attribute_name.text().strip() or old_name
         new_scope = self.cb_cfg_attribute_subcategory.currentData() or ""
-        if new_name != old_name and any(
-            index != definition_index
-            and item.get("name") == new_name
-            and (item.get("subcategory", "") or "") == new_scope
-            for index, item in enumerate(definitions)
-        ):
-            QMessageBox.warning(
-                self, "نام تکراری",
-                "ویژگی دیگری با همین نام برای این زیرمجموعه وجود دارد."
-            )
+        if not new_name:
+            QMessageBox.warning(self, "نام ویژگی لازم است", "نام ویژگی را وارد کنید.")
             return
 
-        raw_values = self.ed_cfg_attribute_values.text().replace("،", ",")
-        values = [
-            value.strip() for value in raw_values.split(",") if value.strip()
+        new_key = normalize_catalog_label(new_name)
+        new_scope_key = normalize_catalog_label(new_scope)
+        duplicate_indexes = [
+            index for index, item in enumerate(definitions)
+            if index != definition_index
+            and normalize_catalog_label(item.get("name")) == new_key
+            and normalize_catalog_label(item.get("subcategory") or "") == new_scope_key
         ]
-        if new_name != old_name:
+
+        merged_values = list(current.get("values") or [])
+        for index in duplicate_indexes:
+            duplicate = definitions[index]
+            duplicate_name = str(duplicate.get("name") or "").strip()
+            duplicate_scope = str(duplicate.get("subcategory") or "").strip()
+            merged_values.extend(duplicate.get("values") or [])
+            if duplicate_name and duplicate_name != new_name:
+                self._pending_attribute_renames.append(
+                    (category, duplicate_name, new_name, duplicate_scope, new_scope)
+                )
+
+        # Remove aliases from the draft so the configuration itself, not just
+        # the rendered form, contains one canonical feature definition.
+        for index in sorted(duplicate_indexes, reverse=True):
+            definitions.pop(index)
+            if index < definition_index:
+                definition_index -= 1
+        current = definitions[definition_index]
+
+        raw_values = self.ed_cfg_attribute_values.text().replace("،", ",")
+        merged_values.extend(
+            value.strip() for value in raw_values.split(",") if value.strip()
+        )
+        new_values = list(dict.fromkeys(
+            str(value).strip() for value in merged_values if str(value).strip()
+        ))
+
+        if old_name != new_name or old_scope != new_scope:
             self._pending_attribute_renames.append(
                 (category, old_name, new_name, old_scope, new_scope)
             )
         current["name"] = new_name
         current["label"] = self.ed_cfg_attribute_label.text().strip()
         current.pop("display_name", None)
-        current["values"] = list(dict.fromkeys(values))
+        current["values"] = new_values
         current["subcategory"] = new_scope
         self._refresh_catalog_management_lists()
 
