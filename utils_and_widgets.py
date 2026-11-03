@@ -642,6 +642,10 @@ class SearchableComboBox(QComboBox):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setEditable(True)
+        # Keep mixed Latin/Persian identifiers in their logical display order
+        # when the popup is closed, while the application remains RTL overall.
+        self.lineEdit().setLayoutDirection(Qt.LeftToRight)
+        self.lineEdit().setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.setInsertPolicy(QComboBox.NoInsert)
         self._search_proxy = _ComboSearchProxyModel(self.SEARCH_ROLE, self)
         self._search_proxy.setSourceModel(self.model())
@@ -768,6 +772,7 @@ class JalaliCalendarDialog(QDialog):
         nav = QVBoxLayout()
         nav.setSpacing(3)
         year_row = QHBoxLayout()
+        year_row.setSpacing(4)
 
         self.cb_year = QComboBox()
         self.cb_year.setEditable(True)
@@ -823,16 +828,16 @@ class JalaliCalendarDialog(QDialog):
         lbl_d = QLabel("روز:")
         lbl_d.setStyleSheet("font-weight: bold; font-size: 14px;")
 
+        # The year selector and today action form one compact control group.
         year_row.addWidget(lbl_y)
         year_row.addWidget(self.cb_year)
-        year_row.addStretch()
         year_row.addWidget(btn_today)
         nav.addLayout(year_row)
 
         month_row = QHBoxLayout()
+        month_row.setSpacing(4)
         month_row.addWidget(lbl_m)
         month_row.addWidget(self.cb_month)
-        month_row.addSpacing(8)
         month_row.addWidget(lbl_d)
         month_row.addWidget(self.cb_day)
         month_row.addStretch()
@@ -1116,6 +1121,16 @@ class DynamicSpecsWidget(QGroupBox):
             callback = callback()
         if callback is not None:
             callback()
+
+    def set_subcategory_label(self, label: str):
+        """Update the visible subcategory caption for the selected main category."""
+        if self.cb_sub is None:
+            return
+        caption = str(label or "زیرمجموعه").strip() or "زیرمجموعه"
+        label_widget = self.form_layout.labelForField(self.cb_sub)
+        if isinstance(label_widget, QLabel):
+            label_widget.setText(f"{caption}:")
+            label_widget.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
     def _clear_form(self):
         while self.form_layout.count():
