@@ -135,6 +135,63 @@ def test_colleague_inventory_export_honors_selected_columns(manager, tmp_path):
 
 
 
+def test_colleague_inventory_export_includes_optional_status_pricing_and_warranty_history(manager, tmp_path):
+    product_id = create_product(manager, "P-EXPORT-COMPLETE")
+    with manager.get_connection() as conn:
+        conn.execute(
+            "UPDATE products SET name=? WHERE id=?",
+            ("لپ‌تاپ آزمون", product_id),
+        )
+        conn.commit()
+    batch_id = create_batch(
+        manager, product_id, code="C-EXPORT-COMPLETE",
+        quantity=5, unit_price=100, suggested=175,
+    )
+    create_sale(manager, product_id, batch_id, warranty_days=30)
+    columns = [
+        "product_name", "reorder_point", "sold_qty", "returned_qty",
+        "purchase_status", "purchase_paid_amount", "purchase_unit_price",
+        "unit_cost_price", "extra_cost_total", "upgrade_cost_unit", "profit_pct",
+        "shipment_notes", "warranty_history", "batch_created_at",
+        "batch_updated_at", "suggested_price",
+    ]
+    output_path = tmp_path / "colleague-inventory-complete.xlsx"
+    export_safe_inventory_excel(manager, str(output_path), included_columns=columns)
+
+    workbook = load_workbook(output_path, read_only=True)
+    worksheet = workbook["موجودی همکار"]
+    headers = [cell.value for cell in worksheet[2]]
+    row = [cell.value for cell in worksheet[3]]
+    exported = dict(zip(headers, row))
+    assert exported["نام کالا"] == "لپ‌تاپ آزمون"
+    assert exported["حد سفارش مجدد"] == 2
+    assert exported["تعداد فروخته‌شده"] == 1
+    assert exported["وضعیت تسویه خرید"] == "تسویه‌نشده"
+    assert exported["قیمت خرید واحد"] == 100
+    assert exported["قیمت فروش پیشنهادی"] == 175
+    assert "گارانتی آزمون" in exported["سوابق گارانتی فروش"]
+    assert "30 روز" in exported["سوابق گارانتی فروش"]
+    assert exported["یادداشت محموله"] == "آزمون"
+    assert exported["آخرین ویرایش محموله"]
+    workbook.close()
+
+
+def test_default_numeric_attribute_templates_include_intermediate_steps():
+    from utils_and_widgets import (
+        DEFAULT_ATTRIBUTES, RAM_CAPACITIES, REFRESH_RATE_LIST, STORAGE_CAPACITIES,
+    )
+
+    assert {"4GB", "8GB", "12GB", "16GB"} <= set(RAM_CAPACITIES)
+    assert {"120GB", "128GB", "240GB", "256GB", "480GB", "512GB", "1TB"} <= set(STORAGE_CAPACITIES)
+    assert {"90Hz", "120Hz", "144Hz", "165Hz", "180Hz", "240Hz"} <= set(REFRESH_RATE_LIST)
+    laptop_values = {
+        value
+        for item in DEFAULT_ATTRIBUTES["لپ‌تاپ"]
+        for value in item["values"]
+    }
+    assert {"4GB", "8GB", "12GB", "16GB", "256GB", "512GB", "1TB"} <= laptop_values
+
+
 def test_sale_edit_updates_audit_timestamp_without_changing_sale_datetime(manager):
     product_id = create_product(manager, "P-SALE-TIME")
     batch_id = create_batch(manager, product_id, code="C-SALE-TIME")
