@@ -1076,7 +1076,15 @@ class MainWindow(QMainWindow):
                 action = "export"
             else:
                 action = None
-            if action:
+            if module == "settings":
+                if hasattr(self, "gb_access_levels") and self.gb_access_levels.isAncestorOf(button):
+                    required_permission = "settings.manage_access"
+                elif hasattr(self, "gb_db") and self.gb_db.isAncestorOf(button):
+                    required_permission = "settings.manage_database"
+                else:
+                    required_permission = "settings.edit"
+                button.setEnabled(required_permission in grants)
+            elif action:
                 button.setEnabled(f"{module}.{action}" in grants)
 
         if hasattr(self, "cb_rep_emp"):
@@ -2431,6 +2439,7 @@ class MainWindow(QMainWindow):
 
         self.dt_war_start.dateChanged.connect(self._recalc_warranty_end)
         self.cb_war_months.currentIndexChanged.connect(self._recalc_warranty_end)
+        self.cb_war_months.currentTextChanged.connect(self._recalc_warranty_end)
 
         grid.addWidget(QLabel("شماره فاکتور:"), 0, 0)
         grid.addWidget(self.ed_sale_inv, 0, 1)
@@ -2783,12 +2792,30 @@ class MainWindow(QMainWindow):
             f"color: {discount_color}; font-weight: bold;"
         )
 
-    def _recalc_warranty_end(self):
-        m = self.cb_war_months.currentData() or 0
-        if m > 0:
-            self.dt_war_end.set_date(add_jalali_days(self.dt_war_start.get_date(), m))
-        else:
-            self.dt_war_end.set_date(self.dt_war_start.get_date())
+    def _get_warranty_days(self):
+        """Return warranty duration in days for preset or manually typed values."""
+        selected_days = self.cb_war_months.currentData()
+        if selected_days is not None:
+            return max(0, int(selected_days))
+        raw = normalize_digits(self.cb_war_months.currentText()).strip()
+        match = re.search(r"\d+", raw)
+        if not match:
+            return 0
+        amount = max(0, int(match.group(0)))
+        if "سال" in raw:
+            return amount * 365
+        if "ماه" in raw:
+            return amount * 30
+        if "هفته" in raw:
+            return amount * 7
+        return amount
+
+    def _recalc_warranty_end(self, *_):
+        days = self._get_warranty_days()
+        self.dt_war_end.set_date(
+            add_jalali_days(self.dt_war_start.get_date(), days)
+            if days else self.dt_war_start.get_date()
+        )
 
     def _save_new_sale(self):
         prod = self.cb_sale_prod.currentData()
@@ -2836,7 +2863,7 @@ class MainWindow(QMainWindow):
                 self.ed_sale_serial.text().strip(),
                 "",
                 self.cb_sale_status.currentText(),
-                warranty_days=self.cb_war_months.currentData() or 0,
+                warranty_days=self._get_warranty_days(),
                 specifications=self.ed_sale_specs.text().strip(),
                 colors=self._checked_colors(self.btn_sale_colors),
             )
@@ -2951,7 +2978,7 @@ class MainWindow(QMainWindow):
                 self.ed_sale_serial.text().strip(),
                 "",
                 self.cb_sale_status.currentText(),
-                warranty_days=self.cb_war_months.currentData() or 0,
+                warranty_days=self._get_warranty_days(),
                 specifications=self.ed_sale_specs.text().strip(),
                 colors=selected_colors,
             )
@@ -4999,6 +5026,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(CollapsibleSection("امنیت و ورود کاربران", gb_security))
 
         gb_access_levels = QGroupBox("مدیریت سطوح دسترسی")
+        self.gb_access_levels = gb_access_levels
         access_layout = QGridLayout(gb_access_levels)
         self.cb_cfg_access_level = QComboBox()
         self.ed_cfg_access_level = QLineEdit()
@@ -5370,6 +5398,7 @@ class MainWindow(QMainWindow):
         ))
 
         gb_db = QGroupBox("پایگاه دادهٔ فعال و پشتیبان‌گیری خودکار")
+        self.gb_db = gb_db
         f_db = QFormLayout(gb_db)
         f_db.setContentsMargins(12, 12, 12, 10)
         f_db.setHorizontalSpacing(14)
