@@ -4364,13 +4364,8 @@ class MainWindow(QMainWindow):
             "(می‌توانید فقط نام کاربر را حذف کنید تا سوابق مالی و فاکتورها حفظ شوند، یا تمام داده‌های مرتبط با او را نیز حذف نمایید)"
         )
         btn_cancel = msg.addButton("انصراف", QMessageBox.RejectRole)
-        btn_keep_data = msg.addButton(
-            "حذف کاربر بدون حذف داده‌های مربوط به آن", QMessageBox.AcceptRole
-        )
-        btn_del_data = msg.addButton(
-            "حذف کاربر و داده‌های مربوط به آن", QMessageBox.DestructiveRole
-        )
-        _center_message_buttons(msg)
+        btn_keep_data = msg.addButton("فقط حذف کاربر", QMessageBox.AcceptRole)
+        btn_del_data = msg.addButton("حذف کاربر و داده های مربوط به آن", QMessageBox.DestructiveRole)
         msg.exec()
 
         clicked = msg.clickedButton()
@@ -5696,7 +5691,13 @@ class MainWindow(QMainWindow):
         self.active_employee = selected_employee
         save_app_config(self.db.cfg)
         shop_name = (self.db.get_setting("shop_name", "فروشگاه من") or "فروشگاه من").strip()
-        self.setWindowTitle(f"{shop_name} | سامانه حسابداری و مدیریت فروشگاه")
+        import re
+        match = re.match(r'^(\d+)\s*(.*)', shop_name)
+        if match:
+            window_title = f"{match.group(2)} | سامانه حسابداری و مدیریت فروشگاه {match.group(1)}"
+        else:
+            window_title = f"{shop_name} | سامانه حسابداری و مدیریت فروشگاه"
+        self.setWindowTitle(window_title)
         self.lbl_store_name.setText(bidi_isolate_text(shop_name))
         self.lbl_store_name.setToolTip(f"نام فروشگاه: {shop_name}")
 
@@ -5916,7 +5917,13 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "خطا در ذخیره تنظیمات", str(exc))
             return
 
-        self.setWindowTitle(f"{shop_name} | سامانه حسابداری و مدیریت فروشگاه")
+        import re
+        match = re.match(r'^(\d+)\s*(.*)', shop_name)
+        if match:
+            window_title = f"{match.group(2)} | سامانه حسابداری و مدیریت فروشگاه {match.group(1)}"
+        else:
+            window_title = f"{shop_name} | سامانه حسابداری و مدیریت فروشگاه"
+        self.setWindowTitle(window_title)
         if hasattr(self, "lbl_store_name"):
             self.lbl_store_name.setText(bidi_isolate_text(shop_name))
             self.lbl_store_name.setToolTip(f"نام فروشگاه: {shop_name}")
