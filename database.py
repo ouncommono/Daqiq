@@ -682,6 +682,7 @@ class DatabaseManager:
         raw_attributes = config.get("attributes")
         raw_colors = config.get("colors")
         raw_service_types = config.get("service_types")
+        raw_subcategory_labels = config.get("subcategory_labels")
 
         subcategories = {}
         if isinstance(raw_subcategories, dict):
@@ -722,12 +723,20 @@ class DatabaseManager:
                 attributes[str(category)] = normalized_items
 
         colors = raw_colors if isinstance(raw_colors, list) else []
+        subcategory_labels = {}
+        if isinstance(raw_subcategory_labels, dict):
+            subcategory_labels = {
+                str(category).strip(): str(label).strip()
+                for category, label in raw_subcategory_labels.items()
+                if str(category).strip() and str(label).strip()
+            }
         return {
             "categories": list(dict.fromkeys(
                 str(value).strip() for value in categories
                 if value is not None and str(value).strip()
             )),
             "subcategories": subcategories,
+            "subcategory_labels": subcategory_labels,
             "attributes": attributes,
             "colors": list(dict.fromkeys(
                 str(value).strip() for value in colors
@@ -752,12 +761,15 @@ class DatabaseManager:
         attributes = config.get("attributes", {})
         colors = config.get("colors", [])
         service_types = config.get("service_types", ["نرم‌افزاری", "سخت‌افزاری"])
+        subcategory_labels = config.get("subcategory_labels", {})
         if not isinstance(categories, list) or not isinstance(subcategories, dict):
             raise ValueError("ساختار دسته‌بندی یا زیرمجموعه‌ها معتبر نیست.")
         if not isinstance(attributes, dict) or not isinstance(colors, list):
             raise ValueError("ساختار مشخصات فنی یا رنگ‌ها معتبر نیست.")
         if not isinstance(service_types, list):
             raise ValueError("فهرست نوع خدمات معتبر نیست.")
+        if not isinstance(subcategory_labels, dict):
+            raise ValueError("عنوان فیلد زیرمجموعه‌ها معتبر نیست.")
 
         clean_categories = list(dict.fromkeys(
             str(value).strip() for value in categories
@@ -800,9 +812,15 @@ class DatabaseManager:
                 clean_items.append(clean_item)
             clean_attributes[str(category)] = clean_items
 
+        clean_subcategory_labels = {
+            str(category).strip(): str(label).strip()
+            for category, label in subcategory_labels.items()
+            if str(category).strip() and str(label).strip()
+        }
         clean = {
             "categories": clean_categories,
             "subcategories": clean_subcategories,
+            "subcategory_labels": clean_subcategory_labels,
             "attributes": clean_attributes,
             "colors": list(dict.fromkeys(
                 str(value).strip() for value in colors
