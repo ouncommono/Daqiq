@@ -2189,7 +2189,6 @@ class MainWindow(QMainWindow):
         self.selected_sale_id = None
         self._set_generated_code_placeholder(self.ed_sale_inv, "sales", "invoice_number", "INV-")
         self.cb_sale_prod.setCurrentIndex(0)
-        self.cb_sale_prod.clearEditText()
         self.cb_sale_seller.setCurrentIndex(-1)
         self.cb_sale_seller.clearEditText()
         self.ed_sale_customer.clear()
