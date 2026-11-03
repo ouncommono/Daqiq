@@ -1,3 +1,4 @@
+import json
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -44,7 +45,7 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
     try:
         assert window.tabs.count() == 10
         assert window.tabs.tabText(9).endswith("تنظیمات")
-        assert window.lbl_app_version.text() == "نسخه برنامه: 1.0.0"
+        assert window.lbl_app_version.text() == "نسخه برنامه: 1.0.1"
         assert [window.catalog_tabs.tabText(i) for i in range(window.catalog_tabs.count())] == [
             "مدیریت کالاها", "مدیریت خدمات"
         ]
@@ -865,7 +866,151 @@ def test_sale_clear_form_resets_values_and_keeps_next_invoice_as_placeholder(
         assert window.dt_war_end.get_date() == today
         assert window.cb_sale_qty.currentText() == "1"
         assert not window.cb_sale_qty.isEditable()
-        assert window.cb_sale_prod.currentData() is None
+        assert window.cb_sale_prod.currentText() == "همه کالاها"
+        assert window.cb_sale_prod.currentData().get("_all_products") is True
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
+def test_sales_all_products_loads_batches_and_saves_the_selected_batch_product(
+    tmp_path, monkeypatch, qapp
+):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    monkeypatch.setattr(main_module.QMessageBox, "critical", lambda *args, **kwargs: pytest.fail(str(args[2] if len(args) > 2 else args)))
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    manager.add_product(
+        "P-ALL-1", "", "لوازم جانبی", "کیبورد", "Acme", "K100",
+        {"نوع اتصال": "USB"}, "", 1, 20,
+    )
+    manager.add_product(
+        "P-ALL-2", "", "مانیتور", "مانیتور اداری", "View", "V24",
+        {"سایز": "24 inch"}, "", 1, 20,
+    )
+    with manager.get_connection() as conn:
+        product_ids = {
+            row["code"]: row["id"]
+            for row in conn.execute(
+                "SELECT id, code FROM products WHERE code IN ('P-ALL-1','P-ALL-2')"
+            ).fetchall()
+        }
+    manager.add_batch(
+        "C-ALL-1", product_ids["P-ALL-1"], None, None, "PO-ALL-1", "1405/01/01",
+        2, 100, 0, 150, 0, "", "Keyboard USB", "", "تسویه‌نشده",
+        colors=["مشکی", "سبز"],
+    )
+    manager.add_batch(
+        "C-ALL-2", product_ids["P-ALL-2"], None, None, "PO-ALL-2", "1405/01/02",
+        2, 200, 0, 300, 0, "", "Display 24 inch", "", "تسویه‌نشده",
+        colors=["آبی"],
+    )
+
+    window = MainWindow(manager, active_employee=None)
+    try:
+        assert window.cb_sale_prod.currentText() == "همه کالاها"
+        assert window.cb_sale_prod.currentData().get("_all_products") is True
+        assert window.cb_sale_batch.count() == 2
+        batch_index = next(
+            index for index in range(window.cb_sale_batch.count())
+            if window.cb_sale_batch.itemData(index)["batch_code"] == "C-ALL-2"
+        )
+        batch_label = window.cb_sale_batch.itemText(batch_index)
+        assert "View" in batch_label and "|" in batch_label
+        window.cb_sale_batch.setCurrentIndex(batch_index)
+        batch = window.cb_sale_batch.currentData()
+        assert batch["product_id"] == product_ids["P-ALL-2"]
+        assert [window.lst_sale_colors.item(i).text()
+                for i in range(window.lst_sale_colors.count())] == ["آبی"]
+        window.lst_sale_colors.item(0).setCheckState(Qt.Checked)
+        window.cb_sale_qty.setCurrentText("1")
+        window.ed_sale_inv.setText("INV-ALL-PRODUCTS")
+        window.cb_sale_status.setCurrentText("تسویه‌نشده")
+        window.pr_sale_paid.set_value(0)
+        window._save_new_sale()
+
+        with manager.get_connection() as conn:
+            sale = conn.execute(
+                """SELECT product_id, batch_id, colors_json
+                   FROM sales WHERE invoice_number='INV-ALL-PRODUCTS'"""
+            ).fetchone()
+        assert sale is not None
+        assert sale["product_id"] == product_ids["P-ALL-2"]
+        assert sale["batch_id"] == batch["id"]
+        assert json.loads(sale["colors_json"]) == ["آبی"]
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
+def test_password_policy_cannot_be_enabled_without_any_user(tmp_path, monkeypatch, qapp):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    window = MainWindow(manager, active_employee=None)
+    messages = []
+    try:
+        monkeypatch.setattr(
+            main_module.QMessageBox,
+            "information",
+            lambda _parent, title, message: messages.append((title, message)),
+        )
+        monkeypatch.setattr(
+            main_module,
+            "_ask_yes_no",
+            lambda *_args: pytest.fail("Confirmation must not be requested when no user exists"),
+        )
+        window.chk_req_pass.setChecked(True)
+        assert not window.chk_req_pass.isChecked()
+        assert messages and "حداقل یک کاربر" in messages[0][1]
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
+def test_catalog_aliases_are_merged_and_existing_product_specs_are_migrated(
+    tmp_path, monkeypatch, qapp
+):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    monkeypatch.setattr(main_module.QMessageBox, "information", lambda *args, **kwargs: None)
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    manager.save_product_catalog_config({
+        "categories": ["لپ‌تاپ"],
+        "subcategories": {"لپ‌تاپ": ["عمومی", "عمومی"]},
+        "attributes": {"لپ‌تاپ": [
+            {"name": "صفحه‌نمایش", "label": "Display", "values": ["FHD"], "subcategory": ""},
+            {"name": "صفحه نمایش", "label": "Display", "values": ["IPS"], "subcategory": ""},
+        ]},
+        "colors": ["مشکی"],
+        "service_types": ["نرم‌افزاری", "سخت‌افزاری"],
+    })
+    manager.add_product(
+        "P-ALIAS", "", "لپ‌تاپ", "عمومی", "Acme", "L1",
+        {"صفحه‌نمایش": "FHD", "صفحه نمایش": "IPS"}, "", 1, 20,
+    )
+    window = MainWindow(manager, active_employee=None)
+    try:
+        items = window._taxonomy_draft["attributes"]["لپ‌تاپ"]
+        assert len([
+            item for item in items
+            if main_module.normalize_catalog_label(item["name"]) ==
+               main_module.normalize_catalog_label("صفحه‌نمایش")
+        ]) == 1
+        display = next(
+            item for item in items
+            if main_module.normalize_catalog_label(item["name"]) ==
+               main_module.normalize_catalog_label("صفحه‌نمایش")
+        )
+        assert set(display["values"]) == {"FHD", "IPS"}
+        window._save_general_settings()
+        with manager.get_connection() as conn:
+            product = conn.execute(
+                "SELECT specs_json FROM products WHERE code='P-ALIAS'"
+            ).fetchone()
+        specs = json.loads(product["specs_json"])
+        assert "صفحه نمایش" not in specs
+        assert specs["صفحه‌نمایش"] == "FHD IPS"
     finally:
         window.close()
         qapp.processEvents()
