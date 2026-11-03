@@ -3202,6 +3202,7 @@ class MainWindow(QMainWindow):
             self.pr_srv_paid.set_value(self.pr_srv_fee.get_value())
         elif st.startswith("تسویه‌نشده"):
             self.pr_srv_paid.set_value(0)
+        self._recalc_srv_live_summary()
 
     def _add_new_service_tariff(self):
         """Register a new tariff, explicitly handling duplicate codes and surfacing failures."""
