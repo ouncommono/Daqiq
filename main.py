@@ -668,6 +668,7 @@ class MainWindow(QMainWindow):
             label.setLayoutDirection(Qt.RightToLeft)
             if label.objectName() not in {
                 "reportSummary", "saleSummary", "settingsHint", "activeDbPath",
+                "activeUser",
             }:
                 label.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
 
