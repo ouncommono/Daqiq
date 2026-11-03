@@ -2066,70 +2066,76 @@ class MainWindow(QMainWindow):
         return " | ".join(part for part in parts if part)
 
     def _on_sale_prod_changed(self):
-        """Load batches and display only the technical differences between variants."""
+        """Load stocked batches for one product or for all products."""
         product = self.cb_sale_prod.currentData()
+        self.cb_sale_batch.blockSignals(True)
         self.cb_sale_batch.clear()
-        if not product:
+        self.cb_sale_batch.blockSignals(False)
+        if not isinstance(product, dict):
+            self._on_sale_batch_changed()
             return
 
-        product_data = dict(product)
-        try:
-            product_specs = json.loads(product_data.get("specs_json") or "{}")
-        except (TypeError, ValueError, json.JSONDecodeError):
-            product_specs = {}
-        if not isinstance(product_specs, dict):
-            product_specs = {}
-
+        all_products = bool(product.get("_all_products"))
+        query = """
+            SELECT b.*, p.code AS p_code, p.category, p.sub_category, p.brand, p.model,
+                   p.specs_json AS product_specs_json, p.description AS product_description
+            FROM batches b
+            JOIN products p ON p.id=b.product_id
+            WHERE b.remaining_qty > 0
+        """
+        params = ()
+        if not all_products:
+            query += " AND b.product_id=?"
+            params = (int(product["id"]),)
+        query += " ORDER BY b.updated_at DESC, b.id DESC"
         with self.db.get_connection() as conn:
-            batch_rows = conn.execute(
-                """
-                SELECT * FROM batches
-                WHERE product_id=? AND remaining_qty > 0
-                ORDER BY updated_at DESC, id DESC
-                """,
-                (product_data["id"],),
-            ).fetchall()
+            batch_rows = conn.execute(query, params).fetchall()
 
         batches = [dict(row) for row in batch_rows]
         variant_labels = self._batch_variant_labels(batches)
         searchable_batch_fields = (
             "batch_code", "initial_specs", "final_specs", "serial_numbers",
             "notes", "supplier_name_snapshot", "invoice_number", "purchase_date",
+            "p_code", "category", "sub_category", "brand", "model",
         )
-        product_search_text = " ".join(
-            [*(str(value) for value in product_specs.values()),
-             str(product_data.get("description") or "")]
-        )
-
         for batch in batches:
             variant = variant_labels.get(int(batch["id"]), "")
-            visible_parts = [
-                str(batch["batch_code"]),
+            product_title = self._format_product_picker_label(batch)
+            label_parts = [
+                str(batch["batch_code"]), product_title,
                 f"موجودی: {int(batch['remaining_qty'])}",
             ]
             if variant and variant != "بدون تفاوت ثبت‌شده":
-                visible_parts.append(f"تفاوت: {variant}")
+                label_parts.append(f"تفاوت: {variant}")
             else:
-                visible_parts.append(
+                label_parts.append(
                     f"قیمت پیشنهادی: {int(batch['suggested_sell_price']):,} تومان"
                 )
-            label = " | ".join(visible_parts)
-
+            label = " | ".join(label_parts)
+            try:
+                product_specs = json.loads(batch.get("product_specs_json") or "{}")
+            except (TypeError, ValueError, json.JSONDecodeError):
+                product_specs = {}
+            if not isinstance(product_specs, dict):
+                product_specs = {}
             search_text = " ".join(
                 str(batch.get(key) or "") for key in searchable_batch_fields
             )
-            search_text = f"{search_text} {product_search_text}".strip()
-            if variant and variant != "بدون تفاوت ثبت‌شده":
-                variant_text = variant.replace("، ", "\n")
-                detail_text = f"تفاوت مشخصات نهایی:\n{variant_text}"
-            else:
-                detail_text = (
-                    f"قیمت پیشنهادی: {int(batch['suggested_sell_price']):,} تومان"
-                )
+            search_text = (
+                f"{search_text} {batch.get('product_description') or ''} "
+                f"{' '.join(str(value) for value in product_specs.values())}"
+            ).strip()
+            detail_text = (
+                f"تفاوت مشخصات نهایی:\n{variant.replace('، ', chr(10))}"
+                if variant and variant != "بدون تفاوت ثبت‌شده"
+                else f"قیمت پیشنهادی: {int(batch['suggested_sell_price']):,} تومان"
+            )
+            color_text = "، ".join(self._decode_colors(batch.get("colors_json"))) or "-"
             full_tooltip = (
                 f"کد محموله: {batch['batch_code']}\n"
+                f"کالا: {product_title}\n"
                 f"موجودی: {batch['remaining_qty']}\n"
-                f"{detail_text}"
+                f"رنگ‌ها: {color_text}\n{detail_text}"
             )
             index = self.cb_sale_batch.count()
             self.cb_sale_batch.addItem(bidi_isolate_text(label), batch)
@@ -2137,6 +2143,10 @@ class MainWindow(QMainWindow):
             self.cb_sale_batch.setItemData(
                 index, bidi_isolate_text(full_tooltip), Qt.ToolTipRole
             )
+        if self.cb_sale_batch.count():
+            self.cb_sale_batch.setCurrentIndex(0)
+        else:
+            self._on_sale_batch_changed()
 
     def _on_sale_batch_changed(self):
         b = self.cb_sale_batch.currentData()
@@ -2228,7 +2238,22 @@ class MainWindow(QMainWindow):
         batch = self.cb_sale_batch.currentData()
         if not prod or not batch:
             QMessageBox.warning(
-                self, "خطا", "کالا و محموله دارای موجودی را انتخاب کنید."
+                self, "خطا", "محموله دارای موجودی را انتخاب کنید."
+            )
+            return
+        product_id = int(batch["product_id"]) if prod.get("_all_products") else int(prod["id"])
+        if product_id != int(batch["product_id"]):
+            QMessageBox.warning(
+                self, "عدم تطابق کالا",
+                "محموله انتخاب‌شده متعلق به کالای دیگری است. لطفاً دوباره انتخاب کنید."
+            )
+            return
+        qty_to_sell = self.cb_sale_qty.get_qty()
+        sale_colors = self._checked_colors(self.lst_sale_colors)
+        if len(sale_colors) > qty_to_sell:
+            QMessageBox.warning(
+                self, "تعداد رنگ‌ها",
+                "تعداد رنگ‌های انتخاب‌شده نمی‌تواند از تعداد فروش بیشتر باشد."
             )
             return
         now_dt = (
@@ -2238,7 +2263,7 @@ class MainWindow(QMainWindow):
         try:
             self.db.add_sale(
                 self.ed_sale_inv.text().strip(),
-                prod["id"],
+                product_id,
                 batch["id"],
                 self.cb_sale_seller.currentData(),
                 self.ed_sale_customer.text().strip(),
@@ -5677,6 +5702,8 @@ class MainWindow(QMainWindow):
         self.cb_sale_prod.blockSignals(True)
         self.cb_batch_prod.clear()
         self.cb_sale_prod.clear()
+        self.cb_sale_prod.addItem("همه کالاها", {"_all_products": True})
+        self.cb_sale_prod.setItemSearchText(0, "همه کالاها همه محصولات تمام کالاها")
         for product_row in prods:
             product = dict(product_row)
             try:
@@ -5722,6 +5749,7 @@ class MainWindow(QMainWindow):
                 )
         self.cb_batch_prod.blockSignals(False)
         self.cb_sale_prod.blockSignals(False)
+        self.cb_sale_prod.setCurrentIndex(0)
         self._on_sale_prod_changed()
 
         for cb in (
