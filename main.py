@@ -1111,6 +1111,18 @@ class MainWindow(QMainWindow):
                 widget.setEnabled(access_enabled)
             for checkbox in self.access_permission_checks.values():
                 checkbox.setEnabled(access_enabled)
+        if hasattr(self, "gb_access_levels"):
+            self.gb_access_levels.setEnabled(
+                "settings.manage_access" in grants and "settings.view" in grants
+            )
+        if hasattr(self, "gb_db"):
+            self.gb_db.setEnabled(
+                "settings.manage_database" in grants and "settings.view" in grants
+            )
+        if hasattr(self, "gb_inventory_export"):
+            self.gb_inventory_export.setEnabled(
+                "settings.edit" in grants and "settings.view" in grants
+            )
         if hasattr(self, "btn_switch_user"):
             self.btn_switch_user.setEnabled(True)
 
@@ -5370,6 +5382,7 @@ class MainWindow(QMainWindow):
         catalog_layout.addWidget(self.catalog_tabs)
 
         gb_inventory_export = QGroupBox("تنظیم ستون‌های خروجی موجودی همکار")
+        self.gb_inventory_export = gb_inventory_export
         inventory_export_layout = QGridLayout(gb_inventory_export)
         inventory_export_options = [
             ("code", "کد کالا"), ("batch_code", "کد محموله"),
