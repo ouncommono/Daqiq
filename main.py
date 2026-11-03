@@ -49,6 +49,8 @@ from utils_and_widgets import (
     MAIN_CATEGORIES,
     DEFAULT_SUBCATEGORIES,
     DEFAULT_ATTRIBUTES,
+    DEFAULT_COLORS,
+    normalize_catalog_label,
     SmartLineEdit,
     PriceInput,
     SearchableComboBox,
@@ -610,13 +612,16 @@ class MainWindow(QMainWindow):
 
     def _apply_styles(self):
         dark = self.db.cfg.get("theme", "light") == "dark"
-        bg = "#202938" if dark else "#f8fafc"
-        panel = "#2b3648" if dark else "#ffffff"
-        text = "#e5eaf2" if dark else "#0f172a"
-        muted = "#aab6c8" if dark else "#64748b"
-        input_bg = "#354257" if dark else "#ffffff"
-        alternate = "#273346" if dark else "#f1f5f9"
-        border = "#46556c" if dark else "#cbd5e1"
+        bg = "#111827" if dark else "#f8fafc"
+        panel = "#1f2937" if dark else "#ffffff"
+        text = "#f1f5f9" if dark else "#0f172a"
+        muted = "#cbd5e1" if dark else "#475569"
+        input_bg = "#263449" if dark else "#ffffff"
+        alternate = "#29384d" if dark else "#f1f5f9"
+        border = "#52627a" if dark else "#cbd5e1"
+        hover = "#3b4b63" if dark else "#e2e8f0"
+        accent = "#3b82f6"
+        version_color = "#93c5fd" if dark else "#1d4ed8"
         self.setStyleSheet(f"""
             QMainWindow, QWidget {{
                 font-family: 'Segoe UI', 'Tahoma', sans-serif; font-size: 13px;
@@ -626,9 +631,27 @@ class MainWindow(QMainWindow):
                 margin-top: 10px; padding-top: 12px; background-color: {panel}; }}
             QGroupBox::title {{ subcontrol-origin: margin; subcontrol-position: top right;
                 padding: 0 8px; color: {muted}; }}
-            QLineEdit, QComboBox, QSpinBox {{ border: 1px solid {border}; border-radius: 5px;
-                padding: 5px 8px; background-color: {input_bg}; min-height: 24px; }}
-            QLineEdit:focus, QComboBox:focus {{ border: 1.5px solid #3b82f6; }}
+            QLineEdit, QComboBox, QSpinBox, QDateEdit {{
+                border: 1px solid {border}; border-radius: 5px;
+                padding: 5px 8px; background-color: {input_bg}; color: {text}; min-height: 24px;
+            }}
+            QLineEdit:focus, QComboBox:focus, QSpinBox:focus {{
+                border: 1.5px solid {accent};
+            }}
+            QComboBox QAbstractItemView {{
+                background: {input_bg}; color: {text}; border: 1px solid {border};
+                selection-background-color: #2563eb; selection-color: #ffffff;
+                outline: none; padding: 3px;
+            }}
+            QComboBox QAbstractItemView::item {{ padding: 5px 8px; }}
+            QComboBox QAbstractItemView::item:hover {{ background: {hover}; color: {text}; }}
+            QListWidget {{
+                background: {input_bg}; color: {text}; border: 1px solid {border};
+                border-radius: 7px; padding: 4px; outline: none;
+            }}
+            QListWidget::item {{ padding: 5px 7px; border-radius: 4px; }}
+            QListWidget::item:hover {{ background: {hover}; color: {text}; }}
+            QListWidget::item:selected {{ background: #2563eb; color: #ffffff; }}
             QPushButton {{ background-color: #2563eb; color: #ffffff; border: none;
                 border-radius: 6px; padding: 7px 14px; font-weight: bold; }}
             QPushButton:hover {{ background-color: #1d4ed8; }}
@@ -637,8 +660,15 @@ class MainWindow(QMainWindow):
             QPushButton#btnSuccess {{ background-color: #059669; }}
             QPushButton#btnSuccess:hover {{ background-color: #047857; }}
             QPushButton#btnSecondary {{ background-color: #475569; }}
-            QTableWidget {{ background-color: {panel}; alternate-background-color: {alternate};
-                gridline-color: {border}; border: 1px solid {border}; border-radius: 6px; }}
+            QPushButton#collapsibleSectionHeader {{
+                background: {panel}; color: {text}; border: 1px solid {border};
+                border-radius: 7px; text-align: center; font-weight: 700;
+            }}
+            QPushButton#collapsibleSectionHeader:hover {{ background: {hover}; border-color: {accent}; }}
+            QTableWidget {{ background-color: {panel}; color: {text};
+                alternate-background-color: {alternate}; gridline-color: {border};
+                border: 1px solid {border}; border-radius: 6px; }}
+            QTableWidget::item:hover {{ background: {hover}; color: {text}; }}
             QHeaderView::section {{ background-color: #334155; color: #ffffff; font-weight: bold;
                 padding: 7px; border: none; }}
             QTabWidget::pane {{ border: 1px solid {border}; background: {bg}; }}
@@ -649,10 +679,28 @@ class MainWindow(QMainWindow):
             QCheckBox::indicator {{ width: 18px; height: 18px; border-radius: 4px;
                 border: 2px solid #64748b; background-color: {input_bg}; }}
             QCheckBox::indicator:checked {{ background-color: #2563eb; border: 2px solid #1e40af; }}
-            QScrollBar:vertical {{ width: 18px; margin: 2px; background: {alternate}; border-radius: 8px; }}
-            QScrollBar::handle:vertical {{ min-height: 36px; background: #718096; border-radius: 8px; }}
-            QScrollBar:horizontal {{ height: 18px; margin: 2px; background: {alternate}; border-radius: 8px; }}
-            QScrollBar::handle:horizontal {{ min-width: 36px; background: #718096; border-radius: 8px; }}
+            QLabel#appVersion {{
+                color: {version_color}; background: {alternate}; border: 1px solid {border};
+                border-radius: 6px; font-size: 13px; font-weight: 700; padding: 6px;
+            }}
+            QLabel#activeDbPath {{
+                background: {input_bg}; color: {text}; border: 1px solid {border};
+                border-radius: 6px; padding: 8px;
+            }}
+            QScrollBar:vertical {{ width: 14px; margin: 0px; background: {alternate}; border-radius: 7px; }}
+            QScrollBar::handle:vertical {{ min-height: 36px; background: #718096; border-radius: 7px; }}
+            QScrollBar:horizontal {{ height: 14px; margin: 0px; background: {alternate}; border-radius: 7px; }}
+            QScrollBar::handle:horizontal {{ min-width: 36px; background: #718096; border-radius: 7px; }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+                height: 0px; border: none; background: transparent;
+            }}
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+                width: 0px; border: none; background: transparent;
+            }}
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical,
+            QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
+                background: transparent;
+            }}
         """)
 
 
@@ -680,7 +728,9 @@ class MainWindow(QMainWindow):
         title_lbl = QLabel(bidi_isolate_text(shop_name))
         self.lbl_store_name = title_lbl
         title_lbl.setStyleSheet(
-            "color: #ffffff; font-size: 15px; font-weight: bold; background: transparent;"
+            "color: #ffffff; font-size: 15px; font-weight: bold; "
+            "background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.22); "
+            "border-radius: 7px; padding: 5px 10px;"
         )
         title_lbl.setToolTip(f"نام فروشگاه: {shop_name}")
         title_lbl.setLayoutDirection(Qt.RightToLeft)
@@ -774,9 +824,14 @@ class MainWindow(QMainWindow):
         dark = self.db.cfg.get("theme", "light") == "dark"
         panel = "#2b3648" if dark else "#ffffff"
         title_color = "#cbd5e1" if dark else "#64748b"
-        for box, title_label, value_label, accent in getattr(
+        value_palette = (
+            ["#93c5fd", "#6ee7b7", "#fcd34d", "#fca5a5", "#c4b5fd", "#67e8f9"]
+            if dark else
+            ["#1d4ed8", "#047857", "#92400e", "#b91c1c", "#6d28d9", "#0e7490"]
+        )
+        for index, (box, title_label, value_label, accent) in enumerate(getattr(
             self, "_dashboard_card_styles", []
-        ):
+        )):
             box.setStyleSheet(
                 f"QGroupBox {{ border-right: 5px solid {accent}; "
                 f"background: {panel}; border-radius: 8px; padding: 8px; }}"
@@ -785,8 +840,9 @@ class MainWindow(QMainWindow):
                 f"color: {title_color}; background: transparent; "
                 "font-size: 12px; font-weight: bold;"
             )
+            value_color = value_palette[index % len(value_palette)]
             value_label.setStyleSheet(
-                f"color: {accent}; background: transparent; "
+                f"color: {value_color}; background: transparent; "
                 "font-size: 18px; font-weight: bold;"
             )
 
@@ -899,15 +955,15 @@ class MainWindow(QMainWindow):
         """Keep the existing search position while reserving stable space for action buttons."""
         search = SmartLineEdit(placeholder)
         search.setMinimumHeight(34)
-        search.setMinimumWidth(180)
-        search.setMaximumWidth(240)
-        search.setFixedWidth(220)
+        search.setMinimumWidth(72)
+        search.setMaximumWidth(210)
+        search.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         search.setToolTip("جست‌وجو در تمام ستون‌های جدول")
         search.setClearButtonEnabled(True)
         search.textChanged.connect(
             lambda query, target=table: self._filter_table_rows(target, query)
         )
-        parent_layout.addWidget(search, 0)
+        parent_layout.addWidget(search, 1)
         self._table_search_fields[table] = search
         setattr(self, f"ed_search_{key}", search)
         return search
@@ -3981,7 +4037,7 @@ class MainWindow(QMainWindow):
         self._add_table_search(btn_row, self.tbl_employees, "employees", "🔍 جست‌وجو در کارکنان...")
         layout.addWidget(self.tbl_employees)
 
-        self._add_scrollable_tab(tab, "👤 مدیریت کارمندان")
+        self._add_scrollable_tab(tab, "👤 مدیریت کاربران")
 
     def _add_employee(self):
         name = self.ed_emp_name.text().strip()
@@ -4197,9 +4253,9 @@ class MainWindow(QMainWindow):
         layout.setSpacing(10)
         layout.setAlignment(Qt.AlignTop)
 
-        self.lbl_app_version = QLabel("نسخه برنامه: 1.0.0")
+        self.lbl_app_version = QLabel("نسخه برنامه: 1.0.1")
+        self.lbl_app_version.setObjectName("appVersion")
         self.lbl_app_version.setAlignment(Qt.AlignCenter)
-        self.lbl_app_version.setStyleSheet("font-size: 13px; font-weight: 700; color: #1e3a8a; padding: 6px;")
         layout.addWidget(self.lbl_app_version)
 
         gb_security = QGroupBox("امنیت و ورود کاربران")
@@ -4440,12 +4496,13 @@ class MainWindow(QMainWindow):
         f_db.setVerticalSpacing(8)
 
         self.lbl_active_db_path = QLabel()
+        self.lbl_active_db_path.setObjectName("activeDbPath")
         self.lbl_active_db_path.setWordWrap(True)
         self.lbl_active_db_path.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.lbl_active_db_path.setFrameShape(QLabel.StyledPanel)
         self.lbl_active_db_path.setFrameShadow(QLabel.Sunken)
         self.lbl_active_db_path.setMargin(8)
-        self.lbl_active_db_path.setStyleSheet("background: palette(base); border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px;")
+
         self.lst_recent_databases = SmoothScrollListWidget()
         self.lst_recent_databases.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.lst_recent_databases.verticalScrollBar().setSingleStep(18)
@@ -5296,11 +5353,26 @@ class MainWindow(QMainWindow):
         if not enabled or bool(self.db.cfg.get("require_login_password", False)):
             return
         with self.db.get_connection() as conn:
-            missing_passwords = conn.execute(
+            active_user_count = conn.execute(
+                "SELECT COUNT(*) FROM employees WHERE is_active=1"
+            ).fetchone()[0]
+            if active_user_count == 0:
+                missing_passwords = []
+            else:
+                missing_passwords = conn.execute(
                 """SELECT name FROM employees
                    WHERE is_active=1 AND (password IS NULL OR TRIM(password)='') 
                    ORDER BY updated_at DESC, id DESC"""
-            ).fetchall()
+                ).fetchall()
+        if active_user_count == 0:
+            QMessageBox.information(
+                self, "کاربری ثبت نشده",
+                "برای فعال‌کردن اجبار ورود با رمز عبور، ابتدا حداقل یک کاربر فعال در بخش «مدیریت کاربران» ثبت کنید."
+            )
+            self.chk_req_pass.blockSignals(True)
+            self.chk_req_pass.setChecked(False)
+            self.chk_req_pass.blockSignals(False)
+            return
         if missing_passwords:
             names = "\n".join(f"• {row['name']}" for row in missing_passwords)
             impact_text = (
