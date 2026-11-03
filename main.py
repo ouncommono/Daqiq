@@ -7,6 +7,7 @@ import time
 import sqlite3
 import copy
 import re
+import html
 from datetime import timedelta
 import jdatetime
 
@@ -1045,14 +1046,19 @@ class MainWindow(QMainWindow):
         return " | ".join(pieces)
 
     def _format_specs_for_tooltip(self, specs, category=""):
-        definitions = self.catalog_config.get("attributes", {}).get(category or "", [])
-        display_names = {
-            item.get("name"): (item.get("display_name") or item.get("label") or item.get("name"))
-            for item in definitions
-            if isinstance(item, dict) and item.get("name")
-        }
         rendered = self._format_specs_for_display(specs, category)
-        return rendered.replace(" | ", "\n")
+        if not rendered:
+            return "-"
+        lines = []
+        for segment in rendered.split(" | "):
+            clean = html.escape(segment)
+            # English technical identifiers and values are rendered as LTR blocks.
+            direction = "ltr" if re.search(r"[A-Za-z]", segment) else "rtl"
+            alignment = "left" if direction == "ltr" else "right"
+            lines.append(
+                f'<div dir="{direction}" style="text-align:{alignment};">{clean}</div>'
+            )
+        return '<html><body dir="rtl">' + "".join(lines) + "</body></html>"
 
     def _filter_table_rows(self, table, query):
         query = normalize_digits(str(query or "")).strip().casefold()
@@ -5240,10 +5246,18 @@ class MainWindow(QMainWindow):
     def _on_catalog_subcategory_selected(self, current, _previous=None):
         if current:
             self.ed_cfg_subcategory.setText(current.text())
+            index = self.lst_cfg_subcategories.row(current)
+            self.cb_cfg_subcategory_list.blockSignals(True)
+            self.cb_cfg_subcategory_list.setCurrentIndex(index)
+            self.cb_cfg_subcategory_list.blockSignals(False)
 
     def _on_catalog_color_selected(self, current, _previous=None):
         if current:
             self.ed_cfg_color.setText(current.text())
+            index = self.lst_cfg_colors.row(current)
+            self.cb_cfg_color_list.blockSignals(True)
+            self.cb_cfg_color_list.setCurrentIndex(index)
+            self.cb_cfg_color_list.blockSignals(False)
 
     def _on_catalog_service_type_selected(self, current, _previous=None):
         if current:
@@ -5595,6 +5609,9 @@ class MainWindow(QMainWindow):
             else None
         )
         if definition:
+            self.cb_cfg_attribute_list.blockSignals(True)
+            self.cb_cfg_attribute_list.setCurrentIndex(self.lst_cfg_attributes.row(current))
+            self.cb_cfg_attribute_list.blockSignals(False)
             self.ed_cfg_attribute_name.setText(definition["name"])
             self.ed_cfg_attribute_label.setText(definition.get("label", ""))
             self.ed_cfg_attribute_values.setText(", ".join(definition.get("values", [])))
@@ -6067,6 +6084,23 @@ class MainWindow(QMainWindow):
 
     def _save_general_settings(self):
         effective_password_policy = self.chk_req_pass.isChecked()
+        category_for_label = self.cb_cfg_category.currentText().strip()
+        if category_for_label:
+            label_value = self.ed_cfg_subcategory_label.text().strip()
+            if label_value:
+                self._taxonomy_draft.setdefault("subcategory_labels", {})[category_for_label] = label_value
+            else:
+                self._taxonomy_draft.setdefault("subcategory_labels", {}).pop(category_for_label, None)
+        selected_peer_fields = [
+            key for key, checkbox in self.chk_peer_export_fields.items()
+            if checkbox.isChecked()
+        ]
+        if not selected_peer_fields:
+            QMessageBox.warning(
+                self, "ستون خروجی مشخص نشده",
+                "حداقل یک ستون برای خروجی موجودی همکار انتخاب کنید."
+            )
+            return
 
         try:
             # Apply taxonomy edits and persist the new configuration atomically.
@@ -6192,6 +6226,10 @@ class MainWindow(QMainWindow):
 
             shop_name = self.ed_shop_name.text().strip() or "فروشگاه من"
             self.db.set_setting("shop_name", shop_name)
+            self.db.set_setting(
+                "peer_inventory_export_fields",
+                json.dumps(selected_peer_fields, ensure_ascii=False),
+            )
             self.db.cfg["auto_backup_enabled"] = self.chk_auto_bk.isChecked()
             self.db.cfg["auto_backup_interval_min"] = self.sp_bk_interval.value()
             self.db.cfg["auto_backup_retention_count"] = self.sp_bk_retention.value()
