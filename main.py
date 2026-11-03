@@ -478,6 +478,7 @@ class MainWindow(QMainWindow):
 
         self._apply_styles()
         self._build_ui()
+        self._align_form_labels()
         self.tabs.currentChanged.connect(self._on_main_tab_changed)
         self._setup_timers()
         self.refresh_all_data()
@@ -522,6 +523,14 @@ class MainWindow(QMainWindow):
         self.lbl_active_user.setToolTip(
             f"کاربر فعال: {employee_name}\nنقش و سطح شغلی: {employee_role}"
         )
+
+    def _align_form_labels(self):
+        """Right-align Persian form captions consistently without disturbing centered KPI labels."""
+        for label in self.findChildren(QLabel):
+            alignment = label.alignment()
+            if alignment & Qt.AlignHCenter:
+                continue
+            label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
     def _refresh_visual_layout(self):
         """Recalculate Qt layouts immediately after global style or column-size changes."""
@@ -2016,7 +2025,7 @@ class MainWindow(QMainWindow):
             self.ed_sale_inv, self.cb_sale_prod, self.cb_sale_batch,
             self.cb_sale_seller, self.ed_sale_customer, self.cb_sale_qty,
             self.pr_sale_suggest, self.pr_sale_actual, self.pr_sale_paid,
-            self.cb_sale_status, self.ed_war_company if hasattr(self, "ed_war_company") else self.cb_sale_status,
+            self.cb_sale_status,
         ):
             field_widget.setMinimumWidth(0)
             field_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -2036,6 +2045,12 @@ class MainWindow(QMainWindow):
             self.cb_war_months.addItem(label, days)
         self.dt_war_end = JalaliDateEdit(default_today=True)
         self.ed_sale_serial = SmartLineEdit("شماره سریال دستگاه")
+        for field_widget in (
+            self.ed_war_company, self.dt_war_start, self.cb_war_months,
+            self.dt_war_end, self.ed_sale_serial,
+        ):
+            field_widget.setMinimumWidth(0)
+            field_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
         self.dt_war_start.dateChanged.connect(self._recalc_warranty_end)
         self.cb_war_months.currentIndexChanged.connect(self._recalc_warranty_end)
@@ -4222,7 +4237,8 @@ class MainWindow(QMainWindow):
                 elif sort_mode.startswith("amount_"):
                     target_index = next(
                         (i for i, value in enumerate(visible_headers)
-                         if "مبلغ کل" in str(value) or "مبلغ فاکتور" in str(value)),
+                         if "مبلغ کل" in str(value) or "مبلغ فاکتور" in str(value)
+                         or "بهای کل محموله" in str(value) or "مبلغ خدمت" in str(value)),
                         None,
                     )
                     def _amount_sort_value(row):
