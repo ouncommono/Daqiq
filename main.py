@@ -543,7 +543,9 @@ class MainWindow(QMainWindow):
         )
 
     def _align_form_labels(self):
-        """Right-align Persian form captions consistently without disturbing centered KPI labels."""
+        """Right-align all form caption columns and Persian labels without disturbing centered KPI labels."""
+        for form_layout in self.findChildren(QFormLayout):
+            form_layout.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
         for label in self.findChildren(QLabel):
             alignment = label.alignment()
             if alignment & Qt.AlignHCenter:
