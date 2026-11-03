@@ -157,12 +157,13 @@ def export_safe_inventory_excel(
 
     column_definitions = {
         "code": ("کد کالا", 0),
-        "category": ("دسته‌بندی", 1),
-        "subcategory": ("زیرمجموعه", 2),
-        "brand_model": ("برند و مدل", 3),
-        "specs": ("مشخصات فنی", 4),
-        "suggested_price": ("قیمت فروش (پیشنهادی)", 5),
-        "stock": ("موجودی", 6),
+        "batch_code": ("کد محموله", 1),
+        "category": ("دسته‌بندی", 2),
+        "subcategory": ("زیرمجموعه", 3),
+        "brand_model": ("برند و مدل", 4),
+        "specs": ("مشخصات فنی", 5),
+        "suggested_price": ("قیمت فروش پیشنهادی", 6),
+        "stock": ("موجودی", 7),
     }
     if included_columns is None:
         selected_columns = list(column_definitions)
@@ -180,6 +181,14 @@ def export_safe_inventory_excel(
         rows = conn.execute("""
             SELECT p.code, p.name, p.category, p.sub_category, p.brand, p.model,
                    p.specs_json, p.description,
+                   COALESCE((
+                       SELECT GROUP_CONCAT(batch_code, ', ')
+                       FROM (
+                           SELECT batch_code FROM batches
+                           WHERE product_id = p.id
+                           ORDER BY COALESCE(updated_at, created_at) DESC, id DESC
+                       )
+                   ), '') AS batch_codes,
                    COALESCE(SUM(b.remaining_qty), 0) as total_rem,
                    MAX(b.updated_at) as last_batch_activity,
                     COALESCE((
@@ -216,6 +225,7 @@ def export_safe_inventory_excel(
 
         values = [
             r["code"],
+            r["batch_codes"] or "-",
             cat_text,
             sub_text,
             brand_model,
