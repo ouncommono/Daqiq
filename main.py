@@ -5372,29 +5372,35 @@ class MainWindow(QMainWindow):
         gb_inventory_export = QGroupBox("تنظیم ستون‌های خروجی موجودی همکار")
         inventory_export_layout = QGridLayout(gb_inventory_export)
         inventory_export_options = [
-            ("code", "کد کالا"),
-            ("batch_code", "کد محموله"),
-            ("category", "دسته‌بندی"),
-            ("subcategory", "زیرمجموعه"),
-            ("brand_model", "برند و مدل"),
-            ("specs", "مشخصات فنی"),
+            ("code", "کد کالا"), ("batch_code", "کد محموله"),
+            ("product_name", "نام کالا"), ("category", "دسته‌بندی"),
+            ("subcategory", "زیرمجموعه"), ("brand_model", "برند و مدل"),
+            ("description", "توضیحات کالا"), ("reorder_point", "حد سفارش مجدد"),
+            ("specs", "مشخصات فنی کالا"), ("shipment_specs", "مشخصات فنی محموله"),
+            ("supplier", "تأمین‌کننده"), ("buyer", "مسئول خرید"),
+            ("purchase_date", "تاریخ خرید"), ("purchase_invoice", "شماره فاکتور خرید"),
+            ("purchase_status", "وضعیت تسویه خرید"), ("purchase_paid_amount", "مبلغ پرداخت‌شده به تأمین‌کننده"),
+            ("serial_numbers", "شماره سریال"), ("colors", "رنگ‌ها"),
+            ("initial_qty", "تعداد اولیه"), ("sold_qty", "تعداد فروخته‌شده"),
+            ("returned_qty", "تعداد مرجوعی"), ("stock", "موجودی فعلی"),
+            ("shipment_notes", "یادداشت محموله"), ("warranty_history", "سوابق گارانتی فروش"),
+            ("batch_created_at", "زمان ثبت محموله"), ("batch_updated_at", "آخرین ویرایش محموله"),
             ("suggested_price", "قیمت فروش پیشنهادی"),
-            ("stock", "موجودی"),
+            ("purchase_unit_price", "قیمت خرید واحد"), ("unit_cost_price", "بهای تمام‌شده واحد"),
+            ("extra_cost_total", "هزینه‌های اضافی محموله"),
+            ("upgrade_cost_unit", "هزینه ارتقای واحد"),
+            ("profit_pct", "درصد سود"),
         ]
         self.inventory_export_column_checks = {}
-        default_inventory_columns = {
-            "code", "batch_code", "category", "subcategory", "brand_model", "specs",
-        }
         for index, (key, label_text) in enumerate(inventory_export_options):
             checkbox = QCheckBox(label_text)
-            checkbox.setChecked(key in default_inventory_columns)
+            checkbox.setChecked(
+                key in {"code", "batch_code", "category", "subcategory", "brand_model", "specs"}
+            )
+            checkbox.setLayoutDirection(Qt.RightToLeft)
+            checkbox.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
             self.inventory_export_column_checks[key] = checkbox
-            inventory_export_layout.addWidget(checkbox, index // 4, index % 4)
-        inventory_export_hint = QLabel(
-            "با فعال یا غیرفعال کردن هر گزینه، ستون مربوطه به‌ترتیب در فایل اکسل درج یا حذف می‌شود."
-        )
-        inventory_export_hint.setWordWrap(True)
-        inventory_export_layout.addWidget(inventory_export_hint, 2, 0, 1, 4)
+            inventory_export_layout.addWidget(checkbox, 1 + index // 3, index % 3)
         inventory_export_page = QWidget()
         inventory_export_page_layout = QVBoxLayout(inventory_export_page)
         inventory_export_page_layout.addWidget(gb_inventory_export)
