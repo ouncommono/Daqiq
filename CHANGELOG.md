@@ -49,5 +49,6 @@ This release update preserves the existing business-table identifiers and relati
 - Compactly parameterized CPU family templates and localized every extra-price-zero option in Persian numerals.
 
 ### Release validation
-- Added regression coverage for settlement accounting and the default colleague inventory export columns.
-- Automated CI and manual Qt desktop verification remain the final release checks.
+- Added regression coverage for settlement accounting, service net profit, export defaults, audit column order, and schema version.
+- GitHub Actions run 159 passed: 65 tests passed, 0 failed (Python 3.11 / PySide6 6.11.3).
+- Manual desktop/Windows visual acceptance remains outstanding. CI currently reports 137 non-failing Qt deprecation warnings for `QSortFilterProxyModel.invalidateFilter()`.
