@@ -925,7 +925,9 @@ def test_sales_all_products_loads_batches_and_saves_the_selected_batch_product(
         batch = window.cb_sale_batch.currentData()
         assert batch["product_id"] == product_ids["P-ALL-2"]
         assert window.btn_sale_colors.available_colors() == ["آبی"]
-        window.lst_sale_colors.item(0).setCheckState(Qt.Checked)
+        window.btn_sale_colors.set_colors(
+            window.btn_sale_colors.available_colors(), ["آبی"]
+        )
         window.cb_sale_qty.setCurrentText("1")
         window.ed_sale_inv.setText("INV-ALL-PRODUCTS")
         window.cb_sale_status.setCurrentText("تسویه‌نشده")
