@@ -176,7 +176,7 @@ def export_safe_inventory_excel(
         ("warranty_history", "سوابق گارانتی فروش"),
         ("batch_created_at", "زمان ثبت محموله"),
         ("batch_updated_at", "آخرین ویرایش محموله"),
-        ("suggested_price", "قیمت فروش پیشنهادی"),
+        ("suggested_price", "قیمت فروش (پیشنهادی)"),
         ("purchase_unit_price", "قیمت خرید واحد"),
         ("unit_cost_price", "بهای تمام‌شده واحد"),
         ("extra_cost_total", "هزینه‌های اضافی محموله"),
