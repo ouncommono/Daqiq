@@ -68,6 +68,7 @@ from utils_and_widgets import (
     strip_bidi_controls,
 )
 from exporter import (
+    PEER_INVENTORY_EXPORT_FIELDS,
     export_safe_inventory_excel,
     export_table_to_excel,
     get_next_excel_filename,
@@ -770,11 +771,11 @@ class MainWindow(QMainWindow):
         self.lbl_live_clock.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         self.lbl_live_clock.setToolTip("تاریخ و ساعت جاری")
 
-        btn_safe_export = QPushButton("📤 خروجی موجودی امن")
+        btn_safe_export = QPushButton("📤 خروجی موجودی همکار")
         self.btn_safe_export = btn_safe_export
         btn_safe_export.setObjectName("btnSuccess")
         btn_safe_export.setToolTip(
-            "تهیه فایل اکسل از کالاهای موجود در انبار بدون اطلاعات قیمت خرید و سود (مناسب ارسال به همکاران)"
+            "تهیه فایل اکسل موجودی با ستون‌هایی که در تنظیمات تعیین کرده‌اید؛ بدون قیمت خرید و سود"
         )
         btn_safe_export.clicked.connect(self._export_safe_inventory)
         btn_safe_export.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
@@ -930,7 +931,7 @@ class MainWindow(QMainWindow):
         default_file = get_next_excel_filename(os.path.expanduser("~"), "R")
         path, _ = QFileDialog.getSaveFileName(
             self,
-            "ذخیره گزارش موجودی (فقط کالاهای موجود و بدون اطلاعات محرمانه)",
+            "ذخیره خروجی موجودی همکار",
             default_file,
             "Excel Files (*.xlsx)",
         )
@@ -940,7 +941,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.information(
                     self,
                     "ذخیره شد",
-                    f"فایل «گزارش موجودی» با موفقیت ذخیره شد:\n{path}",
+                    f"فایل «موجودی همکار» با موفقیت ذخیره شد:\n{path}",
                 )
             except Exception as e:
                 QMessageBox.critical(self, "خطا", str(e))
@@ -4969,6 +4970,14 @@ class MainWindow(QMainWindow):
             "attributes": copy.deepcopy(DEFAULT_ATTRIBUTES),
             "colors": list(DEFAULT_COLORS),
             "service_types": ["نرم‌افزاری", "سخت‌افزاری"],
+            "subcategory_labels": {
+                "لپ‌تاپ": "زیرمجموعه لپ‌تاپ",
+                "قطعات": "نوع قطعه",
+                "لوازم جانبی": "نوع لوازم جانبی",
+                "مانیتور": "زیرمجموعه مانیتور",
+                "کیس و مینی‌کیس": "نوع دستگاه",
+                "آداپتور و تغذیه": "نوع آداپتور / تغذیه",
+            },
         }
         has_saved_catalog = bool(self.db.get_setting("product_catalog_config", ""))
         self._taxonomy_draft = (
@@ -4976,6 +4985,11 @@ class MainWindow(QMainWindow):
             if has_saved_catalog
             else copy.deepcopy(defaults)
         )
+        self._taxonomy_draft.setdefault(
+            "subcategory_labels", copy.deepcopy(defaults["subcategory_labels"])
+        )
+        for category, label in defaults["subcategory_labels"].items():
+            self._taxonomy_draft["subcategory_labels"].setdefault(category, label)
         self._pending_category_renames = []
         self._pending_subcategory_renames = []
         self._pending_attribute_renames = []
@@ -5084,6 +5098,8 @@ class MainWindow(QMainWindow):
     def _on_catalog_category_selected(self, category):
         if category:
             self.ed_cfg_category.setText(category)
+            configured = self._taxonomy_draft.get("subcategory_labels", {}).get(category, "")
+            self.ed_cfg_subcategory_label.setText(configured)
 
     def _on_catalog_subcategory_selected(self, current, _previous=None):
         if current:
@@ -5656,6 +5672,16 @@ class MainWindow(QMainWindow):
             self._apply_custom_specs_for_subcategory
         )
         self.specs_widget.set_category(category)
+        default_subcategory_labels = {
+            "لپ‌تاپ": "زیرمجموعه لپ‌تاپ", "قطعات": "نوع قطعه",
+            "لوازم جانبی": "نوع لوازم جانبی", "مانیتور": "زیرمجموعه مانیتور",
+            "کیس و مینی‌کیس": "نوع دستگاه", "آداپتور و تغذیه": "نوع آداپتور / تغذیه",
+        }
+        configured_label = (
+            self.catalog_config.get("subcategory_labels", {}).get(category)
+            or default_subcategory_labels.get(category, "زیرمجموعه")
+        )
+        self.specs_widget.set_subcategory_label(configured_label)
         if hasattr(self, "catalog_config"):
             self.specs_widget.apply_custom_catalog(
                 self.catalog_config.get("subcategories", {}).get(category),
