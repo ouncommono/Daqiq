@@ -639,16 +639,24 @@ class MainWindow(QMainWindow):
             form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
             form.setHorizontalSpacing(12)
             form.setVerticalSpacing(8)
+        form_layouts = self.findChildren(QFormLayout)
         for label in self.findChildren(QLabel):
-            if label.text().strip() == "/" or label.objectName() == "appVersion":
+            label_text = label.text().strip()
+            if label_text == "/" or label.objectName() == "appVersion":
                 continue
             label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            # Fit field labels to text; Qt's RTL form label column anchors on right.
-            if any(
+            is_form_label = any(
                 form_layout.labelForField(label) is not None
-                for form_layout in self.findChildren(QFormLayout)
-            ):
+                for form_layout in form_layouts
+            )
+            is_field_caption = label_text.endswith((":", "："))
+            if is_form_label or is_field_caption:
+                # Keep the caption at its natural text width. The owning widget,
+                # not the QLayout, supplies RTL ordering and right-side anchoring.
                 label.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+                parent_widget = label.parentWidget()
+                if parent_widget is not None:
+                    parent_widget.setLayoutDirection(Qt.RightToLeft)
 
     def _switch_active_employee(self):
         with self.db.get_connection() as conn:
@@ -1271,7 +1279,7 @@ class MainWindow(QMainWindow):
         self.btn_safe_export = btn_safe_export
         btn_safe_export.setObjectName("btnSuccess")
         btn_safe_export.setToolTip(
-            "تهیه فایل اکسل از کالاهای موجود در انبار بدون اطلاعات قیمت خرید و سود (مناسب ارسال به همکاران)"
+            "تهیه فایل اکسل از موجودی انبار با ستون‌های انتخاب‌شده؛ ستون‌های قیمت خرید و سود فقط در صورت انتخاب دستی اضافه می‌شوند."
         )
         btn_safe_export.clicked.connect(self._export_safe_inventory)
         btn_safe_export.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
@@ -5251,6 +5259,7 @@ class MainWindow(QMainWindow):
         categories_layout.addLayout(cat_btn_row)
 
         gb_subcategories = QGroupBox("زیرمجموعه‌های دستهٔ انتخاب‌شده")
+        gb_subcategories.setLayoutDirection(Qt.RightToLeft)
         sub_layout = QVBoxLayout(gb_subcategories)
         sub_layout.setContentsMargins(10, 10, 10, 10)
         sub_layout.setSpacing(8)
@@ -5258,6 +5267,10 @@ class MainWindow(QMainWindow):
         self.lst_cfg_subcategories.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.lst_cfg_subcategories.verticalScrollBar().setSingleStep(18)
         self.lst_cfg_subcategories.setMaximumHeight(125)
+        self.cfg_subcategories_section = CollapsibleSection(
+            "فهرست زیرمجموعه‌ها", self.lst_cfg_subcategories
+        )
+        sub_layout.addWidget(self.cfg_subcategories_section)
         self.ed_cfg_subcategory = QLineEdit()
         self.ed_cfg_subcategory.setPlaceholderText("نام زیرمجموعه را وارد کنید؛ مثلاً صفحه‌نمایش یا پردازنده...")
         sub_btn_row = QHBoxLayout()
@@ -5275,9 +5288,9 @@ class MainWindow(QMainWindow):
         sub_btn_row.addWidget(btn_add_sub)
         sub_btn_row.addWidget(btn_rename_sub)
         sub_btn_row.addWidget(btn_delete_sub)
-        lbl_subcategory = QLabel("نام زیرمجموعه:")
-        lbl_subcategory.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        sub_layout.addWidget(lbl_subcategory)
+        self.lbl_cfg_subcategory = QLabel("نام زیرمجموعه:")
+        self.lbl_cfg_subcategory.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        sub_layout.addWidget(self.lbl_cfg_subcategory)
         sub_layout.addWidget(self.ed_cfg_subcategory)
         sub_layout.addLayout(sub_btn_row)
 
@@ -5399,9 +5412,6 @@ class MainWindow(QMainWindow):
         sub_layout.addWidget(CollapsibleSection(
             "عنوان فیلد زیرمجموعه برای هر دسته", gb_subcategory_caption
         ))
-        sub_layout.addWidget(CollapsibleSection(
-            "فهرست زیرمجموعه‌ها", self.lst_cfg_subcategories
-        ))
 
         catalog_grid.addWidget(gb_categories, 0, 0)
         catalog_grid.addWidget(gb_subcategories, 0, 1)
@@ -5469,25 +5479,39 @@ class MainWindow(QMainWindow):
 
         gb_inventory_export = QGroupBox("تنظیم ستون‌های خروجی موجودی همکار")
         self.gb_inventory_export = gb_inventory_export
+        gb_inventory_export.setLayoutDirection(Qt.RightToLeft)
         inventory_export_layout = QGridLayout(gb_inventory_export)
-        inventory_export_layout.setLayoutDirection(Qt.RightToLeft)
+        inventory_export_layout.setContentsMargins(12, 12, 12, 12)
+        inventory_export_layout.setHorizontalSpacing(16)
+        inventory_export_layout.setVerticalSpacing(8)
         inventory_export_hint = QLabel(
             "با فعال یا غیرفعال کردن هر گزینه، ستون‌ها به ترتیب در فایل اکسل درج یا حذف می‌شوند. "
-            "کد کالا و کد محموله پیش‌فرض فعال‌اند؛ قیمت فروش پیشنهادی و موجودی پیش‌فرض غیرفعال‌اند."
+            "کد کالا و کد محموله پیش‌فرض فعال‌اند؛ قیمت فروش پیشنهادی و موجودی پیش‌فرض غیرفعال‌اند. "
+            "ستون‌های قیمت خرید و سود فقط با انتخاب دستی اضافه می‌شوند؛ پیش از ارسال فایل، این اطلاعات حساس را بررسی کنید. "
+            "سوابق گارانتی، سوابق فروش انجام‌شده از همان محموله است و گارانتی موجودی باقی‌مانده را تضمین نمی‌کند."
         )
         inventory_export_hint.setWordWrap(True)
         inventory_export_hint.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        inventory_export_layout.addWidget(inventory_export_hint, 0, 0, 1, 4)
+        inventory_export_layout.addWidget(inventory_export_hint, 0, 0, 1, 3)
         inventory_export_options = [
             ("code", "کد کالا"), ("batch_code", "کد محموله"),
-            ("category", "دسته‌بندی"), ("subcategory", "زیرمجموعه"),
-            ("brand_model", "برند و مدل"), ("description", "توضیحات کالا"),
+            ("product_name", "نام کالا"), ("category", "دسته‌بندی"),
+            ("subcategory", "زیرمجموعه"), ("brand_model", "برند و مدل"),
+            ("description", "توضیحات کالا"), ("reorder_point", "حد سفارش مجدد"),
             ("specs", "مشخصات فنی کالا"), ("shipment_specs", "مشخصات فنی محموله"),
             ("supplier", "تأمین‌کننده"), ("buyer", "مسئول خرید"),
             ("purchase_date", "تاریخ خرید"), ("purchase_invoice", "شماره فاکتور خرید"),
+            ("purchase_status", "وضعیت تسویه خرید"), ("purchase_paid_amount", "مبلغ پرداخت‌شده به تأمین‌کننده"),
             ("serial_numbers", "شماره سریال"), ("colors", "رنگ‌ها"),
-            ("initial_qty", "تعداد اولیه محموله"),
-            ("suggested_price", "قیمت فروش پیشنهادی"), ("stock", "موجودی"),
+            ("initial_qty", "تعداد اولیه"), ("sold_qty", "تعداد فروخته‌شده"),
+            ("returned_qty", "تعداد مرجوعی"), ("stock", "موجودی فعلی"),
+            ("shipment_notes", "یادداشت محموله"), ("warranty_history", "سوابق گارانتی فروش"),
+            ("batch_created_at", "زمان ثبت محموله"), ("batch_updated_at", "آخرین ویرایش محموله"),
+            ("suggested_price", "قیمت فروش پیشنهادی"),
+            ("purchase_unit_price", "قیمت خرید واحد"), ("unit_cost_price", "بهای تمام‌شده واحد"),
+            ("extra_cost_total", "هزینه‌های اضافی محموله"),
+            ("upgrade_cost_unit", "هزینه ارتقای واحد"),
+            ("profit_pct", "درصد سود"),
         ]
         self.inventory_export_column_checks = {}
         for index, (key, label_text) in enumerate(inventory_export_options):
@@ -5498,7 +5522,7 @@ class MainWindow(QMainWindow):
             checkbox.setLayoutDirection(Qt.RightToLeft)
             checkbox.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
             self.inventory_export_column_checks[key] = checkbox
-            inventory_export_layout.addWidget(checkbox, 1 + index // 4, index % 4)
+            inventory_export_layout.addWidget(checkbox, 1 + index // 3, index % 3)
         inventory_export_page = QWidget()
         inventory_export_page_layout = QVBoxLayout(inventory_export_page)
         inventory_export_page_layout.addWidget(gb_inventory_export)
