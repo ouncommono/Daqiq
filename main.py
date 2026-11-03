@@ -1523,7 +1523,16 @@ class MainWindow(QMainWindow):
             if title.startswith("@"):
                 reference = title[1:].strip()
                 if reference:
-                    deferred_children.append((reference, value))
+                    parent_key = next(
+                        (
+                            parent_name
+                            for parent_name, parent_definition in definitions_by_name.items()
+                            if str(parent_definition.get("label") or "").strip() == reference
+                            and not str(parent_definition.get("label") or "").strip().startswith("@")
+                        ),
+                        reference,
+                    )
+                    deferred_children.append((parent_key, value))
                 continue
             if key not in rendered:
                 order.append(key)
