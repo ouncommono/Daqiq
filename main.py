@@ -643,6 +643,12 @@ class MainWindow(QMainWindow):
             if label.text().strip() == "/" or label.objectName() == "appVersion":
                 continue
             label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            # Fit field labels to text; Qt's RTL form label column anchors on right.
+            if any(
+                form_layout.labelForField(label) is not None
+                for form_layout in self.findChildren(QFormLayout)
+            ):
+                label.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
 
     def _switch_active_employee(self):
         with self.db.get_connection() as conn:
@@ -5464,24 +5470,24 @@ class MainWindow(QMainWindow):
         gb_inventory_export = QGroupBox("تنظیم ستون‌های خروجی موجودی همکار")
         self.gb_inventory_export = gb_inventory_export
         inventory_export_layout = QGridLayout(gb_inventory_export)
+        inventory_export_layout.setLayoutDirection(Qt.RightToLeft)
+        inventory_export_hint = QLabel(
+            "با فعال یا غیرفعال کردن هر گزینه، ستون‌ها به ترتیب در فایل اکسل درج یا حذف می‌شوند. "
+            "کد کالا و کد محموله پیش‌فرض فعال‌اند؛ قیمت فروش پیشنهادی و موجودی پیش‌فرض غیرفعال‌اند."
+        )
+        inventory_export_hint.setWordWrap(True)
+        inventory_export_hint.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        inventory_export_layout.addWidget(inventory_export_hint, 0, 0, 1, 4)
         inventory_export_options = [
-            ("code", "کد کالا"),
-            ("batch_code", "کد محموله"),
-            ("category", "دسته‌بندی"),
-            ("subcategory", "زیرمجموعه"),
-            ("brand_model", "برند و مدل"),
-            ("description", "توضیحات کالا"),
-            ("specs", "مشخصات فنی کالا"),
-            ("shipment_specs", "مشخصات فنی محموله"),
-            ("supplier", "تأمین‌کننده"),
-            ("buyer", "مسئول خرید"),
-            ("purchase_date", "تاریخ خرید"),
-            ("purchase_invoice", "شماره فاکتور خرید"),
-            ("serial_numbers", "شماره سریال"),
-            ("colors", "رنگ‌ها"),
+            ("code", "کد کالا"), ("batch_code", "کد محموله"),
+            ("category", "دسته‌بندی"), ("subcategory", "زیرمجموعه"),
+            ("brand_model", "برند و مدل"), ("description", "توضیحات کالا"),
+            ("specs", "مشخصات فنی کالا"), ("shipment_specs", "مشخصات فنی محموله"),
+            ("supplier", "تأمین‌کننده"), ("buyer", "مسئول خرید"),
+            ("purchase_date", "تاریخ خرید"), ("purchase_invoice", "شماره فاکتور خرید"),
+            ("serial_numbers", "شماره سریال"), ("colors", "رنگ‌ها"),
             ("initial_qty", "تعداد اولیه محموله"),
-            ("suggested_price", "قیمت فروش پیشنهادی"),
-            ("stock", "موجودی"),
+            ("suggested_price", "قیمت فروش پیشنهادی"), ("stock", "موجودی"),
         ]
         self.inventory_export_column_checks = {}
         for index, (key, label_text) in enumerate(inventory_export_options):
@@ -5489,13 +5495,10 @@ class MainWindow(QMainWindow):
             checkbox.setChecked(
                 key in {"code", "batch_code", "category", "subcategory", "brand_model", "specs"}
             )
+            checkbox.setLayoutDirection(Qt.RightToLeft)
+            checkbox.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
             self.inventory_export_column_checks[key] = checkbox
-            inventory_export_layout.addWidget(checkbox, index // 4, index % 4)
-        inventory_export_hint = QLabel(
-            "با فعال یا غیرفعال کردن هر گزینه، ستون مربوطه به‌ترتیب در فایل اکسل درج یا حذف می‌شود."
-        )
-        inventory_export_hint.setWordWrap(True)
-        inventory_export_layout.addWidget(inventory_export_hint, 2, 0, 1, 4)
+            inventory_export_layout.addWidget(checkbox, 1 + index // 4, index % 4)
         inventory_export_page = QWidget()
         inventory_export_page_layout = QVBoxLayout(inventory_export_page)
         inventory_export_page_layout.addWidget(gb_inventory_export)
