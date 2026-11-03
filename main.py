@@ -4516,7 +4516,11 @@ class MainWindow(QMainWindow):
                     FROM sales s JOIN products p ON s.product_id=p.id LEFT JOIN employees e ON s.seller_employee_id=e.id
                     WHERE s.settlement_status != 'تسویه‌شده'
                 """).fetchall():
-                    rem_amt = max(0, r["total_amount"] - r["paid_amount"])
+                    rem_amt = receivable_balance(
+                        r["total_amount"], r["paid_amount"], r["settlement_status"]
+                    )
+                    if rem_amt <= 0:
+                        continue
                     sum_receivable += rem_amt
                     rows_data.append(
                         [
@@ -4540,7 +4544,11 @@ class MainWindow(QMainWindow):
                     WHERE b.settlement_status != 'تسویه‌شده'
                 """).fetchall():
                     tot = (r["unit_purchase_price"] * r["initial_qty"]) + r["extra_cost_total"]
-                    rem_amt = max(0, tot - r["paid_amount"])
+                    rem_amt = receivable_balance(
+                        tot, r["paid_amount"], r["settlement_status"]
+                    )
+                    if rem_amt <= 0:
+                        continue
                     sum_payable += rem_amt
                     rows_data.append(
                         [
@@ -4562,7 +4570,11 @@ class MainWindow(QMainWindow):
                     LEFT JOIN employees e ON sr.seller_employee_id=e.id
                     WHERE sr.settlement_status != 'تسویه‌شده'
                 """).fetchall():
-                    rem_amt = max(0, r["service_fee"] - r["paid_amount"])
+                    rem_amt = receivable_balance(
+                        r["service_fee"], r["paid_amount"], r["settlement_status"]
+                    )
+                    if rem_amt <= 0:
+                        continue
                     sum_receivable += rem_amt
                     rows_data.append(
                         [
@@ -7062,7 +7074,9 @@ class MainWindow(QMainWindow):
         data = []
         for r in rows:
             tot_bill = (r["unit_purchase_price"] * r["initial_qty"]) + r["extra_cost_total"]
-            debt = max(0, tot_bill - r["paid_amount"])
+            debt = receivable_balance(
+                tot_bill, r["paid_amount"], r["settlement_status"]
+            )
             prod_title = self._format_product_picker_label(dict(r))
             data.append(
                 [
