@@ -181,18 +181,33 @@ CPU_LIST = [
 
 RAM_CAPACITIES = [
     "",
-    "2GB", "4GB", "6GB", "8GB", "12GB", "16GB", "20GB", "24GB",
-    "32GB", "48GB", "64GB", "96GB", "128GB",
+    "2GB", "4GB", "6GB", "8GB", "10GB", "12GB", "16GB", "20GB",
+    "24GB", "32GB", "40GB", "48GB", "64GB", "80GB", "96GB",
+    "128GB", "192GB", "256GB",
+]
+
+STORAGE_CAPACITIES = [
+    "64GB", "120GB", "128GB", "240GB", "256GB", "320GB", "480GB",
+    "500GB", "512GB", "640GB", "960GB", "1TB", "1.5TB", "2TB",
+    "4TB", "8TB",
 ]
 
 STORAGE_LIST = [
     "",
-    "SATA SSD 2.5-inch XGB / XTB",
-    "M.2 SATA SSD XGB / XTB",
-    "NVMe PCIe Gen 3 / 4 / 5 XGB / XTB",
-    "SATA HDD 2.5 / 3.5-inch XGB / XTB",
-    "Hybrid HDD + SSD XGB / XTB",
-    "External SSD / HDD XGB / XTB",
+    "SATA SSD 2.5-inch",
+    "M.2 SATA SSD",
+    "NVMe PCIe Gen 3",
+    "NVMe PCIe Gen 4",
+    "NVMe PCIe Gen 5",
+    "SATA HDD 2.5-inch",
+    "SATA HDD 3.5-inch",
+    "Hybrid HDD + SSD",
+    "External SSD / HDD",
+]
+
+REFRESH_RATE_LIST = [
+    "60Hz", "75Hz", "90Hz", "100Hz", "120Hz", "144Hz",
+    "165Hz", "180Hz", "200Hz", "240Hz", "280Hz", "360Hz",
 ]
 
 GPU_LIST = [
@@ -217,14 +232,18 @@ DEFAULT_ATTRIBUTES = {
     "لپ‌تاپ": [
         {"name": "پردازنده", "label": "CPU", "values": CPU_LIST[1:]},
         {"name": "ظرفیت رم", "label": "RAM", "values": RAM_CAPACITIES[1:]},
-        {"name": "نسل رم", "label": "RAM Type", "values": ["DDR3 / DDR4 / DDR5 / LPDDR"]},
-        {"name": "حافظه داخلی", "label": "Storage", "values": STORAGE_LIST[1:]},
+        {"name": "نسل رم", "label": "RAM Type", "values": ["DDR3", "DDR3L", "DDR4", "DDR5", "LPDDR4", "LPDDR5", "LPDDR5X"]},
+        {"name": "نوع حافظه داخلی", "label": "Storage", "values": STORAGE_LIST[1:]},
+        {"name": "ظرفیت حافظه داخلی", "label": "Storage Capacity", "values": STORAGE_CAPACITIES},
         {"name": "پردازنده گرافیکی", "label": "GPU", "values": GPU_LIST[1:]},
-        {"name": "صفحه‌نمایش", "label": "Display", "values": ["HD / FHD / QHD / 4K", "IPS / VA / OLED", "60 / 120 / 144 / 165 / 240Hz"]},
+        {"name": "وضوح تصویر", "label": "Resolution", "values": ["HD", "FHD", "QHD", "4K", "5K", "8K"]},
+        {"name": "نوع پنل", "label": "Panel", "values": ["IPS", "VA", "TN", "OLED", "Mini-LED"]},
+        {"name": "نرخ نوسازی", "label": "Refresh Rate", "values": REFRESH_RATE_LIST},
     ],
     "قطعات": [
-        {"name": "ظرفیت", "label": "Capacity", "values": RAM_CAPACITIES[1:]},
-        {"name": "نوع رابط", "label": "Interface", "values": ["SATA", "M.2 SATA", "NVMe PCIe Gen 3 / 4 / 5", "USB"]},
+        {"name": "ظرفیت", "label": "Capacity", "values": RAM_CAPACITIES[1:] + STORAGE_CAPACITIES},
+        {"name": "ظرفیت گرافیک", "label": "VRAM", "values": ["2GB", "4GB", "6GB", "8GB", "10GB", "12GB", "16GB", "20GB", "24GB", "32GB"]},
+        {"name": "نوع رابط", "label": "Interface", "values": ["SATA", "M.2 SATA", "NVMe PCIe Gen 3", "NVMe PCIe Gen 4", "NVMe PCIe Gen 5", "USB"]},
         {"name": "سری / مدل", "label": "Model", "values": CPU_LIST[1:] + GPU_LIST[1:]},
         {"name": "سوکت / فرم", "label": "Socket / Form Factor", "values": ["LGA / AMx", "M.2 2242 / 2280", "2.5 / 3.5 inch", "ATX / mATX / ITX"]},
     ],
@@ -233,9 +252,10 @@ DEFAULT_ATTRIBUTES = {
         {"name": "سازگاری / مدل", "label": "Compatibility / Model", "values": []},
     ],
     "مانیتور": [
-        {"name": "سایز", "label": "Size", "values": ["14 / 15.6 / 19 / 22 / 24 / 27 / 32 / 34 inch"]},
+        {"name": "سایز", "label": "Size", "values": ["14 inch", "15.6 inch", "19 inch", "20 inch", "21.5 inch", "22 inch", "23.8 inch", "24 inch", "27 inch", "28 inch", "32 inch", "34 inch", "38 inch", "43 inch"]},
         {"name": "نوع پنل", "label": "Panel", "values": ["IPS", "VA", "TN", "OLED", "Mini-LED"]},
-        {"name": "رزولوشن / نرخ", "label": "Resolution / Refresh", "values": ["HD / FHD / QHD / 4K", "60 / 75 / 100 / 144 / 165 / 180 / 240Hz"]},
+        {"name": "وضوح تصویر", "label": "Resolution", "values": ["HD", "FHD", "QHD", "4K", "5K", "8K"]},
+        {"name": "نرخ نوسازی", "label": "Refresh Rate", "values": REFRESH_RATE_LIST},
         {"name": "درگاه‌ها", "label": "Ports", "values": ["HDMI", "DisplayPort", "USB-C", "VGA / DVI"]},
     ],
     "کیس و مینی‌کیس": [
@@ -245,12 +265,12 @@ DEFAULT_ATTRIBUTES = {
         {"name": "پردازنده گرافیکی", "label": "GPU", "values": GPU_LIST[1:]},
     ],
     "آداپتور و تغذیه": [
-        {"name": "ولتاژ", "label": "Voltage", "values": ["5 / 9 / 12 / 19 / 19.5 / 20V", "220V AC"]},
-        {"name": "توان", "label": "Power", "values": ["45 / 65 / 90 / 120 / 135 / 150 / 180 / 240W"]},
+        {"name": "ولتاژ", "label": "Voltage", "values": ["5V", "9V", "12V", "15V", "19V", "19.5V", "20V", "24V", "48V", "220V AC"]},
+        {"name": "توان", "label": "Power", "values": ["18W", "30W", "45W", "60W", "65W", "90W", "100W", "120W", "135W", "150W", "180W", "200W", "240W", "300W"]},
         {"name": "نوع سوکت", "label": "Connector", "values": ["5.5x2.5mm", "Barrel", "Rectangular", "USB Type-C PD"]},
     ],
     "شبکه و مودم": [
-        {"name": "استاندارد", "label": "Standard", "values": ["ADSL / VDSL", "4G / 5G", "Wi-Fi 4 / 5 / 6 / 6E / 7", "Ethernet 1G / 2.5G / 10G"]},
+        {"name": "استاندارد", "label": "Standard", "values": ["ADSL", "VDSL", "4G", "5G", "Wi-Fi 4", "Wi-Fi 5", "Wi-Fi 6", "Wi-Fi 6E", "Wi-Fi 7", "Ethernet 100M", "Ethernet 1G", "Ethernet 2.5G", "Ethernet 10G"]},
         {"name": "تعداد درگاه", "label": "Ports", "values": []},
     ],
     "ماشین‌های اداری": [
