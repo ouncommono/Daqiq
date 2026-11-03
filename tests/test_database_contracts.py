@@ -772,6 +772,7 @@ def test_catalog_config_reader_recovers_from_malformed_nested_values(manager):
     assert config == {
         "categories": [],
         "subcategories": {},
+        "subcategory_labels": {},
         "attributes": {"لپ‌تاپ": [{"name": "RAM", "values": [], "subcategory": ""}]},
         "colors": [],
         "service_types": ["نرم‌افزاری", "سخت‌افزاری"],
