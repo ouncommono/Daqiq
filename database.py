@@ -1789,7 +1789,12 @@ class DatabaseManager:
                     batch_colors = json.loads(batch["colors_json"] or "[]")
                 except (TypeError, ValueError, json.JSONDecodeError):
                     batch_colors = []
-                unavailable = [value for value in normalized_colors if value not in batch_colors]
+                try:
+                    old_sale_colors = json.loads(old_sale["colors_json"] or "[]")
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    old_sale_colors = []
+                allowed_existing = set(batch_colors or []) | set(old_sale_colors or [])
+                unavailable = [value for value in normalized_colors if value not in allowed_existing]
                 if unavailable:
                     raise ValueError("یکی از رنگ‌های انتخاب‌شده در این محموله ثبت نشده است.")
 
