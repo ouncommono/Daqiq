@@ -547,16 +547,31 @@ class DatabaseManager:
                     row["name"]
                     for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
                 }
+                if "created_at" not in columns:
+                    conn.execute(
+                        f"ALTER TABLE {table_name} ADD COLUMN created_at TEXT NOT NULL DEFAULT ''"
+                    )
                 if "updated_at" not in columns:
-                    conn.execute(f"ALTER TABLE {table_name} ADD COLUMN updated_at TEXT")
+                    conn.execute(
+                        f"ALTER TABLE {table_name} ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''"
+                    )
+                conn.execute(
+                    f"UPDATE {table_name} SET created_at=updated_at "
+                    "WHERE created_at IS NULL OR created_at=''"
+                )
+                conn.execute(f"DROP TRIGGER IF EXISTS trg_{table_name}_updated_at_insert")
                 conn.execute(f"""
-                    CREATE TRIGGER IF NOT EXISTS trg_{table_name}_updated_at_insert
+                    CREATE TRIGGER trg_{table_name}_updated_at_insert
                     AFTER INSERT ON {table_name}
                     FOR EACH ROW
                     BEGIN
                         UPDATE activity_clock SET tick = tick + 1 WHERE id = 1;
                         UPDATE {table_name}
-                        SET updated_at = printf('%020d', (SELECT tick FROM activity_clock WHERE id=1))
+                        SET created_at = CASE
+                                WHEN created_at IS NULL OR created_at=''
+                                THEN printf('%020d', (SELECT tick FROM activity_clock WHERE id=1))
+                                ELSE created_at END,
+                            updated_at = printf('%020d', (SELECT tick FROM activity_clock WHERE id=1))
                         WHERE id = NEW.id;
                     END
                 """)
@@ -572,6 +587,20 @@ class DatabaseManager:
                         WHERE id = NEW.id;
                     END
                 """)
+
+            # Index common activity sorts and parent/foreign-key lookups.
+            for index_sql in (
+                "CREATE INDEX IF NOT EXISTS idx_products_activity ON products(updated_at DESC, id DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_batches_activity ON batches(updated_at DESC, id DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_sales_activity ON sales(updated_at DESC, id DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_service_records_activity ON service_records(updated_at DESC, id DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_employees_activity ON employees(updated_at DESC, id DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_batches_product_activity ON batches(product_id, updated_at DESC, id DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_sales_batch_activity ON sales(batch_id, updated_at DESC, id DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_sales_seller_activity ON sales(seller_employee_id, updated_at DESC, id DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_services_seller_activity ON service_records(seller_employee_id, updated_at DESC, id DESC)",
+            ):
+                conn.execute(index_sql)
 
             # Remove the exact legacy generic supplier from the selector on upgraded
             # databases too, but retain its historical name on linked purchase rows.
@@ -1122,7 +1151,7 @@ class DatabaseManager:
                 )
             conn.execute("DELETE FROM employees WHERE id=?", (emp_id,))
             self.log_audit(
-                conn, "حذف کارمند",
+                conn, "حذف کاربر",
                 f"شناسه: {emp_id} | حذف داده‌های وابسته: {'بله' if delete_related_data else 'خیر'}"
             )
             conn.commit()

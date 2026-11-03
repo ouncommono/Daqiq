@@ -2,6 +2,7 @@
 import datetime
 import re
 import weakref
+import html
 import jdatetime
 from PySide6.QtWidgets import (
     QWidget,
@@ -53,6 +54,19 @@ def bidi_isolate_text(value) -> str:
 def strip_bidi_controls(value) -> str:
     """Remove invisible directional controls before searching or parsing visible UI text."""
     return _BIDI_CONTROL_RE.sub("", "" if value is None else str(value))
+
+
+def mixed_bidi_tooltip(value) -> str:
+    """Build an HTML tooltip with per-line reading direction for mixed Persian/English text."""
+    rendered = []
+    for line in str(value or "").splitlines():
+        direction = "ltr" if re.search(r"[A-Za-z]", line) else "rtl"
+        alignment = "left" if direction == "ltr" else "right"
+        rendered.append(
+            f'<div dir="{direction}" style="text-align:{alignment}; white-space:pre-wrap;">'
+            f'{html.escape(line)}</div>'
+        )
+    return "<html><body>" + "".join(rendered) + "</body></html>"
 
 
 def normalize_catalog_label(value) -> str:
@@ -643,6 +657,9 @@ class SearchableComboBox(QComboBox):
         super().__init__(parent)
         self.setEditable(True)
         self.setInsertPolicy(QComboBox.NoInsert)
+        # Keep the logical order of mixed Persian/Latin selectors in the collapsed view.
+        self.lineEdit().setLayoutDirection(Qt.LeftToRight)
+        self.lineEdit().setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self._search_proxy = _ComboSearchProxyModel(self.SEARCH_ROLE, self)
         self._search_proxy.setSourceModel(self.model())
         completer = QCompleter(self._search_proxy, self)
@@ -1125,6 +1142,14 @@ class DynamicSpecsWidget(QGroupBox):
         self.fields.clear()
         self._custom_field_widgets.clear()
         self.cb_sub = None
+
+    def set_subcategory_label(self, label: str):
+        """Customize the caption associated with the category-specific subcategory selector."""
+        if self.cb_sub is None:
+            return
+        label_widget = self.form_layout.labelForField(self.cb_sub)
+        if label_widget is not None:
+            label_widget.setText(f"{str(label or 'زیرمجموعه').strip()}:")
 
     def set_category(self, category: str):
         self.current_category = category.strip()

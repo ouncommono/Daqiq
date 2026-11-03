@@ -140,25 +140,40 @@ def _style_worksheet_professional(ws, title: str, headers: list, data_rows: list
         ws.column_dimensions[col_letter].width = min(max(max_len + 5, 13), 42)
 
 
-def export_safe_inventory_excel(db: DatabaseManager, file_path: str, shop_name: str = ""):
+def export_safe_inventory_excel(
+    db: DatabaseManager,
+    file_path: str,
+    shop_name: str = "",
+    included_columns=None,
+):
     """
-    بند ۴ و ۹: خروجی موجودی امن برای همکاران
-    - عنوان دقیق: «گزارش موجودی»
-    - فقط کالاهای دارای موجودی (remaining_qty > 0) خروجی گرفته می‌شوند
-    - بدون فیلد وضعیت موجودی و بدون هیچ‌گونه اطلاعات محرمانه مالی
+    Build a colleague-safe inventory export with user-selectable columns.
+    Only active products with positive stock are included; no purchase or margin data
+    is exported.
     """
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.title = "گزارش موجودی"
+    ws.title = "موجودی همکار"
 
-    headers = [
-        "کد کالا",
-        "دسته‌بندی",
-        "زیرمجموعه",
-        "برند و مدل",
-        "مشخصات فنی",
-        "موجودی فعلی",
-    ]
+    column_definitions = {
+        "code": ("کد کالا", 0),
+        "category": ("دسته‌بندی", 1),
+        "subcategory": ("زیرمجموعه", 2),
+        "brand_model": ("برند و مدل", 3),
+        "specs": ("مشخصات فنی", 4),
+        "suggested_price": ("قیمت فروش (پیشنهادی)", 5),
+        "stock": ("موجودی", 6),
+    }
+    if included_columns is None:
+        selected_columns = list(column_definitions)
+    else:
+        selected_columns = list(dict.fromkeys(
+            key for key in included_columns if key in column_definitions
+        ))
+    if not selected_columns:
+        raise ValueError("Select at least one inventory export column.")
+
+    headers = [column_definitions[key][0] for key in selected_columns]
 
     catalog_config = db.get_product_catalog_config()
     with db.get_connection() as conn:
@@ -166,7 +181,14 @@ def export_safe_inventory_excel(db: DatabaseManager, file_path: str, shop_name: 
             SELECT p.code, p.name, p.category, p.sub_category, p.brand, p.model,
                    p.specs_json, p.description,
                    COALESCE(SUM(b.remaining_qty), 0) as total_rem,
-                   MAX(b.updated_at) as last_batch_activity
+                   MAX(b.updated_at) as last_batch_activity,
+                    COALESCE((
+                        SELECT b2.suggested_sell_price
+                        FROM batches b2
+                        WHERE b2.product_id = p.id
+                        ORDER BY b2.updated_at DESC, b2.id DESC
+                        LIMIT 1
+                    ), 0) AS latest_suggested_price
             FROM products p
             LEFT JOIN batches b ON p.id = b.product_id
             WHERE p.is_active = 1
@@ -192,18 +214,20 @@ def export_safe_inventory_excel(db: DatabaseManager, file_path: str, shop_name: 
                 else r["description"]
             )
 
-        data_rows.append(
-            [
-                r["code"],
-                cat_text,
-                sub_text,
-                brand_model,
-                specs_str or "-",
-                int(r["total_rem"]),
-            ]
-        )
+        values = [
+            r["code"],
+            cat_text,
+            sub_text,
+            brand_model,
+            specs_str or "-",
+            int(r["latest_suggested_price"]),
+            int(r["total_rem"]),
+        ]
+        data_rows.append([
+            values[column_definitions[key][1]] for key in selected_columns
+        ])
 
-    report_title = _rtl_report_title(shop_name, "گزارش موجودی")
+    report_title = _rtl_report_title(shop_name, "خروجی موجودی همکار")
     _style_worksheet_professional(ws, report_title, headers, data_rows)
     wb.save(file_path)
 
