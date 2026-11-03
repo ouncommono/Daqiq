@@ -54,6 +54,27 @@ def strip_bidi_controls(value) -> str:
     """Remove invisible directional controls before searching or parsing visible UI text."""
     return _BIDI_CONTROL_RE.sub("", "" if value is None else str(value))
 
+
+def normalize_catalog_label(value) -> str:
+    """Canonical comparison key for Persian labels with optional spaces/ZWNJ."""
+    text = "" if value is None else str(value)
+    text = text.replace("\u064a", "\u06cc").replace("\u0643", "\u06a9")
+    text = text.replace("\u200c", "").replace("\u200d", "").replace("\ufeff", "")
+    return re.sub(r"\s+", "", text).casefold()
+
+
+def _unique_catalog_labels(values):
+    """Deduplicate labels by their normalized Persian/Latin spelling."""
+    result = []
+    seen = set()
+    for value in values or []:
+        label = str(value).strip()
+        key = normalize_catalog_label(label)
+        if label and key and key not in seen:
+            seen.add(key)
+            result.append(label)
+    return result
+
 # فهرست جامع دسته‌بندی‌های اصلی فروشگاه (بند ۱ و ۲)
 MAIN_CATEGORIES = [
     "لپ‌تاپ",
@@ -121,29 +142,57 @@ DEFAULT_SUBCATEGORIES = {
 }
 
 # فهرست جامع پردازنده‌های قدیمی و جدید (بند ۲)
+# Broad CPU families and suffix patterns. The editable search field lets the user
+# replace xxx with the exact SKU digits without maintaining an endless model catalogue.
 CPU_LIST = [
     "",
-    "Intel Celeron",
-    "Intel Pentium",
-    "Intel Core 2 Duo / Quad",
-    "Intel Core i3 (نسل ۱ تا ۵)",
-    "Intel Core i3 (نسل ۶ تا ۹)",
-    "Intel Core i3 (نسل ۱۰ تا ۱۴)",
-    "Intel Core i5 (نسل ۱ تا ۵)",
-    "Intel Core i5 (نسل ۶ تا ۹)",
-    "Intel Core i5 (نسل ۱۰ تا ۱۴)",
-    "Intel Core i7 (نسل ۱ تا ۵)",
-    "Intel Core i7 (نسل ۶ تا ۹)",
-    "Intel Core i7 (نسل ۱۰ تا ۱۴)",
-    "Intel Core i9",
-    "Intel Core Ultra 5 / 7 / 9",
-    "Intel Xeon",
+    "Intel Celeron N4xxx / N5xxx",
+    "Intel Celeron 4xxxU / 5xxxU",
+    "Intel Pentium N5xxx / N6xxx",
+    "Intel Pentium 6xxxU / 7xxxU",
+    "Intel Core i3 6xxxU / 6xxxH",
+    "Intel Core i3 7xxxU / 7xxxH",
+    "Intel Core i3 8xxxU / 8xxxH",
+    "Intel Core i3 9xxxU / 9xxxH",
+    "Intel Core i3 10xxxU / 10xxxH",
+    "Intel Core i3 11xxxU / 11xxxH",
+    "Intel Core i3 12xxxU / 12xxxH",
+    "Intel Core i3 13xxxU / 13xxxH",
+    "Intel Core i3 14xxxU / 14xxxH",
+    "Intel Core i5 6xxxU / 6xxxH / HQ",
+    "Intel Core i5 7xxxU / 7xxxH / HQ",
+    "Intel Core i5 8xxxU / 8xxxH / HQ",
+    "Intel Core i5 9xxxU / 9xxxH / HK",
+    "Intel Core i5 10xxxU / 10xxxH / 10xxxH",
+    "Intel Core i5 11xxxU / 11xxxH",
+    "Intel Core i5 12xxxU / 12xxxH",
+    "Intel Core i5 13xxxU / 13xxxH",
+    "Intel Core i5 14xxxU / 14xxxH",
+    "Intel Core i7 6xxxU / 6xxxH / HQ",
+    "Intel Core i7 7xxxU / 7xxxH / HQ",
+    "Intel Core i7 8xxxU / 8xxxH / HQ",
+    "Intel Core i7 9xxxU / 9xxxH / HK",
+    "Intel Core i7 10xxxU / 10xxxH / 10xxxHK",
+    "Intel Core i7 11xxxU / 11xxxH",
+    "Intel Core i7 12xxxU / 12xxxH",
+    "Intel Core i7 13xxxU / 13xxxH",
+    "Intel Core i7 14xxxU / 14xxxH",
+    "Intel Core i9 9xxxH / 9xxxHK",
+    "Intel Core i9 10xxxH / 10xxxHK",
+    "Intel Core i9 11xxxH / 11xxxHK",
+    "Intel Core i9 12xxxH / 12xxxHX",
+    "Intel Core i9 13xxxH / 13xxxHX",
+    "Intel Core i9 14xxxH / 14xxxHX",
+    "Intel Core Ultra 5 / 7 / 9 (Series 1 / 2)",
+    "Intel Xeon E / W Series",
+    "AMD Ryzen 3 3xxxU / 4xxxU / 5xxxU",
+    "AMD Ryzen 5 3xxxU / 4xxxU / 5xxxU / 6xxxU / 7xxxU",
+    "AMD Ryzen 5 4xxxH / 5xxxH / 6xxxH / 7xxxH",
+    "AMD Ryzen 7 3xxxU / 4xxxU / 5xxxU / 6xxxU / 7xxxU",
+    "AMD Ryzen 7 4xxxH / 5xxxH / 6xxxH / 7xxxH",
+    "AMD Ryzen 9 4xxxH / 5xxxH / 6xxxH / 7xxxH",
     "AMD Athlon / A-Series",
     "AMD FX Series",
-    "AMD Ryzen 3",
-    "AMD Ryzen 5",
-    "AMD Ryzen 7",
-    "AMD Ryzen 9",
     "Apple M1 / M2 / M3 / M4",
 ]
 
@@ -204,62 +253,70 @@ GPU_LIST = [
 ]
 
 
+DEFAULT_COLORS = [
+    "مشکی", "سفید", "نقره‌ای", "خاکستری", "ذغالی", "سرمه‌ای",
+    "آبی", "قرمز", "زرشکی", "سبز", "زیتونی", "طلایی",
+    "رزگلد", "صورتی", "بنفش", "قهوه‌ای", "بژ", "شفاف",
+    "چند‌رنگ", "سایر",
+]
+
+
 # فهرست ویژگی‌های فنی اولیه؛ هر فروشگاه می‌تواند مقادیر و محدودهٔ زیرمجموعه را تغییر دهد.
 DEFAULT_ATTRIBUTES = {
     "لپ‌تاپ": [
-        {"name": "CPU", "values": CPU_LIST[1:]},
-        {"name": "RAM", "values": RAM_CAPACITIES[1:]},
-        {"name": "نوع RAM", "values": ["DDR3 / DDR3L", "DDR4", "DDR5", "LPDDR4 / LPDDR5"]},
-        {"name": "Storage", "values": STORAGE_LIST[1:]},
-        {"name": "Graphic", "values": GPU_LIST[1:]},
-        {"name": "صفحه‌نمایش", "values": [
-            "13.3 اینچ", "14 اینچ HD/FHD", "15.6 اینچ HD",
-            "15.6 اینچ FHD IPS", "15.6 اینچ 144Hz/165Hz",
-            "16 اینچ FHD+/2K", "17.3 اینچ FHD",
+        {"name": "پردازنده", "label": "CPU", "values": CPU_LIST[1:]},
+        {"name": "ظرفیت رم", "label": "RAM", "values": RAM_CAPACITIES[1:]},
+        {"name": "نسل رم", "label": "RAM Type", "values": ["DDR3 / DDR3L", "DDR4", "DDR5", "LPDDR4 / LPDDR5"]},
+        {"name": "حافظه داخلی", "label": "Storage", "values": STORAGE_LIST[1:]},
+        {"name": "پردازنده گرافیکی", "label": "GPU", "values": GPU_LIST[1:]},
+        {"name": "صفحه‌نمایش", "label": "Display", "values": [
+            "13.3 inch", "14 inch HD / FHD", "15.6 inch HD",
+            "15.6 inch FHD IPS", "15.6 inch 144Hz / 165Hz",
+            "16 inch FHD+ / 2K", "17.3 inch FHD",
         ]},
     ],
     "قطعات": [
-        {"name": "ظرفیت", "values": RAM_CAPACITIES[1:], "subcategory": "رم کامپیوتر (RAM PC)"},
-        {"name": "ظرفیت", "values": RAM_CAPACITIES[1:], "subcategory": "رم لپ‌تاپ (RAM Laptop)"},
-        {"name": "نوع رابط", "values": ["SATA", "NVMe", "PCIe"], "subcategory": "حافظه اس‌اس‌دی (SSD)"},
-        {"name": "ظرفیت", "values": [], "subcategory": "هارد دیسک اینترنال (HDD)"},
-        {"name": "نوع سوکت", "values": [], "subcategory": "پردازنده (CPU)"},
+        {"name": "ظرفیت", "label": "Capacity", "values": RAM_CAPACITIES[1:], "subcategory": "رم کامپیوتر (RAM PC)"},
+        {"name": "ظرفیت", "label": "Capacity", "values": RAM_CAPACITIES[1:], "subcategory": "رم لپ‌تاپ (RAM Laptop)"},
+        {"name": "نوع رابط", "label": "Interface", "values": ["SATA", "NVMe", "PCIe"], "subcategory": "حافظه اس‌اس‌دی (SSD)"},
+        {"name": "ظرفیت", "label": "Capacity", "values": [], "subcategory": "هارد دیسک اینترنال (HDD)"},
+        {"name": "نوع سوکت", "label": "Socket", "values": [], "subcategory": "پردازنده (CPU)"},
     ],
     "لوازم جانبی": [
-        {"name": "نوع اتصال / پورت", "values": [
-            "باسیم (USB)", "بی‌سیم (دانگل 2.4GHz)", "بلوتوث (Bluetooth)",
-            "دوحالته و سه‌حالته", "Type-C", "جک ۳.۵ میلی‌متری صدا",
-            "HDMI / DisplayPort / VGA",
+        {"name": "نوع اتصال / پورت", "label": "Connectivity", "values": [
+            "Wired USB", "2.4GHz Wireless", "Bluetooth",
+            "Tri-mode (Wired / Wireless / Bluetooth)", "USB Type-C",
+            "3.5mm Audio Jack", "HDMI / DisplayPort / VGA",
         ]},
-        {"name": "مشخصه", "values": []},
+        {"name": "مشخصه", "label": "Specification", "values": []},
     ],
     "مانیتور": [
-        {"name": "سایز", "values": ["19 اینچ", "20 اینچ", "22 اینچ", "24 اینچ", "27 اینچ", "32 اینچ", "34 اینچ"]},
-        {"name": "پنل", "values": ["IPS", "VA", "TN", "OLED", "Nano IPS"]},
-        {"name": "نرخ بروزرسانی", "values": ["60Hz", "75Hz", "100Hz", "144Hz", "165Hz", "180Hz", "240Hz"]},
-        {"name": "پورت‌ها", "values": ["HDMI + VGA", "HDMI + DisplayPort", "HDMI + DP + Type-C", "VGA + DVI"]},
+        {"name": "سایز", "label": "Size", "values": ["19 inch", "20 inch", "22 inch", "24 inch", "27 inch", "32 inch", "34 inch"]},
+        {"name": "نوع پنل", "label": "Panel", "values": ["IPS", "VA", "TN", "OLED", "Nano IPS"]},
+        {"name": "نرخ نوسازی", "label": "Refresh Rate", "values": ["60Hz", "75Hz", "100Hz", "144Hz", "165Hz", "180Hz", "240Hz"]},
+        {"name": "درگاه‌ها", "label": "Ports", "values": ["HDMI + VGA", "HDMI + DisplayPort", "HDMI + DP + Type-C", "VGA + DVI"]},
     ],
     "کیس و مینی‌کیس": [
-        {"name": "CPU", "values": CPU_LIST[1:]},
-        {"name": "RAM", "values": RAM_CAPACITIES[1:]},
-        {"name": "Storage", "values": STORAGE_LIST[1:]},
-        {"name": "Graphic", "values": GPU_LIST[1:]},
+        {"name": "پردازنده", "label": "CPU", "values": CPU_LIST[1:]},
+        {"name": "ظرفیت رم", "label": "RAM", "values": RAM_CAPACITIES[1:]},
+        {"name": "حافظه داخلی", "label": "Storage", "values": STORAGE_LIST[1:]},
+        {"name": "پردازنده گرافیکی", "label": "GPU", "values": GPU_LIST[1:]},
     ],
     "آداپتور و تغذیه": [
-        {"name": "ولتاژ", "values": ["5V", "9V", "12V", "19V", "19.5V", "20V", "220V AC"]},
-        {"name": "آمپر و توان", "values": ["1A / 1.5A / 2A", "2.31A (45W)", "3.25A (65W)", "4.5A (90W)", "6.75A / 7.7A (135W-150W)"]},
-        {"name": "نوع سوکت", "values": ["سوکت معمولی (5.5x2.5)", "سوکت سوزنی آبی/مشکی HP/Dell", "سوکت USB / مستطیلی Lenovo", "سوکت Type-C PD"]},
+        {"name": "ولتاژ", "label": "Voltage", "values": ["5V", "9V", "12V", "19V", "19.5V", "20V", "220V AC"]},
+        {"name": "آمپر و توان", "label": "Current / Power", "values": ["1A / 1.5A / 2A", "2.31A (45W)", "3.25A (65W)", "4.5A (90W)", "6.75A / 7.7A (135W-150W)"]},
+        {"name": "نوع سوکت", "label": "Connector", "values": ["5.5x2.5mm", "HP / Dell Barrel", "Lenovo Rectangular", "USB Type-C PD"]},
     ],
     "شبکه و مودم": [
-        {"name": "استاندارد شبکه", "values": ["Wi-Fi 4", "Wi-Fi 5", "Wi-Fi 6", "Wi-Fi 6E", "Wi-Fi 7", "4G", "5G"]},
-        {"name": "تعداد پورت", "values": []},
+        {"name": "استاندارد شبکه", "label": "Network Standard", "values": ["Wi-Fi 4", "Wi-Fi 5", "Wi-Fi 6", "Wi-Fi 6E", "Wi-Fi 7", "4G", "5G"]},
+        {"name": "تعداد درگاه", "label": "Ports", "values": []},
     ],
     "ماشین‌های اداری": [
-        {"name": "نوع چاپ", "values": ["لیزری", "جوهرافشان", "حرارتی", "سوزنی"]},
-        {"name": "رنگ چاپ", "values": ["سیاه و سفید", "رنگی"]},
+        {"name": "فناوری چاپ", "label": "Print Technology", "values": ["Laser", "Inkjet", "Thermal", "Dot Matrix"]},
+        {"name": "نوع چاپ", "label": "Print Color", "values": ["Monochrome", "Color"]},
     ],
     "سایر موارد": [
-        {"name": "مشخصه", "values": []},
+        {"name": "مشخصه", "label": "Specification", "values": []},
     ],
 }
 
@@ -1121,11 +1178,11 @@ class DynamicSpecsWidget(QGroupBox):
             )
 
             self.fields = {
-                "CPU": cb_cpu,
-                "RAM": cb_ram,
-                "نوع RAM": cb_ram_type,
-                "Storage": cb_storage,
-                "Graphic": cb_gpu,
+                "پردازنده": cb_cpu,
+                "ظرفیت رم": cb_ram,
+                "نسل رم": cb_ram_type,
+                "حافظه داخلی": cb_storage,
+                "پردازنده گرافیکی": cb_gpu,
                 "صفحه‌نمایش": cb_screen,
             }
             self.form_layout.addRow("پردازنده (CPU):", cb_cpu)
@@ -1257,7 +1314,12 @@ class DynamicSpecsWidget(QGroupBox):
             cb_st.addItems(STORAGE_LIST)
             cb_gpu = SearchableComboBox()
             cb_gpu.addItems(GPU_LIST)
-            self.fields = {"CPU": cb_cpu, "RAM": cb_ram, "Storage": cb_st, "Graphic": cb_gpu}
+            self.fields = {
+                "پردازنده": cb_cpu,
+                "ظرفیت رم": cb_ram,
+                "حافظه داخلی": cb_st,
+                "پردازنده گرافیکی": cb_gpu,
+            }
             self.form_layout.addRow("نوع دستگاه:", self.cb_sub)
             self.form_layout.addRow("پردازنده (CPU):", cb_cpu)
             self.form_layout.addRow("رم (RAM):", cb_ram)
@@ -1313,13 +1375,20 @@ class DynamicSpecsWidget(QGroupBox):
         """Apply user-managed subcategories and extra specification fields."""
         if self.cb_sub is not None and isinstance(subcategories, list):
             current = self.cb_sub.currentText()
+            clean_subcategories = _unique_catalog_labels(subcategories)
+            current_key = normalize_catalog_label(current)
             self.cb_sub.blockSignals(True)
             self.cb_sub.clear()
-            self.cb_sub.addItems(subcategories)
+            self.cb_sub.addItems(clean_subcategories)
             self.cb_sub.setEditable(0)
-            if current in subcategories:
-                self.cb_sub.setCurrentText(current)
-            elif subcategories:
+            selected_index = next(
+                (i for i, value in enumerate(clean_subcategories)
+                 if normalize_catalog_label(value) == current_key),
+                -1,
+            )
+            if selected_index >= 0:
+                self.cb_sub.setCurrentIndex(selected_index)
+            elif clean_subcategories:
                 self.cb_sub.setCurrentIndex(0)
             else:
                 self.cb_sub.setCurrentText("")
@@ -1346,12 +1415,15 @@ class DynamicSpecsWidget(QGroupBox):
 
         if not isinstance(custom_fields, list):
             return
+        seen_custom_names = set()
         for definition in custom_fields:
             if not isinstance(definition, dict):
                 continue
             field_name = str(definition.get("name", "")).strip()
-            if not field_name:
+            normalized_name = normalize_catalog_label(field_name)
+            if not field_name or not normalized_name or normalized_name in seen_custom_names:
                 continue
+            seen_custom_names.add(normalized_name)
             # The feature name is always the form label. "label" is a storage/output
             # title and may contain @reference syntax, not a widget caption.
             form_label = field_name
@@ -1361,8 +1433,22 @@ class DynamicSpecsWidget(QGroupBox):
                 if str(value).strip()
             ] if isinstance(raw_values, list) else []
 
-            existing_widget = self.fields.get(field_name)
+            existing_key = next(
+                (
+                    key for key in self.fields
+                    if normalize_catalog_label(key) == normalized_name
+                ),
+                None,
+            )
+            existing_widget = self.fields.get(existing_key) if existing_key is not None else None
             if existing_widget is not None:
+                # A custom Persian spelling (for example «صفحه نمایش») may be the
+                # same feature as a built-in spelling with ZWNJ («صفحه‌نمایش»).
+                # Reuse that widget and rename its storage key instead of showing a
+                # duplicate control in the product form.
+                if existing_key != field_name:
+                    self.fields.pop(existing_key, None)
+                    self.fields[field_name] = existing_widget
                 if isinstance(existing_widget, QComboBox):
                     current_value = existing_widget.currentText()
                     existing_widget.blockSignals(True)
