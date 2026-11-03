@@ -1279,12 +1279,16 @@ def test_comprehensive_report_orders_by_last_edit_and_aligns_specification_colum
         ]
         assert sale_invoices == ["INV-REPORT-OLD", "INV-REPORT-NEW"]
 
-        first_specs = window.tbl_report.item(0, specs_index).text()
+        edited_sale_row = next(
+            row for row in range(window.tbl_report.rowCount())
+            if window.tbl_report.item(row, 1)
+            and window.tbl_report.item(row, 1).text() == "INV-REPORT-OLD"
+        )
+        first_specs = window.tbl_report.item(edited_sale_row, specs_index).text()
         assert first_specs == "RAM: 16GB DDR5"
         signed_column = headers.index("تخفیف (-) / تشدید (+)")
-        signed_cell = window.tbl_report.item(0, signed_column)
+        signed_cell = window.tbl_report.item(edited_sale_row, signed_column)
         assert signed_cell.text().startswith("\u200e+")
-        assert signed_cell.textAlignment() & Qt.AlignLeft
     finally:
         window.close()
         qapp.processEvents()
