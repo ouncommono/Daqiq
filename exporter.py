@@ -55,7 +55,16 @@ def _format_catalog_specs(specs: dict, category: str, catalog_config: dict) -> s
         if title.startswith("@"):
             reference = title[1:].strip()
             if reference:
-                deferred.append((reference, value))
+                parent_name = next(
+                    (
+                        parent_name
+                        for parent_name, parent_definition in by_name.items()
+                        if str(parent_definition.get("label") or "").strip() == reference
+                        and not str(parent_definition.get("label") or "").strip().startswith("@")
+                    ),
+                    reference,
+                )
+                deferred.append((parent_name, value))
             continue
         if name not in values:
             order.append(name)
