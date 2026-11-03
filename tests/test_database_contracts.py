@@ -924,3 +924,18 @@ def test_service_update_recalculates_net_profit_from_received_amount(manager):
     assert database_module.service_financial_breakdown(
         record["service_fee"], record["paid_amount"], record["settlement_status"]
     ) == (-100, 0)
+
+def test_fresh_schema_places_audit_columns_last_and_sets_version(manager):
+    expected_tables = (
+        "employees", "suppliers", "customers", "products", "batches", "upgrades",
+        "sales", "service_catalog", "service_price_history", "service_records",
+        "payments", "audit_logs",
+    )
+    with manager.get_connection() as conn:
+        for table_name in expected_tables:
+            columns = [
+                row["name"]
+                for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+            ]
+            assert columns[-2:] == ["created_at", "updated_at"], table_name
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 120
