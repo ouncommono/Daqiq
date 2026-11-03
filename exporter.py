@@ -140,9 +140,9 @@ def _style_worksheet_professional(ws, title: str, headers: list, data_rows: list
         ws.column_dimensions[col_letter].width = min(max(max_len + 5, 13), 42)
 
 
-def export_safe_inventory_excel(db: DatabaseManager, file_path: str, shop_name: str = ""):
+def export_partner_inventory_excel(db: DatabaseManager, file_path: str, shop_name: str = ""):
     """
-    بند ۴ و ۹: خروجی موجودی امن برای همکاران
+    بند ۴ و ۹: خروجی موجودی همکار برای همکاران
     - عنوان دقیق: «گزارش موجودی»
     - فقط کالاهای دارای موجودی (remaining_qty > 0) خروجی گرفته می‌شوند
     - بدون فیلد وضعیت موجودی و بدون هیچ‌گونه اطلاعات محرمانه مالی

@@ -25,7 +25,7 @@ def create_product(manager, code="P-1001"):
     return int(row["id"])
 
 
-def create_employee(manager, name="کارمند آزمون"):
+def create_employee(manager, name="کاربر آزمون"):
     with manager.get_connection() as conn:
         cursor = conn.execute(
             "INSERT INTO employees (name, role, permissions) VALUES (?, ?, ?)",
@@ -534,7 +534,7 @@ def test_upgrade_migration_removes_only_legacy_sample_employees(manager):
         )
         conn.execute(
             "INSERT INTO employees (name, role, permissions) VALUES (?, ?, ?)",
-            ("کارمند واقعی", "فروشنده", "فروش و خدمات"),
+            ("کاربر واقعی", "فروشنده", "فروش و خدمات"),
         )
         conn.execute(
             "INSERT INTO employees (name, role, permissions) VALUES (?, ?, ?)",
@@ -551,7 +551,7 @@ def test_upgrade_migration_removes_only_legacy_sample_employees(manager):
             ).fetchall()
         ]
 
-    assert set(names) == {"کارمند واقعی", "مدیر واقعی"}
+    assert set(names) == {"کاربر واقعی", "مدیر واقعی"}
     with manager.get_connection() as conn:
         migrated_role = conn.execute(
             "SELECT role FROM employees WHERE name='مدیر واقعی'"
