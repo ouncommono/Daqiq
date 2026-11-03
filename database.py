@@ -509,15 +509,15 @@ class DatabaseManager:
                             (json.dumps(specs, ensure_ascii=False), product_row["id"]),
                         )
 
-                if sales_colors_added:
-                    conn.execute(
-                        """UPDATE sales
-                           SET colors_json=COALESCE(
-                               (SELECT NULLIF(b.colors_json,'[]') FROM batches b WHERE b.id=sales.batch_id),
-                               '[]'
-                           )
-                           WHERE colors_json IS NULL OR colors_json='' OR colors_json='[]'"""
-                    )
+            if sales_colors_added:
+                conn.execute(
+                    """UPDATE sales
+                       SET colors_json=COALESCE(
+                           (SELECT NULLIF(b.colors_json,'[]') FROM batches b WHERE b.id=sales.batch_id),
+                           '[]'
+                       )
+                       WHERE colors_json IS NULL OR colors_json='' OR colors_json='[]'"""
+                )
 
             # Historic upgrades deducted their full recorded quantity. New records
             # explicitly track the amount actually removed from inventory.
