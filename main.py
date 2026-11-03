@@ -226,7 +226,7 @@ class LoginDialog(QDialog):
     def _check_login(self):
         employee = self.cb_emp.currentData()
         if not employee:
-            QMessageBox.warning(self, "انتخاب کارمند", "ابتدا یک کارمند را انتخاب کنید.")
+            QMessageBox.warning(self, "انتخاب کاربر", "ابتدا یک کارمند را انتخاب کنید.")
             return
         stored_hash = employee.get("password") or ""
         typed_password = normalize_digits(self.ed_pass.text())
@@ -4070,7 +4070,7 @@ class MainWindow(QMainWindow):
                             f"{tot_emp_prof:,}",
                         ]
                     )
-                summary_text = "گزارش جامع عملکرد خرید، فروش و خدمات کارکنان در بازه زمانی انتخابی"
+                summary_text = "گزارش جامع عملکرد خرید، فروش و خدمات کاربران در بازه زمانی انتخابی"
 
             # ۱۰. گزارش فاکتورهای تسویه‌نشده
             elif rep_type.startswith("۱۰."):
@@ -4307,7 +4307,7 @@ class MainWindow(QMainWindow):
         )
 
     # =========================================================================
-    # ۹. تب مدیریت کاربران (بند ۲ و ۱۱: رفع کامل باگ نمایش جدول کارمندان)
+    # ۹. تب مدیریت کاربران (بند ۲ و ۱۱: رفع کامل باگ نمایش جدول کاربران)
     # =========================================================================
     def _init_tab_employees(self):
         tab = QWidget()
