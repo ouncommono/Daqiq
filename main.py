@@ -1108,19 +1108,24 @@ class MainWindow(QMainWindow):
         return " | ".join(pieces)
 
     def _format_specs_for_tooltip(self, specs, category=""):
+        """Return readable plain text for callers and tests that consume tooltip content."""
+        rendered = self._format_specs_for_display(specs, category)
+        return rendered.replace(" | ", "\\n") if rendered else "-"
+
+    def _format_specs_tooltip_html(self, specs, category=""):
+        """Render English technical-spec lines LTR while keeping Persian lines RTL."""
         rendered = self._format_specs_for_display(specs, category)
         if not rendered:
             return "-"
         lines = []
         for segment in rendered.split(" | "):
             clean = html.escape(segment)
-            # English technical identifiers and values are rendered as LTR blocks.
             direction = "ltr" if re.search(r"[A-Za-z]", segment) else "rtl"
             alignment = "left" if direction == "ltr" else "right"
             lines.append(
                 f'<div dir="{direction}" style="text-align:{alignment};">{clean}</div>'
             )
-        return '<html><body dir="rtl">' + "".join(lines) + "</body></html>"
+        return "".join(lines)
 
     def _filter_table_rows(self, table, query):
         query = normalize_digits(str(query or "")).strip().casefold()
