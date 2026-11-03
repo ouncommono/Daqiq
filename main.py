@@ -5103,7 +5103,14 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "_taxonomy_draft"):
             return
         category = self.cb_cfg_category.currentText().strip()
+
+        previous_subcategory = (
+            self.lst_cfg_subcategories.currentItem().text()
+            if self.lst_cfg_subcategories.currentItem() else ""
+        )
         self.lst_cfg_subcategories.clear()
+        self.cb_cfg_subcategory_list.blockSignals(True)
+        self.cb_cfg_subcategory_list.clear()
         subcategories = self._taxonomy_draft["subcategories"].get(category, [])
         subcategories = list(dict.fromkeys(
             value for value in subcategories if normalize_catalog_label(value)
@@ -5116,13 +5123,24 @@ class MainWindow(QMainWindow):
                 seen_subcategory_keys.add(key)
                 unique_subcategories.append(value)
                 self.lst_cfg_subcategories.addItem(value)
-        subcategories = unique_subcategories
+                self.cb_cfg_subcategory_list.addItem(value)
+        selected_sub = next(
+            (i for i, value in enumerate(unique_subcategories) if value == previous_subcategory),
+            0 if unique_subcategories else -1,
+        )
+        self.cb_cfg_subcategory_list.setCurrentIndex(selected_sub)
+        self.cb_cfg_subcategory_list.blockSignals(False)
+        if selected_sub >= 0:
+            self.lst_cfg_subcategories.setCurrentRow(selected_sub)
+
+        label = self._taxonomy_draft.get("subcategory_labels", {}).get(category, "")
+        self.ed_cfg_subcategory_label.setText(label)
 
         current_scope = self.cb_cfg_attribute_subcategory.currentData() or ""
         self.cb_cfg_attribute_subcategory.blockSignals(True)
         self.cb_cfg_attribute_subcategory.clear()
         self.cb_cfg_attribute_subcategory.addItem("همهٔ زیرمجموعه‌ها", "")
-        for value in subcategories:
+        for value in unique_subcategories:
             self.cb_cfg_attribute_subcategory.addItem(value, value)
         scope_index = self.cb_cfg_attribute_subcategory.findData(current_scope)
         self.cb_cfg_attribute_subcategory.setCurrentIndex(
@@ -5130,7 +5148,13 @@ class MainWindow(QMainWindow):
         )
         self.cb_cfg_attribute_subcategory.blockSignals(False)
 
+        previous_attribute = (
+            self.lst_cfg_attributes.currentItem().text()
+            if self.lst_cfg_attributes.currentItem() else ""
+        )
         self.lst_cfg_attributes.clear()
+        self.cb_cfg_attribute_list.blockSignals(True)
+        self.cb_cfg_attribute_list.clear()
         visible_attribute_keys = set()
         for definition_index, item in enumerate(
             self._taxonomy_draft["attributes"].get(category, [])
@@ -5145,16 +5169,67 @@ class MainWindow(QMainWindow):
             scope = item.get("subcategory") or "همهٔ زیرمجموعه‌ها"
             title = str(item.get("label") or "").strip()
             title_text = f"  ← عنوان: {title}" if title else ""
-            label = f"{item['name']}{title_text}" + (f" — {values}" if values else "") + f"  [{scope}]"
-            entry = QListWidgetItem(label)
+            label_text = f"{item['name']}{title_text}" + (f" — {values}" if values else "") + f"  [{scope}]"
+            full_tooltip = (
+                f"نام ویژگی: {item['name']}\n"
+                f"عنوان نمایشی: {title or '-'}\n"
+                f"زیرمجموعه: {scope}\n"
+                f"مقادیر پیشنهادی: {values or '-'}"
+            )
+            entry = QListWidgetItem(label_text)
             entry.setData(Qt.UserRole, definition_index)
+            entry.setToolTip(full_tooltip)
             self.lst_cfg_attributes.addItem(entry)
+            combo_index = self.cb_cfg_attribute_list.count()
+            self.cb_cfg_attribute_list.addItem(label_text, definition_index)
+            self.cb_cfg_attribute_list.setItemData(combo_index, full_tooltip, Qt.ToolTipRole)
+        selected_attribute = next(
+            (i for i in range(self.lst_cfg_attributes.count())
+             if self.lst_cfg_attributes.item(i).text() == previous_attribute),
+            0 if self.lst_cfg_attributes.count() else -1,
+        )
+        self.cb_cfg_attribute_list.setCurrentIndex(selected_attribute)
+        self.cb_cfg_attribute_list.blockSignals(False)
+        if selected_attribute >= 0:
+            self.lst_cfg_attributes.setCurrentRow(selected_attribute)
+
+        previous_color = (
+            self.lst_cfg_colors.currentItem().text()
+            if self.lst_cfg_colors.currentItem() else ""
+        )
         self.lst_cfg_colors.clear()
+        self.cb_cfg_color_list.blockSignals(True)
+        self.cb_cfg_color_list.clear()
         for color in self._taxonomy_draft["colors"]:
             self.lst_cfg_colors.addItem(color)
+            self.cb_cfg_color_list.addItem(color)
+        selected_color = next(
+            (i for i in range(self.lst_cfg_colors.count())
+             if self.lst_cfg_colors.item(i).text() == previous_color),
+            0 if self.lst_cfg_colors.count() else -1,
+        )
+        self.cb_cfg_color_list.setCurrentIndex(selected_color)
+        self.cb_cfg_color_list.blockSignals(False)
+        if selected_color >= 0:
+            self.lst_cfg_colors.setCurrentRow(selected_color)
+
         self.lst_cfg_service_types.clear()
         for service_type in self._taxonomy_draft.get("service_types", []):
             self.lst_cfg_service_types.addItem(service_type)
+
+    def _load_peer_inventory_export_fields(self):
+        raw = self.db.get_setting("peer_inventory_export_fields", "")
+        try:
+            selected = set(json.loads(raw)) if raw else {
+                "code", "category", "subcategory", "brand_model", "specs", "quantity"
+            }
+        except (TypeError, ValueError, json.JSONDecodeError):
+            selected = {"code", "category", "subcategory", "brand_model", "specs", "quantity"}
+        if not isinstance(selected, set):
+            selected = set()
+        for key, checkbox in self.chk_peer_export_fields.items():
+            checkbox.setChecked(key in selected)
+
 
     def _on_catalog_category_selected(self, category):
         if category:
