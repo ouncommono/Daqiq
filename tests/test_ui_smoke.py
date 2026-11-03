@@ -1358,6 +1358,17 @@ def test_v110_selector_and_date_picker_layout_contracts(tmp_path, monkeypatch, q
         assert window.inventory_export_column_checks["batch_code"].isChecked()
         assert not window.inventory_export_column_checks["suggested_price"].isChecked()
         assert not window.inventory_export_column_checks["stock"].isChecked()
+        assert window.gb_inventory_export.layoutDirection() == Qt.RightToLeft
+        assert window.lbl_cfg_subcategory.sizePolicy().horizontalPolicy() == QSizePolicy.Maximum
+        assert window.lbl_cfg_subcategory.parentWidget().layoutDirection() == Qt.RightToLeft
+        sub_layout = window.lbl_cfg_subcategory.parentWidget().layout()
+        assert sub_layout.indexOf(window.cfg_subcategories_section) < sub_layout.indexOf(
+            window.lbl_cfg_subcategory
+        )
+        assert len(window.inventory_export_column_checks) >= 30
+        assert not window.inventory_export_column_checks["purchase_unit_price"].isChecked()
+        assert not window.inventory_export_column_checks["unit_cost_price"].isChecked()
+        assert not window.inventory_export_column_checks["profit_pct"].isChecked()
 
         window.cb_war_months.setEditText("۱۸ ماه")
         assert window._warranty_duration_days() == 540
