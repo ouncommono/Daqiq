@@ -4412,7 +4412,7 @@ class MainWindow(QMainWindow):
                         self.cb_emp_role.currentText(),
                         self.ed_emp_phone.text().strip(),
                         hashed,
-                        self.cb_emp_perm.currentData() or self.cb_emp_perm.currentData() or self.cb_emp_perm.currentText(),
+                        self.cb_emp_perm.currentData() or self.cb_emp_perm.currentText(),
                         1 if self.chk_emp_active.isChecked() else 0,
                     ),
                 )
@@ -5110,7 +5110,7 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def _permission_display_label(value):
-        return str(value).replace("کاربران", "کاربران")
+        return str(value).replace("کارکنان", "کاربران")
 
     def _populate_base_permission_combo(self, combo):
         combo.clear()
