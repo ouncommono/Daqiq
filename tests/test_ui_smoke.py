@@ -1311,7 +1311,7 @@ def test_dark_theme_updates_settings_and_read_only_field_contrast(tmp_path, monk
         window._apply_styles()
         dark_css = window.styleSheet()
         assert "#93c5fd" in dark_css
-        assert "#2b3648" in dark_css
+        assert "#29384d" in dark_css
         assert "QLabel#settingsHint" in dark_css
         assert "QLineEdit:read-only" in dark_css
     finally:
