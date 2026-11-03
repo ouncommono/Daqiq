@@ -3346,8 +3346,16 @@ class MainWindow(QMainWindow):
         )
         self.cb_rep_cat.addItems(["همه دسته‌ها"] + report_categories)
         self.ed_rep_search = SmartLineEdit(
-            "جست‌وجوی کد کالا، دسته‌بندی، زیرگروه (مثلاً کیبورد)، برند، مدل، فاکتور..."
+            "جست‌وجوی کد کالا، دسته‌بندی، زیرگروه، برند، مدل، فاکتور..."
         )
+        self.cb_rep_sort = QComboBox()
+        self.cb_rep_sort.addItem("آخرین تغییر / ایجاد (جدیدترین به قدیمی‌ترین)", "activity_desc")
+        self.cb_rep_sort.addItem("آخرین تغییر / ایجاد (قدیمی‌ترین به جدیدترین)", "activity_asc")
+        self.cb_rep_sort.addItem("تاریخ عملیات (جدیدترین به قدیمی‌ترین)", "date_desc")
+        self.cb_rep_sort.addItem("تاریخ عملیات (قدیمی‌ترین به جدیدترین)", "date_asc")
+        self.cb_rep_sort.addItem("مبلغ کل (بیشترین به کمترین)", "amount_desc")
+        self.cb_rep_sort.addItem("مبلغ کل (کمترین به بیشترین)", "amount_asc")
+        self.cb_rep_sort.addItem("کد کالا / شناسه (صعودی)", "code_asc")
 
         btn_exp_excel = QPushButton("📥 خروجی اکسل از این گزارش")
         btn_exp_excel.setObjectName("btnSuccess")
@@ -3369,11 +3377,26 @@ class MainWindow(QMainWindow):
         grid.addWidget(self.cb_rep_emp, 1, 1)
         grid.addWidget(QLabel("دسته‌بندی:"), 1, 2)
         grid.addWidget(self.cb_rep_cat, 1, 3)
-        grid.addWidget(QLabel("جست‌وجو:"), 1, 4)
-        grid.addWidget(self.ed_rep_search, 1, 5, 1, 2)
         grid.addWidget(btn_exp_excel, 1, 7)
 
         layout.addWidget(gb_flt)
+
+        report_tools = QHBoxLayout()
+        report_tools.setSpacing(8)
+        lbl_report_search = QLabel("جست‌وجو:")
+        lbl_report_search.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        lbl_report_sort = QLabel("مرتب‌سازی:")
+        lbl_report_sort.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.ed_rep_search.setMinimumWidth(140)
+        self.ed_rep_search.setMaximumWidth(420)
+        self.ed_rep_search.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.cb_rep_sort.setMinimumWidth(250)
+        self.cb_rep_sort.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        report_tools.addWidget(lbl_report_search)
+        report_tools.addWidget(self.ed_rep_search, 1)
+        report_tools.addWidget(lbl_report_sort)
+        report_tools.addWidget(self.cb_rep_sort)
+        layout.addLayout(report_tools)
 
         self.lbl_rep_totals = QLabel("خلاصه مالی گزارش:")
         self.lbl_rep_totals.setObjectName("reportSummary")
@@ -3390,6 +3413,7 @@ class MainWindow(QMainWindow):
         self.cb_rep_emp.currentIndexChanged.connect(self._update_report_live)
         self.cb_rep_cat.currentTextChanged.connect(self._update_report_live)
         self.ed_rep_search.textChanged.connect(self._update_report_live)
+        self.cb_rep_sort.currentIndexChanged.connect(self._update_report_live)
 
         self._add_scrollable_tab(tab, "📈 گزارش‌های جامع")
 
@@ -4049,7 +4073,42 @@ class MainWindow(QMainWindow):
                 )
 
         if rows_data:
-            rows_data.sort(key=lambda row: str(row[0] or ""), reverse=True)
+            sort_mode = self.cb_rep_sort.currentData() if hasattr(self, "cb_rep_sort") else "activity_desc"
+            reverse = sort_mode.endswith("_desc")
+            if sort_mode.startswith("activity_"):
+                rows_data.sort(key=lambda row: str(row[0] or ""), reverse=reverse)
+            else:
+                visible_headers = headers
+                if sort_mode.startswith("date_"):
+                    target_index = next(
+                        (i for i, value in enumerate(visible_headers) if "تاریخ" in str(value)),
+                        None,
+                    )
+                    def _date_sort_value(row):
+                        return str(row[target_index + 1] or "") if target_index is not None else str(row[0] or "")
+                    rows_data.sort(key=_date_sort_value, reverse=reverse)
+                elif sort_mode.startswith("amount_"):
+                    target_index = next(
+                        (i for i, value in enumerate(visible_headers)
+                         if "مبلغ کل" in str(value) or "مبلغ فاکتور" in str(value)),
+                        None,
+                    )
+                    def _amount_sort_value(row):
+                        raw = str(row[target_index + 1] or "") if target_index is not None else "0"
+                        digits = re.sub(r"[^0-9]", "", normalize_digits(raw))
+                        return int(digits or 0)
+                    rows_data.sort(key=_amount_sort_value, reverse=reverse)
+                elif sort_mode == "code_asc":
+                    target_index = next(
+                        (i for i, value in enumerate(visible_headers) if "کد کالا" in str(value)),
+                        None,
+                    )
+                    rows_data.sort(
+                        key=lambda row: str(row[target_index + 1] or "").casefold()
+                        if target_index is not None else str(row[0] or ""),
+                        reverse=False,
+                    )
+            # Column zero is an internal activity timestamp used only for sorting.
             rows_data = [row[1:] for row in rows_data]
         self.tbl_report.setSortingEnabled(False)
         self.tbl_report.clear()
