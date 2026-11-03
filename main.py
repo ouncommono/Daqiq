@@ -5608,27 +5608,31 @@ class MainWindow(QMainWindow):
         if not enabled or bool(self.db.cfg.get("require_login_password", False)):
             return
         with self.db.get_connection() as conn:
+            user_count = conn.execute(
+                "SELECT COUNT(*) FROM employees"
+            ).fetchone()[0]
+            missing_passwords = conn.execute(
+                """SELECT name FROM employees
+                   WHERE is_active=1 AND (password IS NULL OR TRIM(password)='')
+                   ORDER BY updated_at DESC, id DESC"""
+            ).fetchall()
             active_user_count = conn.execute(
                 "SELECT COUNT(*) FROM employees WHERE is_active=1"
             ).fetchone()[0]
-            if active_user_count == 0:
-                missing_passwords = []
-            else:
-                missing_passwords = conn.execute(
-                """SELECT name FROM employees
-                   WHERE is_active=1 AND (password IS NULL OR TRIM(password)='') 
-                   ORDER BY updated_at DESC, id DESC"""
-                ).fetchall()
-        if active_user_count == 0:
+        if user_count == 0:
             QMessageBox.information(
                 self, "کاربری ثبت نشده",
-                "برای فعال‌کردن اجبار ورود با رمز عبور، ابتدا حداقل یک کاربر فعال در بخش «مدیریت کاربران» ثبت کنید."
+                "برای فعال‌کردن اجبار ورود با رمز عبور، ابتدا حداقل یک کاربر در بخش «مدیریت کاربران» ثبت کنید."
             )
             self.chk_req_pass.blockSignals(True)
             self.chk_req_pass.setChecked(False)
             self.chk_req_pass.blockSignals(False)
             return
-        if missing_passwords:
+        if active_user_count == 0:
+            impact_text = (
+                "در حال حاضر کاربر فعالی وجود ندارد. این الزام برای کاربران فعال‌شده در آینده اعمال خواهد شد."
+            )
+        elif missing_passwords:
             names = "\n".join(f"• {row['name']}" for row in missing_passwords)
             impact_text = (
                 "کارکنان زیر رمز عبور ندارند و پس از فعال‌سازی این قابلیت تا زمان تعریف رمز "
