@@ -850,3 +850,77 @@ def test_automatic_backup_rolls_back_new_copy_when_old_copy_is_locked(
     assert [str(path) for path in retained] == [first_backup]
     with sqlite3.connect(first_backup) as conn:
         assert conn.execute("PRAGMA quick_check").fetchone()[0] == "ok"
+
+def test_service_discount_and_receivable_follow_settlement_status():
+    assert database_module.service_financial_breakdown(
+        1000, 850, "تسویه‌شده"
+    ) == (-150, 0)
+    assert database_module.service_financial_breakdown(
+        1000, 1150, "تسویه‌شده"
+    ) == (150, 0)
+    assert database_module.service_financial_breakdown(
+        1000, 400, "تسویه جزئی"
+    ) == (0, 600)
+    assert database_module.service_financial_breakdown(
+        1000, 0, "تسویه‌نشده"
+    ) == (0, 1000)
+    assert database_module.receivable_balance(
+        1000, 400, "تسویه‌شده"
+    ) == 0
+    assert database_module.receivable_balance(
+        1000, 400, "تسویه جزئی"
+    ) == 600
+
+
+def test_colleague_inventory_export_defaults_to_product_and_batch_codes(manager, tmp_path):
+    product_id = create_product(manager, "P-EXPORT-DEFAULT")
+    create_batch(manager, product_id, code="C-EXPORT-DEFAULT")
+    output_path = tmp_path / "colleague-default.xlsx"
+
+    export_safe_inventory_excel(manager, str(output_path))
+
+    workbook = load_workbook(output_path, read_only=True)
+    worksheet = workbook.active
+    headers = [cell.value for cell in worksheet[2]]
+    row = [cell.value for cell in worksheet[3]]
+    assert headers[:2] == ["کد کالا", "کد محموله"]
+    assert "قیمت فروش پیشنهادی" not in headers
+    assert "موجودی" not in headers
+    assert row[:2] == ["P-EXPORT-DEFAULT", "C-EXPORT-DEFAULT"]
+    workbook.close()
+
+
+def test_service_update_recalculates_net_profit_from_received_amount(manager):
+    manager.save_service_catalog(
+        None, "S-FIN-TEST", "نرم‌افزاری", "خدمت آزمون", 1000, 100, ""
+    )
+    with manager.get_connection() as conn:
+        service_id = conn.execute(
+            "SELECT id FROM service_catalog WHERE code=?", ("S-FIN-TEST",)
+        ).fetchone()["id"]
+
+    invoice = manager.add_service_record(
+        "", service_id, None, None, "مشتری آزمون", 1000, 100, 850,
+        "1405/01/01 10:00:00", "", "تسویه‌شده",
+    )
+    with manager.get_connection() as conn:
+        record = conn.execute(
+            "SELECT id, net_profit FROM service_records WHERE invoice_number=?",
+            (invoice,),
+        ).fetchone()
+        assert record["net_profit"] == 750
+        record_id = record["id"]
+
+    manager.update_service_record(
+        record_id, None, "مشتری آزمون", 1200, 100, 1100, "", "تسویه‌شده"
+    )
+    with manager.get_connection() as conn:
+        record = conn.execute(
+            "SELECT net_profit, service_fee, paid_amount, settlement_status "
+            "FROM service_records WHERE id=?",
+            (record_id,),
+        ).fetchone()
+    assert record["net_profit"] == 1000
+    assert database_module.service_financial_breakdown(
+        record["service_fee"], record["paid_amount"], record["settlement_status"]
+    ) == (-100, 0)
