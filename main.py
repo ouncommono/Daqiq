@@ -2335,14 +2335,18 @@ class MainWindow(QMainWindow):
         with self.db.get_connection() as conn:
             sale_specs = conn.execute(
                 """SELECT s.specifications, s.colors_json AS sale_colors,
-                          b.id AS batch_id, b.colors_json AS batch_colors
+                          b.id AS batch_id, b.colors_json AS batch_colors,
+                          b.final_specs, b.initial_specs
                    FROM sales s JOIN batches b ON b.id=s.batch_id
                    WHERE s.id=?""",
                 (self.selected_sale_id,),
             ).fetchone()
             if sale_specs:
                 self.ed_sale_specs.setText(
-                    sale_specs["specifications"] or ""
+                    sale_specs["specifications"]
+                    or sale_specs["final_specs"]
+                    or sale_specs["initial_specs"]
+                    or ""
                 )
                 batch_colors = self._decode_colors(sale_specs["batch_colors"])
                 sold_colors = self._decode_colors(sale_specs["sale_colors"])
@@ -2381,6 +2385,13 @@ class MainWindow(QMainWindow):
     def _update_selected_sale(self):
         if not self.selected_sale_id:
             return
+        selected_colors = self._checked_colors(self.lst_sale_colors)
+        if len(selected_colors) > self.cb_sale_qty.get_qty():
+            QMessageBox.warning(
+                self, "تعداد رنگ‌ها",
+                "تعداد رنگ‌های انتخاب‌شده نمی‌تواند از تعداد فروش بیشتر باشد."
+            )
+            return
         try:
             self.db.update_sale(
                 self.selected_sale_id,
@@ -2399,7 +2410,7 @@ class MainWindow(QMainWindow):
                 self.cb_sale_status.currentText(),
                 warranty_days=self.cb_war_months.currentData() or 0,
                 specifications=self.ed_sale_specs.text().strip(),
-                colors=self._checked_colors(self.lst_sale_colors),
+                colors=selected_colors,
             )
             self.refresh_all_data()
             QMessageBox.information(self, "اصلاح فروش", "ردیف فروش با موفقیت اصلاح شد.")
