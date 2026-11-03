@@ -4765,6 +4765,55 @@ class MainWindow(QMainWindow):
         self._refresh_multi_db_combo()
         self._load_catalog_customization_form()
 
+    def _deduplicate_catalog_draft(self):
+        """Collapse visually identical Persian catalogue names while tracking DB renames."""
+        for category, values in list(self._taxonomy_draft.get("subcategories", {}).items()):
+            seen = {}
+            unique = []
+            for value in values:
+                key = normalize_catalog_label(value)
+                if not key:
+                    continue
+                if key in seen:
+                    canonical = seen[key]
+                    if value != canonical:
+                        self._pending_subcategory_renames.append((category, value, canonical))
+                        for definition in self._taxonomy_draft.get("attributes", {}).get(category, []):
+                            if normalize_catalog_label(definition.get("subcategory") or "") == key:
+                                definition["subcategory"] = canonical
+                    continue
+                seen[key] = value
+                unique.append(value)
+            self._taxonomy_draft["subcategories"][category] = unique
+
+        for category, definitions in list(self._taxonomy_draft.get("attributes", {}).items()):
+            seen = {}
+            unique = []
+            for definition in definitions:
+                name = str(definition.get("name") or "").strip()
+                scope = str(definition.get("subcategory") or "").strip()
+                key = (normalize_catalog_label(name), normalize_catalog_label(scope))
+                if not key[0]:
+                    continue
+                existing = seen.get(key)
+                if existing is None:
+                    seen[key] = definition
+                    unique.append(definition)
+                    continue
+                old_name = name
+                canonical_name = str(existing.get("name") or "").strip()
+                if old_name != canonical_name:
+                    self._pending_attribute_renames.append(
+                        (category, old_name, canonical_name, scope, scope)
+                    )
+                merged_values = list(existing.get("values") or []) + list(definition.get("values") or [])
+                existing["values"] = list(dict.fromkeys(
+                    str(value).strip() for value in merged_values if str(value).strip()
+                ))
+                if not str(existing.get("label") or "").strip():
+                    existing["label"] = definition.get("label") or ""
+            self._taxonomy_draft["attributes"][category] = unique
+
     def _load_catalog_customization_form(self):
         stored = self.db.get_product_catalog_config()
         defaults = {
@@ -4785,6 +4834,7 @@ class MainWindow(QMainWindow):
         self._pending_attribute_renames = []
         self._pending_color_renames = []
         self._pending_service_type_renames = []
+        self._deduplicate_catalog_draft()
 
         self.cb_cfg_category.blockSignals(True)
         self.cb_cfg_category.clear()
@@ -4800,8 +4850,18 @@ class MainWindow(QMainWindow):
         category = self.cb_cfg_category.currentText().strip()
         self.lst_cfg_subcategories.clear()
         subcategories = self._taxonomy_draft["subcategories"].get(category, [])
+        subcategories = list(dict.fromkeys(
+            value for value in subcategories if normalize_catalog_label(value)
+        ))
+        unique_subcategories = []
+        seen_subcategory_keys = set()
         for value in subcategories:
-            self.lst_cfg_subcategories.addItem(value)
+            key = normalize_catalog_label(value)
+            if key not in seen_subcategory_keys:
+                seen_subcategory_keys.add(key)
+                unique_subcategories.append(value)
+                self.lst_cfg_subcategories.addItem(value)
+        subcategories = unique_subcategories
 
         current_scope = self.cb_cfg_attribute_subcategory.currentData() or ""
         self.cb_cfg_attribute_subcategory.blockSignals(True)
@@ -4816,9 +4876,16 @@ class MainWindow(QMainWindow):
         self.cb_cfg_attribute_subcategory.blockSignals(False)
 
         self.lst_cfg_attributes.clear()
+        visible_attribute_keys = set()
         for definition_index, item in enumerate(
             self._taxonomy_draft["attributes"].get(category, [])
         ):
+            scope_key = normalize_catalog_label(item.get("subcategory") or "")
+            feature_key = normalize_catalog_label(item.get("name") or "")
+            identity = (feature_key, scope_key)
+            if not feature_key or identity in visible_attribute_keys:
+                continue
+            visible_attribute_keys.add(identity)
             values = "، ".join(item.get("values", []))
             scope = item.get("subcategory") or "همهٔ زیرمجموعه‌ها"
             title = str(item.get("label") or "").strip()
