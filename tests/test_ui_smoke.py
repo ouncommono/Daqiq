@@ -548,7 +548,7 @@ def test_password_requirement_is_confirmed_when_checkbox_is_enabled(tmp_path, mo
     with manager.get_connection() as conn:
         conn.execute(
             "INSERT INTO employees (name, role, permissions, is_active) VALUES (?, ?, ?, 1)",
-            ("کارمند بدون رمز", "فروشنده", "فروش و خدمات"),
+            ("کاربر بدون رمز", "فروشنده", "فروش و خدمات"),
         )
         conn.commit()
     window = MainWindow(manager, active_employee=None)
@@ -562,7 +562,7 @@ def test_password_requirement_is_confirmed_when_checkbox_is_enabled(tmp_path, mo
         monkeypatch.setattr(main_module, "_ask_yes_no", reject)
         window.chk_req_pass.setChecked(True)
         assert not window.chk_req_pass.isChecked()
-        assert prompts and "کارمند بدون رمز" in prompts[0][1]
+        assert prompts and "کاربر بدون رمز" in prompts[0][1]
         assert "اطمینان دارید" in prompts[0][1]
 
         monkeypatch.setattr(main_module, "_ask_yes_no", lambda *_args: True)
@@ -573,7 +573,7 @@ def test_password_requirement_is_confirmed_when_checkbox_is_enabled(tmp_path, mo
         with manager.get_connection() as conn:
             conn.execute(
                 "UPDATE employees SET password=? WHERE name=?",
-                ("stored-password-hash", "کارمند بدون رمز"),
+                ("stored-password-hash", "کاربر بدون رمز"),
             )
             conn.commit()
         def accept_and_capture(_parent, title, message):
@@ -585,7 +585,7 @@ def test_password_requirement_is_confirmed_when_checkbox_is_enabled(tmp_path, mo
         prompts.clear()
         window.chk_req_pass.setChecked(True)
         assert window.chk_req_pass.isChecked()
-        assert prompts and "تمام کارکنان فعال" in prompts[0][1]
+        assert prompts and "تمام کاربران فعال" in prompts[0][1]
         assert "اطمینان دارید" in prompts[0][1]
     finally:
         window.close()
