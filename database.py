@@ -1140,7 +1140,7 @@ class DatabaseManager:
                 )
             conn.execute("DELETE FROM employees WHERE id=?", (emp_id,))
             self.log_audit(
-                conn, "حذف کارمند",
+                conn, "حذف کاربر",
                 f"شناسه: {emp_id} | حذف داده‌های وابسته: {'بله' if delete_related_data else 'خیر'}"
             )
             conn.commit()
