@@ -4251,15 +4251,7 @@ class MainWindow(QMainWindow):
         self.ed_emp_pass.setEchoMode(QLineEdit.Password)
         self.ed_emp_pass.setPlaceholderText("رمز عبور جدید...")
         self.cb_emp_perm = QComboBox()
-        self.cb_emp_perm.addItems(
-            [
-                "دسترسی کامل (مدیر کل)",
-                "مدیر ارشد (بدون مدیریت کارکنان)",
-                "سرپرست عملیات (گزارش‌های محدود به عملکرد خود)",
-                "فروش و خدمات (گزارش محدود به عملکرد خود)",
-                "ثبت خرید و انبارداری (گزارش محدود به خریدهای خود)",
-            ]
-        )
+        self.cb_emp_perm.addItems(self._base_permission_choices())
         self.chk_emp_active = QCheckBox("کارمند فعال است")
         self.chk_emp_active.setChecked(True)
 
@@ -4853,7 +4845,50 @@ class MainWindow(QMainWindow):
             peer_field_grid.addWidget(checkbox, index // 4, index % 4)
         peer_export_layout.addLayout(peer_field_grid)
         catalog_layout.addWidget(peer_export_box)
-        layout.addWidget(CollapsibleSection("مدیریت کالا، خدمات و تنظیمات دسترسی", gb_catalog))
+
+        access_box = QGroupBox("تعریف و مدیریت سطوح دسترسی کاربران")
+        access_layout = QVBoxLayout(access_box)
+        access_layout.setContentsMargins(12, 12, 12, 10)
+        access_layout.setSpacing(8)
+        access_hint = QLabel(
+            "برای ساخت سطح دسترسی جدید، یک نام انتخاب کنید و الگوی دسترسی پایه را مشخص نمایید. "
+            "سطح سفارشی، محدودیت‌ها و دامنهٔ اطلاعات الگوی پایه را به ارث می‌برد."
+        )
+        access_hint.setWordWrap(True)
+        access_hint.setObjectName("settingsHint")
+        access_layout.addWidget(access_hint)
+        self.lst_cfg_permissions = SmoothScrollListWidget()
+        self.lst_cfg_permissions.setMaximumHeight(130)
+        self.lst_cfg_permissions.currentItemChanged.connect(
+            self._on_permission_profile_selected
+        )
+        self.ed_cfg_permission_name = QLineEdit()
+        self.ed_cfg_permission_name.setPlaceholderText("نام سطح دسترسی جدید...")
+        self.cb_cfg_permission_base = QComboBox()
+        self.cb_cfg_permission_base.addItems(self._base_permission_choices())
+        access_layout.addWidget(QLabel("سطوح دسترسی تعریف‌شده:"))
+        access_layout.addWidget(self.lst_cfg_permissions)
+        access_layout.addWidget(QLabel("نام سطح دسترسی:"))
+        access_layout.addWidget(self.ed_cfg_permission_name)
+        access_layout.addWidget(QLabel("الگوی دسترسی پایه:"))
+        access_layout.addWidget(self.cb_cfg_permission_base)
+        permission_button_row = QHBoxLayout()
+        permission_button_row.setSpacing(8)
+        btn_add_permission = QPushButton("افزودن سطح دسترسی")
+        btn_add_permission.clicked.connect(self._add_permission_profile)
+        btn_update_permission = QPushButton("ذخیره اصلاحات")
+        btn_update_permission.setObjectName("btnSuccess")
+        btn_update_permission.clicked.connect(self._update_permission_profile)
+        btn_delete_permission = QPushButton("حذف سطح دسترسی")
+        btn_delete_permission.setObjectName("btnDanger")
+        btn_delete_permission.clicked.connect(self._delete_permission_profile)
+        permission_button_row.addWidget(btn_add_permission)
+        permission_button_row.addWidget(btn_update_permission)
+        permission_button_row.addWidget(btn_delete_permission)
+        access_layout.addLayout(permission_button_row)
+        catalog_layout.addWidget(access_box)
+
+        layout.addWidget(CollapsibleSection("مدیریت کالا، خدمات و سطوح دسترسی", gb_catalog))
 
         gb_db = QGroupBox("پایگاه دادهٔ فعال و پشتیبان‌گیری خودکار")
         f_db = QFormLayout(gb_db)
@@ -4978,6 +5013,194 @@ class MainWindow(QMainWindow):
         self.lbl_active_db_path.setText(self.db.db_path)
         self._refresh_multi_db_combo()
         self._load_catalog_customization_form()
+        self._refresh_permission_profiles()
+
+    def _base_permission_choices(self):
+        return [
+            "دسترسی کامل (مدیر کل)",
+            "مدیر ارشد (بدون مدیریت کاربران)",
+            "سرپرست عملیات (گزارش‌های محدود به عملکرد خود)",
+            "فروش و خدمات (گزارش محدود به عملکرد خود)",
+            "ثبت خرید و انبارداری (گزارش محدود به خریدهای خود)",
+        ]
+
+    def _get_permission_profiles(self):
+        raw = self.db.get_setting("permission_profiles", "")
+        try:
+            values = json.loads(raw) if raw else []
+        except (TypeError, ValueError, json.JSONDecodeError):
+            values = []
+        profiles = []
+        if isinstance(values, list):
+            for item in values:
+                if not isinstance(item, dict):
+                    continue
+                name = str(item.get("name") or "").strip()
+                base = str(item.get("base") or "").strip()
+                if name and base in self._base_permission_choices():
+                    profiles.append({"name": name, "base": base})
+        return profiles
+
+    @staticmethod
+    def _permission_profile_value(profile):
+        return f"{profile['base']} — {profile['name']}"
+
+    def _refresh_permission_profiles(self):
+        if not hasattr(self, "cb_emp_perm"):
+            return
+        current = self.cb_emp_perm.currentText()
+        profiles = self._get_permission_profiles()
+        self.cb_emp_perm.blockSignals(True)
+        self.cb_emp_perm.clear()
+        self.cb_emp_perm.addItems(self._base_permission_choices())
+        for profile in profiles:
+            value = self._permission_profile_value(profile)
+            self.cb_emp_perm.addItem(value, value)
+        restored = self.cb_emp_perm.findText(current)
+        self.cb_emp_perm.setCurrentIndex(restored if restored >= 0 else 0)
+        self.cb_emp_perm.blockSignals(False)
+
+        if hasattr(self, "lst_cfg_permissions"):
+            self.lst_cfg_permissions.clear()
+            for profile in profiles:
+                item = QListWidgetItem(f"{profile['name']}  |  {profile['base']}")
+                item.setData(Qt.UserRole, profile['name'])
+                item.setToolTip(
+                    f"نام سطح: {profile['name']}\nالگوی پایه: {profile['base']}"
+                )
+                self.lst_cfg_permissions.addItem(item)
+
+    def _on_permission_profile_selected(self, current, _previous=None):
+        if not current:
+            return
+        name = current.data(Qt.UserRole)
+        profile = next(
+            (item for item in self._get_permission_profiles() if item["name"] == name),
+            None,
+        )
+        if profile:
+            self.ed_cfg_permission_name.setText(profile["name"])
+            self.cb_cfg_permission_base.setCurrentText(profile["base"])
+
+    def _persist_permission_profiles(self, profiles):
+        self.db.set_setting(
+            "permission_profiles",
+            json.dumps(profiles, ensure_ascii=False, separators=(",", ":")),
+        )
+        self._refresh_permission_profiles()
+
+    def _permission_profile_assignments(self, profile):
+        permission_value = self._permission_profile_value(profile)
+        with self.db.get_connection() as conn:
+            rows = conn.execute(
+                "SELECT id, name FROM employees WHERE permissions=?",
+                (permission_value,),
+            ).fetchall()
+        return permission_value, rows
+
+    def _confirm_permission_profile_reassignment(self, title, message):
+        dialog = QMessageBox(self)
+        dialog.setIcon(QMessageBox.Warning)
+        dialog.setWindowTitle(title)
+        dialog.setText(message)
+        confirm = dialog.addButton("تأیید و ادامه", QMessageBox.AcceptRole)
+        dialog.addButton("انصراف", QMessageBox.RejectRole)
+        _center_message_buttons(dialog)
+        dialog.exec()
+        return dialog.clickedButton() == confirm
+
+    def _add_permission_profile(self):
+        name = self.ed_cfg_permission_name.text().strip()
+        base = self.cb_cfg_permission_base.currentText()
+        if not name:
+            QMessageBox.warning(self, "نام سطح دسترسی", "نام سطح دسترسی را وارد کنید.")
+            return
+        profiles = self._get_permission_profiles()
+        if any(normalize_catalog_label(item["name"]) == normalize_catalog_label(name)
+               for item in profiles):
+            QMessageBox.warning(self, "نام تکراری", "سطح دسترسی با این نام از قبل ثبت شده است.")
+            return
+        profiles.append({"name": name, "base": base})
+        self._persist_permission_profiles(profiles)
+        self.ed_cfg_permission_name.clear()
+
+    def _update_permission_profile(self):
+        selected = self.lst_cfg_permissions.currentItem()
+        if not selected:
+            QMessageBox.information(self, "انتخاب سطح دسترسی", "ابتدا سطح موردنظر را انتخاب کنید.")
+            return
+        old_name = str(selected.data(Qt.UserRole) or "")
+        new_name = self.ed_cfg_permission_name.text().strip()
+        new_base = self.cb_cfg_permission_base.currentText()
+        if not new_name:
+            QMessageBox.warning(self, "نام سطح دسترسی", "نام سطح دسترسی را وارد کنید.")
+            return
+        profiles = self._get_permission_profiles()
+        index = next((i for i, item in enumerate(profiles) if item["name"] == old_name), -1)
+        if index < 0:
+            return
+        if any(
+            i != index and normalize_catalog_label(item["name"]) == normalize_catalog_label(new_name)
+            for i, item in enumerate(profiles)
+        ):
+            QMessageBox.warning(self, "نام تکراری", "سطح دسترسی با این نام از قبل ثبت شده است.")
+            return
+        old_profile = profiles[index]
+        old_value, assigned_users = self._permission_profile_assignments(old_profile)
+        new_profile = {"name": new_name, "base": new_base}
+        new_value = self._permission_profile_value(new_profile)
+        if assigned_users:
+            names = "، ".join(row["name"] for row in assigned_users[:5])
+            suffix = " و سایر کاربران" if len(assigned_users) > 5 else ""
+            confirmed = self._confirm_permission_profile_reassignment(
+                "سطح دسترسی در حال استفاده است",
+                f"این سطح دسترسی به {len(assigned_users)} کاربر اختصاص دارد ({names}{suffix}). "
+                "با تأیید، سطح دسترسی همهٔ این کاربران نیز به الگوی جدید تغییر می‌کند. ادامه می‌دهید؟",
+            )
+            if not confirmed:
+                return
+            with self.db.get_connection() as conn:
+                conn.execute(
+                    "UPDATE employees SET permissions=? WHERE permissions=?",
+                    (new_value, old_value),
+                )
+                conn.commit()
+        profiles[index] = new_profile
+        self._persist_permission_profiles(profiles)
+        self.refresh_all_data()
+
+    def _delete_permission_profile(self):
+        selected = self.lst_cfg_permissions.currentItem()
+        if not selected:
+            QMessageBox.information(self, "انتخاب سطح دسترسی", "ابتدا سطح موردنظر را انتخاب کنید.")
+            return
+        name = str(selected.data(Qt.UserRole) or "")
+        profiles = self._get_permission_profiles()
+        index = next((i for i, item in enumerate(profiles) if item["name"] == name), -1)
+        if index < 0:
+            return
+        profile = profiles[index]
+        old_value, assigned_users = self._permission_profile_assignments(profile)
+        if assigned_users:
+            names = "، ".join(row["name"] for row in assigned_users[:5])
+            suffix = " و سایر کاربران" if len(assigned_users) > 5 else ""
+            confirmed = self._confirm_permission_profile_reassignment(
+                "سطح دسترسی در حال استفاده است",
+                f"این سطح دسترسی به {len(assigned_users)} کاربر اختصاص دارد ({names}{suffix}). "
+                f"با حذف آن، دسترسی این کاربران به الگوی پایه «{profile['base']}» بازمی‌گردد. ادامه می‌دهید؟",
+            )
+            if not confirmed:
+                return
+            with self.db.get_connection() as conn:
+                conn.execute(
+                    "UPDATE employees SET permissions=? WHERE permissions=?",
+                    (profile["base"], old_value),
+                )
+                conn.commit()
+        profiles.pop(index)
+        self._persist_permission_profiles(profiles)
+        self.ed_cfg_permission_name.clear()
+        self.refresh_all_data()
 
     def _deduplicate_catalog_draft(self):
         """Collapse visually identical Persian catalogue names while tracking DB renames."""
