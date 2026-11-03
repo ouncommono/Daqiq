@@ -87,11 +87,64 @@ PERSIAN_WEEKDAYS = {
 
 
 def _center_message_buttons(dialog):
-    """Keep custom confirmation/action buttons centered and right-to-left."""
+    """Center dialog actions, apply RTL direction and localize standard button captions."""
     dialog.setLayoutDirection(Qt.RightToLeft)
     button_box = dialog.findChild(QDialogButtonBox)
     if button_box is not None:
+        labels = {
+            QMessageBox.Ok: "تأیید",
+            QMessageBox.Yes: "بله",
+            QMessageBox.No: "خیر",
+            QMessageBox.Cancel: "انصراف",
+            QMessageBox.Close: "بستن",
+            QMessageBox.Save: "ذخیره",
+            QMessageBox.SaveAll: "ذخیره همه",
+            QMessageBox.Open: "باز کردن",
+            QMessageBox.Retry: "تلاش دوباره",
+            QMessageBox.Ignore: "نادیده گرفتن",
+            QMessageBox.Abort: "توقف",
+            QMessageBox.Apply: "اعمال",
+            QMessageBox.Reset: "بازنشانی",
+            QMessageBox.RestoreDefaults: "بازگردانی پیش‌فرض",
+        }
+        for button in button_box.buttons():
+            standard = button_box.standardButton(button)
+            if standard in labels:
+                button.setText(labels[standard])
+            button.setLayoutDirection(Qt.RightToLeft)
         button_box.setCenterButtons(True)
+
+
+def _localized_message(parent, title, text, icon, buttons=QMessageBox.Ok,
+                       default_button=QMessageBox.NoButton):
+    dialog = QMessageBox(parent)
+    dialog.setWindowTitle(str(title or "پیام برنامه"))
+    dialog.setText(str(text or ""))
+    dialog.setIcon(icon)
+    dialog.setStandardButtons(buttons)
+    if default_button != QMessageBox.NoButton:
+        dialog.setDefaultButton(default_button)
+    _center_message_buttons(dialog)
+    return dialog.exec()
+
+
+def _install_persian_message_boxes():
+    """Replace static QMessageBox helpers so every standard action is Persian and centered."""
+    for method_name, icon in (
+        ("information", QMessageBox.Information),
+        ("warning", QMessageBox.Warning),
+        ("critical", QMessageBox.Critical),
+        ("question", QMessageBox.Question),
+    ):
+        def wrapper(parent, title, text, buttons=QMessageBox.Ok,
+                    defaultButton=QMessageBox.NoButton, _icon=icon):
+            return _localized_message(
+                parent, title, text, _icon, buttons, defaultButton
+            )
+        setattr(QMessageBox, method_name, staticmethod(wrapper))
+
+
+_install_persian_message_boxes()
 
 
 def _ask_yes_no(parent, title: str, message: str) -> bool:
@@ -146,7 +199,7 @@ class LoginDialog(QDialog):
 
         self.ed_pass = QLineEdit()
         self.ed_pass.setEchoMode(QLineEdit.Password)
-        self.ed_pass.setPlaceholderText("رمز عبور کارمند...")
+        self.ed_pass.setPlaceholderText("رمز عبور کاربر...")
         self.ed_pass.setClearButtonEnabled(True)
 
         self.lbl_login_hint = QLabel(
@@ -167,7 +220,7 @@ class LoginDialog(QDialog):
         layout.addRow(btn_login)
         if self.require_password:
             self.lbl_login_hint.setText(
-                "در حالت اجباری، همه کارکنان فعال باید رمز داشته باشند. حساب بدون رمز تا زمان تعریف رمز قابل ورود نیست."
+                "در حالت اجباری، همه کاربران فعال باید رمز داشته باشند. حساب بدون رمز تا زمان تعریف رمز قابل ورود نیست."
             )
 
     def _check_login(self):
@@ -1083,7 +1136,7 @@ class MainWindow(QMainWindow):
     def _populate_table_safely(self, table: QTableWidget, rows_data: list, highlight_col=None):
         """
         بند ۱۰ و ۱۱: پر کردن امن جداول با غیرفعال کردن موقت SortingEnabled
-        (رفع کامل باگ خالی افتادن سطرهای جدول در داشبورد، کارمندان و سایر تب‌ها)
+        (رفع کامل باگ خالی افتادن سطرهای جدول در داشبورد، کاربران و سایر تب‌ها)
         و افزودن Tooltip روی تک‌تک سلول‌ها برای خوانایی در صفحات کوچک.
         """
         table.setSortingEnabled(False)
@@ -1912,9 +1965,11 @@ class MainWindow(QMainWindow):
         grid.setHorizontalSpacing(10)
         grid.setVerticalSpacing(7)
         for column in (1, 3, 5):
-            grid.setColumnStretch(column, 1)
+            grid.setColumnStretch(column, 2 if column == 5 else 1)
+            grid.setColumnMinimumWidth(column, 0)
         for column in (0, 2, 4):
             grid.setColumnStretch(column, 0)
+            grid.setColumnMinimumWidth(column, 0)
 
         self.ed_sale_inv = SmartLineEdit("")
         self.ed_sale_inv.setToolTip("در صورت خالی بودن، شماره فاکتور بعدی خودکار تخصیص می‌یابد.")
@@ -1957,6 +2012,14 @@ class MainWindow(QMainWindow):
         self.cb_sale_status.currentTextChanged.connect(self._on_sale_status_changed)
 
         self.pr_sale_actual.valueChanged.connect(self._recalc_sale_live)
+        for field_widget in (
+            self.ed_sale_inv, self.cb_sale_prod, self.cb_sale_batch,
+            self.cb_sale_seller, self.ed_sale_customer, self.cb_sale_qty,
+            self.pr_sale_suggest, self.pr_sale_actual, self.pr_sale_paid,
+            self.cb_sale_status, self.ed_war_company if hasattr(self, "ed_war_company") else self.cb_sale_status,
+        ):
+            field_widget.setMinimumWidth(0)
+            field_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
         self.lbl_sale_summary = QLabel("تخفیف/تشدید: 0 تومان | سود فروش: 0 تومان")
         self.lbl_sale_summary.setObjectName("saleSummary")
