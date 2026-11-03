@@ -1485,8 +1485,13 @@ class MainWindow(QMainWindow):
 
         self.ed_batch_serial = SmartLineEdit("مشخصات فنی یا توضیحات خرید...")
         self.lst_batch_colors = SmoothScrollListWidget()
-        self.lst_batch_colors.setMaximumHeight(82)
-        self.lst_batch_colors.setToolTip("رنگ یا رنگ‌های موجود در همین محموله را انتخاب کنید.")
+        self.lst_batch_colors.hide()  # Internal checked-value store; users select colours in a dialog.
+        self.btn_batch_colors = QPushButton("انتخاب رنگ‌ها")
+        self.btn_batch_colors.setObjectName("btnSecondary")
+        self.btn_batch_colors.setToolTip("برای انتخاب چند رنگ، این دکمه را باز کنید.")
+        self.btn_batch_colors.clicked.connect(
+            lambda: self._open_color_selector(self.lst_batch_colors, "انتخاب رنگ‌های محموله")
+        )
         self._populate_color_checklist(
             self.lst_batch_colors,
             self.catalog_config.get("colors") or DEFAULT_COLORS,
@@ -1525,7 +1530,7 @@ class MainWindow(QMainWindow):
         grid.addWidget(self.pr_batch_paid, 3, 5)
 
         grid.addWidget(QLabel("رنگ‌های این محموله:"), 4, 0)
-        grid.addWidget(self.lst_batch_colors, 4, 1, 1, 5)
+        grid.addWidget(self.btn_batch_colors, 4, 1, 1, 5)
         grid.addWidget(QLabel("مشخصات فنی / توضیحات:"), 5, 0)
         grid.addWidget(self.ed_batch_serial, 5, 1, 1, 5)
 
@@ -1607,6 +1612,56 @@ class MainWindow(QMainWindow):
             if widget.item(index).checkState() == Qt.Checked
         ]
 
+    def _update_color_select_button(self, widget):
+        button = (
+            self.btn_batch_colors if widget is getattr(self, "lst_batch_colors", None)
+            else self.btn_sale_colors if widget is getattr(self, "lst_sale_colors", None)
+            else None
+        )
+        if button is None:
+            return
+        chosen = self._checked_colors(widget)
+        prefix = "رنگ‌های محموله" if widget is self.lst_batch_colors else "رنگ‌های فروش"
+        button.setText(f"{prefix} ({len(chosen)} انتخاب)" if chosen else f"انتخاب {prefix}")
+        button.setToolTip("، ".join(chosen) if chosen else "برای انتخاب رنگ‌ها کلیک کنید.")
+
+    def _open_color_selector(self, storage_widget, title):
+        dialog = QDialog(self)
+        dialog.setWindowTitle(title)
+        dialog.setLayoutDirection(Qt.RightToLeft)
+        dialog.setMinimumWidth(320)
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(14, 14, 14, 12)
+        layout.setSpacing(10)
+        hint = QLabel("برای انتخاب یا لغو انتخاب، روی نام هر رنگ یا مربع کنار آن کلیک کنید.")
+        hint.setWordWrap(True)
+        hint.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        layout.addWidget(hint)
+        choices = QListWidget(dialog)
+        choices.setSelectionMode(QAbstractItemView.NoSelection)
+        for index in range(storage_widget.count()):
+            source = storage_widget.item(index)
+            item = QListWidgetItem(source.text())
+            item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
+            item.setCheckState(source.checkState())
+            choices.addItem(item)
+        layout.addWidget(choices)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dialog)
+        buttons.button(QDialogButtonBox.Ok).setText("تأیید")
+        buttons.button(QDialogButtonBox.Cancel).setText("انصراف")
+        buttons.setCenterButtons(True)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        if dialog.exec() == QDialog.Accepted:
+            selected = [
+                choices.item(index).text()
+                for index in range(choices.count())
+                if choices.item(index).checkState() == Qt.Checked
+            ]
+            available = [storage_widget.item(index).text() for index in range(storage_widget.count())]
+            self._populate_color_checklist(storage_widget, available, selected=selected)
+
     def _populate_color_checklist(self, widget, colors, selected=None):
         if widget is None:
             return
@@ -1635,6 +1690,7 @@ class MainWindow(QMainWindow):
             )
             widget.addItem(item)
         widget.blockSignals(False)
+        self._update_color_select_button(widget)
 
     def _on_batch_prod_changed(self):
         prod = self.cb_batch_prod.currentData()
@@ -1865,7 +1921,13 @@ class MainWindow(QMainWindow):
         self.cb_sale_seller = SearchableComboBox()
         self.ed_sale_customer = SmartLineEdit("نام مشتری (اختیاری)")
         self.lst_sale_colors = SmoothScrollListWidget()
-        self.lst_sale_colors.setMaximumHeight(82)
+        self.lst_sale_colors.hide()  # Internal checked-value store; selection is dialog-based.
+        self.btn_sale_colors = QPushButton("انتخاب رنگ‌های فروخته‌شده")
+        self.btn_sale_colors.setObjectName("btnSecondary")
+        self.btn_sale_colors.setToolTip("فقط رنگ‌های انتخاب‌شده برای همین فروش ثبت می‌شوند.")
+        self.btn_sale_colors.clicked.connect(
+            lambda: self._open_color_selector(self.lst_sale_colors, "انتخاب رنگ‌های فروخته‌شده")
+        )
         self.ed_sale_specs = SmartLineEdit("مشخصات دقیق کالای فروخته‌شده؛ قابل ویرایش...")
         self.ed_sale_specs.setLayoutDirection(Qt.LeftToRight)
         self.ed_sale_specs.setToolTip("این مشخصات در زمان فروش ثبت و در گزارش‌های آینده حفظ می‌شود.")
@@ -1944,7 +2006,7 @@ class MainWindow(QMainWindow):
         grid.addWidget(self.ed_sale_serial, 4, 5)
 
         grid.addWidget(QLabel("رنگ‌های فروخته‌شده:"), 5, 0)
-        grid.addWidget(self.lst_sale_colors, 5, 1, 1, 5)
+        grid.addWidget(self.btn_sale_colors, 5, 1, 1, 5)
         grid.addWidget(QLabel("مشخصات فنی کالای فروخته‌شده:"), 6, 0)
         grid.addWidget(self.ed_sale_specs, 6, 1, 1, 5)
         grid.addWidget(self.lbl_sale_summary, 7, 0, 1, 6)
