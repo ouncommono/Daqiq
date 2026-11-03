@@ -6709,7 +6709,7 @@ class MainWindow(QMainWindow):
                 f'<div dir="rtl">برند: {html.escape(str(product.get("brand") or "-"))}</div>'
                 f'<div dir="rtl">مدل: {html.escape(str(product.get("model") or "-"))}</div>'
                 '<div dir="rtl">مشخصات نهایی:</div>'
-                f'{self._format_specs_for_tooltip(specs, product.get("category")) or "-"}'
+                f'{self._format_specs_tooltip_html(specs, product.get("category")) or "-"}'
                 f'<div dir="rtl">توضیحات: {html.escape(product_description or "-")}</div>'
                 '</body></html>'
             )
@@ -6830,7 +6830,7 @@ class MainWindow(QMainWindow):
                 f'<div dir="rtl">موجودی: {int(batch["remaining_qty"])}</div>'
                 f'<div dir="rtl">قیمت پیشنهادی: {int(batch["suggested_sell_price"]):,} تومان</div>'
                 '<div dir="rtl">مشخصات نهایی:</div>'
-                f'{self._format_specs_for_tooltip(final_specs_dict, batch.get("category")) or html.escape(final_specs_text or "-")}'
+                f'{self._format_specs_tooltip_html(final_specs_dict, batch.get("category")) or html.escape(final_specs_text or "-")}'
                 f'<div dir="rtl">شماره سریال: {html.escape(str(batch.get("serial_numbers") or "-"))}</div>'
                 '</body></html>'
             )
