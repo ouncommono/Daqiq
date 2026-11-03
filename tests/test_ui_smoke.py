@@ -1154,3 +1154,164 @@ def test_create_database_dialog_does_not_default_to_overwriting_invalid_file(
         dialog._validate_and_accept()
         assert dialog.selected_path is None
         dialog.close()
+
+
+def test_catalog_create_actions_reject_persian_spacing_aliases(tmp_path, monkeypatch, qapp):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    window = MainWindow(manager, active_employee=None)
+    messages = []
+    try:
+        monkeypatch.setattr(
+            main_module.QMessageBox,
+            "information",
+            lambda _parent, title, message: messages.append((title, message)),
+        )
+
+        category_count = len(window._taxonomy_draft["categories"])
+        window.ed_cfg_category.setText("لپ تاپ")
+        window._add_catalog_category()
+        assert len(window._taxonomy_draft["categories"]) == category_count
+
+        window.cb_cfg_category.setCurrentText("لپ‌تاپ")
+        subcategories = window._taxonomy_draft["subcategories"]["لپ‌تاپ"]
+        subcategory_count = len(subcategories)
+        window.ed_cfg_subcategory.setText("لپ تاپ عمومی / مالتی مدیا")
+        window._add_catalog_subcategory()
+        assert len(window._taxonomy_draft["subcategories"]["لپ‌تاپ"]) == subcategory_count
+
+        colors = window._taxonomy_draft["colors"]
+        color_count = len(colors)
+        window.ed_cfg_color.setText("نقره ای")
+        window._add_catalog_color()
+        assert len(window._taxonomy_draft["colors"]) == color_count
+
+        service_types = window._taxonomy_draft["service_types"]
+        service_type_count = len(service_types)
+        window.ed_cfg_service_type.setText("نرم افزاری")
+        window._add_catalog_service_type()
+        assert len(window._taxonomy_draft["service_types"]) == service_type_count
+
+        assert len(messages) == 4
+        assert "لپ‌تاپ" in messages[0][1]
+        assert "لپ‌تاپ عمومی" in messages[1][1]
+        assert "نقره‌ای" in messages[2][1]
+        assert "نرم‌افزاری" in messages[3][1]
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
+def test_comprehensive_report_orders_by_last_edit_and_aligns_specification_column(
+    tmp_path, monkeypatch, qapp
+):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    manager.add_product(
+        "P-REPORT", "", "لپ‌تاپ", "لپ‌تاپ عمومی / مالتی‌مدیا",
+        "ASUS", "RPT-15", {"ظرفیت رم": "8GB"}, "", 1, 20,
+    )
+    with manager.get_connection() as conn:
+        product_id = conn.execute(
+            "SELECT id FROM products WHERE code='P-REPORT'"
+        ).fetchone()["id"]
+    manager.add_batch(
+        "C-REPORT", product_id, None, None, "PO-REPORT", "1405/01/01",
+        5, 100, 0, 150, 0, "", "RAM: 8GB DDR4", "",
+        "تسویه‌نشده", colors=["مشکی"],
+    )
+    with manager.get_connection() as conn:
+        batch_id = conn.execute(
+            "SELECT id FROM batches WHERE batch_code='C-REPORT'"
+        ).fetchone()["id"]
+
+    manager.add_sale(
+        "INV-REPORT-OLD", product_id, batch_id, None, "مشتری اول",
+        1, 150, 150, 0, "1405/01/01 10:00:00",
+        settlement_status="تسویه‌نشده",
+        specifications="RAM: 8GB DDR4",
+        colors=["مشکی"],
+    )
+    manager.add_sale(
+        "INV-REPORT-NEW", product_id, batch_id, None, "مشتری دوم",
+        1, 150, 150, 0, "1405/01/02 10:00:00",
+        settlement_status="تسویه‌نشده",
+        specifications="RAM: 8GB DDR4",
+        colors=["مشکی"],
+    )
+    with manager.get_connection() as conn:
+        old_sale_id = conn.execute(
+            "SELECT id FROM sales WHERE invoice_number='INV-REPORT-OLD'"
+        ).fetchone()["id"]
+
+    # A later edit to an older invoice must promote that row above the newer invoice.
+    manager.update_sale(
+        old_sale_id, None, "مشتری اول", 1, 150, 151, 0,
+        "", "", 0, "", "", "",
+        settlement_status="تسویه‌نشده",
+        warranty_days=0,
+        specifications="RAM: 16GB DDR5",
+        colors=["مشکی"],
+    )
+
+    window = MainWindow(manager, active_employee=None)
+    try:
+        window.cb_rep_type.setCurrentIndex(0)
+        window._update_report_live()
+        headers = [
+            window.tbl_report.horizontalHeaderItem(index).text()
+            for index in range(window.tbl_report.columnCount())
+        ]
+        title_index = headers.index("برند و مدل / عنوان")
+        specs_index = headers.index("مشخصات فنی")
+        assert specs_index == title_index + 1
+
+        visible_invoices = [
+            window.tbl_report.item(row, 1).text()
+            for row in range(window.tbl_report.rowCount())
+            if window.tbl_report.item(row, 1) is not None
+        ]
+        sale_invoices = [
+            value for value in visible_invoices
+            if value in {"INV-REPORT-OLD", "INV-REPORT-NEW"}
+        ]
+        assert sale_invoices == ["INV-REPORT-OLD", "INV-REPORT-NEW"]
+
+        first_specs = window.tbl_report.item(0, specs_index).text()
+        assert first_specs == "RAM: 16GB DDR5"
+        signed_column = headers.index("تخفیف (-) / تشدید (+)")
+        signed_cell = window.tbl_report.item(0, signed_column)
+        assert signed_cell.text().startswith("\u200e+")
+        assert signed_cell.textAlignment() & Qt.AlignLeft
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
+def test_dark_theme_updates_settings_and_read_only_field_contrast(tmp_path, monkeypatch, qapp):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    window = MainWindow(manager, active_employee=None)
+    try:
+        window._apply_styles()
+        light_css = window.styleSheet()
+        assert "QLabel#appVersion" in light_css
+        assert "QLabel#activeDbPath" in light_css
+        assert "QScrollBar::up-arrow:vertical" in light_css
+        assert "QScrollBar::down-arrow:vertical" in light_css
+
+        manager.cfg["theme"] = "dark"
+        window._apply_styles()
+        dark_css = window.styleSheet()
+        assert "#93c5fd" in dark_css
+        assert "#2b3648" in dark_css
+        assert "QLabel#settingsHint" in dark_css
+        assert "QLineEdit:read-only" in dark_css
+    finally:
+        manager.cfg["theme"] = "light"
+        window._apply_styles()
+        window.close()
+        qapp.processEvents()
