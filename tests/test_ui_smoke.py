@@ -184,7 +184,9 @@ def test_database_refresh_keeps_services_suppliers_and_password_status_visible(
     window = MainWindow(manager, active_employee=None)
     try:
         # A real sqlite3.Row batch is loaded during initial startup and refresh.
-        assert window.cb_sale_prod.count() == 1
+        assert window.cb_sale_prod.count() == 2
+        assert window.cb_sale_prod.itemData(0).get("_all_products") is True
+        assert window.cb_sale_prod.itemText(0) == "همه کالاها"
         assert window.cb_sale_batch.count() == 1
         # Purchase picker hides long specs in the row but includes them in its search and hover text.
         assert "DDR5" not in window.cb_batch_prod.itemText(0)
@@ -287,6 +289,7 @@ def test_database_refresh_keeps_services_suppliers_and_password_status_visible(
                 reopened_manager, active_employee=login.logged_employee
             )
             try:
+                assert protected_window.cb_sale_prod.count() == 2
                 assert protected_window.cb_sale_batch.count() == 2
                 assert "کاربر بدون رمز" in protected_window.lbl_active_user.text()
                 protected_employee_row = next(
@@ -352,8 +355,9 @@ def test_sale_batch_picker_shows_only_distinguishing_specifications(tmp_path, mo
 
     window = MainWindow(manager, active_employee=None)
     try:
-        assert window.cb_sale_prod.count() == 1
-        assert strip_bidi_controls(window.cb_sale_prod.itemText(0)) == (
+        assert window.cb_sale_prod.count() == 2
+        assert window.cb_sale_prod.itemData(0).get("_all_products") is True
+        assert strip_bidi_controls(window.cb_sale_prod.itemText(1)) == (
             "P-2000 | لپ‌تاپ عمومی / مالتی‌مدیا | ASUS G551"
         )
         assert window.cb_sale_batch.count() == 2
@@ -487,8 +491,8 @@ def test_custom_attribute_name_is_form_label_and_title_is_output_label(tmp_path,
         "categories": ["قطعات"],
         "subcategories": {"قطعات": ["پردازنده (CPU)"]},
         "attributes": {"قطعات": [{
-            "name": "CPU",
-            "label": "پردازنده (CPU)",
+            "name": "پردازنده",
+            "label": "CPU",
             "display_name": "مدل پردازنده",
             "values": ["Core i5", "Core i7"],
             "subcategory": "پردازنده (CPU)",
@@ -497,21 +501,21 @@ def test_custom_attribute_name_is_form_label_and_title_is_output_label(tmp_path,
     })
     window = MainWindow(manager, active_employee=None)
     try:
-        assert "CPU" in window.specs_widget.fields
-        field_widget = window.specs_widget.fields["CPU"]
-        assert field_widget.toolTip() == "مشخصه سفارشی: CPU"
+        assert "پردازنده" in window.specs_widget.fields
+        field_widget = window.specs_widget.fields["پردازنده"]
+        assert field_widget.toolTip() == "مشخصه سفارشی: پردازنده"
         field_label = window.specs_widget.form_layout.labelForField(field_widget)
-        assert field_label.text() == "CPU:"
-        assert window._format_specs_for_display({"CPU": "Core i7"}, "قطعات") == (
-            "پردازنده (CPU): Core i7"
+        assert field_label.text() == "پردازنده:"
+        assert window._format_specs_for_display({"پردازنده": "Core i7"}, "قطعات") == (
+            "CPU: Core i7"
         )
-        assert window._format_specs_for_tooltip({"CPU": "Core i7"}, "قطعات") == (
-            "پردازنده (CPU): Core i7"
+        assert window._format_specs_for_tooltip({"پردازنده": "Core i7"}, "قطعات") == (
+            "CPU: Core i7"
         )
         definition = window.catalog_config["attributes"]["قطعات"][0]
         definition["label"] = ""
-        assert window._format_specs_for_display({"CPU": "Core i7"}, "قطعات") == (
-            "CPU: Core i7"
+        assert window._format_specs_for_display({"پردازنده": "Core i7"}, "قطعات") == (
+            "پردازنده: Core i7"
         )
 
         manager.save_product_catalog_config({
