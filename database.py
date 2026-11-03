@@ -144,7 +144,9 @@ class DatabaseManager:
                     phone TEXT DEFAULT '',
                     password TEXT DEFAULT '',
                     permissions TEXT DEFAULT 'دسترسی کامل',
-                    is_active INTEGER DEFAULT 1
+                    is_active INTEGER DEFAULT 1,
+                    created_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT ''
                 )
             """)
 
@@ -154,7 +156,9 @@ class DatabaseManager:
                     name TEXT NOT NULL UNIQUE,
                     phone TEXT DEFAULT '',
                     address TEXT DEFAULT '',
-                    notes TEXT DEFAULT ''
+                    notes TEXT DEFAULT '',
+                    created_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT ''
                 )
             """)
 
@@ -163,7 +167,9 @@ class DatabaseManager:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL,
                     phone TEXT DEFAULT '',
-                    notes TEXT DEFAULT ''
+                    notes TEXT DEFAULT '',
+                    created_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT ''
                 )
             """)
 
@@ -180,7 +186,9 @@ class DatabaseManager:
                     description TEXT DEFAULT '',
                     reorder_point INTEGER DEFAULT 2,
                     default_profit_pct REAL DEFAULT 20.0,
-                    is_active INTEGER DEFAULT 1
+                    is_active INTEGER DEFAULT 1,
+                    created_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT ''
                 )
             """)
 
@@ -211,6 +219,8 @@ class DatabaseManager:
                     notes TEXT DEFAULT '',
                     supplier_name_snapshot TEXT DEFAULT '',
                     colors_json TEXT DEFAULT '[]',
+                    created_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT '',
                     FOREIGN KEY(product_id) REFERENCES products(id),
                     FOREIGN KEY(supplier_id) REFERENCES suppliers(id),
                     FOREIGN KEY(buyer_employee_id) REFERENCES employees(id)
@@ -235,6 +245,8 @@ class DatabaseManager:
                     technician_id INTEGER,
                     serial_number TEXT DEFAULT '',
                     notes TEXT DEFAULT '',
+                    created_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT '',
                     FOREIGN KEY(target_batch_id) REFERENCES batches(id),
                     FOREIGN KEY(part_batch_id) REFERENCES batches(id),
                     FOREIGN KEY(technician_id) REFERENCES employees(id)
@@ -272,6 +284,8 @@ class DatabaseManager:
                     notes TEXT DEFAULT '',
                     specifications TEXT DEFAULT '',
                     colors_json TEXT DEFAULT '[]',
+                    created_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT '',
                     FOREIGN KEY(product_id) REFERENCES products(id),
                     FOREIGN KEY(batch_id) REFERENCES batches(id),
                     FOREIGN KEY(seller_employee_id) REFERENCES employees(id)
@@ -287,7 +301,9 @@ class DatabaseManager:
                     default_fee INTEGER NOT NULL,
                     default_side_cost INTEGER DEFAULT 0,
                     description TEXT DEFAULT '',
-                    is_active INTEGER DEFAULT 1
+                    is_active INTEGER DEFAULT 1,
+                    created_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT ''
                 )
             """)
 
@@ -298,6 +314,8 @@ class DatabaseManager:
                     old_fee INTEGER,
                     new_fee INTEGER,
                     change_date TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT '',
                     FOREIGN KEY(service_id) REFERENCES service_catalog(id)
                 )
             """)
@@ -320,8 +338,11 @@ class DatabaseManager:
                     settlement_status TEXT DEFAULT 'تسویه‌شده',
                     service_datetime TEXT NOT NULL,
                     description TEXT DEFAULT '',
+                    created_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT '',
                     FOREIGN KEY(service_id) REFERENCES service_catalog(id),
-                    FOREIGN KEY(seller_employee_id) REFERENCES employees(id)
+                    FOREIGN KEY(seller_employee_id) REFERENCES employees(id),
+                    FOREIGN KEY(technician_employee_id) REFERENCES employees(id)
                 )
             """)
 
@@ -333,7 +354,9 @@ class DatabaseManager:
                     amount INTEGER NOT NULL,
                     payment_date TEXT NOT NULL,
                     payment_method TEXT DEFAULT 'کارت‌خوان',
-                    notes TEXT DEFAULT ''
+                    notes TEXT DEFAULT '',
+                    created_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT ''
                 )
             """)
 
@@ -342,7 +365,9 @@ class DatabaseManager:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     action_time TEXT NOT NULL,
                     action_type TEXT NOT NULL,
-                    details TEXT NOT NULL
+                    details TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT ''
                 )
             """)
 
@@ -647,6 +672,8 @@ class DatabaseManager:
                 "CREATE INDEX IF NOT EXISTS idx_services_seller_activity ON service_records(seller_employee_id, updated_at DESC, id DESC)",
             ):
                 conn.execute(index_sql)
+
+            conn.execute("PRAGMA user_version = 120")
 
             # Remove the exact legacy generic supplier from the selector on upgraded
             # databases too, but retain its historical name on linked purchase rows.
