@@ -1553,6 +1553,59 @@ class MainWindow(QMainWindow):
 
         self._add_scrollable_tab(tab, "🚚 ثبت خرید و محموله‌ها")
 
+    @staticmethod
+    def _decode_colors(raw):
+        if raw is None:
+            return []
+        try:
+            values = json.loads(raw) if isinstance(raw, str) else raw
+        except (TypeError, ValueError, json.JSONDecodeError):
+            values = []
+        if isinstance(values, str):
+            values = [values]
+        if not isinstance(values, (list, tuple, set)):
+            return []
+        return list(dict.fromkeys(
+            str(value).strip() for value in values
+            if value is not None and str(value).strip()
+        ))
+
+    def _checked_colors(self, widget):
+        return [
+            widget.item(index).text()
+            for index in range(widget.count())
+            if widget.item(index).checkState() == Qt.Checked
+        ]
+
+    def _populate_color_checklist(self, widget, colors, selected=None):
+        if widget is None:
+            return
+        if selected is None:
+            selected = self._checked_colors(widget)
+        selected_keys = {normalize_catalog_label(value) for value in (selected or [])}
+        values = list(dict.fromkeys(
+            str(value).strip() for value in (colors or [])
+            if value is not None and str(value).strip()
+        ))
+        known = {normalize_catalog_label(value) for value in values}
+        for value in selected or []:
+            key = normalize_catalog_label(value)
+            if key and key not in known:
+                values.append(str(value).strip())
+                known.add(key)
+        widget.blockSignals(True)
+        widget.clear()
+        widget.setSelectionMode(QAbstractItemView.NoSelection)
+        for color in values:
+            item = QListWidgetItem(color)
+            item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
+            item.setCheckState(
+                Qt.Checked if normalize_catalog_label(color) in selected_keys
+                else Qt.Unchecked
+            )
+            widget.addItem(item)
+        widget.blockSignals(False)
+
     def _on_batch_prod_changed(self):
         prod = self.cb_batch_prod.currentData()
         if prod:
@@ -4630,10 +4683,7 @@ class MainWindow(QMainWindow):
             "categories": list(MAIN_CATEGORIES),
             "subcategories": copy.deepcopy(DEFAULT_SUBCATEGORIES),
             "attributes": copy.deepcopy(DEFAULT_ATTRIBUTES),
-            "colors": [
-                "مشکی", "سفید", "نقره‌ای", "خاکستری", "آبی",
-                "قرمز", "طلایی", "سبز", "بنفش", "صورتی", "سایر",
-            ],
+            "colors": list(DEFAULT_COLORS),
             "service_types": ["نرم‌افزاری", "سخت‌افزاری"],
         }
         has_saved_catalog = bool(self.db.get_setting("product_catalog_config", ""))
@@ -5110,10 +5160,7 @@ class MainWindow(QMainWindow):
         self.catalog_config = self.db.get_product_catalog_config()
         categories = self.catalog_config.get("categories") or list(MAIN_CATEGORIES)
         categories = list(dict.fromkeys(categories))
-        colors = self.catalog_config.get("colors", [
-            "مشکی", "سفید", "نقره‌ای", "خاکستری", "آبی",
-            "قرمز", "طلایی", "سبز", "سایر",
-        ])
+        colors = self.catalog_config.get("colors") or DEFAULT_COLORS
         current_category = self.cb_prod_cat.currentText() if hasattr(self, "cb_prod_cat") else ""
         if hasattr(self, "cb_prod_cat"):
             self.cb_prod_cat.blockSignals(True)
@@ -5122,14 +5169,9 @@ class MainWindow(QMainWindow):
             if current_category:
                 self.cb_prod_cat.setCurrentText(current_category)
             self.cb_prod_cat.blockSignals(False)
-        if hasattr(self, "cb_prod_color"):
-            current_color = self.cb_prod_color.currentText()
-            self.cb_prod_color.blockSignals(True)
-            self.cb_prod_color.clear()
-            self.cb_prod_color.addItem("")
-            self.cb_prod_color.addItems(colors)
-            self.cb_prod_color.setCurrentText(current_color)
-            self.cb_prod_color.blockSignals(False)
+        if hasattr(self, "lst_batch_colors"):
+            selected_colors = self._checked_colors(self.lst_batch_colors)
+            self._populate_color_checklist(self.lst_batch_colors, colors, selected_colors)
         if hasattr(self, "cb_rep_cat"):
             current_report_category = self.cb_rep_cat.currentText()
             self.cb_rep_cat.blockSignals(True)
