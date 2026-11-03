@@ -70,6 +70,14 @@ def hash_password(raw_password: str) -> str:
     return hashlib.sha256(raw_password.encode("utf-8")).hexdigest()
 
 
+def receivable_balance(total_amount, paid_amount, settlement_status):
+    """Only partially-settled or unsettled transactions can have a receivable."""
+    status = str(settlement_status or "").strip().replace(" ", "")
+    if status not in ("تسویهجزئی", "تسویه‌نشده", "تسویهنشده"):
+        return 0
+    return max(0, int(total_amount or 0) - int(paid_amount or 0))
+
+
 def service_financial_breakdown(service_fee, paid_amount, settlement_status):
     """Return service discount/markup and receivable using the settlement state.
 
@@ -79,12 +87,10 @@ def service_financial_breakdown(service_fee, paid_amount, settlement_status):
     """
     fee = int(service_fee or 0)
     paid = int(paid_amount or 0)
-    status = str(settlement_status or "").strip()
-    if status == "تسویه‌شده":
+    status = str(settlement_status or "").strip().replace(" ", "")
+    if status in ("تسویه‌شده", "تسویهشده"):
         return paid - fee, 0
-    if status in ("تسویه جزئی", "تسویه‌نشده"):
-        return 0, max(0, fee - paid)
-    return 0, 0
+    return 0, receivable_balance(fee, paid, settlement_status)
 
 def save_app_config(cfg):
     """Write config atomically; preserve the last valid settings file."""
