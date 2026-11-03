@@ -163,7 +163,7 @@ CPU_LIST = [
     "Intel Core i5 7xxxU / 7xxxH / HQ",
     "Intel Core i5 8xxxU / 8xxxH / HQ",
     "Intel Core i5 9xxxU / 9xxxH / HK",
-    "Intel Core i5 10xxxU / 10xxxH / 10xxxH",
+    "Intel Core i5 10xxxU / 10xxxH / 10xxxHK",
     "Intel Core i5 11xxxU / 11xxxH",
     "Intel Core i5 12xxxU / 12xxxH",
     "Intel Core i5 13xxxU / 13xxxH",
