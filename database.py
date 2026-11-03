@@ -192,10 +192,10 @@ class DatabaseManager:
                     notes TEXT DEFAULT '',
                     supplier_name_snapshot TEXT DEFAULT '',
                     colors_json TEXT DEFAULT '[]',
+                    updated_at TEXT,
                     FOREIGN KEY(product_id) REFERENCES products(id),
                     FOREIGN KEY(supplier_id) REFERENCES suppliers(id),
-                    FOREIGN KEY(buyer_employee_id) REFERENCES employees(id),
-                    updated_at TEXT
+                    FOREIGN KEY(buyer_employee_id) REFERENCES employees(id)
                 )
             """)
 
@@ -217,10 +217,10 @@ class DatabaseManager:
                     technician_id INTEGER,
                     serial_number TEXT DEFAULT '',
                     notes TEXT DEFAULT '',
+                    updated_at TEXT,
                     FOREIGN KEY(target_batch_id) REFERENCES batches(id),
                     FOREIGN KEY(part_batch_id) REFERENCES batches(id),
-                    FOREIGN KEY(technician_id) REFERENCES employees(id),
-                    updated_at TEXT
+                    FOREIGN KEY(technician_id) REFERENCES employees(id)
                 )
             """)
 
@@ -255,10 +255,10 @@ class DatabaseManager:
                     notes TEXT DEFAULT '',
                     specifications TEXT DEFAULT '',
                     colors_json TEXT DEFAULT '[]',
+                    updated_at TEXT,
                     FOREIGN KEY(product_id) REFERENCES products(id),
                     FOREIGN KEY(batch_id) REFERENCES batches(id),
-                    FOREIGN KEY(seller_employee_id) REFERENCES employees(id),
-                    updated_at TEXT
+                    FOREIGN KEY(seller_employee_id) REFERENCES employees(id)
                 )
             """)
 
@@ -283,8 +283,8 @@ class DatabaseManager:
                     old_fee INTEGER,
                     new_fee INTEGER,
                     change_date TEXT NOT NULL,
-                    FOREIGN KEY(service_id) REFERENCES service_catalog(id),
-                    updated_at TEXT
+                    updated_at TEXT,
+                    FOREIGN KEY(service_id) REFERENCES service_catalog(id)
                 )
             """)
 
@@ -306,9 +306,9 @@ class DatabaseManager:
                     settlement_status TEXT DEFAULT 'تسویه‌شده',
                     service_datetime TEXT NOT NULL,
                     description TEXT DEFAULT '',
+                    updated_at TEXT,
                     FOREIGN KEY(service_id) REFERENCES service_catalog(id),
-                    FOREIGN KEY(seller_employee_id) REFERENCES employees(id),
-                    updated_at TEXT
+                    FOREIGN KEY(seller_employee_id) REFERENCES employees(id)
                 )
             """)
 
