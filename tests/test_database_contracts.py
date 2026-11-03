@@ -138,8 +138,11 @@ def test_colleague_inventory_export_honors_selected_columns(manager, tmp_path):
 def test_sale_edit_updates_audit_timestamp_without_changing_sale_datetime(manager):
     product_id = create_product(manager, "P-SALE-TIME")
     batch_id = create_batch(manager, product_id, code="C-SALE-TIME")
-    sale_id = create_sale(manager, product_id, batch_id, warranty_days=30)
+    create_sale(manager, product_id, batch_id, warranty_days=30)
     with manager.get_connection() as conn:
+        sale_id = conn.execute(
+            "SELECT id FROM sales WHERE invoice_number='INV-TEST'"
+        ).fetchone()["id"]
         before = conn.execute(
             "SELECT sale_datetime, created_at, updated_at FROM sales WHERE id=?",
             (sale_id,),
@@ -792,7 +795,7 @@ def test_product_catalog_configuration_is_persisted_per_database(manager, tmp_pa
         "categories": ["لپ‌تاپ", "تجهیزات جدید"],
         "subcategories": {"تجهیزات جدید": ["دستگاه هوشمند"]},
         "attributes": {
-            "تجهیزات جدید": [{"name": "نسل", "values": ["نسل ۵", "نسل ۶"]}]
+            "تجهیزات جدید": [{"name": "نسل", "label": "Generation", "values": ["نسل ۵", "نسل ۶"]}]
         },
         "colors": ["مشکی", "نقره‌ای"],
     })
@@ -863,7 +866,7 @@ def test_product_attribute_rename_migrates_existing_specs_atomically(manager):
     with manager.get_connection() as conn:
         conn.execute(
             "UPDATE products SET specs_json=? WHERE id=?",
-            ('{"TDP":"65W","رنگ":"مشکی"}', product_id),
+            ('{"توان حرارتی":"65W","رنگ":"مشکی"}', product_id),
         )
         conn.commit()
 
@@ -872,7 +875,7 @@ def test_product_attribute_rename_migrates_existing_specs_atomically(manager):
         "subcategories": {"قطعات": ["پردازنده (CPU)"]},
         "attributes": {
             "قطعات": [
-                {"name": "توان مصرفی", "values": ["45W", "65W"], "subcategory": "پردازنده (CPU)"}
+                {"name": "توان مصرفی", "label": "Power", "values": ["45W", "65W"], "subcategory": "پردازنده (CPU)"}
             ]
         },
         "colors": ["مشکی"],
@@ -884,7 +887,7 @@ def test_product_attribute_rename_migrates_existing_specs_atomically(manager):
     # This contract is verified by the UI settings-save test; this unit test
     # keeps catalog configuration itself per database and serializable.
     assert manager.get_product_catalog_config()["attributes"]["قطعات"][0]["name"] == "توان مصرفی"
-    assert product["specs_json"] == '{"TDP":"65W","رنگ":"مشکی"}'
+    assert product["specs_json"] == '{"توان حرارتی":"65W","رنگ":"مشکی"}'
 
 
 

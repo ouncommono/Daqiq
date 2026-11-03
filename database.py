@@ -833,6 +833,19 @@ class DatabaseManager:
                 name = str(item.get("name", "") or "").strip()
                 if not name:
                     continue
+                if any(character.isascii() and character.isalpha() for character in name):
+                    raise ValueError(
+                        f"نام ویژگی «{name}» باید فارسی باشد؛ عنوان انگلیسی را جداگانه وارد کنید."
+                    )
+                label = str(item.get("label", "") or "").strip()
+                if (
+                    not label
+                    or not label.isascii()
+                    or not any(character.isalpha() for character in label)
+                ):
+                    raise ValueError(
+                        f"عنوان نمایشی ویژگی «{name}» باید به زبان انگلیسی وارد شود."
+                    )
                 values = item.get("values", [])
                 if not isinstance(values, list):
                     raise ValueError(f"مقادیر مشخصهٔ «{name}» باید به‌صورت فهرست باشند.")
@@ -844,9 +857,7 @@ class DatabaseManager:
                     )),
                     "subcategory": str(item.get("subcategory", "") or "").strip(),
                 }
-                label = str(item.get("label", "") or "").strip()
-                if label:
-                    clean_item["label"] = label
+                clean_item["label"] = label
                 clean_items.append(clean_item)
             clean_attributes[str(category)] = clean_items
 

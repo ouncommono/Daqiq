@@ -524,7 +524,7 @@ def test_custom_attribute_name_is_form_label_and_title_is_output_label(tmp_path,
             "subcategories": {"لپ‌تاپ": ["عمومی"]},
             "attributes": {"لپ‌تاپ": [
                 {"name": "رم", "label": "RAM", "values": []},
-                {"name": "نوع رم", "label": "@رم", "values": []},
+                {"name": "نوع رم", "label": "@RAM", "values": []},
             ]},
             "colors": [],
         })
@@ -1036,12 +1036,14 @@ def test_technical_attributes_follow_selected_subcategory_and_are_editable(
         "attributes": {
             "قطعات": [
                 {
-                    "name": "TDP",
+                    "name": "توان حرارتی",
+                    "label": "TDP",
                     "values": ["45W", "65W"],
                     "subcategory": "پردازنده (CPU)",
                 },
                 {
-                    "name": "VRAM",
+                    "name": "حافظه گرافیکی",
+                    "label": "VRAM",
                     "values": ["4GB", "8GB"],
                     "subcategory": "کارت گرافیک (Graphic Card)",
                 },
@@ -1053,14 +1055,14 @@ def test_technical_attributes_follow_selected_subcategory_and_are_editable(
     window = MainWindow(manager, active_employee=None)
     try:
         assert window.cb_prod_cat.currentText() == "قطعات"
-        assert "TDP" in window.specs_widget.fields
-        assert "VRAM" not in window.specs_widget.fields
-        assert window.specs_widget.fields["TDP"].count() == 3
+        assert "توان حرارتی" in window.specs_widget.fields
+        assert "حافظه گرافیکی" not in window.specs_widget.fields
+        assert window.specs_widget.fields["توان حرارتی"].count() == 3
 
         window.specs_widget.cb_sub.setCurrentText("کارت گرافیک (Graphic Card)")
-        assert "VRAM" in window.specs_widget.fields
-        assert "TDP" not in window.specs_widget.fields
-        assert window.specs_widget.fields["VRAM"].count() == 3
+        assert "حافظه گرافیکی" in window.specs_widget.fields
+        assert "توان حرارتی" not in window.specs_widget.fields
+        assert window.specs_widget.fields["حافظه گرافیکی"].count() == 3
     finally:
         window.close()
         qapp.processEvents()
@@ -1082,7 +1084,7 @@ def test_taxonomy_attribute_rename_and_pending_category_delete_preserve_product_
     manager = DatabaseManager(str(tmp_path / "shop.db"))
     manager.add_product(
         "P-TAX-1", "", "قطعات", "پردازنده (CPU)",
-        "Intel", "i5", {"TDP": "65W", "رنگ": "مشکی"}, "", 1, 20,
+        "Intel", "i5", {"توان حرارتی": "65W", "رنگ": "مشکی"}, "", 1, 20,
     )
 
     manager.save_product_catalog_config({
@@ -1091,7 +1093,8 @@ def test_taxonomy_attribute_rename_and_pending_category_delete_preserve_product_
         "attributes": {
             "قطعات": [
                 {
-                    "name": "TDP",
+                    "name": "توان حرارتی",
+                    "label": "TDP",
                     "values": ["45W", "65W"],
                     "subcategory": "پردازنده (CPU)",
                 }
@@ -1106,6 +1109,7 @@ def test_taxonomy_attribute_rename_and_pending_category_delete_preserve_product_
         attribute_item = window.lst_cfg_attributes.item(0)
         window.lst_cfg_attributes.setCurrentItem(attribute_item)
         window.ed_cfg_attribute_name.setText("توان مصرفی")
+        window.ed_cfg_attribute_label.setText("Power")
         window._update_catalog_attribute()
 
         # Renaming the category and deleting it before Save must not bypass the
@@ -1125,7 +1129,7 @@ def test_taxonomy_attribute_rename_and_pending_category_delete_preserve_product_
         specs = __import__("json").loads(product["specs_json"])
         assert product["category"] == "سخت‌افزار"
         assert specs["توان مصرفی"] == "65W"
-        assert "TDP" not in specs
+        assert "توان حرارتی" not in specs
     finally:
         window.close()
         qapp.processEvents()
@@ -1183,7 +1187,7 @@ def test_catalog_create_actions_reject_persian_spacing_aliases(tmp_path, monkeyp
         window.cb_cfg_category.setCurrentText("لپ‌تاپ")
         subcategories = window._taxonomy_draft["subcategories"]["لپ‌تاپ"]
         subcategory_count = len(subcategories)
-        window.ed_cfg_subcategory.setText("لپ تاپ عمومی / مالتی مدیا")
+        window.ed_cfg_subcategory.setText("عمومی‌ / اداری")
         window._add_catalog_subcategory()
         assert len(window._taxonomy_draft["subcategories"]["لپ‌تاپ"]) == subcategory_count
 
@@ -1201,7 +1205,7 @@ def test_catalog_create_actions_reject_persian_spacing_aliases(tmp_path, monkeyp
 
         assert len(messages) == 4
         assert "لپ‌تاپ" in messages[0][1]
-        assert "لپ‌تاپ عمومی" in messages[1][1]
+        assert "عمومی" in messages[1][1]
         assert "نقره‌ای" in messages[2][1]
         assert "نرم‌افزاری" in messages[3][1]
     finally:
@@ -1264,7 +1268,9 @@ def test_comprehensive_report_orders_by_last_edit_and_aligns_specification_colum
 
     window = MainWindow(manager, active_employee=None)
     try:
-        window.cb_rep_type.setCurrentIndex(0)
+        window.cb_rep_type.setCurrentIndex(
+            window.cb_rep_type.findText("همه (گزارش جامع خرید، فروش و خدمات)")
+        )
         window._update_report_live()
         headers = [
             window.tbl_report.horizontalHeaderItem(index).text()
@@ -1392,7 +1398,10 @@ def test_v110_granular_permissions_control_views_and_actions(tmp_path, monkeypat
     )
     window = MainWindow(
         manager,
-        active_employee={"id": 999, "name": "آزمون", "permissions": "کاربر فروش"},
+        active_employee={
+                "id": 999, "name": "آزمون", "role": "فروشنده",
+                "permissions": "کاربر فروش",
+            },
     )
     try:
         assert window._has_permission("sales.view")

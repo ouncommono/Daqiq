@@ -874,8 +874,16 @@ class MainWindow(QMainWindow):
         )
 
     def _update_active_user_badge(self):
-        employee_name = self.active_employee["name"] if self.active_employee else "مدیر سیستم"
-        employee_role = self.active_employee["role"] if self.active_employee else "دسترسی کامل"
+        employee_name = (
+            self.active_employee.get("name") or "کاربر"
+            if self.active_employee else "مدیر سیستم"
+        )
+        employee_role = (
+            self.active_employee.get("role")
+            or self.active_employee.get("permissions")
+            or "کاربر"
+            if self.active_employee else "دسترسی کامل"
+        )
         self.lbl_active_user.setText(f"👤 کاربر: {employee_name}")
         self.lbl_active_user.setToolTip(
             f"کاربر فعال: {employee_name}\nنقش و سطح شغلی: {employee_role}"
@@ -1041,6 +1049,21 @@ class MainWindow(QMainWindow):
                 )
                 button.setEnabled(self._has_permission(permission_key))
 
+        if hasattr(self, "products_settings_page"):
+            self.products_settings_page.setEnabled(any(
+                self._has_permission(key) for key in (
+                    "products.view", "products.create",
+                    "products.update", "products.delete",
+                )
+            ))
+        if hasattr(self, "services_settings_page"):
+            self.services_settings_page.setEnabled(
+                self._has_permission("services.catalog.manage")
+            )
+        if hasattr(self, "gb_security"):
+            self.gb_security.setEnabled(
+                self._has_permission("settings.update")
+            )
         if hasattr(self, "gb_access_levels"):
             self.gb_access_levels.setEnabled(
                 self._has_permission("access_levels.manage")
@@ -1048,6 +1071,7 @@ class MainWindow(QMainWindow):
         if hasattr(self, "gb_inventory_export"):
             self.gb_inventory_export.setEnabled(
                 self._has_permission("inventory_export.view")
+                and self._has_permission("settings.update")
             )
         if hasattr(self, "gb_general_settings"):
             self.gb_general_settings.setEnabled(
@@ -4668,18 +4692,35 @@ class MainWindow(QMainWindow):
                 except ValueError:
                     return 0
 
+            def business_date_key(value):
+                normalized = normalize_digits(str(value or "")).strip()
+                if "T" in normalized and "-" in normalized:
+                    try:
+                        parsed = datetime.fromisoformat(
+                            normalized.replace("Z", "+00:00")
+                        )
+                        return jdatetime.datetime.fromgregorian(
+                            datetime=parsed
+                        ).strftime("%Y/%m/%d %H:%M:%S")
+                    except (TypeError, ValueError):
+                        pass
+                return normalized.replace("-", "/")
+
             if sort_mode.startswith("date_"):
-                key_func = lambda row: str(
+                key_func = lambda row: business_date_key(
                     report_cell(row, ("تاریخ و ساعت", "تاریخ خرید", "تاریخ"))
                     or row[0] or ""
                 )
             elif sort_mode.startswith("amount_"):
                 key_func = lambda row: numeric_value(
-                    report_cell(row, ("مبلغ کل", "مبلغ خدمت", "مبلغ فروش", "مبلغ"))
+                    report_cell(
+                        row,
+                        ("مبلغ کل", "مبلغ خدمت", "مبلغ فروش", "هزینه خدمت", "هزینه", "مبلغ"),
+                    )
                 )
             elif sort_mode.startswith("category_"):
                 key_func = lambda row: str(
-                    report_cell(row, ("دسته‌بندی", "دسته"))
+                    report_cell(row, ("دسته‌بندی", "دسته", "نوع خدمت"))
                 ).casefold()
             elif sort_mode.startswith("discount_"):
                 key_func = lambda row: abs(
@@ -5042,6 +5083,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.lbl_app_version)
 
         gb_security = QGroupBox("امنیت و ورود کاربران")
+        self.gb_security = gb_security
         security_layout = QVBoxLayout(gb_security)
         self.chk_req_pass = QCheckBox(
             "اجبار ورود با رمز عبور برای تمام کارکنان فعال"
@@ -5130,9 +5172,11 @@ class MainWindow(QMainWindow):
         self.cb_zero_count.addItem("افزودن ۲ صفر (×۱۰۰)", "2")
         self.cb_zero_count.addItem("افزودن ۳ صفر (×۱٬۰۰۰)", "3")
         self.cb_zero_count.addItem("افزودن ۴ صفر (×۱۰٬۰۰۰)", "4")
+        persian_digit_map = str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹")
         for zeros in (5, 6, 7, 8, 9, 10, 11, 12):
+            label = f"افزودن {zeros} صفر (×{10 ** zeros:,})"
             self.cb_zero_count.addItem(
-                f"افزودن {zeros} صفر (×{10 ** zeros:,})", str(zeros)
+                label.translate(persian_digit_map), str(zeros)
             )
 
         self.cb_win_mode = QComboBox()
@@ -5154,6 +5198,7 @@ class MainWindow(QMainWindow):
         catalog_layout = QVBoxLayout(gb_catalog)
         self.catalog_tabs = QTabWidget()
         products_page = QWidget()
+        self.products_settings_page = products_page
         catalog_grid = QGridLayout(products_page)
         catalog_grid.setHorizontalSpacing(10)
         catalog_grid.setVerticalSpacing(8)
@@ -5167,12 +5212,15 @@ class MainWindow(QMainWindow):
         self.ed_cfg_category.setPlaceholderText("نام فارسی دسته‌بندی اصلی را وارد کنید...")
         cat_btn_row = QHBoxLayout()
         btn_add_category = QPushButton("افزودن")
+        btn_add_category.setProperty("permission_key", "products.create")
         btn_add_category.clicked.connect(self._add_catalog_category)
         btn_rename_category = QPushButton("تغییر نام")
         btn_rename_category.setObjectName("btnSecondary")
+        btn_rename_category.setProperty("permission_key", "products.update")
         btn_rename_category.clicked.connect(self._rename_catalog_category)
         btn_delete_category = QPushButton("حذف")
         btn_delete_category.setObjectName("btnDanger")
+        btn_delete_category.setProperty("permission_key", "products.delete")
         btn_delete_category.clicked.connect(self._delete_catalog_category)
         cat_btn_row.addWidget(btn_add_category)
         cat_btn_row.addWidget(btn_rename_category)
@@ -5199,12 +5247,15 @@ class MainWindow(QMainWindow):
         self.ed_cfg_subcategory.setPlaceholderText("نام زیرمجموعه را وارد کنید؛ مثلاً صفحه‌نمایش یا پردازنده...")
         sub_btn_row = QHBoxLayout()
         btn_add_sub = QPushButton("افزودن")
+        btn_add_sub.setProperty("permission_key", "products.create")
         btn_add_sub.clicked.connect(self._add_catalog_subcategory)
         btn_rename_sub = QPushButton("تغییر نام")
         btn_rename_sub.setObjectName("btnSecondary")
+        btn_rename_sub.setProperty("permission_key", "products.update")
         btn_rename_sub.clicked.connect(self._rename_catalog_subcategory)
         btn_delete_sub = QPushButton("حذف")
         btn_delete_sub.setObjectName("btnDanger")
+        btn_delete_sub.setProperty("permission_key", "products.delete")
         btn_delete_sub.clicked.connect(self._delete_catalog_subcategory)
         sub_btn_row.addWidget(btn_add_sub)
         sub_btn_row.addWidget(btn_rename_sub)
@@ -5252,12 +5303,15 @@ class MainWindow(QMainWindow):
         )
         attr_btn_row = QHBoxLayout()
         btn_add_attr = QPushButton("افزودن ویژگی")
+        btn_add_attr.setProperty("permission_key", "products.create")
         btn_add_attr.clicked.connect(self._add_catalog_attribute)
         btn_update_attr = QPushButton("ویرایش")
         btn_update_attr.setObjectName("btnSecondary")
+        btn_update_attr.setProperty("permission_key", "products.update")
         btn_update_attr.clicked.connect(self._update_catalog_attribute)
         btn_delete_attr = QPushButton("حذف ویژگی")
         btn_delete_attr.setObjectName("btnDanger")
+        btn_delete_attr.setProperty("permission_key", "products.delete")
         btn_delete_attr.clicked.connect(self._delete_catalog_attribute)
         attr_btn_row.addWidget(btn_add_attr)
         attr_btn_row.addWidget(btn_update_attr)
@@ -5290,12 +5344,15 @@ class MainWindow(QMainWindow):
         self.ed_cfg_color.setPlaceholderText("نام رنگ را وارد کنید؛ مثلاً سبز، ذغالی یا نقره‌ای...")
         color_btn_row = QHBoxLayout()
         btn_add_color = QPushButton("افزودن رنگ")
+        btn_add_color.setProperty("permission_key", "products.create")
         btn_add_color.clicked.connect(self._add_catalog_color)
         btn_rename_color = QPushButton("تغییر نام")
         btn_rename_color.setObjectName("btnSecondary")
+        btn_rename_color.setProperty("permission_key", "products.update")
         btn_rename_color.clicked.connect(self._rename_catalog_color)
         btn_delete_color = QPushButton("حذف رنگ")
         btn_delete_color.setObjectName("btnDanger")
+        btn_delete_color.setProperty("permission_key", "products.delete")
         btn_delete_color.clicked.connect(self._delete_catalog_color)
         color_btn_row.addWidget(btn_add_color)
         color_btn_row.addWidget(btn_rename_color)
@@ -5319,6 +5376,7 @@ class MainWindow(QMainWindow):
             self._load_subcategory_caption
         )
         btn_save_subcaption = QPushButton("ذخیره عنوان فیلد")
+        btn_save_subcaption.setProperty("permission_key", "products.update")
         btn_save_subcaption.clicked.connect(self._save_subcategory_caption)
         subcaption_layout.addRow("دسته‌بندی:", self.cb_subcategory_caption_category)
         subcaption_layout.addRow("عنوان فیلد:", self.ed_subcategory_caption)
@@ -5350,6 +5408,7 @@ class MainWindow(QMainWindow):
         # Service types are managed beside the product catalog, not in a separate
         # application tab. Existing service records retain their stored snapshots.
         service_page = QWidget()
+        self.services_settings_page = service_page
         service_page_layout = QVBoxLayout(service_page)
         gb_service_types = QGroupBox("مدیریت انواع خدمت")
         service_types_layout = QVBoxLayout(gb_service_types)
@@ -5364,12 +5423,15 @@ class MainWindow(QMainWindow):
         )
         service_type_buttons = QHBoxLayout()
         btn_add_service_type = QPushButton("افزودن نوع خدمت")
+        btn_add_service_type.setProperty("permission_key", "services.catalog.manage")
         btn_add_service_type.clicked.connect(self._add_catalog_service_type)
         btn_edit_service_type = QPushButton("ویرایش نوع خدمت")
         btn_edit_service_type.setObjectName("btnSecondary")
+        btn_edit_service_type.setProperty("permission_key", "services.catalog.manage")
         btn_edit_service_type.clicked.connect(self._rename_catalog_service_type)
         btn_delete_service_type = QPushButton("حذف نوع خدمت")
         btn_delete_service_type.setObjectName("btnDanger")
+        btn_delete_service_type.setProperty("permission_key", "services.catalog.manage")
         btn_delete_service_type.clicked.connect(self._delete_catalog_service_type)
         service_type_buttons.addWidget(btn_add_service_type)
         service_type_buttons.addWidget(btn_edit_service_type)
@@ -5462,11 +5524,14 @@ class MainWindow(QMainWindow):
 
         db_btn_row = QHBoxLayout()
         btn_new_db = QPushButton("ایجاد پایگاه داده")
+        btn_new_db.setProperty("permission_key", "settings.update")
         btn_new_db.clicked.connect(self._create_and_connect_new_db)
         btn_open_existing_db = QPushButton("اتصال به پایگاه دادهٔ موجود")
         btn_open_existing_db.setObjectName("btnSecondary")
+        btn_open_existing_db.setProperty("permission_key", "settings.database_restore")
         btn_open_existing_db.clicked.connect(self._connect_existing_db)
         btn_open_db_dir = QPushButton("باز کردن پوشه")
+        btn_open_db_dir.setProperty("permission_key", "settings.view")
         btn_open_db_dir.clicked.connect(self._open_db_folder)
         db_btn_row.addWidget(btn_new_db)
         db_btn_row.addWidget(btn_open_existing_db)
@@ -6086,7 +6151,7 @@ class MainWindow(QMainWindow):
                 "نام ویژگی باید فارسی باشد؛ عنوان انگلیسی را در فیلد عنوان نمایشی وارد کنید.",
             )
             return
-        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9 _/+().&-]*", display_title):
+        if not re.fullmatch(r"@?[A-Za-z][A-Za-z0-9 _/+().&-]*", display_title):
             QMessageBox.warning(
                 self, "عنوان نمایشی نامعتبر",
                 "عنوان نمایشی باید انگلیسی باشد؛ مانند CPU، RAM یا Storage.",
@@ -6171,7 +6236,7 @@ class MainWindow(QMainWindow):
                 "نام ویژگی باید فارسی باشد؛ عنوان انگلیسی را در فیلد عنوان نمایشی وارد کنید.",
             )
             return
-        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9 _/+().&-]*", display_title):
+        if not re.fullmatch(r"@?[A-Za-z][A-Za-z0-9 _/+().&-]*", display_title):
             QMessageBox.warning(
                 self, "عنوان نمایشی نامعتبر",
                 "عنوان نمایشی باید انگلیسی باشد؛ مانند CPU، RAM یا Storage.",
