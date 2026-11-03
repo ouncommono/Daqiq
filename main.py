@@ -4449,7 +4449,7 @@ class MainWindow(QMainWindow):
         categories_layout = QVBoxLayout(gb_categories)
         self.cb_cfg_category = QComboBox()
         self.ed_cfg_category = QLineEdit()
-        self.ed_cfg_category.setPlaceholderText("نام دسته‌بندی جدید یا نام جایگزین...")
+        self.ed_cfg_category.setPlaceholderText("نام دسته‌بندی...")
         cat_btn_row = QHBoxLayout()
         btn_add_category = QPushButton("افزودن")
         btn_add_category.clicked.connect(self._add_catalog_category)
@@ -4462,7 +4462,13 @@ class MainWindow(QMainWindow):
         cat_btn_row.addWidget(btn_add_category)
         cat_btn_row.addWidget(btn_rename_category)
         cat_btn_row.addWidget(btn_delete_category)
+        lbl_category_current = QLabel("دسته‌بندی اصلی:")
+        lbl_category_current.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        lbl_category_new = QLabel("نام جدید یا نام جایگزین:")
+        lbl_category_new.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        categories_layout.addWidget(lbl_category_current)
         categories_layout.addWidget(self.cb_cfg_category)
+        categories_layout.addWidget(lbl_category_new)
         categories_layout.addWidget(self.ed_cfg_category)
         categories_layout.addLayout(cat_btn_row)
 
@@ -4473,7 +4479,7 @@ class MainWindow(QMainWindow):
         self.lst_cfg_subcategories.verticalScrollBar().setSingleStep(18)
         self.lst_cfg_subcategories.setMaximumHeight(125)
         self.ed_cfg_subcategory = QLineEdit()
-        self.ed_cfg_subcategory.setPlaceholderText("عنوان زیرمجموعه...")
+        self.ed_cfg_subcategory.setPlaceholderText("نام زیرمجموعه را وارد کنید...")
         sub_btn_row = QHBoxLayout()
         btn_add_sub = QPushButton("افزودن")
         btn_add_sub.clicked.connect(self._add_catalog_subcategory)
@@ -4486,7 +4492,10 @@ class MainWindow(QMainWindow):
         sub_btn_row.addWidget(btn_add_sub)
         sub_btn_row.addWidget(btn_rename_sub)
         sub_btn_row.addWidget(btn_delete_sub)
+        lbl_subcategory = QLabel("نام زیرمجموعه:")
+        lbl_subcategory.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         sub_layout.addWidget(self.lst_cfg_subcategories)
+        sub_layout.addWidget(lbl_subcategory)
         sub_layout.addWidget(self.ed_cfg_subcategory)
         sub_layout.addLayout(sub_btn_row)
 
@@ -4497,22 +4506,25 @@ class MainWindow(QMainWindow):
         self.lst_cfg_attributes.verticalScrollBar().setSingleStep(18)
         self.lst_cfg_attributes.setMaximumHeight(125)
         self.ed_cfg_attribute_name = QLineEdit()
-        self.ed_cfg_attribute_name.setPlaceholderText("نام ویژگی؛ مثلاً نوع پنل")
+        self.ed_cfg_attribute_name.setPlaceholderText("مثلاً نوع پردازنده یا نوع پنل")
         self.ed_cfg_attribute_label = QLineEdit()
         self.ed_cfg_attribute_label.setPlaceholderText(
-            "عنوان برای ذخیره؛ خالی = نام ویژگی، @نام ویژگی = افزودن مقدار به ویژگی مرجع"
+            "مثلاً CPU یا RAM؛ برای ترکیب مقدار با ویژگی دیگر، @نام فارسی آن ویژگی را بنویسید"
         )
         self.lbl_cfg_attribute_help = QLabel(
-            "راهنما: اگر عنوان را مثلاً «@رم» بنویسید، مقدار این ویژگی به مقدار ویژگی «رم» "
-            "اضافه می‌شود و خروجی به شکل «RAM: 8GB DDR4» نمایش داده خواهد شد."
+            "راهنما: نام ویژگی را فارسی بنویسید و عنوان نمایشی را انگلیسی وارد کنید؛ "
+            "مثلاً «پردازنده» با عنوان «CPU». اگر می‌خواهید مقدار این ویژگی کنار مقدار ویژگی دیگری بیاید، "
+            "در عنوان آن نام فارسی ویژگی اصلی را با @ بنویسید؛ مثلاً «@ظرفیت رم»."
         )
         self.lbl_cfg_attribute_help.setWordWrap(True)
         self.lbl_cfg_attribute_help.setStyleSheet("color: #64748b; font-size: 11px;")
         self.ed_cfg_attribute_values = QLineEdit()
-        self.ed_cfg_attribute_values.setPlaceholderText("مقادیر پیشنهادی با جداکنندهٔ ویرگول")
+        self.ed_cfg_attribute_values.setPlaceholderText("مثلاً Intel Core i5 8xxxU, Intel Core i7 8xxxH")
         self.cb_cfg_attribute_subcategory = QComboBox()
         self.cb_cfg_attribute_subcategory.addItem("همهٔ زیرمجموعه‌ها", "")
-        attr_layout.addWidget(QLabel("محدودهٔ زیرمجموعه:"))
+        lbl_scope = QLabel("اعمال ویژگی برای:")
+        lbl_scope.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        attr_layout.addWidget(lbl_scope)
         attr_layout.addWidget(self.cb_cfg_attribute_subcategory)
         self.lst_cfg_attributes.currentItemChanged.connect(
             self._on_catalog_attribute_selected
@@ -4529,11 +4541,19 @@ class MainWindow(QMainWindow):
         attr_btn_row.addWidget(btn_add_attr)
         attr_btn_row.addWidget(btn_update_attr)
         attr_btn_row.addWidget(btn_delete_attr)
+        lbl_attribute_name = QLabel("نام ویژگی (فارسی):")
+        lbl_attribute_name.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        lbl_attribute_title = QLabel("عنوان نمایشی (انگلیسی، اختیاری):")
+        lbl_attribute_title.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        lbl_attribute_values = QLabel("مقادیر پیشنهادی:")
+        lbl_attribute_values.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         attr_layout.addWidget(self.lst_cfg_attributes)
+        attr_layout.addWidget(lbl_attribute_name)
         attr_layout.addWidget(self.ed_cfg_attribute_name)
-        attr_layout.addWidget(QLabel("عنوان (اختیاری):"))
+        attr_layout.addWidget(lbl_attribute_title)
         attr_layout.addWidget(self.ed_cfg_attribute_label)
         attr_layout.addWidget(self.lbl_cfg_attribute_help)
+        attr_layout.addWidget(lbl_attribute_values)
         attr_layout.addWidget(self.ed_cfg_attribute_values)
         attr_layout.addLayout(attr_btn_row)
 
@@ -4544,7 +4564,7 @@ class MainWindow(QMainWindow):
         self.lst_cfg_colors.verticalScrollBar().setSingleStep(18)
         self.lst_cfg_colors.setMaximumHeight(125)
         self.ed_cfg_color = QLineEdit()
-        self.ed_cfg_color.setPlaceholderText("نام رنگ جدید...")
+        self.ed_cfg_color.setPlaceholderText("مثلاً سبز یا ذغالی...")
         color_btn_row = QHBoxLayout()
         btn_add_color = QPushButton("افزودن رنگ")
         btn_add_color.clicked.connect(self._add_catalog_color)
@@ -4557,7 +4577,10 @@ class MainWindow(QMainWindow):
         color_btn_row.addWidget(btn_add_color)
         color_btn_row.addWidget(btn_rename_color)
         color_btn_row.addWidget(btn_delete_color)
+        lbl_color_name = QLabel("نام رنگ:")
+        lbl_color_name.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         colors_layout.addWidget(self.lst_cfg_colors)
+        colors_layout.addWidget(lbl_color_name)
         colors_layout.addWidget(self.ed_cfg_color)
         colors_layout.addLayout(color_btn_row)
 
@@ -4589,7 +4612,7 @@ class MainWindow(QMainWindow):
         self.lst_cfg_service_types.verticalScrollBar().setSingleStep(18)
         self.lst_cfg_service_types.setMaximumHeight(220)
         self.ed_cfg_service_type = QLineEdit()
-        self.ed_cfg_service_type.setPlaceholderText("عنوان نوع خدمت...")
+        self.ed_cfg_service_type.setPlaceholderText("مثلاً سخت‌افزاری یا نرم‌افزاری...")
         self.lst_cfg_service_types.currentItemChanged.connect(
             self._on_catalog_service_type_selected
         )
@@ -4605,7 +4628,10 @@ class MainWindow(QMainWindow):
         service_type_buttons.addWidget(btn_add_service_type)
         service_type_buttons.addWidget(btn_edit_service_type)
         service_type_buttons.addWidget(btn_delete_service_type)
+        lbl_service_type = QLabel("نام نوع خدمت:")
+        lbl_service_type.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         service_types_layout.addWidget(self.lst_cfg_service_types)
+        service_types_layout.addWidget(lbl_service_type)
         service_types_layout.addWidget(self.ed_cfg_service_type)
         service_types_layout.addLayout(service_type_buttons)
         service_page_layout.addWidget(gb_service_types)
