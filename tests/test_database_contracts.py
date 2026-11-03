@@ -5,6 +5,7 @@ import sqlite3
 import pytest
 
 import database as database_module
+import exporter as exporter_module
 from database import DatabaseManager
 
 
@@ -91,6 +92,28 @@ def test_new_database_places_activity_columns_last_and_creates_activity_indexes(
                 row["name"] for row in conn.execute(f"PRAGMA index_list({table})")
             }
             assert expected_index in indexes, (table, indexes)
+
+
+def test_partner_inventory_export_obeys_selected_columns(manager, tmp_path):
+    product_id = create_product(manager, "P-PEER")
+    create_batch(
+        manager, product_id, code="C-PEER", quantity=4, unit_price=125, suggested=215
+    )
+    manager.set_setting(
+        "peer_inventory_export_fields",
+        json.dumps(["code", "suggested_price"], ensure_ascii=False),
+    )
+    output = tmp_path / "partner-inventory.xlsx"
+    exporter_module.export_safe_inventory_excel(manager, str(output), "8 رایان")
+
+    workbook = exporter_module.openpyxl.load_workbook(output, read_only=True, data_only=True)
+    try:
+        sheet = workbook["موجودی همکار"]
+        headers = [sheet.cell(2, column).value for column in range(1, sheet.max_column + 1)]
+        assert headers == ["کد کالا", "قیمت فروش (پیشنهادی)"]
+        assert [sheet.cell(3, column).value for column in range(1, 3)] == ["P-PEER", 215]
+    finally:
+        workbook.close()
 
 
 def test_new_database_has_no_seeded_employees_and_codes_are_sequenced(manager):
