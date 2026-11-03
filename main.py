@@ -2324,7 +2324,7 @@ class MainWindow(QMainWindow):
         with self.db.get_connection() as conn:
             sale_specs = conn.execute(
                 """SELECT s.specifications, s.colors_json AS sale_colors,
-                          b.batch_id AS unused_batch_id, b.colors_json AS batch_colors
+                          b.id AS batch_id, b.colors_json AS batch_colors
                    FROM sales s JOIN batches b ON b.id=s.batch_id
                    WHERE s.id=?""",
                 (self.selected_sale_id,),
