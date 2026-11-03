@@ -5542,7 +5542,9 @@ class MainWindow(QMainWindow):
         except (TypeError, ValueError, json.JSONDecodeError):
             selected_export_columns = []
         if not selected_export_columns:
-            selected_export_columns = list(self.inventory_export_column_checks)
+            selected_export_columns = [
+                "code", "batch_code", "category", "subcategory", "brand_model", "specs",
+            ]
         for key, checkbox in self.inventory_export_column_checks.items():
             checkbox.setChecked(key in selected_export_columns)
         self._load_subcategory_caption(
