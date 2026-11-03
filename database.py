@@ -187,6 +187,7 @@ class DatabaseManager:
                     final_specs TEXT DEFAULT '',
                     notes TEXT DEFAULT '',
                     supplier_name_snapshot TEXT DEFAULT '',
+                    colors_json TEXT DEFAULT '[]',
                     FOREIGN KEY(product_id) REFERENCES products(id),
                     FOREIGN KEY(supplier_id) REFERENCES suppliers(id),
                     FOREIGN KEY(buyer_employee_id) REFERENCES employees(id)
@@ -247,6 +248,7 @@ class DatabaseManager:
                     serial_number TEXT DEFAULT '',
                     notes TEXT DEFAULT '',
                     specifications TEXT DEFAULT '',
+                    colors_json TEXT DEFAULT '[]',
                     FOREIGN KEY(product_id) REFERENCES products(id),
                     FOREIGN KEY(batch_id) REFERENCES batches(id),
                     FOREIGN KEY(seller_employee_id) REFERENCES employees(id)
@@ -389,13 +391,23 @@ class DatabaseManager:
             )
 
             # Migrate existing databases without dropping any business records.
+            # Track first-time colour-column creation so legacy product colours can
+            # be transferred to each purchase batch exactly once.
+            batch_colors_added = "colors_json" not in {
+                row["name"] for row in conn.execute("PRAGMA table_info(batches)").fetchall()
+            }
+            sales_colors_added = "colors_json" not in {
+                row["name"] for row in conn.execute("PRAGMA table_info(sales)").fetchall()
+            }
             migrations = (
                 ("upgrades", "added_cost_unit", "INTEGER DEFAULT 0"),
                 ("upgrades", "manual_part_description", "TEXT DEFAULT ''"),
                 ("upgrades", "stock_deducted_qty", "INTEGER DEFAULT -1"),
                 ("batches", "supplier_name_snapshot", "TEXT DEFAULT ''"),
+                ("batches", "colors_json", "TEXT DEFAULT '[]'"),
                 ("sales", "warranty_days", "INTEGER DEFAULT 0"),
                 ("sales", "specifications", "TEXT DEFAULT ''"),
+                ("sales", "colors_json", "TEXT DEFAULT '[]'"),
             )
             for table_name, column_name, column_type in migrations:
                 columns = {
@@ -458,6 +470,54 @@ class DatabaseManager:
                 )
                 conn.execute("DROP TABLE upgrades")
                 conn.execute("ALTER TABLE upgrades_rebuilt RENAME TO upgrades")
+
+            # One-time transfer from the old product-level colour field to purchase
+            # batches. Each existing batch inherits its product's former colour.
+            if batch_colors_added:
+                product_rows = conn.execute(
+                    "SELECT id, specs_json FROM products"
+                ).fetchall()
+                for product_row in product_rows:
+                    try:
+                        specs = json.loads(product_row["specs_json"] or "{}")
+                    except (TypeError, ValueError, json.JSONDecodeError):
+                        continue
+                    if not isinstance(specs, dict):
+                        continue
+                    legacy_color = None
+                    for color_key in ("رنگ", "رنگ کالا", "Color", "Colour"):
+                        value = specs.pop(color_key, None)
+                        if value and not legacy_color:
+                            legacy_color = value
+                    if legacy_color:
+                        colors = (
+                            [str(value).strip() for value in legacy_color if str(value).strip()]
+                            if isinstance(legacy_color, list)
+                            else [str(legacy_color).strip()]
+                        )
+                        colors = list(dict.fromkeys(value for value in colors if value))
+                        if colors:
+                            conn.execute(
+                                """UPDATE batches SET colors_json=?
+                                   WHERE product_id=?
+                                     AND (colors_json IS NULL OR colors_json='' OR colors_json='[]')""",
+                                (json.dumps(colors, ensure_ascii=False), product_row["id"]),
+                            )
+                    if len(specs) != len(json.loads(product_row["specs_json"] or "{}")):
+                        conn.execute(
+                            "UPDATE products SET specs_json=? WHERE id=?",
+                            (json.dumps(specs, ensure_ascii=False), product_row["id"]),
+                        )
+
+            if sales_colors_added:
+                conn.execute(
+                    """UPDATE sales
+                       SET colors_json=COALESCE(
+                           (SELECT NULLIF(b.colors_json,'[]') FROM batches b WHERE b.id=sales.batch_id),
+                           '[]'
+                       )
+                       WHERE colors_json IS NULL OR colors_json='' OR colors_json='[]'"""
+                )
 
             # Historic upgrades deducted their full recorded quantity. New records
             # explicitly track the amount actually removed from inventory.
@@ -1087,6 +1147,19 @@ class DatabaseManager:
             return cur.lastrowid
 
     # --- مدیریت محموله‌های خرید (Batches) ---
+    @staticmethod
+    def _normalize_color_list(colors):
+        if colors is None:
+            return None
+        if isinstance(colors, str):
+            colors = [colors]
+        if not isinstance(colors, (list, tuple, set)):
+            raise ValueError("فهرست رنگ‌های کالا معتبر نیست.")
+        return list(dict.fromkeys(
+            str(value).strip() for value in colors
+            if value is not None and str(value).strip()
+        ))
+
     def add_batch(
         self,
         batch_code,
@@ -1104,6 +1177,7 @@ class DatabaseManager:
         initial_specs="",
         notes="",
         settlement_status=None,
+        colors=None,
     ):
         if not batch_code:
             batch_code = self.generate_next_code("batches", "batch_code", "C-", 1001)
@@ -1150,8 +1224,9 @@ class DatabaseManager:
                     purchase_date, initial_qty, sold_qty, returned_qty, remaining_qty,
                     unit_purchase_price, extra_cost_total, upgrade_cost_unit, unit_cost_price,
                     suggested_sell_price, profit_pct, settlement_status, paid_amount,
-                    serial_numbers, initial_specs, final_specs, notes, supplier_name_snapshot
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    serial_numbers, initial_specs, final_specs, notes, supplier_name_snapshot,
+                    colors_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     batch_code,
@@ -1174,6 +1249,7 @@ class DatabaseManager:
                     initial_specs,
                     notes,
                     supplier_snapshot,
+                    json.dumps(self._normalize_color_list(colors) or [], ensure_ascii=False),
                 ),
             )
             batch_id = cur.lastrowid
@@ -1207,6 +1283,7 @@ class DatabaseManager:
         product_id=None,
         initial_specs=None,
         batch_code=None,
+        colors=None,
     ):
         with self.get_connection() as conn:
             old = conn.execute("SELECT * FROM batches WHERE id=?", (batch_id,)).fetchone()
@@ -1252,12 +1329,17 @@ class DatabaseManager:
                     else ("تسویه‌نشده" if paid_amount == 0 else "تسویه جزئی")
                 )
 
+            new_colors_json = (
+                json.dumps(self._normalize_color_list(colors), ensure_ascii=False)
+                if colors is not None else old["colors_json"] or "[]"
+            )
             conn.execute(
                 """
                 UPDATE batches SET batch_code=?, product_id=?, supplier_id=?, buyer_employee_id=?, invoice_number=?, purchase_date=?,
                 initial_qty=?, remaining_qty=?, unit_purchase_price=?, extra_cost_total=?,
                 unit_cost_price=?, suggested_sell_price=?, profit_pct=?, settlement_status=?,
-                paid_amount=?, serial_numbers=?, initial_specs=?, notes=?, supplier_name_snapshot=?
+                paid_amount=?, serial_numbers=?, initial_specs=?, notes=?, supplier_name_snapshot=?,
+                colors_json=?
                 WHERE id=?
             """,
                 (
@@ -1280,6 +1362,7 @@ class DatabaseManager:
                     initial_specs if initial_specs is not None else old["initial_specs"],
                     notes,
                     supplier_snapshot,
+                    new_colors_json,
                     batch_id,
                 ),
             )
@@ -1535,6 +1618,7 @@ class DatabaseManager:
         settlement_status=None,
         warranty_days=None,
         specifications="",
+        colors=None,
     ):
         qty = int(qty)
         if qty <= 0:
@@ -1548,6 +1632,17 @@ class DatabaseManager:
                 raise ValueError(
                     f"موجودی محموله کافی نیست! موجودی قابل فروش: {batch['remaining_qty']} عدد"
                 )
+            normalized_colors = self._normalize_color_list(colors)
+            if normalized_colors is not None:
+                if len(normalized_colors) > qty:
+                    raise ValueError("تعداد رنگ‌های انتخاب‌شده نمی‌تواند از تعداد فروش بیشتر باشد.")
+                try:
+                    batch_colors = json.loads(batch["colors_json"] or "[]")
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    batch_colors = []
+                unavailable = [value for value in normalized_colors if value not in batch_colors]
+                if unavailable:
+                    raise ValueError("یکی از رنگ‌های انتخاب‌شده در این محموله ثبت نشده است.")
 
             if not invoice_number:
                 invoice_number = self.generate_next_code("sales", "invoice_number", "INV-", 1001)
@@ -1589,8 +1684,8 @@ class DatabaseManager:
                     unit_discount, total_discount, price_Markup_unit, unit_profit, total_profit,
                     total_amount, paid_amount, settlement_status, sale_datetime,
                     warranty_company, warranty_start, warranty_months, warranty_days, warranty_end,
-                    serial_number, notes, specifications
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    serial_number, notes, specifications, colors_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     invoice_number,
@@ -1619,6 +1714,7 @@ class DatabaseManager:
                     serial_number,
                     notes,
                     str(specifications or ""),
+                    json.dumps(normalized_colors or [], ensure_ascii=False),
                 ),
             )
             sale_id = cur.lastrowid
@@ -1666,6 +1762,7 @@ class DatabaseManager:
         settlement_status=None,
         warranty_days=None,
         specifications=None,
+        colors=None,
     ):
         new_qty = int(new_qty)
         if new_qty <= 0:
@@ -1684,6 +1781,22 @@ class DatabaseManager:
                 raise ValueError(
                     f"موجودی محموله برای افزایش تعداد کافی نیست. موجودی فعلی: {batch['remaining_qty']}"
                 )
+            normalized_colors = self._normalize_color_list(colors)
+            if normalized_colors is not None:
+                if len(normalized_colors) > new_qty:
+                    raise ValueError("تعداد رنگ‌های انتخاب‌شده نمی‌تواند از تعداد فروش بیشتر باشد.")
+                try:
+                    batch_colors = json.loads(batch["colors_json"] or "[]")
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    batch_colors = []
+                try:
+                    old_sale_colors = json.loads(old_sale["colors_json"] or "[]")
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    old_sale_colors = []
+                allowed_existing = set(batch_colors or []) | set(old_sale_colors or [])
+                unavailable = [value for value in normalized_colors if value not in allowed_existing]
+                if unavailable:
+                    raise ValueError("یکی از رنگ‌های انتخاب‌شده در این محموله ثبت نشده است.")
 
             suggested_unit_price = int(suggested_unit_price)
             actual_unit_price = int(actual_unit_price)
@@ -1718,7 +1831,7 @@ class DatabaseManager:
                 price_Markup_unit=?, unit_profit=?, total_profit=?, total_amount=?,
                 paid_amount=?, settlement_status=?, warranty_company=?, warranty_start=?,
                 warranty_months=?, warranty_days=?, warranty_end=?, serial_number=?, notes=?,
-                specifications=?
+                specifications=?, colors_json=?
                 WHERE id=?
             """,
                 (
@@ -1743,6 +1856,10 @@ class DatabaseManager:
                     serial_number,
                     notes,
                     str(specifications if specifications is not None else old_sale["specifications"] or ""),
+                    (
+                        json.dumps(normalized_colors, ensure_ascii=False)
+                        if normalized_colors is not None else old_sale["colors_json"] or "[]"
+                    ),
                     sale_id,
                 ),
             )

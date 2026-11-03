@@ -49,6 +49,8 @@ from utils_and_widgets import (
     MAIN_CATEGORIES,
     DEFAULT_SUBCATEGORIES,
     DEFAULT_ATTRIBUTES,
+    DEFAULT_COLORS,
+    normalize_catalog_label,
     SmartLineEdit,
     PriceInput,
     SearchableComboBox,
@@ -149,7 +151,7 @@ class LoginDialog(QDialog):
             "کاربر دارای رمز باید رمز خود را وارد کند؛ حساب بدون رمز می‌تواند مستقیم وارد شود."
         )
         self.lbl_login_hint.setWordWrap(True)
-        self.lbl_login_hint.setStyleSheet("color: #64748b; font-size: 11px;")
+        self.lbl_login_hint.setObjectName("settingsHint")
 
         btn_login = QPushButton("ورود")
         btn_login.setStyleSheet(
@@ -239,7 +241,7 @@ class DatabaseBootstrapDialog(QDialog):
             "مسیر پیشنهادی قابل ویرایش است."
         )
         detail.setWordWrap(True)
-        detail.setStyleSheet("color: #64748b;")
+        detail.setObjectName("settingsHint")
         layout.addWidget(title)
         layout.addWidget(detail)
 
@@ -417,7 +419,7 @@ class MainWindow(QMainWindow):
         self._table_default_stretch = {}
         self._table_search_fields = {}
         self._dashboard_card_styles = []
-        self.catalog_config = self.db.get_product_catalog_config()
+        self.catalog_config = self._effective_product_catalog_config()
 
         self._apply_styles()
         self._build_ui()
@@ -610,13 +612,16 @@ class MainWindow(QMainWindow):
 
     def _apply_styles(self):
         dark = self.db.cfg.get("theme", "light") == "dark"
-        bg = "#202938" if dark else "#f8fafc"
-        panel = "#2b3648" if dark else "#ffffff"
-        text = "#e5eaf2" if dark else "#0f172a"
-        muted = "#aab6c8" if dark else "#64748b"
-        input_bg = "#354257" if dark else "#ffffff"
-        alternate = "#273346" if dark else "#f1f5f9"
-        border = "#46556c" if dark else "#cbd5e1"
+        bg = "#111827" if dark else "#f8fafc"
+        panel = "#1f2937" if dark else "#ffffff"
+        text = "#f1f5f9" if dark else "#0f172a"
+        muted = "#cbd5e1" if dark else "#475569"
+        input_bg = "#263449" if dark else "#ffffff"
+        alternate = "#29384d" if dark else "#f1f5f9"
+        border = "#52627a" if dark else "#cbd5e1"
+        hover = "#3b4b63" if dark else "#e2e8f0"
+        accent = "#3b82f6"
+        version_color = "#93c5fd" if dark else "#1d4ed8"
         self.setStyleSheet(f"""
             QMainWindow, QWidget {{
                 font-family: 'Segoe UI', 'Tahoma', sans-serif; font-size: 13px;
@@ -626,9 +631,43 @@ class MainWindow(QMainWindow):
                 margin-top: 10px; padding-top: 12px; background-color: {panel}; }}
             QGroupBox::title {{ subcontrol-origin: margin; subcontrol-position: top right;
                 padding: 0 8px; color: {muted}; }}
-            QLineEdit, QComboBox, QSpinBox {{ border: 1px solid {border}; border-radius: 5px;
-                padding: 5px 8px; background-color: {input_bg}; min-height: 24px; }}
-            QLineEdit:focus, QComboBox:focus {{ border: 1.5px solid #3b82f6; }}
+            QLineEdit, QComboBox, QSpinBox, QDateEdit {{
+                border: 1px solid {border}; border-radius: 5px;
+                padding: 5px 8px; background-color: {input_bg}; color: {text}; min-height: 24px;
+            }}
+            QLineEdit:focus, QComboBox:focus, QSpinBox:focus {{
+                border: 1.5px solid {accent};
+            }}
+            QLineEdit:read-only {{
+                background-color: {alternate}; color: {muted};
+                border-color: {border};
+            }}
+            QLabel#settingsHint {{ color: {muted}; font-size: 11px; }}
+            QLabel#reportSummary {{
+                color: {text}; background: {alternate};
+                border: 1px solid {border}; border-radius: 6px;
+                padding: 8px; font-size: 14px; font-weight: 700;
+            }}
+            QLabel#saleSummary {{
+                color: {"#bbf7d0" if dark else "#065f46"};
+                background: {"#123b30" if dark else "#ecfdf5"};
+                border: 1px solid {"#276749" if dark else "#a7f3d0"};
+                border-radius: 6px; padding: 6px; font-weight: 700;
+            }}
+            QComboBox QAbstractItemView {{
+                background: {input_bg}; color: {text}; border: 1px solid {border};
+                selection-background-color: #2563eb; selection-color: #ffffff;
+                outline: none; padding: 3px;
+            }}
+            QComboBox QAbstractItemView::item {{ padding: 5px 8px; }}
+            QComboBox QAbstractItemView::item:hover {{ background: {hover}; color: {text}; }}
+            QListWidget {{
+                background: {input_bg}; color: {text}; border: 1px solid {border};
+                border-radius: 7px; padding: 4px; outline: none;
+            }}
+            QListWidget::item {{ padding: 5px 7px; border-radius: 4px; }}
+            QListWidget::item:hover {{ background: {hover}; color: {text}; }}
+            QListWidget::item:selected {{ background: #2563eb; color: #ffffff; }}
             QPushButton {{ background-color: #2563eb; color: #ffffff; border: none;
                 border-radius: 6px; padding: 7px 14px; font-weight: bold; }}
             QPushButton:hover {{ background-color: #1d4ed8; }}
@@ -637,8 +676,15 @@ class MainWindow(QMainWindow):
             QPushButton#btnSuccess {{ background-color: #059669; }}
             QPushButton#btnSuccess:hover {{ background-color: #047857; }}
             QPushButton#btnSecondary {{ background-color: #475569; }}
-            QTableWidget {{ background-color: {panel}; alternate-background-color: {alternate};
-                gridline-color: {border}; border: 1px solid {border}; border-radius: 6px; }}
+            QPushButton#collapsibleSectionHeader {{
+                background: {panel}; color: {text}; border: 1px solid {border};
+                border-radius: 7px; text-align: center; font-weight: 700;
+            }}
+            QPushButton#collapsibleSectionHeader:hover {{ background: {hover}; border-color: {accent}; }}
+            QTableWidget {{ background-color: {panel}; color: {text};
+                alternate-background-color: {alternate}; gridline-color: {border};
+                border: 1px solid {border}; border-radius: 6px; }}
+            QTableWidget::item:hover {{ background: {hover}; color: {text}; }}
             QHeaderView::section {{ background-color: #334155; color: #ffffff; font-weight: bold;
                 padding: 7px; border: none; }}
             QTabWidget::pane {{ border: 1px solid {border}; background: {bg}; }}
@@ -649,10 +695,32 @@ class MainWindow(QMainWindow):
             QCheckBox::indicator {{ width: 18px; height: 18px; border-radius: 4px;
                 border: 2px solid #64748b; background-color: {input_bg}; }}
             QCheckBox::indicator:checked {{ background-color: #2563eb; border: 2px solid #1e40af; }}
-            QScrollBar:vertical {{ width: 18px; margin: 2px; background: {alternate}; border-radius: 8px; }}
-            QScrollBar::handle:vertical {{ min-height: 36px; background: #718096; border-radius: 8px; }}
-            QScrollBar:horizontal {{ height: 18px; margin: 2px; background: {alternate}; border-radius: 8px; }}
-            QScrollBar::handle:horizontal {{ min-width: 36px; background: #718096; border-radius: 8px; }}
+            QLabel#appVersion {{
+                color: {version_color}; background: {alternate}; border: 1px solid {border};
+                border-radius: 6px; font-size: 13px; font-weight: 700; padding: 6px;
+            }}
+            QLabel#activeDbPath {{
+                background: {input_bg}; color: {text}; border: 1px solid {border};
+                border-radius: 6px; padding: 8px;
+            }}
+            QScrollBar:vertical {{ width: 14px; margin: 0px; background: {alternate}; border-radius: 7px; }}
+            QScrollBar::handle:vertical {{ min-height: 36px; background: #718096; border-radius: 7px; }}
+            QScrollBar:horizontal {{ height: 14px; margin: 0px; background: {alternate}; border-radius: 7px; }}
+            QScrollBar::handle:horizontal {{ min-width: 36px; background: #718096; border-radius: 7px; }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+                width: 0px; height: 0px; border: none; background: transparent;
+            }}
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+                width: 0px; height: 0px; border: none; background: transparent;
+            }}
+            QScrollBar::up-arrow:vertical, QScrollBar::down-arrow:vertical,
+            QScrollBar::left-arrow:horizontal, QScrollBar::right-arrow:horizontal {{
+                width: 0px; height: 0px; image: none; border: none;
+            }}
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical,
+            QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
+                background: transparent;
+            }}
         """)
 
 
@@ -680,7 +748,9 @@ class MainWindow(QMainWindow):
         title_lbl = QLabel(bidi_isolate_text(shop_name))
         self.lbl_store_name = title_lbl
         title_lbl.setStyleSheet(
-            "color: #ffffff; font-size: 15px; font-weight: bold; background: transparent;"
+            "color: #ffffff; font-size: 15px; font-weight: bold; "
+            "background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.22); "
+            "border-radius: 7px; padding: 5px 10px;"
         )
         title_lbl.setToolTip(f"نام فروشگاه: {shop_name}")
         title_lbl.setLayoutDirection(Qt.RightToLeft)
@@ -774,9 +844,14 @@ class MainWindow(QMainWindow):
         dark = self.db.cfg.get("theme", "light") == "dark"
         panel = "#2b3648" if dark else "#ffffff"
         title_color = "#cbd5e1" if dark else "#64748b"
-        for box, title_label, value_label, accent in getattr(
+        value_palette = (
+            ["#93c5fd", "#6ee7b7", "#fcd34d", "#fca5a5", "#c4b5fd", "#67e8f9"]
+            if dark else
+            ["#1d4ed8", "#047857", "#92400e", "#b91c1c", "#6d28d9", "#0e7490"]
+        )
+        for index, (box, title_label, value_label, accent) in enumerate(getattr(
             self, "_dashboard_card_styles", []
-        ):
+        )):
             box.setStyleSheet(
                 f"QGroupBox {{ border-right: 5px solid {accent}; "
                 f"background: {panel}; border-radius: 8px; padding: 8px; }}"
@@ -785,8 +860,9 @@ class MainWindow(QMainWindow):
                 f"color: {title_color}; background: transparent; "
                 "font-size: 12px; font-weight: bold;"
             )
+            value_color = value_palette[index % len(value_palette)]
             value_label.setStyleSheet(
-                f"color: {accent}; background: transparent; "
+                f"color: {value_color}; background: transparent; "
                 "font-size: 18px; font-weight: bold;"
             )
 
@@ -899,15 +975,15 @@ class MainWindow(QMainWindow):
         """Keep the existing search position while reserving stable space for action buttons."""
         search = SmartLineEdit(placeholder)
         search.setMinimumHeight(34)
-        search.setMinimumWidth(180)
-        search.setMaximumWidth(240)
-        search.setFixedWidth(220)
+        search.setMinimumWidth(72)
+        search.setMaximumWidth(210)
+        search.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         search.setToolTip("جست‌وجو در تمام ستون‌های جدول")
         search.setClearButtonEnabled(True)
         search.textChanged.connect(
             lambda query, target=table: self._filter_table_rows(target, query)
         )
-        parent_layout.addWidget(search, 0)
+        parent_layout.addWidget(search, 1)
         self._table_search_fields[table] = search
         setattr(self, f"ed_search_{key}", search)
         return search
@@ -1010,8 +1086,18 @@ class MainWindow(QMainWindow):
             for c_idx, val in enumerate(row_values):
                 text_val = "" if val is None else str(val)
                 display_text = strip_bidi_controls(text_val)
+                header_item = table.horizontalHeaderItem(c_idx)
+                header_text = header_item.text() if header_item else ""
+                signed_value = (
+                    ("تخفیف" in header_text or "تشدید" in header_text)
+                    and text_val.startswith(("+", "-"))
+                )
+                if signed_value:
+                    display_text = "\u200e" + display_text
                 item = QTableWidgetItem(display_text)
-                item.setToolTip(display_text)
+                item.setToolTip(strip_bidi_controls(text_val))
+                if signed_value:
+                    item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
                 if highlight_col is not None and c_idx == highlight_col:
                     if text_val in ("ناموجود", "کم‌موجود", "تسویه‌نشده") or text_val.startswith("-"):
                         item.setForeground(QColor("#dc2626"))
@@ -1139,12 +1225,6 @@ class MainWindow(QMainWindow):
 
         self.ed_prod_brand = SmartLineEdit("مثلاً ASUS, Lenovo, HP, Logitech...")
         self.ed_prod_model = SmartLineEdit("مدل کالا (مثلاً G102, VivoBook 15...)")
-        self.cb_prod_color = SearchableComboBox()
-        configured_colors = self.catalog_config.get("colors") or [
-            "مشکی", "سفید", "نقره‌ای", "خاکستری", "آبی",
-            "قرمز", "طلایی", "سبز", "سایر",
-        ]
-        self.cb_prod_color.addItems([""] + configured_colors)
         self.sp_prod_reorder = QSpinBox()
         self.sp_prod_reorder.setRange(0, 1000)
         self.sp_prod_reorder.setValue(3)
@@ -1162,7 +1242,6 @@ class MainWindow(QMainWindow):
         f_layout.addRow("دسته‌بندی اصلی *:", self.cb_prod_cat)
         f_layout.addRow("برند کالا:", self.ed_prod_brand)
         f_layout.addRow("مدل کالا:", self.ed_prod_model)
-        f_layout.addRow("رنگ کالا:", self.cb_prod_color)
         f_layout.addRow("حداقل موجودی (هشدار سفارش):", self.sp_prod_reorder)
         f_layout.addRow("درصد سود پیشنهادی (%):", self.sp_prod_profit)
         f_layout.addRow("توضیحات:", self.ed_prod_desc)
@@ -1227,7 +1306,6 @@ class MainWindow(QMainWindow):
         self._configure_product_specs(self.cb_prod_cat.currentText())
         self.ed_prod_brand.clear()
         self.ed_prod_model.clear()
-        self.cb_prod_color.setCurrentIndex(0)
         self.sp_prod_reorder.setValue(3)
         self.sp_prod_profit.setValue(int(float(self.db.cfg.get("default_profit_pct", 20))))
         self.ed_prod_desc.clear()
@@ -1246,9 +1324,6 @@ class MainWindow(QMainWindow):
         brand = self.ed_prod_brand.text().strip()
         model = self.ed_prod_model.text().strip()
         specs_dict = self.specs_widget.get_specs_dict()
-        color_val = self.cb_prod_color.currentText().strip()
-        if color_val:
-            specs_dict["رنگ"] = color_val
         if not brand and not model and sub == "سایر موارد":
             QMessageBox.warning(
                 self,
@@ -1314,14 +1389,11 @@ class MainWindow(QMainWindow):
             ).fetchone()
             if r and r["specs_json"]:
                 sp_data = json.loads(r["specs_json"])
-                self.cb_prod_color.setCurrentText(sp_data.get("رنگ", ""))
+                sp_data.pop("رنگ", None)
                 self.specs_widget.set_specs_dict(sp_data)
 
     def _update_selected_product(self):
         specs = self.specs_widget.get_specs_dict()
-        color = self.cb_prod_color.currentText().strip()
-        if color:
-            specs["رنگ"] = color
         if not self.selected_product_id:
             QMessageBox.warning(self, "انتخاب کالا", "ابتدا کالای موردنظر را از جدول انتخاب کنید.")
             return
@@ -1412,6 +1484,13 @@ class MainWindow(QMainWindow):
         self.cb_batch_status.currentTextChanged.connect(self._on_batch_status_changed)
 
         self.ed_batch_serial = SmartLineEdit("مشخصات فنی یا توضیحات خرید...")
+        self.lst_batch_colors = SmoothScrollListWidget()
+        self.lst_batch_colors.setMaximumHeight(82)
+        self.lst_batch_colors.setToolTip("رنگ یا رنگ‌های موجود در همین محموله را انتخاب کنید.")
+        self._populate_color_checklist(
+            self.lst_batch_colors,
+            self.catalog_config.get("colors") or DEFAULT_COLORS,
+        )
 
         self.pr_batch_buy.valueChanged.connect(self._recalc_batch_suggested)
         self.pr_batch_extra.valueChanged.connect(self._recalc_batch_suggested)
@@ -1445,8 +1524,10 @@ class MainWindow(QMainWindow):
         grid.addWidget(QLabel("مبلغ پرداخت‌شده:"), 3, 4)
         grid.addWidget(self.pr_batch_paid, 3, 5)
 
-        grid.addWidget(QLabel("مشخصات فنی / توضیحات:"), 4, 0)
-        grid.addWidget(self.ed_batch_serial, 4, 1, 1, 5)
+        grid.addWidget(QLabel("رنگ‌های این محموله:"), 4, 0)
+        grid.addWidget(self.lst_batch_colors, 4, 1, 1, 5)
+        grid.addWidget(QLabel("مشخصات فنی / توضیحات:"), 5, 0)
+        grid.addWidget(self.ed_batch_serial, 5, 1, 1, 5)
 
         layout.addWidget(gb)
 
@@ -1493,6 +1574,7 @@ class MainWindow(QMainWindow):
                 "مانده بدهی",
                 "مشخصات فنی / توضیحات",
                 "بهای کل محموله (تومان)",
+                "رنگ‌های محموله",
             ]
         )
         self.tbl_batches.itemSelectionChanged.connect(self._on_batch_row_selected)
@@ -1500,6 +1582,59 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.tbl_batches)
 
         self._add_scrollable_tab(tab, "🚚 ثبت خرید و محموله‌ها")
+
+    @staticmethod
+    def _decode_colors(raw):
+        if raw is None:
+            return []
+        try:
+            values = json.loads(raw) if isinstance(raw, str) else raw
+        except (TypeError, ValueError, json.JSONDecodeError):
+            values = []
+        if isinstance(values, str):
+            values = [values]
+        if not isinstance(values, (list, tuple, set)):
+            return []
+        return list(dict.fromkeys(
+            str(value).strip() for value in values
+            if value is not None and str(value).strip()
+        ))
+
+    def _checked_colors(self, widget):
+        return [
+            widget.item(index).text()
+            for index in range(widget.count())
+            if widget.item(index).checkState() == Qt.Checked
+        ]
+
+    def _populate_color_checklist(self, widget, colors, selected=None):
+        if widget is None:
+            return
+        if selected is None:
+            selected = self._checked_colors(widget)
+        selected_keys = {normalize_catalog_label(value) for value in (selected or [])}
+        values = list(dict.fromkeys(
+            str(value).strip() for value in (colors or [])
+            if value is not None and str(value).strip()
+        ))
+        known = {normalize_catalog_label(value) for value in values}
+        for value in selected or []:
+            key = normalize_catalog_label(value)
+            if key and key not in known:
+                values.append(str(value).strip())
+                known.add(key)
+        widget.blockSignals(True)
+        widget.clear()
+        widget.setSelectionMode(QAbstractItemView.NoSelection)
+        for color in values:
+            item = QListWidgetItem(color)
+            item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsUserCheckable)
+            item.setCheckState(
+                Qt.Checked if normalize_catalog_label(color) in selected_keys
+                else Qt.Unchecked
+            )
+            widget.addItem(item)
+        widget.blockSignals(False)
 
     def _on_batch_prod_changed(self):
         prod = self.cb_batch_prod.currentData()
@@ -1528,6 +1663,10 @@ class MainWindow(QMainWindow):
         self.pr_batch_suggest.set_value(0)
         self.pr_batch_paid.set_value(0)
         self.cb_batch_status.setCurrentIndex(0)
+        self._populate_color_checklist(
+            self.lst_batch_colors,
+            self.catalog_config.get("colors") or DEFAULT_COLORS,
+        )
         self.ed_batch_serial.clear()
         self.tbl_batches.clearSelection()
 
@@ -1599,11 +1738,13 @@ class MainWindow(QMainWindow):
                     int(duplicate["id"]), *batch_values,
                     product_id=prod["id"], initial_specs=custom_specs_or_notes,
                     batch_code=code,
+                    colors=self._checked_colors(self.lst_batch_colors),
                 )
             else:
                 self.db.add_batch(
                     code or None, prod["id"], *batch_values[:10],
                     custom_specs_or_notes, batch_values[10], batch_values[11],
+                    colors=self._checked_colors(self.lst_batch_colors),
                 )
             self.refresh_all_data()
             self._clear_batch_form()
@@ -1634,6 +1775,16 @@ class MainWindow(QMainWindow):
             int(self.tbl_batches.item(r, 18).text().replace(",", ""))
         )
         self.ed_batch_serial.setText(self.tbl_batches.item(r, 20).text())
+        with self.db.get_connection() as conn:
+            color_row = conn.execute(
+                "SELECT colors_json FROM batches WHERE id=?",
+                (self.selected_batch_id,),
+            ).fetchone()
+        self._populate_color_checklist(
+            self.lst_batch_colors,
+            self.catalog_config.get("colors") or DEFAULT_COLORS,
+            self._decode_colors(color_row["colors_json"]) if color_row else [],
+        )
 
     def _update_selected_batch(self):
         if not self.selected_batch_id:
@@ -1660,6 +1811,7 @@ class MainWindow(QMainWindow):
                 custom_specs_or_notes,
                 custom_specs_or_notes,
                 self.cb_batch_status.currentText(),
+                colors=self._checked_colors(self.lst_batch_colors),
             )
             self.refresh_all_data()
             QMessageBox.information(
@@ -1712,6 +1864,8 @@ class MainWindow(QMainWindow):
         self.cb_sale_batch.currentIndexChanged.connect(self._on_sale_batch_changed)
         self.cb_sale_seller = SearchableComboBox()
         self.ed_sale_customer = SmartLineEdit("نام مشتری (اختیاری)")
+        self.lst_sale_colors = SmoothScrollListWidget()
+        self.lst_sale_colors.setMaximumHeight(82)
         self.ed_sale_specs = SmartLineEdit("مشخصات دقیق کالای فروخته‌شده؛ قابل ویرایش...")
         self.ed_sale_specs.setLayoutDirection(Qt.LeftToRight)
         self.ed_sale_specs.setToolTip("این مشخصات در زمان فروش ثبت و در گزارش‌های آینده حفظ می‌شود.")
@@ -1721,9 +1875,7 @@ class MainWindow(QMainWindow):
 
         self.pr_sale_suggest = PriceInput(self.db)
         self.pr_sale_suggest.setReadOnly(True)
-        self.pr_sale_suggest.setStyleSheet(
-            "background-color: #e2e8f0; color: #475569; font-weight: bold;"
-        )
+        self.pr_sale_suggest.setObjectName("suggestedSalePrice")
         self.pr_sale_suggest.setToolTip(
             "قیمت پیشنهادی از بخش ثبت خرید و محموله‌ها دریافت می‌شود و در فاکتور فروش قابل تغییر نیست."
         )
@@ -1738,9 +1890,7 @@ class MainWindow(QMainWindow):
         self.pr_sale_actual.valueChanged.connect(self._recalc_sale_live)
 
         self.lbl_sale_summary = QLabel("تخفیف/تشدید: 0 تومان | سود فروش: 0 تومان")
-        self.lbl_sale_summary.setStyleSheet(
-            "font-weight: bold; color: #047857; background: #ecfdf5; padding: 6px; border-radius: 5px;"
-        )
+        self.lbl_sale_summary.setObjectName("saleSummary")
 
         self.ed_war_company = SmartLineEdit("شرکت گارانتی‌کننده")
         self.dt_war_start = JalaliDateEdit(default_today=True)
@@ -1793,9 +1943,11 @@ class MainWindow(QMainWindow):
         grid.addWidget(QLabel("سریال کالا:"), 4, 4)
         grid.addWidget(self.ed_sale_serial, 4, 5)
 
-        grid.addWidget(QLabel("مشخصات فنی کالای فروخته‌شده:"), 5, 0)
-        grid.addWidget(self.ed_sale_specs, 5, 1, 1, 5)
-        grid.addWidget(self.lbl_sale_summary, 6, 0, 1, 6)
+        grid.addWidget(QLabel("رنگ‌های فروخته‌شده:"), 5, 0)
+        grid.addWidget(self.lst_sale_colors, 5, 1, 1, 5)
+        grid.addWidget(QLabel("مشخصات فنی کالای فروخته‌شده:"), 6, 0)
+        grid.addWidget(self.ed_sale_specs, 6, 1, 1, 5)
+        grid.addWidget(self.lbl_sale_summary, 7, 0, 1, 6)
 
         layout.addWidget(gb)
 
@@ -1842,6 +1994,7 @@ class MainWindow(QMainWindow):
                 "گارانتی و انقضا",
                 "شماره سریال",
                 "مشخصات فنی فروخته‌شده",
+                "رنگ‌های فروخته‌شده",
             ]
         )
         self.tbl_sales.itemSelectionChanged.connect(self._on_sale_row_selected)
@@ -1873,42 +2026,45 @@ class MainWindow(QMainWindow):
 
     @classmethod
     def _batch_variant_labels(cls, batches):
-        """Return only the technical details that distinguish each batch of one product."""
-        parsed_rows = []
-        token_rows = []
+        """Compare variant specs only among batches belonging to the same product."""
+        groups = {}
         for batch in batches:
-            raw = batch.get("final_specs") or batch.get("initial_specs") or ""
-            parsed, tokens = cls._parse_batch_specifications(raw)
-            parsed_rows.append(parsed)
-            token_rows.append(tokens)
-
-        all_keys = list(dict.fromkeys(
-            key for specification in parsed_rows for key in specification
-        ))
-        varying_keys = [
-            key for key in all_keys
-            if len({specification.get(key) for specification in parsed_rows}) > 1
-        ]
+            groups.setdefault(int(batch.get("product_id") or 0), []).append(batch)
 
         labels = {}
-        for index, batch in enumerate(batches):
-            pieces = []
-            current = parsed_rows[index]
-            for key in varying_keys:
-                value = current.get(key) or "ثبت نشده"
-                pieces.append(f"{key}: {value}")
+        for product_batches in groups.values():
+            parsed_rows = []
+            token_rows = []
+            for batch in product_batches:
+                raw = batch.get("final_specs") or batch.get("initial_specs") or ""
+                parsed, tokens = cls._parse_batch_specifications(raw)
+                parsed_rows.append(parsed)
+                token_rows.append(tokens)
 
-            if not varying_keys:
-                shared_tokens = (
-                    set.intersection(*(set(tokens) for tokens in token_rows))
-                    if token_rows and all(token_rows) else set()
+            all_keys = list(dict.fromkeys(
+                key for specification in parsed_rows for key in specification
+            ))
+            varying_keys = [
+                key for key in all_keys
+                if len({specification.get(key) for specification in parsed_rows}) > 1
+            ]
+
+            for index, batch in enumerate(product_batches):
+                pieces = []
+                current = parsed_rows[index]
+                for key in varying_keys:
+                    pieces.append(f"{key}: {current.get(key) or 'ثبت نشده'}")
+                if not varying_keys:
+                    shared_tokens = (
+                        set.intersection(*(set(tokens) for tokens in token_rows))
+                        if token_rows and all(token_rows) else set()
+                    )
+                    pieces.extend(
+                        token for token in token_rows[index] if token not in shared_tokens
+                    )
+                labels[int(batch["id"])] = (
+                    "، ".join(dict.fromkeys(pieces)) if pieces else "بدون تفاوت ثبت‌شده"
                 )
-                unique_tokens = list(dict.fromkeys(
-                    token for token in token_rows[index] if token not in shared_tokens
-                ))
-                pieces.extend(unique_tokens)
-
-            labels[int(batch["id"])] = "، ".join(pieces) if pieces else "بدون تفاوت ثبت‌شده"
         return labels
 
     @staticmethod
@@ -1939,70 +2095,76 @@ class MainWindow(QMainWindow):
         return " | ".join(part for part in parts if part)
 
     def _on_sale_prod_changed(self):
-        """Load batches and display only the technical differences between variants."""
+        """Load stocked batches for one product or for all products."""
         product = self.cb_sale_prod.currentData()
+        self.cb_sale_batch.blockSignals(True)
         self.cb_sale_batch.clear()
-        if not product:
+        self.cb_sale_batch.blockSignals(False)
+        if not isinstance(product, dict):
+            self._on_sale_batch_changed()
             return
 
-        product_data = dict(product)
-        try:
-            product_specs = json.loads(product_data.get("specs_json") or "{}")
-        except (TypeError, ValueError, json.JSONDecodeError):
-            product_specs = {}
-        if not isinstance(product_specs, dict):
-            product_specs = {}
-
+        all_products = bool(product.get("_all_products"))
+        query = """
+            SELECT b.*, p.code AS p_code, p.category, p.sub_category, p.brand, p.model,
+                   p.specs_json AS product_specs_json, p.description AS product_description
+            FROM batches b
+            JOIN products p ON p.id=b.product_id
+            WHERE b.remaining_qty > 0
+        """
+        params = ()
+        if not all_products:
+            query += " AND b.product_id=?"
+            params = (int(product["id"]),)
+        query += " ORDER BY b.updated_at DESC, b.id DESC"
         with self.db.get_connection() as conn:
-            batch_rows = conn.execute(
-                """
-                SELECT * FROM batches
-                WHERE product_id=? AND remaining_qty > 0
-                ORDER BY updated_at DESC, id DESC
-                """,
-                (product_data["id"],),
-            ).fetchall()
+            batch_rows = conn.execute(query, params).fetchall()
 
         batches = [dict(row) for row in batch_rows]
         variant_labels = self._batch_variant_labels(batches)
         searchable_batch_fields = (
             "batch_code", "initial_specs", "final_specs", "serial_numbers",
             "notes", "supplier_name_snapshot", "invoice_number", "purchase_date",
+            "p_code", "category", "sub_category", "brand", "model",
         )
-        product_search_text = " ".join(
-            [*(str(value) for value in product_specs.values()),
-             str(product_data.get("description") or "")]
-        )
-
         for batch in batches:
             variant = variant_labels.get(int(batch["id"]), "")
-            visible_parts = [
-                str(batch["batch_code"]),
+            product_title = self._format_product_picker_label(batch)
+            label_parts = [
+                str(batch["batch_code"]), product_title,
                 f"موجودی: {int(batch['remaining_qty'])}",
             ]
             if variant and variant != "بدون تفاوت ثبت‌شده":
-                visible_parts.append(f"تفاوت: {variant}")
+                label_parts.append(f"تفاوت: {variant}")
             else:
-                visible_parts.append(
+                label_parts.append(
                     f"قیمت پیشنهادی: {int(batch['suggested_sell_price']):,} تومان"
                 )
-            label = " | ".join(visible_parts)
-
+            label = " | ".join(label_parts)
+            try:
+                product_specs = json.loads(batch.get("product_specs_json") or "{}")
+            except (TypeError, ValueError, json.JSONDecodeError):
+                product_specs = {}
+            if not isinstance(product_specs, dict):
+                product_specs = {}
             search_text = " ".join(
                 str(batch.get(key) or "") for key in searchable_batch_fields
             )
-            search_text = f"{search_text} {product_search_text}".strip()
-            if variant and variant != "بدون تفاوت ثبت‌شده":
-                variant_text = variant.replace("، ", "\n")
-                detail_text = f"تفاوت مشخصات نهایی:\n{variant_text}"
-            else:
-                detail_text = (
-                    f"قیمت پیشنهادی: {int(batch['suggested_sell_price']):,} تومان"
-                )
+            search_text = (
+                f"{search_text} {batch.get('product_description') or ''} "
+                f"{' '.join(str(value) for value in product_specs.values())}"
+            ).strip()
+            detail_text = (
+                f"تفاوت مشخصات نهایی:\n{variant.replace('، ', chr(10))}"
+                if variant and variant != "بدون تفاوت ثبت‌شده"
+                else f"قیمت پیشنهادی: {int(batch['suggested_sell_price']):,} تومان"
+            )
+            color_text = "، ".join(self._decode_colors(batch.get("colors_json"))) or "-"
             full_tooltip = (
                 f"کد محموله: {batch['batch_code']}\n"
+                f"کالا: {product_title}\n"
                 f"موجودی: {batch['remaining_qty']}\n"
-                f"{detail_text}"
+                f"رنگ‌ها: {color_text}\n{detail_text}"
             )
             index = self.cb_sale_batch.count()
             self.cb_sale_batch.addItem(bidi_isolate_text(label), batch)
@@ -2010,6 +2172,10 @@ class MainWindow(QMainWindow):
             self.cb_sale_batch.setItemData(
                 index, bidi_isolate_text(full_tooltip), Qt.ToolTipRole
             )
+        if self.cb_sale_batch.count():
+            self.cb_sale_batch.setCurrentIndex(0)
+        else:
+            self._on_sale_batch_changed()
 
     def _on_sale_batch_changed(self):
         b = self.cb_sale_batch.currentData()
@@ -2019,11 +2185,16 @@ class MainWindow(QMainWindow):
             self.pr_sale_actual.set_value(0)
             self.pr_sale_paid.set_value(0)
             self.ed_sale_specs.clear()
+            self._populate_color_checklist(self.lst_sale_colors, [])
             self._recalc_sale_live()
             return
         self.cb_sale_qty.set_max_qty(b["remaining_qty"])
         self.ed_sale_specs.setText(
             str(b.get("final_specs") or b.get("initial_specs") or "")
+        )
+        self._populate_color_checklist(
+            self.lst_sale_colors,
+            self._decode_colors(b.get("colors_json")),
         )
         sug = int(b["suggested_sell_price"])
         self.pr_sale_suggest.set_value(sug)
@@ -2033,8 +2204,7 @@ class MainWindow(QMainWindow):
     def _clear_sale_form(self):
         self.selected_sale_id = None
         self._set_generated_code_placeholder(self.ed_sale_inv, "sales", "invoice_number", "INV-")
-        self.cb_sale_prod.setCurrentIndex(-1)
-        self.cb_sale_prod.clearEditText()
+        self.cb_sale_prod.setCurrentIndex(0)
         self.cb_sale_seller.setCurrentIndex(-1)
         self.cb_sale_seller.clearEditText()
         self.ed_sale_customer.clear()
@@ -2050,6 +2220,7 @@ class MainWindow(QMainWindow):
         self.ed_sale_serial.clear()
         self.tbl_sales.clearSelection()
         self.cb_sale_qty.setCurrentText("1")
+        self._on_sale_prod_changed()
         self._on_sale_batch_changed()
         self.pr_sale_actual.set_value(0)
         self.pr_sale_paid.set_value(0)
@@ -2078,9 +2249,10 @@ class MainWindow(QMainWindow):
 
         profit_total = (act_u - cost_u) * qty
         signed_diff = format_Signed_diff(act_u, sug_u, qty)
+        signed_diff_display = "\u200e" + signed_diff if signed_diff.startswith(("+", "-")) else signed_diff
 
         self.lbl_sale_summary.setText(
-            f"تخفیف (-) / تشدید (+): {signed_diff} تومان   |   مبلغ کل فاکتور: {total_bill:,} تومان   |   سود فروش: {profit_total:,} تومان"
+            f"تخفیف (-) / تشدید (+): {signed_diff_display} تومان   |   مبلغ کل فاکتور: {total_bill:,} تومان   |   سود فروش: {profit_total:,} تومان"
         )
 
     def _recalc_warranty_end(self):
@@ -2095,7 +2267,22 @@ class MainWindow(QMainWindow):
         batch = self.cb_sale_batch.currentData()
         if not prod or not batch:
             QMessageBox.warning(
-                self, "خطا", "کالا و محموله دارای موجودی را انتخاب کنید."
+                self, "خطا", "محموله دارای موجودی را انتخاب کنید."
+            )
+            return
+        product_id = int(batch["product_id"]) if prod.get("_all_products") else int(prod["id"])
+        if product_id != int(batch["product_id"]):
+            QMessageBox.warning(
+                self, "عدم تطابق کالا",
+                "محموله انتخاب‌شده متعلق به کالای دیگری است. لطفاً دوباره انتخاب کنید."
+            )
+            return
+        qty_to_sell = self.cb_sale_qty.get_qty()
+        sale_colors = self._checked_colors(self.lst_sale_colors)
+        if len(sale_colors) > qty_to_sell:
+            QMessageBox.warning(
+                self, "تعداد رنگ‌ها",
+                "تعداد رنگ‌های انتخاب‌شده نمی‌تواند از تعداد فروش بیشتر باشد."
             )
             return
         now_dt = (
@@ -2105,7 +2292,7 @@ class MainWindow(QMainWindow):
         try:
             self.db.add_sale(
                 self.ed_sale_inv.text().strip(),
-                prod["id"],
+                product_id,
                 batch["id"],
                 self.cb_sale_seller.currentData(),
                 self.ed_sale_customer.text().strip(),
@@ -2123,6 +2310,7 @@ class MainWindow(QMainWindow):
                 self.cb_sale_status.currentText(),
                 warranty_days=self.cb_war_months.currentData() or 0,
                 specifications=self.ed_sale_specs.text().strip(),
+                colors=self._checked_colors(self.lst_sale_colors),
             )
             self.refresh_all_data()
             self._set_generated_code_placeholder(
@@ -2161,15 +2349,26 @@ class MainWindow(QMainWindow):
         self.ed_sale_serial.setText(self.tbl_sales.item(row_index, 19).text())
         with self.db.get_connection() as conn:
             sale_specs = conn.execute(
-                "SELECT specifications, batch_id FROM sales WHERE id=?",
+                """SELECT s.specifications, s.colors_json AS sale_colors,
+                          b.id AS batch_id, b.colors_json AS batch_colors,
+                          b.final_specs, b.initial_specs
+                   FROM sales s JOIN batches b ON b.id=s.batch_id
+                   WHERE s.id=?""",
                 (self.selected_sale_id,),
             ).fetchone()
             if sale_specs:
-                selected_specs = (
+                self.ed_sale_specs.setText(
                     sale_specs["specifications"]
-                    or self._get_batch_sale_specs(sale_specs["batch_id"])
+                    or sale_specs["final_specs"]
+                    or sale_specs["initial_specs"]
+                    or ""
                 )
-                self.ed_sale_specs.setText(selected_specs)
+                batch_colors = self._decode_colors(sale_specs["batch_colors"])
+                sold_colors = self._decode_colors(sale_specs["sale_colors"])
+                available_colors = list(dict.fromkeys(batch_colors + sold_colors))
+                self._populate_color_checklist(
+                    self.lst_sale_colors, available_colors, selected=sold_colors
+                )
 
         with self.db.get_connection() as conn:
             sale = conn.execute(
@@ -2201,6 +2400,13 @@ class MainWindow(QMainWindow):
     def _update_selected_sale(self):
         if not self.selected_sale_id:
             return
+        selected_colors = self._checked_colors(self.lst_sale_colors)
+        if len(selected_colors) > self.cb_sale_qty.get_qty():
+            QMessageBox.warning(
+                self, "تعداد رنگ‌ها",
+                "تعداد رنگ‌های انتخاب‌شده نمی‌تواند از تعداد فروش بیشتر باشد."
+            )
+            return
         try:
             self.db.update_sale(
                 self.selected_sale_id,
@@ -2219,6 +2425,7 @@ class MainWindow(QMainWindow):
                 self.cb_sale_status.currentText(),
                 warranty_days=self.cb_war_months.currentData() or 0,
                 specifications=self.ed_sale_specs.text().strip(),
+                colors=selected_colors,
             )
             self.refresh_all_data()
             QMessageBox.information(self, "اصلاح فروش", "ردیف فروش با موفقیت اصلاح شد.")
@@ -2305,7 +2512,6 @@ class MainWindow(QMainWindow):
         self.ed_srv_cust = SmartLineEdit("نام مشتری (اختیاری)")
         self.pr_srv_fee = PriceInput(self.db)
         self.pr_srv_fee.setReadOnly(True)
-        self.pr_srv_fee.setStyleSheet("background-color: #e2e8f0; color: #475569; font-weight: bold;")
         self.pr_srv_fee.setToolTip("این مبلغ از فهرست خدمات خوانده می‌شود. برای اعمال تخفیف یا تشدید، «مبلغ دریافتی» را تغییر دهید.")
         self.pr_srv_side = PriceInput(self.db)
         self.cb_srv_status = QComboBox()
@@ -2316,9 +2522,7 @@ class MainWindow(QMainWindow):
         
         # نمایش زنده تخفیف/تشدید و سود خالص خدمت
         self.lbl_srv_diff_summary = QLabel("تخفیف (-) / تشدید (+): 0 تومان | سود خالص: 0 تومان")
-        self.lbl_srv_diff_summary.setStyleSheet(
-            "font-weight: bold; color: #047857; background: #ecfdf5; padding: 5px; border-radius: 5px;"
-        )
+        self.lbl_srv_diff_summary.setObjectName("saleSummary")
 
         self.pr_srv_paid.valueChanged.connect(self._recalc_srv_live_summary)
         self.pr_srv_side.valueChanged.connect(self._recalc_srv_live_summary)
@@ -2408,9 +2612,10 @@ class MainWindow(QMainWindow):
         paid_val = self.pr_srv_paid.get_value()
         side = self.pr_srv_side.get_value()
         diff_str = format_Signed_diff(paid_val, base_fee, 1)
+        diff_display = "\u200e" + diff_str if diff_str.startswith(("+", "-")) else diff_str
         net = paid_val - side
         self.lbl_srv_diff_summary.setText(
-            f"تخفیف (-) / تشدید (+): {diff_str} تومان   |   سود خالص خدمت: {net:,} تومان"
+            f"تخفیف (-) / تشدید (+): {diff_display} تومان   |   سود خالص خدمت: {net:,} تومان"
         )
 
     def _on_srv_status_changed(self, st):
@@ -3169,9 +3374,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(gb_flt)
 
         self.lbl_rep_totals = QLabel("خلاصه مالی گزارش:")
-        self.lbl_rep_totals.setStyleSheet(
-            "font-weight: bold; font-size: 14px; color: #1e3a8a; background: #dbeafe; padding: 8px; border-radius: 6px;"
-        )
+        self.lbl_rep_totals.setObjectName("reportSummary")
         layout.addWidget(self.lbl_rep_totals)
 
         self.tbl_report = self._create_table(["ستون ۱"])
@@ -3245,6 +3448,7 @@ class MainWindow(QMainWindow):
                     "دسته‌بندی",
                     "زیرمجموعه",
                     "برند و مدل / عنوان",
+                    "مشخصات فنی",
                     "کارمند ثبت‌کننده",
                     "مشتری / تأمین‌کننده",
                     "تعداد",
@@ -3256,7 +3460,6 @@ class MainWindow(QMainWindow):
                     "مانده حساب (تومان)",
                     "سود خالص (تومان)",
                     "وضعیت تسویه",
-                    "مشخصات فنی",
                 ]
                 s_rows = conn.execute("""
                     SELECT 'فروش کالا' as t_type, s.invoice_number as ref, s.sale_datetime as dt,
@@ -3981,7 +4184,7 @@ class MainWindow(QMainWindow):
         self._add_table_search(btn_row, self.tbl_employees, "employees", "🔍 جست‌وجو در کارکنان...")
         layout.addWidget(self.tbl_employees)
 
-        self._add_scrollable_tab(tab, "👤 مدیریت کارمندان")
+        self._add_scrollable_tab(tab, "👤 مدیریت کاربران")
 
     def _add_employee(self):
         name = self.ed_emp_name.text().strip()
@@ -4197,9 +4400,9 @@ class MainWindow(QMainWindow):
         layout.setSpacing(10)
         layout.setAlignment(Qt.AlignTop)
 
-        self.lbl_app_version = QLabel("نسخه برنامه: 1.0.0")
+        self.lbl_app_version = QLabel("نسخه برنامه: 1.0.1")
+        self.lbl_app_version.setObjectName("appVersion")
         self.lbl_app_version.setAlignment(Qt.AlignCenter)
-        self.lbl_app_version.setStyleSheet("font-size: 13px; font-weight: 700; color: #1e3a8a; padding: 6px;")
         layout.addWidget(self.lbl_app_version)
 
         gb_security = QGroupBox("امنیت و ورود کاربران")
@@ -4215,7 +4418,7 @@ class MainWindow(QMainWindow):
             "پیش از فعال‌سازی، برای تمام کارکنان فعال رمز عبور تعیین کنید."
         )
         security_hint.setWordWrap(True)
-        security_hint.setStyleSheet("color: #64748b; font-size: 11px;")
+        security_hint.setObjectName("settingsHint")
         security_layout.addWidget(self.chk_req_pass)
         security_layout.addWidget(security_hint)
         gb_security.setTitle("")
@@ -4267,7 +4470,7 @@ class MainWindow(QMainWindow):
         categories_layout = QVBoxLayout(gb_categories)
         self.cb_cfg_category = QComboBox()
         self.ed_cfg_category = QLineEdit()
-        self.ed_cfg_category.setPlaceholderText("نام دسته‌بندی جدید یا نام جایگزین...")
+        self.ed_cfg_category.setPlaceholderText("نام فارسی دسته‌بندی اصلی را وارد کنید...")
         cat_btn_row = QHBoxLayout()
         btn_add_category = QPushButton("افزودن")
         btn_add_category.clicked.connect(self._add_catalog_category)
@@ -4280,7 +4483,13 @@ class MainWindow(QMainWindow):
         cat_btn_row.addWidget(btn_add_category)
         cat_btn_row.addWidget(btn_rename_category)
         cat_btn_row.addWidget(btn_delete_category)
+        lbl_category_current = QLabel("دسته‌بندی اصلی:")
+        lbl_category_current.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        lbl_category_new = QLabel("نام جدید یا نام جایگزین:")
+        lbl_category_new.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        categories_layout.addWidget(lbl_category_current)
         categories_layout.addWidget(self.cb_cfg_category)
+        categories_layout.addWidget(lbl_category_new)
         categories_layout.addWidget(self.ed_cfg_category)
         categories_layout.addLayout(cat_btn_row)
 
@@ -4291,7 +4500,7 @@ class MainWindow(QMainWindow):
         self.lst_cfg_subcategories.verticalScrollBar().setSingleStep(18)
         self.lst_cfg_subcategories.setMaximumHeight(125)
         self.ed_cfg_subcategory = QLineEdit()
-        self.ed_cfg_subcategory.setPlaceholderText("عنوان زیرمجموعه...")
+        self.ed_cfg_subcategory.setPlaceholderText("نام زیرمجموعه را وارد کنید؛ مثلاً صفحه‌نمایش یا پردازنده...")
         sub_btn_row = QHBoxLayout()
         btn_add_sub = QPushButton("افزودن")
         btn_add_sub.clicked.connect(self._add_catalog_subcategory)
@@ -4304,7 +4513,10 @@ class MainWindow(QMainWindow):
         sub_btn_row.addWidget(btn_add_sub)
         sub_btn_row.addWidget(btn_rename_sub)
         sub_btn_row.addWidget(btn_delete_sub)
+        lbl_subcategory = QLabel("نام زیرمجموعه:")
+        lbl_subcategory.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         sub_layout.addWidget(self.lst_cfg_subcategories)
+        sub_layout.addWidget(lbl_subcategory)
         sub_layout.addWidget(self.ed_cfg_subcategory)
         sub_layout.addLayout(sub_btn_row)
 
@@ -4315,22 +4527,28 @@ class MainWindow(QMainWindow):
         self.lst_cfg_attributes.verticalScrollBar().setSingleStep(18)
         self.lst_cfg_attributes.setMaximumHeight(125)
         self.ed_cfg_attribute_name = QLineEdit()
-        self.ed_cfg_attribute_name.setPlaceholderText("نام ویژگی؛ مثلاً نوع پنل")
+        self.ed_cfg_attribute_name.setPlaceholderText("نام فارسی ویژگی؛ مثلاً پردازنده، ظرفیت رم یا نوع پنل")
         self.ed_cfg_attribute_label = QLineEdit()
         self.ed_cfg_attribute_label.setPlaceholderText(
-            "عنوان برای ذخیره؛ خالی = نام ویژگی، @نام ویژگی = افزودن مقدار به ویژگی مرجع"
+            "عنوان انگلیسی برای نمایش؛ مثلاً CPU یا RAM. در صورت نیاز می‌توانید خالی بگذارید."
         )
         self.lbl_cfg_attribute_help = QLabel(
-            "راهنما: اگر عنوان را مثلاً «@رم» بنویسید، مقدار این ویژگی به مقدار ویژگی «رم» "
-            "اضافه می‌شود و خروجی به شکل «RAM: 8GB DDR4» نمایش داده خواهد شد."
+            "راهنما: نام ویژگی را فارسی بنویسید و در عنوان، معادل انگلیسی آن را وارد کنید؛ "
+            "مثلاً «پردازنده» با عنوان «CPU». برای کنار هم نمایش‌دادن مقدار دو ویژگی، "
+            "نام ویژگی اصلی را با علامت @ بنویسید؛ مثلاً «@ظرفیت رم». "
+            "نمونه خروجی: RAM: 8GB DDR4"
         )
         self.lbl_cfg_attribute_help.setWordWrap(True)
-        self.lbl_cfg_attribute_help.setStyleSheet("color: #64748b; font-size: 11px;")
+        self.lbl_cfg_attribute_help.setObjectName("settingsHint")
         self.ed_cfg_attribute_values = QLineEdit()
-        self.ed_cfg_attribute_values.setPlaceholderText("مقادیر پیشنهادی با جداکنندهٔ ویرگول")
+        self.ed_cfg_attribute_values.setPlaceholderText(
+            "مقادیر پیشنهادی را با ویرگول جدا کنید؛ هنگام ثبت کالا امکان تایپ مقدار دیگر هم وجود دارد."
+        )
         self.cb_cfg_attribute_subcategory = QComboBox()
         self.cb_cfg_attribute_subcategory.addItem("همهٔ زیرمجموعه‌ها", "")
-        attr_layout.addWidget(QLabel("محدودهٔ زیرمجموعه:"))
+        lbl_scope = QLabel("این ویژگی برای کدام زیرمجموعه باشد؟")
+        lbl_scope.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        attr_layout.addWidget(lbl_scope)
         attr_layout.addWidget(self.cb_cfg_attribute_subcategory)
         self.lst_cfg_attributes.currentItemChanged.connect(
             self._on_catalog_attribute_selected
@@ -4347,11 +4565,19 @@ class MainWindow(QMainWindow):
         attr_btn_row.addWidget(btn_add_attr)
         attr_btn_row.addWidget(btn_update_attr)
         attr_btn_row.addWidget(btn_delete_attr)
+        lbl_attribute_name = QLabel("نام ویژگی (فارسی):")
+        lbl_attribute_name.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        lbl_attribute_title = QLabel("عنوان نمایشی (انگلیسی، اختیاری):")
+        lbl_attribute_title.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        lbl_attribute_values = QLabel("مقادیر پیشنهادی:")
+        lbl_attribute_values.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         attr_layout.addWidget(self.lst_cfg_attributes)
+        attr_layout.addWidget(lbl_attribute_name)
         attr_layout.addWidget(self.ed_cfg_attribute_name)
-        attr_layout.addWidget(QLabel("عنوان (اختیاری):"))
+        attr_layout.addWidget(lbl_attribute_title)
         attr_layout.addWidget(self.ed_cfg_attribute_label)
         attr_layout.addWidget(self.lbl_cfg_attribute_help)
+        attr_layout.addWidget(lbl_attribute_values)
         attr_layout.addWidget(self.ed_cfg_attribute_values)
         attr_layout.addLayout(attr_btn_row)
 
@@ -4362,7 +4588,7 @@ class MainWindow(QMainWindow):
         self.lst_cfg_colors.verticalScrollBar().setSingleStep(18)
         self.lst_cfg_colors.setMaximumHeight(125)
         self.ed_cfg_color = QLineEdit()
-        self.ed_cfg_color.setPlaceholderText("نام رنگ جدید...")
+        self.ed_cfg_color.setPlaceholderText("نام رنگ را وارد کنید؛ مثلاً سبز، ذغالی یا نقره‌ای...")
         color_btn_row = QHBoxLayout()
         btn_add_color = QPushButton("افزودن رنگ")
         btn_add_color.clicked.connect(self._add_catalog_color)
@@ -4375,7 +4601,10 @@ class MainWindow(QMainWindow):
         color_btn_row.addWidget(btn_add_color)
         color_btn_row.addWidget(btn_rename_color)
         color_btn_row.addWidget(btn_delete_color)
+        lbl_color_name = QLabel("نام رنگ:")
+        lbl_color_name.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         colors_layout.addWidget(self.lst_cfg_colors)
+        colors_layout.addWidget(lbl_color_name)
         colors_layout.addWidget(self.ed_cfg_color)
         colors_layout.addLayout(color_btn_row)
 
@@ -4407,7 +4636,7 @@ class MainWindow(QMainWindow):
         self.lst_cfg_service_types.verticalScrollBar().setSingleStep(18)
         self.lst_cfg_service_types.setMaximumHeight(220)
         self.ed_cfg_service_type = QLineEdit()
-        self.ed_cfg_service_type.setPlaceholderText("عنوان نوع خدمت...")
+        self.ed_cfg_service_type.setPlaceholderText("نوع خدمت را وارد کنید؛ مثلاً سخت‌افزاری یا نرم‌افزاری...")
         self.lst_cfg_service_types.currentItemChanged.connect(
             self._on_catalog_service_type_selected
         )
@@ -4423,7 +4652,10 @@ class MainWindow(QMainWindow):
         service_type_buttons.addWidget(btn_add_service_type)
         service_type_buttons.addWidget(btn_edit_service_type)
         service_type_buttons.addWidget(btn_delete_service_type)
+        lbl_service_type = QLabel("نام نوع خدمت:")
+        lbl_service_type.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         service_types_layout.addWidget(self.lst_cfg_service_types)
+        service_types_layout.addWidget(lbl_service_type)
         service_types_layout.addWidget(self.ed_cfg_service_type)
         service_types_layout.addLayout(service_type_buttons)
         service_page_layout.addWidget(gb_service_types)
@@ -4440,12 +4672,13 @@ class MainWindow(QMainWindow):
         f_db.setVerticalSpacing(8)
 
         self.lbl_active_db_path = QLabel()
+        self.lbl_active_db_path.setObjectName("activeDbPath")
         self.lbl_active_db_path.setWordWrap(True)
         self.lbl_active_db_path.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.lbl_active_db_path.setFrameShape(QLabel.StyledPanel)
         self.lbl_active_db_path.setFrameShadow(QLabel.Sunken)
         self.lbl_active_db_path.setMargin(8)
-        self.lbl_active_db_path.setStyleSheet("background: palette(base); border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px;")
+
         self.lst_recent_databases = SmoothScrollListWidget()
         self.lst_recent_databases.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.lst_recent_databases.verticalScrollBar().setSingleStep(18)
@@ -4494,7 +4727,7 @@ class MainWindow(QMainWindow):
 
         self.lbl_last_backup = QLabel()
         self.lbl_last_backup.setWordWrap(True)
-        self.lbl_last_backup.setStyleSheet("color: #64748b;")
+        self.lbl_last_backup.setObjectName("settingsHint")
 
         f_db.addRow("مسیر پایگاه دادهٔ فعال:", self.lbl_active_db_path)
         f_db.addRow("فهرست پایگاه‌های داده:", self.lst_recent_databases)
@@ -4556,16 +4789,62 @@ class MainWindow(QMainWindow):
         self._refresh_multi_db_combo()
         self._load_catalog_customization_form()
 
+    def _deduplicate_catalog_draft(self):
+        """Collapse visually identical Persian catalogue names while tracking DB renames."""
+        for category, values in list(self._taxonomy_draft.get("subcategories", {}).items()):
+            seen = {}
+            unique = []
+            for value in values:
+                key = normalize_catalog_label(value)
+                if not key:
+                    continue
+                if key in seen:
+                    canonical = seen[key]
+                    if value != canonical:
+                        self._pending_subcategory_renames.append((category, value, canonical))
+                        for definition in self._taxonomy_draft.get("attributes", {}).get(category, []):
+                            if normalize_catalog_label(definition.get("subcategory") or "") == key:
+                                definition["subcategory"] = canonical
+                    continue
+                seen[key] = value
+                unique.append(value)
+            self._taxonomy_draft["subcategories"][category] = unique
+
+        for category, definitions in list(self._taxonomy_draft.get("attributes", {}).items()):
+            seen = {}
+            unique = []
+            for definition in definitions:
+                name = str(definition.get("name") or "").strip()
+                scope = str(definition.get("subcategory") or "").strip()
+                key = (normalize_catalog_label(name), normalize_catalog_label(scope))
+                if not key[0]:
+                    continue
+                existing = seen.get(key)
+                if existing is None:
+                    seen[key] = definition
+                    unique.append(definition)
+                    continue
+                old_name = name
+                canonical_name = str(existing.get("name") or "").strip()
+                if old_name != canonical_name:
+                    self._pending_attribute_renames.append(
+                        (category, old_name, canonical_name, scope, scope)
+                    )
+                merged_values = list(existing.get("values") or []) + list(definition.get("values") or [])
+                existing["values"] = list(dict.fromkeys(
+                    str(value).strip() for value in merged_values if str(value).strip()
+                ))
+                if not str(existing.get("label") or "").strip():
+                    existing["label"] = definition.get("label") or ""
+            self._taxonomy_draft["attributes"][category] = unique
+
     def _load_catalog_customization_form(self):
         stored = self.db.get_product_catalog_config()
         defaults = {
             "categories": list(MAIN_CATEGORIES),
             "subcategories": copy.deepcopy(DEFAULT_SUBCATEGORIES),
             "attributes": copy.deepcopy(DEFAULT_ATTRIBUTES),
-            "colors": [
-                "مشکی", "سفید", "نقره‌ای", "خاکستری", "آبی",
-                "قرمز", "طلایی", "سبز", "بنفش", "صورتی", "سایر",
-            ],
+            "colors": list(DEFAULT_COLORS),
             "service_types": ["نرم‌افزاری", "سخت‌افزاری"],
         }
         has_saved_catalog = bool(self.db.get_setting("product_catalog_config", ""))
@@ -4580,6 +4859,36 @@ class MainWindow(QMainWindow):
         self._pending_color_renames = []
         self._pending_service_type_renames = []
 
+        legacy_attribute_names = {
+            "CPU": ("پردازنده", "CPU"),
+            "RAM": ("ظرفیت رم", "RAM"),
+            "نوع RAM": ("نسل رم", "RAM Type"),
+            "Storage": ("حافظه داخلی", "Storage"),
+            "Graphic": ("پردازنده گرافیکی", "GPU"),
+            "GPU": ("پردازنده گرافیکی", "GPU"),
+            "Display": ("صفحه‌نمایش", "Display"),
+            "Panel": ("نوع پنل", "Panel"),
+            "Refresh Rate": ("نرخ نوسازی", "Refresh Rate"),
+            "Ports": ("درگاه‌ها", "Ports"),
+        }
+        for category, definitions in self._taxonomy_draft.get("attributes", {}).items():
+            for definition in definitions:
+                old_name = str(definition.get("name") or "").strip()
+                if old_name in legacy_attribute_names:
+                    new_name, default_title = legacy_attribute_names[old_name]
+                    scope = str(definition.get("subcategory") or "")
+                    definition["name"] = new_name
+                    if not str(definition.get("label") or "").strip():
+                        definition["label"] = default_title
+                    self._pending_attribute_renames.append(
+                        (category, old_name, new_name, scope, scope)
+                    )
+        self._deduplicate_catalog_draft()
+
+        # Use the normalized draft immediately in product forms; persistence and
+        # JSON-key migration happen together when the user saves settings.
+        self.catalog_config = copy.deepcopy(self._taxonomy_draft)
+
         self.cb_cfg_category.blockSignals(True)
         self.cb_cfg_category.clear()
         self.cb_cfg_category.addItems(self._taxonomy_draft["categories"])
@@ -4587,6 +4896,10 @@ class MainWindow(QMainWindow):
         if self.cb_cfg_category.count():
             self.cb_cfg_category.setCurrentIndex(0)
         self._refresh_catalog_management_lists()
+        if hasattr(self, "specs_widget"):
+            current_category = self.cb_prod_cat.currentText()
+            if current_category:
+                self._configure_product_specs(current_category)
 
     def _refresh_catalog_management_lists(self, *_):
         if not hasattr(self, "_taxonomy_draft"):
@@ -4594,8 +4907,18 @@ class MainWindow(QMainWindow):
         category = self.cb_cfg_category.currentText().strip()
         self.lst_cfg_subcategories.clear()
         subcategories = self._taxonomy_draft["subcategories"].get(category, [])
+        subcategories = list(dict.fromkeys(
+            value for value in subcategories if normalize_catalog_label(value)
+        ))
+        unique_subcategories = []
+        seen_subcategory_keys = set()
         for value in subcategories:
-            self.lst_cfg_subcategories.addItem(value)
+            key = normalize_catalog_label(value)
+            if key not in seen_subcategory_keys:
+                seen_subcategory_keys.add(key)
+                unique_subcategories.append(value)
+                self.lst_cfg_subcategories.addItem(value)
+        subcategories = unique_subcategories
 
         current_scope = self.cb_cfg_attribute_subcategory.currentData() or ""
         self.cb_cfg_attribute_subcategory.blockSignals(True)
@@ -4610,9 +4933,16 @@ class MainWindow(QMainWindow):
         self.cb_cfg_attribute_subcategory.blockSignals(False)
 
         self.lst_cfg_attributes.clear()
+        visible_attribute_keys = set()
         for definition_index, item in enumerate(
             self._taxonomy_draft["attributes"].get(category, [])
         ):
+            scope_key = normalize_catalog_label(item.get("subcategory") or "")
+            feature_key = normalize_catalog_label(item.get("name") or "")
+            identity = (feature_key, scope_key)
+            if not feature_key or identity in visible_attribute_keys:
+                continue
+            visible_attribute_keys.add(identity)
             values = "، ".join(item.get("values", []))
             scope = item.get("subcategory") or "همهٔ زیرمجموعه‌ها"
             title = str(item.get("label") or "").strip()
@@ -4649,8 +4979,16 @@ class MainWindow(QMainWindow):
         if not name:
             return
         values = self._taxonomy_draft.setdefault("service_types", [])
-        if name in values:
-            QMessageBox.information(self, "نوع خدمت تکراری", "این نوع خدمت قبلاً ثبت شده است.")
+        existing = next(
+            (value for value in values
+             if normalize_catalog_label(value) == normalize_catalog_label(name)),
+            None,
+        )
+        if existing is not None:
+            QMessageBox.information(
+                self, "نوع خدمت تکراری",
+                f"این نام با «{existing}» یکسان است؛ از همان مورد استفاده کنید."
+            )
             return
         values.append(name)
         self.ed_cfg_service_type.clear()
@@ -4666,8 +5004,17 @@ class MainWindow(QMainWindow):
         if old_name == new_name:
             return
         values = self._taxonomy_draft.setdefault("service_types", [])
-        if new_name in values:
-            QMessageBox.warning(self, "نام تکراری", "نوع خدمت دیگری با این نام وجود دارد.")
+        duplicate = next(
+            (value for value in values
+             if value != old_name
+             and normalize_catalog_label(value) == normalize_catalog_label(new_name)),
+            None,
+        )
+        if duplicate is not None:
+            QMessageBox.warning(
+                self, "نام تکراری",
+                f"نوع خدمت «{duplicate}» از قبل وجود دارد."
+            )
             return
         values[values.index(old_name)] = new_name
 
@@ -4729,8 +5076,16 @@ class MainWindow(QMainWindow):
         if not name:
             return
         categories = self._taxonomy_draft["categories"]
-        if name in categories:
-            QMessageBox.information(self, "دسته‌بندی موجود است", "این دسته‌بندی قبلاً ثبت شده است.")
+        existing = next(
+            (value for value in categories
+             if normalize_catalog_label(value) == normalize_catalog_label(name)),
+            None,
+        )
+        if existing is not None:
+            QMessageBox.information(
+                self, "دسته‌بندی موجود است",
+                f"این نام با دسته‌بندی «{existing}» یکسان است."
+            )
             return
         categories.append(name)
         self.cb_cfg_category.addItem(name)
@@ -4742,8 +5097,17 @@ class MainWindow(QMainWindow):
         new = self.ed_cfg_category.text().strip()
         if not old or not new or old == new:
             return
-        if new in self._taxonomy_draft["categories"]:
-            QMessageBox.warning(self, "نام تکراری", "دسته‌بندی دیگری با این نام وجود دارد.")
+        duplicate = next(
+            (value for value in self._taxonomy_draft["categories"]
+             if value != old
+             and normalize_catalog_label(value) == normalize_catalog_label(new)),
+            None,
+        )
+        if duplicate is not None:
+            QMessageBox.warning(
+                self, "نام تکراری",
+                f"دسته‌بندی «{duplicate}» از قبل وجود دارد."
+            )
             return
         index = self._taxonomy_draft["categories"].index(old)
         self._taxonomy_draft["categories"][index] = new
@@ -4799,7 +5163,17 @@ class MainWindow(QMainWindow):
         if not category or not name:
             return
         values = self._taxonomy_draft["subcategories"].setdefault(category, [])
-        if name not in values:
+        existing = next(
+            (value for value in values
+             if normalize_catalog_label(value) == normalize_catalog_label(name)),
+            None,
+        )
+        if existing is not None:
+            QMessageBox.information(
+                self, "زیرمجموعه موجود است",
+                f"این نام با زیرمجموعهٔ «{existing}» یکسان است."
+            )
+        else:
             values.append(name)
         self.ed_cfg_subcategory.clear()
         self._refresh_catalog_management_lists()
@@ -4814,25 +5188,34 @@ class MainWindow(QMainWindow):
         if old == new:
             return
         values = self._taxonomy_draft["subcategories"].setdefault(category, [])
-        if new in values:
-            QMessageBox.warning(self, "نام تکراری", "این زیرمجموعه قبلاً وجود دارد.")
-            return
-        values[values.index(old)] = new
-        self._pending_subcategory_renames.append((category, old, new))
+        new_key = normalize_catalog_label(new)
+        duplicate = next(
+            (value for value in values
+             if value != old and normalize_catalog_label(value) == new_key),
+            None,
+        )
+        if duplicate is not None:
+            # The target spelling is already represented; merge this alias into it.
+            values.remove(old)
+            canonical = duplicate
+        else:
+            values[values.index(old)] = new
+            canonical = new
+        self._pending_subcategory_renames.append((category, old, canonical))
         self._pending_attribute_renames = [
             (
                 pending_category,
                 old_name,
                 new_name,
-                new if old_scope == old else old_scope,
-                new if new_scope == old else new_scope,
+                canonical if normalize_catalog_label(old_scope) == normalize_catalog_label(old) else old_scope,
+                canonical if normalize_catalog_label(new_scope) == normalize_catalog_label(old) else new_scope,
             )
             for pending_category, old_name, new_name, old_scope, new_scope
             in self._pending_attribute_renames
         ]
         for definition in self._taxonomy_draft["attributes"].get(category, []):
-            if (definition.get("subcategory") or "") == old:
-                definition["subcategory"] = new
+            if normalize_catalog_label(definition.get("subcategory") or "") == normalize_catalog_label(old):
+                definition["subcategory"] = canonical
         self.ed_cfg_subcategory.clear()
         self._refresh_catalog_management_lists()
 
@@ -4877,7 +5260,8 @@ class MainWindow(QMainWindow):
             return
         linked_attributes = [
             definition for definition in self._taxonomy_draft["attributes"].get(category, [])
-            if (definition.get("subcategory") or "") == name
+            if normalize_catalog_label(definition.get("subcategory") or "")
+                == normalize_catalog_label(name)
         ]
         if linked_attributes:
             QMessageBox.warning(
@@ -4899,8 +5283,9 @@ class MainWindow(QMainWindow):
         definitions = self._taxonomy_draft["attributes"].setdefault(category, [])
         selected_scope = self.cb_cfg_attribute_subcategory.currentData() or ""
         if any(
-            item["name"] == name
-            and (item.get("subcategory", "") or "") == selected_scope
+            normalize_catalog_label(item.get("name")) == normalize_catalog_label(name)
+            and normalize_catalog_label(item.get("subcategory") or "")
+                == normalize_catalog_label(selected_scope)
             for item in definitions
         ):
             QMessageBox.warning(
@@ -4955,39 +5340,63 @@ class MainWindow(QMainWindow):
             return
 
         definition_index = selected.data(Qt.UserRole)
-        definitions = self._taxonomy_draft["attributes"].get(category, [])
+        definitions = self._taxonomy_draft["attributes"].setdefault(category, [])
         if not isinstance(definition_index, int) or not 0 <= definition_index < len(definitions):
             return
 
         current = definitions[definition_index]
-        old_name = current.get("name", "")
-        old_scope = current.get("subcategory", "") or ""
+        old_name = str(current.get("name") or "").strip()
+        old_scope = str(current.get("subcategory") or "").strip()
         new_name = self.ed_cfg_attribute_name.text().strip() or old_name
         new_scope = self.cb_cfg_attribute_subcategory.currentData() or ""
-        if new_name != old_name and any(
-            index != definition_index
-            and item.get("name") == new_name
-            and (item.get("subcategory", "") or "") == new_scope
-            for index, item in enumerate(definitions)
-        ):
-            QMessageBox.warning(
-                self, "نام تکراری",
-                "ویژگی دیگری با همین نام برای این زیرمجموعه وجود دارد."
-            )
+        if not new_name:
+            QMessageBox.warning(self, "نام ویژگی لازم است", "نام ویژگی را وارد کنید.")
             return
 
-        raw_values = self.ed_cfg_attribute_values.text().replace("،", ",")
-        values = [
-            value.strip() for value in raw_values.split(",") if value.strip()
+        new_key = normalize_catalog_label(new_name)
+        new_scope_key = normalize_catalog_label(new_scope)
+        duplicate_indexes = [
+            index for index, item in enumerate(definitions)
+            if index != definition_index
+            and normalize_catalog_label(item.get("name")) == new_key
+            and normalize_catalog_label(item.get("subcategory") or "") == new_scope_key
         ]
-        if new_name != old_name:
+
+        merged_values = list(current.get("values") or [])
+        for index in duplicate_indexes:
+            duplicate = definitions[index]
+            duplicate_name = str(duplicate.get("name") or "").strip()
+            duplicate_scope = str(duplicate.get("subcategory") or "").strip()
+            merged_values.extend(duplicate.get("values") or [])
+            if duplicate_name and duplicate_name != new_name:
+                self._pending_attribute_renames.append(
+                    (category, duplicate_name, new_name, duplicate_scope, new_scope)
+                )
+
+        # Remove aliases from the draft so the configuration itself, not just
+        # the rendered form, contains one canonical feature definition.
+        for index in sorted(duplicate_indexes, reverse=True):
+            definitions.pop(index)
+            if index < definition_index:
+                definition_index -= 1
+        current = definitions[definition_index]
+
+        raw_values = self.ed_cfg_attribute_values.text().replace("،", ",")
+        merged_values.extend(
+            value.strip() for value in raw_values.split(",") if value.strip()
+        )
+        new_values = list(dict.fromkeys(
+            str(value).strip() for value in merged_values if str(value).strip()
+        ))
+
+        if old_name != new_name or old_scope != new_scope:
             self._pending_attribute_renames.append(
                 (category, old_name, new_name, old_scope, new_scope)
             )
         current["name"] = new_name
         current["label"] = self.ed_cfg_attribute_label.text().strip()
         current.pop("display_name", None)
-        current["values"] = list(dict.fromkeys(values))
+        current["values"] = new_values
         current["subcategory"] = new_scope
         self._refresh_catalog_management_lists()
 
@@ -5009,10 +5418,22 @@ class MainWindow(QMainWindow):
 
     def _add_catalog_color(self):
         color = self.ed_cfg_color.text().strip()
-        if color and color not in self._taxonomy_draft["colors"]:
-            self._taxonomy_draft["colors"].append(color)
-            self.ed_cfg_color.clear()
-            self._refresh_catalog_management_lists()
+        if not color:
+            return
+        existing = next(
+            (value for value in self._taxonomy_draft["colors"]
+             if normalize_catalog_label(value) == normalize_catalog_label(color)),
+            None,
+        )
+        if existing is not None:
+            QMessageBox.information(
+                self, "رنگ تکراری",
+                f"رنگ «{existing}» از قبل در فهرست وجود دارد."
+            )
+            return
+        self._taxonomy_draft["colors"].append(color)
+        self.ed_cfg_color.clear()
+        self._refresh_catalog_management_lists()
 
     def _rename_catalog_color(self):
         item = self.lst_cfg_colors.currentItem()
@@ -5020,8 +5441,19 @@ class MainWindow(QMainWindow):
         if not item or not new_name:
             return
         old_name = item.text()
-        if new_name != old_name and new_name in self._taxonomy_draft["colors"]:
-            QMessageBox.warning(self, "نام تکراری", "این رنگ قبلاً وجود دارد.")
+        if new_name == old_name:
+            return
+        duplicate = next(
+            (value for value in self._taxonomy_draft["colors"]
+             if value != old_name
+             and normalize_catalog_label(value) == normalize_catalog_label(new_name)),
+            None,
+        )
+        if duplicate is not None:
+            QMessageBox.warning(
+                self, "نام تکراری",
+                f"رنگ «{duplicate}» از قبل وجود دارد."
+            )
             return
         index = self._taxonomy_draft["colors"].index(old_name)
         self._taxonomy_draft["colors"][index] = new_name
@@ -5033,19 +5465,18 @@ class MainWindow(QMainWindow):
         item = self.lst_cfg_colors.currentItem()
         if item:
             color = item.text()
+            color_key = normalize_catalog_label(color)
             self._taxonomy_draft["colors"] = [
-                value for value in self._taxonomy_draft["colors"] if value != color
+                value for value in self._taxonomy_draft["colors"]
+                if normalize_catalog_label(value) != color_key
             ]
             self._refresh_catalog_management_lists()
 
     def _apply_product_catalog_config(self):
-        self.catalog_config = self.db.get_product_catalog_config()
+        self.catalog_config = self._effective_product_catalog_config()
         categories = self.catalog_config.get("categories") or list(MAIN_CATEGORIES)
         categories = list(dict.fromkeys(categories))
-        colors = self.catalog_config.get("colors", [
-            "مشکی", "سفید", "نقره‌ای", "خاکستری", "آبی",
-            "قرمز", "طلایی", "سبز", "سایر",
-        ])
+        colors = self.catalog_config.get("colors") or DEFAULT_COLORS
         current_category = self.cb_prod_cat.currentText() if hasattr(self, "cb_prod_cat") else ""
         if hasattr(self, "cb_prod_cat"):
             self.cb_prod_cat.blockSignals(True)
@@ -5054,14 +5485,9 @@ class MainWindow(QMainWindow):
             if current_category:
                 self.cb_prod_cat.setCurrentText(current_category)
             self.cb_prod_cat.blockSignals(False)
-        if hasattr(self, "cb_prod_color"):
-            current_color = self.cb_prod_color.currentText()
-            self.cb_prod_color.blockSignals(True)
-            self.cb_prod_color.clear()
-            self.cb_prod_color.addItem("")
-            self.cb_prod_color.addItems(colors)
-            self.cb_prod_color.setCurrentText(current_color)
-            self.cb_prod_color.blockSignals(False)
+        if hasattr(self, "lst_batch_colors"):
+            selected_colors = self._checked_colors(self.lst_batch_colors)
+            self._populate_color_checklist(self.lst_batch_colors, colors, selected_colors)
         if hasattr(self, "cb_rep_cat"):
             current_report_category = self.cb_rep_cat.currentText()
             self.cb_rep_cat.blockSignals(True)
@@ -5083,6 +5509,19 @@ class MainWindow(QMainWindow):
             if current_type and self.cb_srv_type.findText(current_type) >= 0:
                 self.cb_srv_type.setCurrentText(current_type)
             self.cb_srv_type.blockSignals(False)
+
+    def _effective_product_catalog_config(self):
+        """Return persisted per-database catalog or the complete standard defaults."""
+        stored = self.db.get_product_catalog_config()
+        if self.db.get_setting("product_catalog_config", ""):
+            return stored
+        return {
+            "categories": list(MAIN_CATEGORIES),
+            "subcategories": copy.deepcopy(DEFAULT_SUBCATEGORIES),
+            "attributes": copy.deepcopy(DEFAULT_ATTRIBUTES),
+            "colors": list(DEFAULT_COLORS),
+            "service_types": ["نرم‌افزاری", "سخت‌افزاری"],
+        }
 
     def _configure_product_specs(self, category):
         if not hasattr(self, "specs_widget"):
@@ -5261,7 +5700,7 @@ class MainWindow(QMainWindow):
         self.lbl_store_name.setText(bidi_isolate_text(shop_name))
         self.lbl_store_name.setToolTip(f"نام فروشگاه: {shop_name}")
 
-        self.catalog_config = self.db.get_product_catalog_config()
+        self.catalog_config = self._effective_product_catalog_config()
         self._apply_product_catalog_config()
         self._refresh_multi_db_combo()
         self._restart_backup_timer()
@@ -5296,12 +5735,31 @@ class MainWindow(QMainWindow):
         if not enabled or bool(self.db.cfg.get("require_login_password", False)):
             return
         with self.db.get_connection() as conn:
+            user_count = conn.execute(
+                "SELECT COUNT(*) FROM employees"
+            ).fetchone()[0]
             missing_passwords = conn.execute(
                 """SELECT name FROM employees
-                   WHERE is_active=1 AND (password IS NULL OR TRIM(password)='') 
+                   WHERE is_active=1 AND (password IS NULL OR TRIM(password)='')
                    ORDER BY updated_at DESC, id DESC"""
             ).fetchall()
-        if missing_passwords:
+            active_user_count = conn.execute(
+                "SELECT COUNT(*) FROM employees WHERE is_active=1"
+            ).fetchone()[0]
+        if user_count == 0:
+            QMessageBox.information(
+                self, "کاربری ثبت نشده",
+                "برای فعال‌کردن اجبار ورود با رمز عبور، ابتدا حداقل یک کاربر در بخش «مدیریت کاربران» ثبت کنید."
+            )
+            self.chk_req_pass.blockSignals(True)
+            self.chk_req_pass.setChecked(False)
+            self.chk_req_pass.blockSignals(False)
+            return
+        if active_user_count == 0:
+            impact_text = (
+                "در حال حاضر کاربر فعالی وجود ندارد. این الزام برای کاربران فعال‌شده در آینده اعمال خواهد شد."
+            )
+        elif missing_passwords:
             names = "\n".join(f"• {row['name']}" for row in missing_passwords)
             impact_text = (
                 "کارکنان زیر رمز عبور ندارند و پس از فعال‌سازی این قابلیت تا زمان تعریف رمز "
@@ -5334,61 +5792,106 @@ class MainWindow(QMainWindow):
                         "UPDATE products SET category=? WHERE category=?",
                         (new_category, old_category),
                     )
-                for category, old_subcategory, new_subcategory in self._pending_subcategory_renames:
-                    conn.execute(
-                        "UPDATE products SET sub_category=? WHERE category=? AND sub_category=?",
-                        (new_subcategory, category, old_subcategory),
-                    )
 
-                for category, old_name, new_name, old_scope, _new_scope in self._pending_attribute_renames:
+                # Match subcategory aliases by normalized Persian spelling so
+                # existing rows with/without ZWNJ are moved to one canonical label.
+                for category, old_subcategory, new_subcategory in self._pending_subcategory_renames:
+                    rows = conn.execute(
+                        "SELECT id, sub_category FROM products WHERE category=?",
+                        (category,),
+                    ).fetchall()
+                    for row in rows:
+                        if normalize_catalog_label(row["sub_category"]) == normalize_catalog_label(old_subcategory):
+                            conn.execute(
+                                "UPDATE products SET sub_category=? WHERE id=?",
+                                (new_subcategory, row["id"]),
+                            )
+
+                for category, old_name, new_name, old_scope, new_scope in self._pending_attribute_renames:
                     if not old_name or not new_name or old_name == new_name:
                         continue
-                    if old_scope:
-                        attribute_rows = conn.execute(
-                            "SELECT id, specs_json FROM products WHERE category=? AND sub_category=?",
-                            (category, old_scope),
-                        ).fetchall()
-                    else:
-                        attribute_rows = conn.execute(
-                            "SELECT id, specs_json FROM products WHERE category=?",
-                            (category,),
-                        ).fetchall()
-                    for product_row in attribute_rows:
-                        try:
-                            specs = json.loads(product_row["specs_json"] or "{}")
-                        except (TypeError, ValueError, json.JSONDecodeError):
-                            continue
-                        if not isinstance(specs, dict) or old_name not in specs:
-                            continue
-                        if new_name not in specs:
-                            specs[new_name] = specs[old_name]
-                        del specs[old_name]
-                        conn.execute(
-                            "UPDATE products SET specs_json=? WHERE id=?",
-                            (json.dumps(specs, ensure_ascii=False), product_row["id"]),
-                        )
-
-                if self._pending_color_renames:
                     product_rows = conn.execute(
-                        "SELECT id, specs_json FROM products"
+                        "SELECT id, sub_category, specs_json FROM products WHERE category=?",
+                        (category,),
                     ).fetchall()
+                    old_scope_key = normalize_catalog_label(old_scope)
+                    new_scope_key = normalize_catalog_label(new_scope)
+                    relevant_scope_keys = {key for key in (old_scope_key, new_scope_key) if key}
+                    old_name_key = normalize_catalog_label(old_name)
+                    new_name_key = normalize_catalog_label(new_name)
                     for product_row in product_rows:
+                        if relevant_scope_keys and normalize_catalog_label(product_row["sub_category"]) not in relevant_scope_keys:
+                            continue
                         try:
                             specs = json.loads(product_row["specs_json"] or "{}")
                         except (TypeError, ValueError, json.JSONDecodeError):
                             continue
                         if not isinstance(specs, dict):
                             continue
-                        changed = False
-                        for old_color, new_color in self._pending_color_renames:
-                            if specs.get("رنگ") == old_color:
-                                specs["رنگ"] = new_color
-                                changed = True
-                        if changed:
-                            conn.execute(
-                                "UPDATE products SET specs_json=? WHERE id=?",
-                                (json.dumps(specs, ensure_ascii=False), product_row["id"]),
-                            )
+                        matching_keys = [
+                            key for key in specs
+                            if normalize_catalog_label(key) == old_name_key
+                        ]
+                        if not matching_keys and old_name_key == new_name_key:
+                            matching_keys = [
+                                key for key in specs
+                                if normalize_catalog_label(key) == new_name_key
+                            ]
+                        if not matching_keys:
+                            continue
+                        values = [specs[key] for key in matching_keys]
+                        if new_name in specs and new_name not in matching_keys:
+                            values.append(specs[new_name])
+                        text_values = list(dict.fromkeys(
+                            str(value).strip() for value in values
+                            if value is not None and str(value).strip()
+                        ))
+                        for key in matching_keys:
+                            specs.pop(key, None)
+                        if text_values:
+                            specs[new_name] = " ".join(text_values)
+                        conn.execute(
+                            "UPDATE products SET specs_json=? WHERE id=?",
+                            (json.dumps(specs, ensure_ascii=False), product_row["id"]),
+                        )
+
+                # Colour is a batch attribute. Keep each invoice's own colour snapshot,
+                # while applying a catalogue rename consistently to existing records.
+                if self._pending_color_renames:
+                    for table_name in ("batches", "sales"):
+                        rows = conn.execute(
+                            f"SELECT id, colors_json FROM {table_name}"
+                        ).fetchall()
+                        for row in rows:
+                            try:
+                                colors = json.loads(row["colors_json"] or "[]")
+                            except (TypeError, ValueError, json.JSONDecodeError):
+                                colors = []
+                            if not isinstance(colors, list):
+                                continue
+                            changed = False
+                            renamed = []
+                            for color in colors:
+                                value = str(color).strip()
+                                for old_color, new_color in self._pending_color_renames:
+                                    if normalize_catalog_label(value) == normalize_catalog_label(old_color):
+                                        value = new_color
+                                        changed = True
+                                        break
+                                renamed.append(value)
+                            unique_colors = []
+                            seen_color_keys = set()
+                            for color in renamed:
+                                key = normalize_catalog_label(color)
+                                if key and key not in seen_color_keys:
+                                    unique_colors.append(color)
+                                    seen_color_keys.add(key)
+                            if changed or unique_colors != colors:
+                                conn.execute(
+                                    f"UPDATE {table_name} SET colors_json=? WHERE id=?",
+                                    (json.dumps(unique_colors, ensure_ascii=False), row["id"]),
+                                )
+
                 for old_type, new_type in self._pending_service_type_renames:
                     conn.execute(
                         "UPDATE service_catalog SET service_type=? WHERE service_type=?",
@@ -5537,6 +6040,8 @@ class MainWindow(QMainWindow):
         self.cb_sale_prod.blockSignals(True)
         self.cb_batch_prod.clear()
         self.cb_sale_prod.clear()
+        self.cb_sale_prod.addItem("همه کالاها", {"_all_products": True})
+        self.cb_sale_prod.setItemSearchText(0, "همه کالاها همه محصولات تمام کالاها")
         for product_row in prods:
             product = dict(product_row)
             try:
@@ -5582,6 +6087,7 @@ class MainWindow(QMainWindow):
                 )
         self.cb_batch_prod.blockSignals(False)
         self.cb_sale_prod.blockSignals(False)
+        self.cb_sale_prod.setCurrentIndex(0)
         self._on_sale_prod_changed()
 
         for cb in (
@@ -5774,6 +6280,7 @@ class MainWindow(QMainWindow):
                     f"{debt:,}",
                     f"{r['final_specs']} {r['serial_numbers']}".strip(),
                     f"{tot_bill:,}",
+                    "، ".join(self._decode_colors(r["colors_json"])) or "-",
                 ]
             )
         self._populate_table_safely(self.tbl_batches, data, highlight_col=17)
@@ -5796,7 +6303,14 @@ class MainWindow(QMainWindow):
                 if r["warranty_company"] or r["warranty_months"] or r["warranty_days"]
                 else "-"
             )
-            prod_title = f"{r['sub_category']} {r['brand']} {r['model']}".strip()
+            product_prefix = str(r["sub_category"] or r["category"] or "").strip()
+            brand_model = " ".join(
+                value for value in (str(r["brand"] or "").strip(), str(r["model"] or "").strip())
+                if value
+            )
+            prod_title = " | ".join(
+                value for value in (product_prefix, brand_model) if value
+            )
             signed_diff = format_Signed_diff(
                 r["actual_unit_price"], r["suggested_unit_price"], r["qty"]
             )
@@ -5823,6 +6337,7 @@ class MainWindow(QMainWindow):
                     war_str,
                     r["serial_number"] or "-",
                     r["specifications"] or r["final_specs"] or r["initial_specs"] or "-",
+                    "، ".join(self._decode_colors(r["colors_json"])) or "-",
                 ]
             )
         self._populate_table_safely(self.tbl_sales, data, highlight_col=11)

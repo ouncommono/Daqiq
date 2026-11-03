@@ -1,3 +1,4 @@
+import json
 import os
 import sqlite3
 
@@ -272,6 +273,67 @@ def test_sale_specifications_are_saved_and_updated_as_sold_snapshot(manager):
         ).fetchone()
     assert sale["specifications"] == "RAM: 16GB DDR5"
     assert sale["actual_unit_price"] == 160
+
+
+def test_batch_and_sale_colour_snapshots_are_validated_and_persisted(manager):
+    product_id = create_product(manager, code="P-COLOUR-SNAPSHOT")
+    batch_id = create_batch(
+        manager, product_id, code="C-COLOUR-SNAPSHOT", quantity=5
+    )
+    with manager.get_connection() as conn:
+        conn.execute(
+            "UPDATE batches SET colors_json=? WHERE id=?",
+            ('["مشکی", "سبز", "آبی"]', batch_id),
+        )
+        conn.commit()
+
+    invoice = manager.add_sale(
+        "INV-COLOUR-SNAPSHOT", product_id, batch_id, None, "مشتری رنگی",
+        2, 150, 150, 0, "1405/01/01 12:00:00",
+        settlement_status="تسویه‌نشده",
+        colors=["مشکی", "سبز"],
+    )
+    with manager.get_connection() as conn:
+        sale = conn.execute(
+            "SELECT id, colors_json FROM sales WHERE invoice_number=?",
+            (invoice,),
+        ).fetchone()
+        batch = conn.execute(
+            "SELECT colors_json, remaining_qty FROM batches WHERE id=?",
+            (batch_id,),
+        ).fetchone()
+    assert json.loads(batch["colors_json"]) == ["مشکی", "سبز", "آبی"]
+    assert json.loads(sale["colors_json"]) == ["مشکی", "سبز"]
+    assert batch["remaining_qty"] == 3
+
+    manager.update_sale(
+        sale["id"], None, "مشتری رنگی", 2, 150, 155, 0,
+        "", "", 0, "", "", "", "تسویه‌نشده",
+        specifications="RAM: 16GB DDR5",
+        colors=["آبی"],
+    )
+    with manager.get_connection() as conn:
+        updated = conn.execute(
+            "SELECT colors_json, specifications FROM sales WHERE id=?",
+            (sale["id"],),
+        ).fetchone()
+    assert json.loads(updated["colors_json"]) == ["آبی"]
+    assert updated["specifications"] == "RAM: 16GB DDR5"
+
+    with pytest.raises(ValueError, match="تعداد رنگ‌های انتخاب‌شده"):
+        manager.add_sale(
+            "INV-COLOUR-TOO-MANY", product_id, batch_id, None, "مشتری رنگی",
+            1, 150, 150, 0, "1405/01/01 12:00:00",
+            settlement_status="تسویه‌نشده",
+            colors=["مشکی", "سبز"],
+        )
+    with pytest.raises(ValueError, match="رنگ‌های انتخاب‌شده"):
+        manager.add_sale(
+            "INV-COLOUR-UNKNOWN", product_id, batch_id, None, "مشتری رنگی",
+            1, 150, 150, 0, "1405/01/01 12:00:00",
+            settlement_status="تسویه‌نشده",
+            colors=["صورتی"],
+        )
 
 
 def test_supplier_delete_retains_historical_name_and_purchase(manager):

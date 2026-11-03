@@ -1,3 +1,4 @@
+import json
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -44,7 +45,7 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
     try:
         assert window.tabs.count() == 10
         assert window.tabs.tabText(9).endswith("تنظیمات")
-        assert window.lbl_app_version.text() == "نسخه برنامه: 1.0.0"
+        assert window.lbl_app_version.text() == "نسخه برنامه: 1.0.1"
         assert [window.catalog_tabs.tabText(i) for i in range(window.catalog_tabs.count())] == [
             "مدیریت کالاها", "مدیریت خدمات"
         ]
@@ -183,7 +184,9 @@ def test_database_refresh_keeps_services_suppliers_and_password_status_visible(
     window = MainWindow(manager, active_employee=None)
     try:
         # A real sqlite3.Row batch is loaded during initial startup and refresh.
-        assert window.cb_sale_prod.count() == 1
+        assert window.cb_sale_prod.count() == 2
+        assert window.cb_sale_prod.itemData(0).get("_all_products") is True
+        assert window.cb_sale_prod.itemText(0) == "همه کالاها"
         assert window.cb_sale_batch.count() == 1
         # Purchase picker hides long specs in the row but includes them in its search and hover text.
         assert "DDR5" not in window.cb_batch_prod.itemText(0)
@@ -286,6 +289,7 @@ def test_database_refresh_keeps_services_suppliers_and_password_status_visible(
                 reopened_manager, active_employee=login.logged_employee
             )
             try:
+                assert protected_window.cb_sale_prod.count() == 2
                 assert protected_window.cb_sale_batch.count() == 2
                 assert "کاربر بدون رمز" in protected_window.lbl_active_user.text()
                 protected_employee_row = next(
@@ -351,8 +355,9 @@ def test_sale_batch_picker_shows_only_distinguishing_specifications(tmp_path, mo
 
     window = MainWindow(manager, active_employee=None)
     try:
-        assert window.cb_sale_prod.count() == 1
-        assert strip_bidi_controls(window.cb_sale_prod.itemText(0)) == (
+        assert window.cb_sale_prod.count() == 2
+        assert window.cb_sale_prod.itemData(0).get("_all_products") is True
+        assert strip_bidi_controls(window.cb_sale_prod.itemText(1)) == (
             "P-2000 | لپ‌تاپ عمومی / مالتی‌مدیا | ASUS G551"
         )
         assert window.cb_sale_batch.count() == 2
@@ -486,8 +491,8 @@ def test_custom_attribute_name_is_form_label_and_title_is_output_label(tmp_path,
         "categories": ["قطعات"],
         "subcategories": {"قطعات": ["پردازنده (CPU)"]},
         "attributes": {"قطعات": [{
-            "name": "CPU",
-            "label": "پردازنده (CPU)",
+            "name": "پردازنده",
+            "label": "CPU",
             "display_name": "مدل پردازنده",
             "values": ["Core i5", "Core i7"],
             "subcategory": "پردازنده (CPU)",
@@ -496,21 +501,21 @@ def test_custom_attribute_name_is_form_label_and_title_is_output_label(tmp_path,
     })
     window = MainWindow(manager, active_employee=None)
     try:
-        assert "CPU" in window.specs_widget.fields
-        field_widget = window.specs_widget.fields["CPU"]
-        assert field_widget.toolTip() == "مشخصه سفارشی: CPU"
+        assert "پردازنده" in window.specs_widget.fields
+        field_widget = window.specs_widget.fields["پردازنده"]
+        assert field_widget.toolTip() == "مشخصه سفارشی: پردازنده"
         field_label = window.specs_widget.form_layout.labelForField(field_widget)
-        assert field_label.text() == "CPU:"
-        assert window._format_specs_for_display({"CPU": "Core i7"}, "قطعات") == (
-            "پردازنده (CPU): Core i7"
+        assert field_label.text() == "پردازنده:"
+        assert window._format_specs_for_display({"پردازنده": "Core i7"}, "قطعات") == (
+            "CPU: Core i7"
         )
-        assert window._format_specs_for_tooltip({"CPU": "Core i7"}, "قطعات") == (
-            "پردازنده (CPU): Core i7"
+        assert window._format_specs_for_tooltip({"پردازنده": "Core i7"}, "قطعات") == (
+            "CPU: Core i7"
         )
         definition = window.catalog_config["attributes"]["قطعات"][0]
         definition["label"] = ""
-        assert window._format_specs_for_display({"CPU": "Core i7"}, "قطعات") == (
-            "CPU: Core i7"
+        assert window._format_specs_for_display({"پردازنده": "Core i7"}, "قطعات") == (
+            "پردازنده: Core i7"
         )
 
         manager.save_product_catalog_config({
@@ -865,7 +870,151 @@ def test_sale_clear_form_resets_values_and_keeps_next_invoice_as_placeholder(
         assert window.dt_war_end.get_date() == today
         assert window.cb_sale_qty.currentText() == "1"
         assert not window.cb_sale_qty.isEditable()
-        assert window.cb_sale_prod.currentData() is None
+        assert window.cb_sale_prod.currentText() == "همه کالاها"
+        assert window.cb_sale_prod.currentData().get("_all_products") is True
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
+def test_sales_all_products_loads_batches_and_saves_the_selected_batch_product(
+    tmp_path, monkeypatch, qapp
+):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    monkeypatch.setattr(main_module.QMessageBox, "critical", lambda *args, **kwargs: pytest.fail(str(args[2] if len(args) > 2 else args)))
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    manager.add_product(
+        "P-ALL-1", "", "لوازم جانبی", "کیبورد", "Acme", "K100",
+        {"نوع اتصال": "USB"}, "", 1, 20,
+    )
+    manager.add_product(
+        "P-ALL-2", "", "مانیتور", "مانیتور اداری", "View", "V24",
+        {"سایز": "24 inch"}, "", 1, 20,
+    )
+    with manager.get_connection() as conn:
+        product_ids = {
+            row["code"]: row["id"]
+            for row in conn.execute(
+                "SELECT id, code FROM products WHERE code IN ('P-ALL-1','P-ALL-2')"
+            ).fetchall()
+        }
+    manager.add_batch(
+        "C-ALL-1", product_ids["P-ALL-1"], None, None, "PO-ALL-1", "1405/01/01",
+        2, 100, 0, 150, 0, "", "Keyboard USB", "", "تسویه‌نشده",
+        colors=["مشکی", "سبز"],
+    )
+    manager.add_batch(
+        "C-ALL-2", product_ids["P-ALL-2"], None, None, "PO-ALL-2", "1405/01/02",
+        2, 200, 0, 300, 0, "", "Display 24 inch", "", "تسویه‌نشده",
+        colors=["آبی"],
+    )
+
+    window = MainWindow(manager, active_employee=None)
+    try:
+        assert window.cb_sale_prod.currentText() == "همه کالاها"
+        assert window.cb_sale_prod.currentData().get("_all_products") is True
+        assert window.cb_sale_batch.count() == 2
+        batch_index = next(
+            index for index in range(window.cb_sale_batch.count())
+            if window.cb_sale_batch.itemData(index)["batch_code"] == "C-ALL-2"
+        )
+        batch_label = window.cb_sale_batch.itemText(batch_index)
+        assert "View" in batch_label and "|" in batch_label
+        window.cb_sale_batch.setCurrentIndex(batch_index)
+        batch = window.cb_sale_batch.currentData()
+        assert batch["product_id"] == product_ids["P-ALL-2"]
+        assert [window.lst_sale_colors.item(i).text()
+                for i in range(window.lst_sale_colors.count())] == ["آبی"]
+        window.lst_sale_colors.item(0).setCheckState(Qt.Checked)
+        window.cb_sale_qty.setCurrentText("1")
+        window.ed_sale_inv.setText("INV-ALL-PRODUCTS")
+        window.cb_sale_status.setCurrentText("تسویه‌نشده")
+        window.pr_sale_paid.set_value(0)
+        window._save_new_sale()
+
+        with manager.get_connection() as conn:
+            sale = conn.execute(
+                """SELECT product_id, batch_id, colors_json
+                   FROM sales WHERE invoice_number='INV-ALL-PRODUCTS'"""
+            ).fetchone()
+        assert sale is not None
+        assert sale["product_id"] == product_ids["P-ALL-2"]
+        assert sale["batch_id"] == batch["id"]
+        assert json.loads(sale["colors_json"]) == ["آبی"]
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
+def test_password_policy_cannot_be_enabled_without_any_user(tmp_path, monkeypatch, qapp):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    window = MainWindow(manager, active_employee=None)
+    messages = []
+    try:
+        monkeypatch.setattr(
+            main_module.QMessageBox,
+            "information",
+            lambda _parent, title, message: messages.append((title, message)),
+        )
+        monkeypatch.setattr(
+            main_module,
+            "_ask_yes_no",
+            lambda *_args: pytest.fail("Confirmation must not be requested when no user exists"),
+        )
+        window.chk_req_pass.setChecked(True)
+        assert not window.chk_req_pass.isChecked()
+        assert messages and "حداقل یک کاربر" in messages[0][1]
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
+def test_catalog_aliases_are_merged_and_existing_product_specs_are_migrated(
+    tmp_path, monkeypatch, qapp
+):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    monkeypatch.setattr(main_module.QMessageBox, "information", lambda *args, **kwargs: None)
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    manager.save_product_catalog_config({
+        "categories": ["لپ‌تاپ"],
+        "subcategories": {"لپ‌تاپ": ["عمومی", "عمومی"]},
+        "attributes": {"لپ‌تاپ": [
+            {"name": "صفحه‌نمایش", "label": "Display", "values": ["FHD"], "subcategory": ""},
+            {"name": "صفحه نمایش", "label": "Display", "values": ["IPS"], "subcategory": ""},
+        ]},
+        "colors": ["مشکی"],
+        "service_types": ["نرم‌افزاری", "سخت‌افزاری"],
+    })
+    manager.add_product(
+        "P-ALIAS", "", "لپ‌تاپ", "عمومی", "Acme", "L1",
+        {"صفحه‌نمایش": "FHD", "صفحه نمایش": "IPS"}, "", 1, 20,
+    )
+    window = MainWindow(manager, active_employee=None)
+    try:
+        items = window._taxonomy_draft["attributes"]["لپ‌تاپ"]
+        assert len([
+            item for item in items
+            if main_module.normalize_catalog_label(item["name"]) ==
+               main_module.normalize_catalog_label("صفحه‌نمایش")
+        ]) == 1
+        display = next(
+            item for item in items
+            if main_module.normalize_catalog_label(item["name"]) ==
+               main_module.normalize_catalog_label("صفحه‌نمایش")
+        )
+        assert set(display["values"]) == {"FHD", "IPS"}
+        window._save_general_settings()
+        with manager.get_connection() as conn:
+            product = conn.execute(
+                "SELECT specs_json FROM products WHERE code='P-ALIAS'"
+            ).fetchone()
+        specs = json.loads(product["specs_json"])
+        assert "صفحه نمایش" not in specs
+        assert specs["صفحه‌نمایش"] == "FHD IPS"
     finally:
         window.close()
         qapp.processEvents()
@@ -1009,3 +1158,168 @@ def test_create_database_dialog_does_not_default_to_overwriting_invalid_file(
         dialog._validate_and_accept()
         assert dialog.selected_path is None
         dialog.close()
+
+
+def test_catalog_create_actions_reject_persian_spacing_aliases(tmp_path, monkeypatch, qapp):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    window = MainWindow(manager, active_employee=None)
+    messages = []
+    try:
+        monkeypatch.setattr(
+            main_module.QMessageBox,
+            "information",
+            lambda _parent, title, message: messages.append((title, message)),
+        )
+
+        category_count = len(window._taxonomy_draft["categories"])
+        window.ed_cfg_category.setText("لپ تاپ")
+        window._add_catalog_category()
+        assert len(window._taxonomy_draft["categories"]) == category_count
+
+        window.cb_cfg_category.setCurrentText("لپ‌تاپ")
+        subcategories = window._taxonomy_draft["subcategories"]["لپ‌تاپ"]
+        subcategory_count = len(subcategories)
+        window.ed_cfg_subcategory.setText("لپ تاپ عمومی / مالتی مدیا")
+        window._add_catalog_subcategory()
+        assert len(window._taxonomy_draft["subcategories"]["لپ‌تاپ"]) == subcategory_count
+
+        colors = window._taxonomy_draft["colors"]
+        color_count = len(colors)
+        window.ed_cfg_color.setText("نقره ای")
+        window._add_catalog_color()
+        assert len(window._taxonomy_draft["colors"]) == color_count
+
+        service_types = window._taxonomy_draft["service_types"]
+        service_type_count = len(service_types)
+        window.ed_cfg_service_type.setText("نرم افزاری")
+        window._add_catalog_service_type()
+        assert len(window._taxonomy_draft["service_types"]) == service_type_count
+
+        assert len(messages) == 4
+        assert "لپ‌تاپ" in messages[0][1]
+        assert "لپ‌تاپ عمومی" in messages[1][1]
+        assert "نقره‌ای" in messages[2][1]
+        assert "نرم‌افزاری" in messages[3][1]
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
+def test_comprehensive_report_orders_by_last_edit_and_aligns_specification_column(
+    tmp_path, monkeypatch, qapp
+):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    manager.add_product(
+        "P-REPORT", "", "لپ‌تاپ", "لپ‌تاپ عمومی / مالتی‌مدیا",
+        "ASUS", "RPT-15", {"ظرفیت رم": "8GB"}, "", 1, 20,
+    )
+    with manager.get_connection() as conn:
+        product_id = conn.execute(
+            "SELECT id FROM products WHERE code='P-REPORT'"
+        ).fetchone()["id"]
+    manager.add_batch(
+        "C-REPORT", product_id, None, None, "PO-REPORT", "1405/01/01",
+        5, 100, 0, 150, 0, "", "RAM: 8GB DDR4", "",
+        "تسویه‌نشده", colors=["مشکی"],
+    )
+    with manager.get_connection() as conn:
+        batch_id = conn.execute(
+            "SELECT id FROM batches WHERE batch_code='C-REPORT'"
+        ).fetchone()["id"]
+
+    manager.add_sale(
+        "INV-REPORT-OLD", product_id, batch_id, None, "مشتری اول",
+        1, 150, 150, 0, "1405/01/01 10:00:00",
+        settlement_status="تسویه‌نشده",
+        specifications="RAM: 8GB DDR4",
+        colors=["مشکی"],
+    )
+    manager.add_sale(
+        "INV-REPORT-NEW", product_id, batch_id, None, "مشتری دوم",
+        1, 150, 150, 0, "1405/01/02 10:00:00",
+        settlement_status="تسویه‌نشده",
+        specifications="RAM: 8GB DDR4",
+        colors=["مشکی"],
+    )
+    with manager.get_connection() as conn:
+        old_sale_id = conn.execute(
+            "SELECT id FROM sales WHERE invoice_number='INV-REPORT-OLD'"
+        ).fetchone()["id"]
+
+    # A later edit to an older invoice must promote that row above the newer invoice.
+    manager.update_sale(
+        old_sale_id, None, "مشتری اول", 1, 150, 151, 0,
+        "", "", 0, "", "", "",
+        settlement_status="تسویه‌نشده",
+        warranty_days=0,
+        specifications="RAM: 16GB DDR5",
+        colors=["مشکی"],
+    )
+
+    window = MainWindow(manager, active_employee=None)
+    try:
+        window.cb_rep_type.setCurrentIndex(0)
+        window._update_report_live()
+        headers = [
+            window.tbl_report.horizontalHeaderItem(index).text()
+            for index in range(window.tbl_report.columnCount())
+        ]
+        title_index = headers.index("برند و مدل / عنوان")
+        specs_index = headers.index("مشخصات فنی")
+        assert specs_index == title_index + 1
+
+        visible_invoices = [
+            window.tbl_report.item(row, 1).text()
+            for row in range(window.tbl_report.rowCount())
+            if window.tbl_report.item(row, 1) is not None
+        ]
+        sale_invoices = [
+            value for value in visible_invoices
+            if value in {"INV-REPORT-OLD", "INV-REPORT-NEW"}
+        ]
+        assert sale_invoices == ["INV-REPORT-OLD", "INV-REPORT-NEW"]
+
+        edited_sale_row = next(
+            row for row in range(window.tbl_report.rowCount())
+            if window.tbl_report.item(row, 1)
+            and window.tbl_report.item(row, 1).text() == "INV-REPORT-OLD"
+        )
+        first_specs = window.tbl_report.item(edited_sale_row, specs_index).text()
+        assert first_specs == "RAM: 16GB DDR5"
+        signed_column = headers.index("تخفیف (-) / تشدید (+)")
+        signed_cell = window.tbl_report.item(edited_sale_row, signed_column)
+        assert signed_cell.text().startswith("\u200e+")
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
+def test_dark_theme_updates_settings_and_read_only_field_contrast(tmp_path, monkeypatch, qapp):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    window = MainWindow(manager, active_employee=None)
+    try:
+        window._apply_styles()
+        light_css = window.styleSheet()
+        assert "QLabel#appVersion" in light_css
+        assert "QLabel#activeDbPath" in light_css
+        assert "QScrollBar::up-arrow:vertical" in light_css
+        assert "QScrollBar::down-arrow:vertical" in light_css
+
+        manager.cfg["theme"] = "dark"
+        window._apply_styles()
+        dark_css = window.styleSheet()
+        assert "#93c5fd" in dark_css
+        assert "#29384d" in dark_css
+        assert "QLabel#settingsHint" in dark_css
+        assert "QLineEdit:read-only" in dark_css
+    finally:
+        manager.cfg["theme"] = "light"
+        window._apply_styles()
+        window.close()
+        qapp.processEvents()
