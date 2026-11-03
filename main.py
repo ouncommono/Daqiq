@@ -125,7 +125,10 @@ def _localized_message(parent, title, text, icon, buttons=QMessageBox.Ok,
     if default_button != QMessageBox.NoButton:
         dialog.setDefaultButton(default_button)
     _center_message_buttons(dialog)
-    return dialog.exec()
+    dialog.exec()
+    clicked = dialog.clickedButton()
+    standard = dialog.standardButton(clicked) if clicked is not None else QMessageBox.NoButton
+    return standard
 
 
 def _install_persian_message_boxes():
