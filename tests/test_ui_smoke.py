@@ -45,7 +45,7 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
     try:
         assert window.tabs.count() == 10
         assert window.tabs.tabText(9).endswith("تنظیمات")
-        assert window.lbl_app_version.text() == "نسخه برنامه: 1.0.2"
+        assert window.lbl_app_version.text() == "نسخه برنامه: 1.2.0"
         assert [window.catalog_tabs.tabText(i) for i in range(window.catalog_tabs.count())] == [
             "مدیریت کالاها", "مدیریت خدمات"
         ]
