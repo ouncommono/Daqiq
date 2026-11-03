@@ -5102,7 +5102,7 @@ class MainWindow(QMainWindow):
         # Keep the existing stored value for data compatibility; only the visible caption is modernized.
         return [
             "دسترسی کامل (مدیر کل)",
-            "مدیر ارشد (بدون مدیریت کاربران)",
+            "مدیر ارشد (بدون مدیریت کارکنان)",
             "سرپرست عملیات (گزارش‌های محدود به عملکرد خود)",
             "فروش و خدمات (گزارش محدود به عملکرد خود)",
             "ثبت خرید و انبارداری (گزارش محدود به خریدهای خود)",
