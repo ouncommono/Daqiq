@@ -214,7 +214,7 @@ class LoginDialog(QDialog):
         )
         btn_login.clicked.connect(self._check_login)
 
-        layout.addRow("انتخاب کارمند:", self.cb_emp)
+        layout.addRow("انتخاب کاربر:", self.cb_emp)
         layout.addRow("رمز عبور:", self.ed_pass)
         layout.addRow(self.lbl_login_hint)
         layout.addRow(btn_login)
@@ -1233,7 +1233,7 @@ class MainWindow(QMainWindow):
         )
         self._add_table_search(
             l_emp, self.tbl_dash_emp, "dashboard_employees",
-            "🔍 جست‌وجو در عملکرد کارکنان..."
+            "🔍 جست‌وجو در عملکرد کاربران..."
         )
         l_emp.addWidget(self.tbl_dash_emp)
 
@@ -4307,7 +4307,7 @@ class MainWindow(QMainWindow):
         )
 
     # =========================================================================
-    # ۹. تب مدیریت کارمندان (بند ۲ و ۱۱: رفع کامل باگ نمایش جدول کارمندان)
+    # ۹. تب مدیریت کاربران (بند ۲ و ۱۱: رفع کامل باگ نمایش جدول کارمندان)
     # =========================================================================
     def _init_tab_employees(self):
         tab = QWidget()
@@ -4412,7 +4412,7 @@ class MainWindow(QMainWindow):
                         self.cb_emp_role.currentText(),
                         self.ed_emp_phone.text().strip(),
                         hashed,
-                        self.cb_emp_perm.currentData() or self.cb_emp_perm.currentText(),
+                        self.cb_emp_perm.currentData() or self.cb_emp_perm.currentData() or self.cb_emp_perm.currentText(),
                         1 if self.chk_emp_active.isChecked() else 0,
                     ),
                 )
