@@ -51,7 +51,8 @@ def _format_catalog_specs(specs: dict, category: str, catalog_config: dict) -> s
         value = str(raw_value or "").strip()
         if not name or not value:
             continue
-        title = str(by_name.get(name, {}).get("label") or "").strip()
+        definition = by_name.get(name, {})
+        title = str(definition.get("display_name") or definition.get("label") or "").strip()
         if title.startswith("@"):
             reference = title[1:].strip()
             if reference:
@@ -70,7 +71,8 @@ def _format_catalog_specs(specs: dict, category: str, catalog_config: dict) -> s
             values[reference] = f"{values[reference]} {value}".strip()
     rendered = []
     for name in order:
-        title = str(by_name.get(name, {}).get("label") or name).strip()
+        definition = by_name.get(name, {})
+        title = str(definition.get("display_name") or definition.get("label") or name).strip()
         if not title or title.startswith("@"):
             title = name
         rendered.append(f"{title}: {_clean_excel_value(values[name])}")
