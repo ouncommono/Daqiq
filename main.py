@@ -5445,6 +5445,10 @@ class MainWindow(QMainWindow):
         if self.cb_cfg_category.count():
             self.cb_cfg_category.setCurrentIndex(0)
         self._refresh_catalog_management_lists()
+        # QComboBox may already be on index zero while signals are blocked during load.
+        # Initialize the current caption explicitly so the first category switch can save it.
+        if self.cb_cfg_category.count():
+            self._on_catalog_category_selected(self.cb_cfg_category.currentText())
         self._load_peer_inventory_export_fields()
         if hasattr(self, "specs_widget"):
             current_category = self.cb_prod_cat.currentText()
