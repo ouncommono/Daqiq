@@ -2512,7 +2512,6 @@ class MainWindow(QMainWindow):
         self.ed_srv_cust = SmartLineEdit("نام مشتری (اختیاری)")
         self.pr_srv_fee = PriceInput(self.db)
         self.pr_srv_fee.setReadOnly(True)
-        self.pr_srv_fee.setStyleSheet("background-color: #e2e8f0; color: #475569; font-weight: bold;")
         self.pr_srv_fee.setToolTip("این مبلغ از فهرست خدمات خوانده می‌شود. برای اعمال تخفیف یا تشدید، «مبلغ دریافتی» را تغییر دهید.")
         self.pr_srv_side = PriceInput(self.db)
         self.cb_srv_status = QComboBox()
@@ -2523,9 +2522,7 @@ class MainWindow(QMainWindow):
         
         # نمایش زنده تخفیف/تشدید و سود خالص خدمت
         self.lbl_srv_diff_summary = QLabel("تخفیف (-) / تشدید (+): 0 تومان | سود خالص: 0 تومان")
-        self.lbl_srv_diff_summary.setStyleSheet(
-            "font-weight: bold; color: #047857; background: #ecfdf5; padding: 5px; border-radius: 5px;"
-        )
+        self.lbl_srv_diff_summary.setObjectName("saleSummary")
 
         self.pr_srv_paid.valueChanged.connect(self._recalc_srv_live_summary)
         self.pr_srv_side.valueChanged.connect(self._recalc_srv_live_summary)
