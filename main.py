@@ -151,7 +151,7 @@ class LoginDialog(QDialog):
             "کاربر دارای رمز باید رمز خود را وارد کند؛ حساب بدون رمز می‌تواند مستقیم وارد شود."
         )
         self.lbl_login_hint.setWordWrap(True)
-        self.lbl_login_hint.setStyleSheet("color: #64748b; font-size: 11px;")
+        self.lbl_login_hint.setObjectName("settingsHint")
 
         btn_login = QPushButton("ورود")
         btn_login.setStyleSheet(
@@ -241,7 +241,7 @@ class DatabaseBootstrapDialog(QDialog):
             "مسیر پیشنهادی قابل ویرایش است."
         )
         detail.setWordWrap(True)
-        detail.setStyleSheet("color: #64748b;")
+        detail.setObjectName("settingsHint")
         layout.addWidget(title)
         layout.addWidget(detail)
 
@@ -638,6 +638,22 @@ class MainWindow(QMainWindow):
             QLineEdit:focus, QComboBox:focus, QSpinBox:focus {{
                 border: 1.5px solid {accent};
             }}
+            QLineEdit:read-only {{
+                background-color: {alternate}; color: {muted};
+                border-color: {border};
+            }}
+            QLabel#settingsHint {{ color: {muted}; font-size: 11px; }}
+            QLabel#reportSummary {{
+                color: {text}; background: {alternate};
+                border: 1px solid {border}; border-radius: 6px;
+                padding: 8px; font-size: 14px; font-weight: 700;
+            }}
+            QLabel#saleSummary {{
+                color: {"#bbf7d0" if dark else "#065f46"};
+                background: {"#123b30" if dark else "#ecfdf5"};
+                border: 1px solid {"#276749" if dark else "#a7f3d0"};
+                border-radius: 6px; padding: 6px; font-weight: 700;
+            }}
             QComboBox QAbstractItemView {{
                 background: {input_bg}; color: {text}; border: 1px solid {border};
                 selection-background-color: #2563eb; selection-color: #ffffff;
@@ -692,10 +708,14 @@ class MainWindow(QMainWindow):
             QScrollBar:horizontal {{ height: 14px; margin: 0px; background: {alternate}; border-radius: 7px; }}
             QScrollBar::handle:horizontal {{ min-width: 36px; background: #718096; border-radius: 7px; }}
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
-                height: 0px; border: none; background: transparent;
+                width: 0px; height: 0px; border: none; background: transparent;
             }}
             QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
-                width: 0px; border: none; background: transparent;
+                width: 0px; height: 0px; border: none; background: transparent;
+            }}
+            QScrollBar::up-arrow:vertical, QScrollBar::down-arrow:vertical,
+            QScrollBar::left-arrow:horizontal, QScrollBar::right-arrow:horizontal {{
+                width: 0px; height: 0px; image: none; border: none;
             }}
             QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical,
             QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
@@ -1855,9 +1875,7 @@ class MainWindow(QMainWindow):
 
         self.pr_sale_suggest = PriceInput(self.db)
         self.pr_sale_suggest.setReadOnly(True)
-        self.pr_sale_suggest.setStyleSheet(
-            "background-color: #e2e8f0; color: #475569; font-weight: bold;"
-        )
+        self.pr_sale_suggest.setObjectName("suggestedSalePrice")
         self.pr_sale_suggest.setToolTip(
             "قیمت پیشنهادی از بخش ثبت خرید و محموله‌ها دریافت می‌شود و در فاکتور فروش قابل تغییر نیست."
         )
@@ -1872,9 +1890,7 @@ class MainWindow(QMainWindow):
         self.pr_sale_actual.valueChanged.connect(self._recalc_sale_live)
 
         self.lbl_sale_summary = QLabel("تخفیف/تشدید: 0 تومان | سود فروش: 0 تومان")
-        self.lbl_sale_summary.setStyleSheet(
-            "font-weight: bold; color: #047857; background: #ecfdf5; padding: 6px; border-radius: 5px;"
-        )
+        self.lbl_sale_summary.setObjectName("saleSummary")
 
         self.ed_war_company = SmartLineEdit("شرکت گارانتی‌کننده")
         self.dt_war_start = JalaliDateEdit(default_today=True)
@@ -3361,9 +3377,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(gb_flt)
 
         self.lbl_rep_totals = QLabel("خلاصه مالی گزارش:")
-        self.lbl_rep_totals.setStyleSheet(
-            "font-weight: bold; font-size: 14px; color: #1e3a8a; background: #dbeafe; padding: 8px; border-radius: 6px;"
-        )
+        self.lbl_rep_totals.setObjectName("reportSummary")
         layout.addWidget(self.lbl_rep_totals)
 
         self.tbl_report = self._create_table(["ستون ۱"])
@@ -4407,7 +4421,7 @@ class MainWindow(QMainWindow):
             "پیش از فعال‌سازی، برای تمام کارکنان فعال رمز عبور تعیین کنید."
         )
         security_hint.setWordWrap(True)
-        security_hint.setStyleSheet("color: #64748b; font-size: 11px;")
+        security_hint.setObjectName("settingsHint")
         security_layout.addWidget(self.chk_req_pass)
         security_layout.addWidget(security_hint)
         gb_security.setTitle("")
@@ -4459,7 +4473,7 @@ class MainWindow(QMainWindow):
         categories_layout = QVBoxLayout(gb_categories)
         self.cb_cfg_category = QComboBox()
         self.ed_cfg_category = QLineEdit()
-        self.ed_cfg_category.setPlaceholderText("نام دسته‌بندی...")
+        self.ed_cfg_category.setPlaceholderText("نام فارسی دسته‌بندی اصلی را وارد کنید...")
         cat_btn_row = QHBoxLayout()
         btn_add_category = QPushButton("افزودن")
         btn_add_category.clicked.connect(self._add_catalog_category)
@@ -4489,7 +4503,7 @@ class MainWindow(QMainWindow):
         self.lst_cfg_subcategories.verticalScrollBar().setSingleStep(18)
         self.lst_cfg_subcategories.setMaximumHeight(125)
         self.ed_cfg_subcategory = QLineEdit()
-        self.ed_cfg_subcategory.setPlaceholderText("نام زیرمجموعه را وارد کنید...")
+        self.ed_cfg_subcategory.setPlaceholderText("نام زیرمجموعه را وارد کنید؛ مثلاً صفحه‌نمایش یا پردازنده...")
         sub_btn_row = QHBoxLayout()
         btn_add_sub = QPushButton("افزودن")
         btn_add_sub.clicked.connect(self._add_catalog_subcategory)
@@ -4516,23 +4530,26 @@ class MainWindow(QMainWindow):
         self.lst_cfg_attributes.verticalScrollBar().setSingleStep(18)
         self.lst_cfg_attributes.setMaximumHeight(125)
         self.ed_cfg_attribute_name = QLineEdit()
-        self.ed_cfg_attribute_name.setPlaceholderText("مثلاً نوع پردازنده یا نوع پنل")
+        self.ed_cfg_attribute_name.setPlaceholderText("نام فارسی ویژگی؛ مثلاً پردازنده، ظرفیت رم یا نوع پنل")
         self.ed_cfg_attribute_label = QLineEdit()
         self.ed_cfg_attribute_label.setPlaceholderText(
-            "مثلاً CPU یا RAM؛ برای ترکیب مقدار با ویژگی دیگر، @نام فارسی آن ویژگی را بنویسید"
+            "عنوان انگلیسی برای نمایش؛ مثلاً CPU یا RAM. در صورت نیاز می‌توانید خالی بگذارید."
         )
         self.lbl_cfg_attribute_help = QLabel(
-            "راهنما: نام ویژگی را فارسی بنویسید و عنوان نمایشی را انگلیسی وارد کنید؛ "
-            "مثلاً «پردازنده» با عنوان «CPU». اگر می‌خواهید مقدار این ویژگی کنار مقدار ویژگی دیگری بیاید، "
-            "در عنوان آن نام فارسی ویژگی اصلی را با @ بنویسید؛ مثلاً «@ظرفیت رم»."
+            "راهنما: نام ویژگی را فارسی بنویسید و در عنوان، معادل انگلیسی آن را وارد کنید؛ "
+            "مثلاً «پردازنده» با عنوان «CPU». برای کنار هم نمایش‌دادن مقدار دو ویژگی، "
+            "نام ویژگی اصلی را با علامت @ بنویسید؛ مثلاً «@ظرفیت رم». "
+            "نمونه خروجی: RAM: 8GB DDR4"
         )
         self.lbl_cfg_attribute_help.setWordWrap(True)
-        self.lbl_cfg_attribute_help.setStyleSheet("color: #64748b; font-size: 11px;")
+        self.lbl_cfg_attribute_help.setObjectName("settingsHint")
         self.ed_cfg_attribute_values = QLineEdit()
-        self.ed_cfg_attribute_values.setPlaceholderText("مثلاً Intel Core i5 8xxxU, Intel Core i7 8xxxH")
+        self.ed_cfg_attribute_values.setPlaceholderText(
+            "مقادیر پیشنهادی را با ویرگول جدا کنید؛ هنگام ثبت کالا امکان تایپ مقدار دیگر هم وجود دارد."
+        )
         self.cb_cfg_attribute_subcategory = QComboBox()
         self.cb_cfg_attribute_subcategory.addItem("همهٔ زیرمجموعه‌ها", "")
-        lbl_scope = QLabel("اعمال ویژگی برای:")
+        lbl_scope = QLabel("این ویژگی برای کدام زیرمجموعه باشد؟")
         lbl_scope.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         attr_layout.addWidget(lbl_scope)
         attr_layout.addWidget(self.cb_cfg_attribute_subcategory)
@@ -4574,7 +4591,7 @@ class MainWindow(QMainWindow):
         self.lst_cfg_colors.verticalScrollBar().setSingleStep(18)
         self.lst_cfg_colors.setMaximumHeight(125)
         self.ed_cfg_color = QLineEdit()
-        self.ed_cfg_color.setPlaceholderText("مثلاً سبز یا ذغالی...")
+        self.ed_cfg_color.setPlaceholderText("نام رنگ را وارد کنید؛ مثلاً سبز، ذغالی یا نقره‌ای...")
         color_btn_row = QHBoxLayout()
         btn_add_color = QPushButton("افزودن رنگ")
         btn_add_color.clicked.connect(self._add_catalog_color)
@@ -4622,7 +4639,7 @@ class MainWindow(QMainWindow):
         self.lst_cfg_service_types.verticalScrollBar().setSingleStep(18)
         self.lst_cfg_service_types.setMaximumHeight(220)
         self.ed_cfg_service_type = QLineEdit()
-        self.ed_cfg_service_type.setPlaceholderText("مثلاً سخت‌افزاری یا نرم‌افزاری...")
+        self.ed_cfg_service_type.setPlaceholderText("نوع خدمت را وارد کنید؛ مثلاً سخت‌افزاری یا نرم‌افزاری...")
         self.lst_cfg_service_types.currentItemChanged.connect(
             self._on_catalog_service_type_selected
         )
@@ -4713,7 +4730,7 @@ class MainWindow(QMainWindow):
 
         self.lbl_last_backup = QLabel()
         self.lbl_last_backup.setWordWrap(True)
-        self.lbl_last_backup.setStyleSheet("color: #64748b;")
+        self.lbl_last_backup.setObjectName("settingsHint")
 
         f_db.addRow("مسیر پایگاه دادهٔ فعال:", self.lbl_active_db_path)
         f_db.addRow("فهرست پایگاه‌های داده:", self.lst_recent_databases)
