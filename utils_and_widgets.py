@@ -496,13 +496,9 @@ class CollapsibleSection(QWidget):
         super().__init__(parent)
         self.content = content
         self.header = QPushButton(f"▸  {title}")
+        self.header.setObjectName("collapsibleSectionHeader")
         self._expanded = False
         self.header.setMinimumHeight(38)
-        self.header.setStyleSheet(
-            "QPushButton { text-align: center; font-weight: 700; padding: 8px 12px; "
-            "border: 1px solid #cbd5e1; border-radius: 7px; background: palette(base); }"
-            "QPushButton:checked { border-color: #64748b; }"
-        )
         self.content.hide()
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
