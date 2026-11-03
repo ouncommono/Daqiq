@@ -2000,42 +2000,45 @@ class MainWindow(QMainWindow):
 
     @classmethod
     def _batch_variant_labels(cls, batches):
-        """Return only the technical details that distinguish each batch of one product."""
-        parsed_rows = []
-        token_rows = []
+        """Compare variant specs only among batches belonging to the same product."""
+        groups = {}
         for batch in batches:
-            raw = batch.get("final_specs") or batch.get("initial_specs") or ""
-            parsed, tokens = cls._parse_batch_specifications(raw)
-            parsed_rows.append(parsed)
-            token_rows.append(tokens)
-
-        all_keys = list(dict.fromkeys(
-            key for specification in parsed_rows for key in specification
-        ))
-        varying_keys = [
-            key for key in all_keys
-            if len({specification.get(key) for specification in parsed_rows}) > 1
-        ]
+            groups.setdefault(int(batch.get("product_id") or 0), []).append(batch)
 
         labels = {}
-        for index, batch in enumerate(batches):
-            pieces = []
-            current = parsed_rows[index]
-            for key in varying_keys:
-                value = current.get(key) or "ثبت نشده"
-                pieces.append(f"{key}: {value}")
+        for product_batches in groups.values():
+            parsed_rows = []
+            token_rows = []
+            for batch in product_batches:
+                raw = batch.get("final_specs") or batch.get("initial_specs") or ""
+                parsed, tokens = cls._parse_batch_specifications(raw)
+                parsed_rows.append(parsed)
+                token_rows.append(tokens)
 
-            if not varying_keys:
-                shared_tokens = (
-                    set.intersection(*(set(tokens) for tokens in token_rows))
-                    if token_rows and all(token_rows) else set()
+            all_keys = list(dict.fromkeys(
+                key for specification in parsed_rows for key in specification
+            ))
+            varying_keys = [
+                key for key in all_keys
+                if len({specification.get(key) for specification in parsed_rows}) > 1
+            ]
+
+            for index, batch in enumerate(product_batches):
+                pieces = []
+                current = parsed_rows[index]
+                for key in varying_keys:
+                    pieces.append(f"{key}: {current.get(key) or 'ثبت نشده'}")
+                if not varying_keys:
+                    shared_tokens = (
+                        set.intersection(*(set(tokens) for tokens in token_rows))
+                        if token_rows and all(token_rows) else set()
+                    )
+                    pieces.extend(
+                        token for token in token_rows[index] if token not in shared_tokens
+                    )
+                labels[int(batch["id"])] = (
+                    "، ".join(dict.fromkeys(pieces)) if pieces else "بدون تفاوت ثبت‌شده"
                 )
-                unique_tokens = list(dict.fromkeys(
-                    token for token in token_rows[index] if token not in shared_tokens
-                ))
-                pieces.extend(unique_tokens)
-
-            labels[int(batch["id"])] = "، ".join(pieces) if pieces else "بدون تفاوت ثبت‌شده"
         return labels
 
     @staticmethod
@@ -2320,15 +2323,22 @@ class MainWindow(QMainWindow):
         self.ed_sale_serial.setText(self.tbl_sales.item(row_index, 19).text())
         with self.db.get_connection() as conn:
             sale_specs = conn.execute(
-                "SELECT specifications, batch_id FROM sales WHERE id=?",
+                """SELECT s.specifications, s.colors_json AS sale_colors,
+                          b.batch_id AS unused_batch_id, b.colors_json AS batch_colors
+                   FROM sales s JOIN batches b ON b.id=s.batch_id
+                   WHERE s.id=?""",
                 (self.selected_sale_id,),
             ).fetchone()
             if sale_specs:
-                selected_specs = (
-                    sale_specs["specifications"]
-                    or self._get_batch_sale_specs(sale_specs["batch_id"])
+                self.ed_sale_specs.setText(
+                    sale_specs["specifications"] or ""
                 )
-                self.ed_sale_specs.setText(selected_specs)
+                batch_colors = self._decode_colors(sale_specs["batch_colors"])
+                sold_colors = self._decode_colors(sale_specs["sale_colors"])
+                available_colors = list(dict.fromkeys(batch_colors + sold_colors))
+                self._populate_color_checklist(
+                    self.lst_sale_colors, available_colors, selected=sold_colors
+                )
 
         with self.db.get_connection() as conn:
             sale = conn.execute(
