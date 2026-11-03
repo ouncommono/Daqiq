@@ -419,7 +419,7 @@ class MainWindow(QMainWindow):
         self._table_default_stretch = {}
         self._table_search_fields = {}
         self._dashboard_card_styles = []
-        self.catalog_config = self.db.get_product_catalog_config()
+        self.catalog_config = self._effective_product_catalog_config()
 
         self._apply_styles()
         self._build_ui()
@@ -5245,7 +5245,7 @@ class MainWindow(QMainWindow):
             self._refresh_catalog_management_lists()
 
     def _apply_product_catalog_config(self):
-        self.catalog_config = self.db.get_product_catalog_config()
+        self.catalog_config = self._effective_product_catalog_config()
         categories = self.catalog_config.get("categories") or list(MAIN_CATEGORIES)
         categories = list(dict.fromkeys(categories))
         colors = self.catalog_config.get("colors") or DEFAULT_COLORS
@@ -5281,6 +5281,19 @@ class MainWindow(QMainWindow):
             if current_type and self.cb_srv_type.findText(current_type) >= 0:
                 self.cb_srv_type.setCurrentText(current_type)
             self.cb_srv_type.blockSignals(False)
+
+    def _effective_product_catalog_config(self):
+        """Return persisted per-database catalog or the complete standard defaults."""
+        stored = self.db.get_product_catalog_config()
+        if self.db.get_setting("product_catalog_config", ""):
+            return stored
+        return {
+            "categories": list(MAIN_CATEGORIES),
+            "subcategories": copy.deepcopy(DEFAULT_SUBCATEGORIES),
+            "attributes": copy.deepcopy(DEFAULT_ATTRIBUTES),
+            "colors": list(DEFAULT_COLORS),
+            "service_types": ["نرم‌افزاری", "سخت‌افزاری"],
+        }
 
     def _configure_product_specs(self, category):
         if not hasattr(self, "specs_widget"):
@@ -5459,7 +5472,7 @@ class MainWindow(QMainWindow):
         self.lbl_store_name.setText(bidi_isolate_text(shop_name))
         self.lbl_store_name.setToolTip(f"نام فروشگاه: {shop_name}")
 
-        self.catalog_config = self.db.get_product_catalog_config()
+        self.catalog_config = self._effective_product_catalog_config()
         self._apply_product_catalog_config()
         self._refresh_multi_db_combo()
         self._restart_backup_timer()
