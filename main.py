@@ -1708,11 +1708,13 @@ class MainWindow(QMainWindow):
                     int(duplicate["id"]), *batch_values,
                     product_id=prod["id"], initial_specs=custom_specs_or_notes,
                     batch_code=code,
+                    colors=self._checked_colors(self.lst_batch_colors),
                 )
             else:
                 self.db.add_batch(
                     code or None, prod["id"], *batch_values[:10],
                     custom_specs_or_notes, batch_values[10], batch_values[11],
+                    colors=self._checked_colors(self.lst_batch_colors),
                 )
             self.refresh_all_data()
             self._clear_batch_form()
@@ -1743,6 +1745,16 @@ class MainWindow(QMainWindow):
             int(self.tbl_batches.item(r, 18).text().replace(",", ""))
         )
         self.ed_batch_serial.setText(self.tbl_batches.item(r, 20).text())
+        with self.db.get_connection() as conn:
+            color_row = conn.execute(
+                "SELECT colors_json FROM batches WHERE id=?",
+                (self.selected_batch_id,),
+            ).fetchone()
+        self._populate_color_checklist(
+            self.lst_batch_colors,
+            self.catalog_config.get("colors") or DEFAULT_COLORS,
+            self._decode_colors(color_row["colors_json"]) if color_row else [],
+        )
 
     def _update_selected_batch(self):
         if not self.selected_batch_id:
@@ -1769,6 +1781,7 @@ class MainWindow(QMainWindow):
                 custom_specs_or_notes,
                 custom_specs_or_notes,
                 self.cb_batch_status.currentText(),
+                colors=self._checked_colors(self.lst_batch_colors),
             )
             self.refresh_all_data()
             QMessageBox.information(
@@ -2243,6 +2256,7 @@ class MainWindow(QMainWindow):
                 self.cb_sale_status.currentText(),
                 warranty_days=self.cb_war_months.currentData() or 0,
                 specifications=self.ed_sale_specs.text().strip(),
+                colors=self._checked_colors(self.lst_sale_colors),
             )
             self.refresh_all_data()
             self._set_generated_code_placeholder(
@@ -2339,6 +2353,7 @@ class MainWindow(QMainWindow):
                 self.cb_sale_status.currentText(),
                 warranty_days=self.cb_war_months.currentData() or 0,
                 specifications=self.ed_sale_specs.text().strip(),
+                colors=self._checked_colors(self.lst_sale_colors),
             )
             self.refresh_all_data()
             QMessageBox.information(self, "اصلاح فروش", "ردیف فروش با موفقیت اصلاح شد.")
@@ -5899,6 +5914,7 @@ class MainWindow(QMainWindow):
                     f"{debt:,}",
                     f"{r['final_specs']} {r['serial_numbers']}".strip(),
                     f"{tot_bill:,}",
+                    "، ".join(self._decode_colors(r["colors_json"])) or "-",
                 ]
             )
         self._populate_table_safely(self.tbl_batches, data, highlight_col=17)
@@ -5921,7 +5937,14 @@ class MainWindow(QMainWindow):
                 if r["warranty_company"] or r["warranty_months"] or r["warranty_days"]
                 else "-"
             )
-            prod_title = f"{r['sub_category']} {r['brand']} {r['model']}".strip()
+            product_prefix = str(r["sub_category"] or r["category"] or "").strip()
+            brand_model = " ".join(
+                value for value in (str(r["brand"] or "").strip(), str(r["model"] or "").strip())
+                if value
+            )
+            prod_title = " | ".join(
+                value for value in (product_prefix, brand_model) if value
+            )
             signed_diff = format_Signed_diff(
                 r["actual_unit_price"], r["suggested_unit_price"], r["qty"]
             )
@@ -5948,6 +5971,7 @@ class MainWindow(QMainWindow):
                     war_str,
                     r["serial_number"] or "-",
                     r["specifications"] or r["final_specs"] or r["initial_specs"] or "-",
+                    "، ".join(self._decode_colors(r["colors_json"])) or "-",
                 ]
             )
         self._populate_table_safely(self.tbl_sales, data, highlight_col=11)
