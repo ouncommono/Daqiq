@@ -140,33 +140,60 @@ def _style_worksheet_professional(ws, title: str, headers: list, data_rows: list
         ws.column_dimensions[col_letter].width = min(max(max_len + 5, 13), 42)
 
 
+PEER_INVENTORY_EXPORT_FIELDS = [
+    ("code", "کد کالا"),
+    ("category", "دسته‌بندی"),
+    ("subcategory", "زیرمجموعه"),
+    ("brand_model", "برند و مدل"),
+    ("specs", "مشخصات فنی"),
+    ("quantity", "موجودی فعلی"),
+    ("suggested_price", "قیمت فروش (پیشنهادی)"),
+    ("description", "توضیحات"),
+]
+
+_DEFAULT_PEER_EXPORT_FIELDS = (
+    "code", "category", "subcategory", "brand_model", "specs", "quantity"
+)
+
+
 def export_safe_inventory_excel(db: DatabaseManager, file_path: str, shop_name: str = ""):
-    """
-    بند ۴ و ۹: خروجی موجودی امن برای همکاران
-    - عنوان دقیق: «گزارش موجودی»
-    - فقط کالاهای دارای موجودی (remaining_qty > 0) خروجی گرفته می‌شوند
-    - بدون فیلد وضعیت موجودی و بدون هیچ‌گونه اطلاعات محرمانه مالی
-    """
+    """Create a configurable partner-facing stock list without purchase costs or profit data."""
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.title = "گزارش موجودی"
+    ws.title = "موجودی همکار"
 
-    headers = [
-        "کد کالا",
-        "دسته‌بندی",
-        "زیرمجموعه",
-        "برند و مدل",
-        "مشخصات فنی",
-        "موجودی فعلی",
-    ]
+    raw_fields = db.get_setting("peer_inventory_export_fields", "")
+    try:
+        configured_fields = json.loads(raw_fields) if raw_fields else list(_DEFAULT_PEER_EXPORT_FIELDS)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        configured_fields = list(_DEFAULT_PEER_EXPORT_FIELDS)
+    if not isinstance(configured_fields, list):
+        configured_fields = list(_DEFAULT_PEER_EXPORT_FIELDS)
 
+    available = {key: title for key, title in PEER_INVENTORY_EXPORT_FIELDS}
+    selected_keys = []
+    for key in configured_fields:
+        key = str(key)
+        if key in available and key not in selected_keys:
+            selected_keys.append(key)
+    if not selected_keys:
+        selected_keys = ["code"]
+
+    headers = [available[key] for key in selected_keys]
     catalog_config = db.get_product_catalog_config()
     with db.get_connection() as conn:
         rows = conn.execute("""
             SELECT p.code, p.name, p.category, p.sub_category, p.brand, p.model,
                    p.specs_json, p.description,
-                   COALESCE(SUM(b.remaining_qty), 0) as total_rem,
-                   MAX(b.updated_at) as last_batch_activity
+                   COALESCE(SUM(b.remaining_qty), 0) AS total_rem,
+                   MAX(b.updated_at) AS last_batch_activity,
+                   COALESCE((
+                       SELECT b2.suggested_sell_price
+                       FROM batches b2
+                       WHERE b2.product_id=p.id AND b2.remaining_qty>0
+                       ORDER BY b2.updated_at DESC, b2.id DESC
+                       LIMIT 1
+                   ), 0) AS suggested_price
             FROM products p
             LEFT JOIN batches b ON p.id = b.product_id
             WHERE p.is_active = 1
@@ -178,35 +205,34 @@ def export_safe_inventory_excel(db: DatabaseManager, file_path: str, shop_name: 
 
     data_rows = []
     for r in rows:
-        cat_text = r["category"] or "سایر موارد"
-        sub_text = r["sub_category"] or "-"
-        brand_model = f"{r['brand']} {r['model']}".strip() or r["name"]
-        specs_dict = json.loads(r["specs_json"] or "{}")
-        specs_str = _format_catalog_specs(
-            specs_dict, r["category"], catalog_config
-        )
-        if r["description"]:
-            specs_str = (
-                f"{specs_str} - {r['description']}".strip(" -")
-                if specs_str
-                else r["description"]
-            )
+        category = r["category"] or "سایر موارد"
+        brand_model = f"{r['brand'] or ''} {r['model'] or ''}".strip() or r["name"]
+        try:
+            specs_dict = json.loads(r["specs_json"] or "{}")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            specs_dict = {}
+        if not isinstance(specs_dict, dict):
+            specs_dict = {}
+        specs_text = _format_catalog_specs(specs_dict, category, catalog_config)
+        description = str(r["description"] or "").strip()
+        if description:
+            specs_text = f"{specs_text} - {description}".strip(" -") if specs_text else description
 
-        data_rows.append(
-            [
-                r["code"],
-                cat_text,
-                sub_text,
-                brand_model,
-                specs_str or "-",
-                int(r["total_rem"]),
-            ]
-        )
+        values = {
+            "code": r["code"],
+            "category": category,
+            "subcategory": r["sub_category"] or "-",
+            "brand_model": brand_model,
+            "specs": specs_text or "-",
+            "quantity": int(r["total_rem"]),
+            "suggested_price": int(r["suggested_price"] or 0),
+            "description": description or "-",
+        }
+        data_rows.append([values[key] for key in selected_keys])
 
-    report_title = _rtl_report_title(shop_name, "گزارش موجودی")
+    report_title = _rtl_report_title(shop_name, "موجودی همکار")
     _style_worksheet_professional(ws, report_title, headers, data_rows)
     wb.save(file_path)
-
 
 def export_table_to_excel(
     title: str, headers: list, data_rows: list, file_path: str, summary_text: str = "",
