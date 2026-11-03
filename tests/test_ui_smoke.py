@@ -16,6 +16,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QFontMetrics
 
 import database as database_module
+import exporter as exporter_module
 import main as main_module
 from database import DatabaseManager
 from main import MainWindow, SmoothScrollArea
@@ -42,7 +43,11 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
     window = MainWindow(manager, active_employee=None)
     try:
         assert window.tabs.count() == 10
-        assert window.tabs.tabText(9).endswith("تنظیمات و پشتیبان‌گیری")
+        assert window.tabs.tabText(9).endswith("تنظیمات")
+        assert window.lbl_app_version.text() == "نسخه برنامه: 1.0.0"
+        assert [window.catalog_tabs.tabText(i) for i in range(window.catalog_tabs.count())] == [
+            "مدیریت کالاها", "مدیریت خدمات"
+        ]
         assert window.lbl_store_name.text().strip("\u2067\u2069") == "فروشگاه من"
         assert "مدیریت فروش" not in window.lbl_store_name.text()
         assert window.lbl_active_user.text().startswith("👤 کاربر:")
@@ -104,8 +109,8 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
         )
         assert measured_widths[20] >= expected_header_width
 
-        assert window.dt_rep_from.get_date() == "1405/01/01"
-        assert window.cb_rep_preset.currentText() == "بازه انتخابی دستی"
+        assert window.dt_rep_from.get_date() == "1400/01/01"
+        assert window.cb_rep_preset.currentText() == "همه زمان‌ها"
         assert window.sp_bk_interval.minimum() == 1
         assert window.dt_batch_date.ed_day.width() >= 48
         assert window.dt_batch_date.ed_month.width() >= 48
@@ -473,7 +478,7 @@ def test_jalali_calendar_uses_theme_and_readable_day_cells(tmp_path, monkeypatch
 
 
 
-def test_custom_attribute_form_and_table_labels_are_independent(tmp_path, monkeypatch, qapp):
+def test_custom_attribute_name_is_form_label_and_title_is_output_label(tmp_path, monkeypatch, qapp):
     monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
     monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
     manager = DatabaseManager(str(tmp_path / "shop.db"))
@@ -493,19 +498,134 @@ def test_custom_attribute_form_and_table_labels_are_independent(tmp_path, monkey
     try:
         assert "CPU" in window.specs_widget.fields
         field_widget = window.specs_widget.fields["CPU"]
-        assert field_widget.toolTip() == "مشخصه سفارشی: پردازنده (CPU)"
+        assert field_widget.toolTip() == "مشخصه سفارشی: CPU"
         field_label = window.specs_widget.form_layout.labelForField(field_widget)
-        assert field_label.text() == "پردازنده (CPU):"
-        assert window._format_specs_for_display({"CPU": "Core i7"}, "قطعات") == (
-            "مدل پردازنده: Core i7"
-        )
-        assert window._format_specs_for_tooltip({"CPU": "Core i7"}, "قطعات") == (
-            "مدل پردازنده: Core i7"
-        )
-        definition = window.catalog_config["attributes"]["قطعات"][0]
-        definition.pop("display_name")
+        assert field_label.text() == "CPU:"
         assert window._format_specs_for_display({"CPU": "Core i7"}, "قطعات") == (
             "پردازنده (CPU): Core i7"
+        )
+        assert window._format_specs_for_tooltip({"CPU": "Core i7"}, "قطعات") == (
+            "پردازنده (CPU): Core i7"
+        )
+        definition = window.catalog_config["attributes"]["قطعات"][0]
+        definition["label"] = ""
+        assert window._format_specs_for_display({"CPU": "Core i7"}, "قطعات") == (
+            "CPU: Core i7"
+        )
+
+        manager.save_product_catalog_config({
+            "categories": ["لپ‌تاپ"],
+            "subcategories": {"لپ‌تاپ": ["عمومی"]},
+            "attributes": {"لپ‌تاپ": [
+                {"name": "رم", "label": "RAM", "values": []},
+                {"name": "نوع رم", "label": "@رم", "values": []},
+            ]},
+            "colors": [],
+        })
+        window.catalog_config = manager.get_product_catalog_config()
+        assert window._format_specs_for_display(
+            {"نوع رم": "DDR4", "رم": "8GB"}, "لپ‌تاپ"
+        ) == "RAM: 8GB DDR4"
+        assert exporter_module._format_catalog_specs(
+            {"نوع رم": "DDR4", "رم": "8GB"},
+            "لپ‌تاپ",
+            window.catalog_config,
+        ) == "RAM: 8GB DDR4"
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
+def test_password_requirement_is_confirmed_when_checkbox_is_enabled(tmp_path, monkeypatch, qapp):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    with manager.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO employees (name, role, permissions, is_active) VALUES (?, ?, ?, 1)",
+            ("کارمند بدون رمز", "فروشنده", "فروش و خدمات"),
+        )
+        conn.commit()
+    window = MainWindow(manager, active_employee=None)
+    prompts = []
+
+    def reject(_parent, title, message):
+        prompts.append((title, message))
+        return False
+
+    try:
+        monkeypatch.setattr(main_module, "_ask_yes_no", reject)
+        window.chk_req_pass.setChecked(True)
+        assert not window.chk_req_pass.isChecked()
+        assert prompts and "کارمند بدون رمز" in prompts[0][1]
+        assert "اطمینان دارید" in prompts[0][1]
+
+        monkeypatch.setattr(main_module, "_ask_yes_no", lambda *_args: True)
+        window.chk_req_pass.setChecked(True)
+        assert window.chk_req_pass.isChecked()
+        assert not manager.cfg.get("require_login_password", False)
+
+        with manager.get_connection() as conn:
+            conn.execute(
+                "UPDATE employees SET password=? WHERE name=?",
+                ("stored-password-hash", "کارمند بدون رمز"),
+            )
+            conn.commit()
+        def accept_and_capture(_parent, title, message):
+            prompts.append((title, message))
+            return True
+
+        monkeypatch.setattr(main_module, "_ask_yes_no", accept_and_capture)
+        window.chk_req_pass.setChecked(False)
+        prompts.clear()
+        window.chk_req_pass.setChecked(True)
+        assert window.chk_req_pass.isChecked()
+        assert prompts and "تمام کارکنان فعال" in prompts[0][1]
+        assert "اطمینان دارید" in prompts[0][1]
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
+def test_catalog_manager_selection_and_service_type_crud(tmp_path, monkeypatch, qapp):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    window = MainWindow(manager, active_employee=None)
+    try:
+        subcategory_item = window.lst_cfg_subcategories.item(0)
+        window.lst_cfg_subcategories.setCurrentItem(subcategory_item)
+        assert window.ed_cfg_subcategory.text() == subcategory_item.text()
+
+        color_item = window.lst_cfg_colors.item(0)
+        window.lst_cfg_colors.setCurrentItem(color_item)
+        assert window.ed_cfg_color.text() == color_item.text()
+
+        window.ed_cfg_service_type.setText("شبکه")
+        window._add_catalog_service_type()
+        assert "شبکه" in window._taxonomy_draft["service_types"]
+        network_item = next(
+            window.lst_cfg_service_types.item(i)
+            for i in range(window.lst_cfg_service_types.count())
+            if window.lst_cfg_service_types.item(i).text() == "شبکه"
+        )
+        window.lst_cfg_service_types.setCurrentItem(network_item)
+        assert window.ed_cfg_service_type.text() == "شبکه"
+        window.ed_cfg_service_type.setText("شبکه و ارتباطات")
+        window._rename_catalog_service_type()
+        assert "شبکه و ارتباطات" in window._taxonomy_draft["service_types"]
+        renamed_item = next(
+            window.lst_cfg_service_types.item(i)
+            for i in range(window.lst_cfg_service_types.count())
+            if window.lst_cfg_service_types.item(i).text() == "شبکه و ارتباطات"
+        )
+        window.lst_cfg_service_types.setCurrentItem(renamed_item)
+        window._delete_catalog_service_type()
+        assert "شبکه و ارتباطات" not in window._taxonomy_draft["service_types"]
+
+        manager.save_product_catalog_config(window._taxonomy_draft)
+        assert manager.get_product_catalog_config()["service_types"] == (
+            window._taxonomy_draft["service_types"]
         )
     finally:
         window.close()
@@ -622,13 +742,15 @@ def test_calendar_year_range_and_day_picker_are_consistent(qapp):
         calendar.close()
 
 
-def test_bidi_isolates_preserve_latin_specs_without_reversing_them():
+def test_bidi_text_is_kept_in_logical_order_without_invisible_controls():
     mixed = "نوع RAM: 12GB و مدل CPU: Core i7"
+    latin_only = "RAPOO 9550L"
     rendered = bidi_isolate_text(mixed)
+    assert rendered == mixed
     assert strip_bidi_controls(rendered) == mixed
-    assert "\u2066RAM:\u2069" in rendered
-    assert "\u206612GB\u2069" in rendered
-    assert "GB21" not in rendered
+    assert bidi_isolate_text(latin_only) == latin_only
+    assert "9550L RAPOO" not in rendered
+    assert all(marker not in rendered for marker in ("\u2066", "\u2069", "\u200e", "\u200f"))
 
 
 def test_price_input_selects_the_full_amount_on_focus(tmp_path, monkeypatch, qapp):
@@ -644,6 +766,56 @@ def test_price_input_selects_the_full_amount_on_focus(tmp_path, monkeypatch, qap
         assert edit.selectedText() == edit.text()
     finally:
         edit.close()
+        qapp.processEvents()
+
+
+def test_all_remaining_clear_buttons_reset_requested_fields(tmp_path, monkeypatch, qapp):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    window = MainWindow(manager, active_employee=None)
+    try:
+        window.pr_batch_buy.set_value(111)
+        window.pr_batch_extra.set_value(222)
+        window.pr_batch_suggest.set_value(333)
+        window.pr_batch_paid.set_value(444)
+        window.ed_batch_inv.setText("PO-RESET")
+        window._clear_batch_form()
+        assert [
+            window.pr_batch_buy.get_value(),
+            window.pr_batch_extra.get_value(),
+            window.pr_batch_suggest.get_value(),
+            window.pr_batch_paid.get_value(),
+        ] == [0, 0, 0, 0]
+        assert window.ed_batch_inv.text() == ""
+        assert window.cb_batch_prod.currentIndex() == -1
+        assert window.cb_batch_supplier.currentIndex() == -1
+
+        window.pr_srv_def_fee.set_value(555)
+        window.pr_srv_def_side.set_value(666)
+        window._clear_service_cat_form()
+        assert window.pr_srv_def_fee.get_value() == 0
+        assert window.pr_srv_def_side.get_value() == 0
+
+        window.pr_srv_fee.set_value(777)
+        window.pr_srv_side.set_value(888)
+        window.pr_srv_paid.set_value(999)
+        window.ed_srv_cust.setText("مشتری آزمایش")
+        window._clear_service_rec_form()
+        assert [
+            window.pr_srv_fee.get_value(),
+            window.pr_srv_side.get_value(),
+            window.pr_srv_paid.get_value(),
+        ] == [0, 0, 0]
+        assert window.ed_srv_cust.text() == ""
+        assert window.cb_srv_select.currentIndex() == -1
+        assert window.cb_srv_seller.currentIndex() == -1
+
+        window.pr_upg_labor.set_value(1234)
+        window._clear_upgrade_form()
+        assert window.pr_upg_labor.get_value() == 0
+    finally:
+        window.close()
         qapp.processEvents()
 
 
@@ -671,6 +843,8 @@ def test_sale_clear_form_resets_values_and_keeps_next_invoice_as_placeholder(
         today = __import__("jdatetime").date.today().strftime("%Y/%m/%d")
         window.ed_sale_inv.setText("MANUAL-INV")
         window.ed_sale_customer.setText("مشتری آزمایشی")
+        window.ed_sale_specs.setText("RAM: 16GB DDR5")
+        window.pr_sale_paid.set_value(500)
         window.ed_war_company.setText("Warranty")
         window.ed_sale_serial.setText("SERIAL-1")
         window.dt_war_start.set_date("1404/01/01")
@@ -682,6 +856,9 @@ def test_sale_clear_form_resets_values_and_keeps_next_invoice_as_placeholder(
         assert window.ed_sale_inv.text() == ""
         assert window.ed_sale_inv.placeholderText() == "INV-1001"
         assert window.ed_sale_customer.text() == ""
+        assert window.ed_sale_specs.text() == ""
+        assert window.pr_sale_actual.get_value() == 0
+        assert window.pr_sale_paid.get_value() == 0
         assert window.ed_war_company.text() == ""
         assert window.ed_sale_serial.text() == ""
         assert window.dt_war_start.get_date() == today

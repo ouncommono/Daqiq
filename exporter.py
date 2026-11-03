@@ -6,7 +6,7 @@ import jdatetime
 import openpyxl
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from database import DatabaseManager
-from utils_and_widgets import add_jalali_months, normalize_digits
+from utils_and_widgets import add_jalali_months, normalize_digits, strip_bidi_controls
 
 
 def get_next_excel_filename(directory: str, prefix: str = "R") -> str:
@@ -19,12 +19,64 @@ def get_next_excel_filename(directory: str, prefix: str = "R") -> str:
     return os.path.join(directory, candidate)
 
 
+def _clean_excel_value(value):
+    """Remove directional control characters without changing the logical value."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return strip_bidi_controls(value).strip()
+    return value
+
+
 def _rtl_report_title(shop_name: str, title: str) -> str:
-    """Return clean report text; let Excel's cell reading order handle RTL."""
-    bidi_controls = dict.fromkeys(map(ord, "\u061c\u200e\u200f\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069"))
-    clean_shop_name = (shop_name or "").translate(bidi_controls).strip()
-    clean_title = (title or "").translate(bidi_controls).strip()
+    """Return clean report text; Excel applies paragraph direction contextually."""
+    clean_shop_name = _clean_excel_value(shop_name)
+    clean_title = _clean_excel_value(title)
     return f"{clean_shop_name} — {clean_title}" if clean_shop_name else clean_title
+
+
+def _format_catalog_specs(specs: dict, category: str, catalog_config: dict) -> str:
+    """Use the catalog's @reference rule in inventory exports as in the UI."""
+    definitions = catalog_config.get("attributes", {}).get(category or "", [])
+    by_name = {
+        str(item.get("name") or "").strip(): item
+        for item in definitions
+        if isinstance(item, dict) and str(item.get("name") or "").strip()
+    }
+    values = {}
+    order = []
+    deferred = []
+    for raw_name, raw_value in (specs or {}).items():
+        name = str(raw_name).strip()
+        value = str(raw_value or "").strip()
+        if not name or not value:
+            continue
+        title = str(by_name.get(name, {}).get("label") or "").strip()
+        if title.startswith("@"):
+            reference = title[1:].strip()
+            if reference:
+                deferred.append((reference, value))
+            continue
+        if name not in values:
+            order.append(name)
+            values[name] = value
+        else:
+            values[name] = f"{values[name]} {value}".strip()
+    for reference, value in deferred:
+        if reference not in values:
+            order.append(reference)
+            values[reference] = value
+        else:
+            values[reference] = f"{values[reference]} {value}".strip()
+    rendered = []
+    for name in order:
+        title = str(by_name.get(name, {}).get("label") or name).strip()
+        if not title or title.startswith("@"):
+            title = name
+        rendered.append(f"{title}: {_clean_excel_value(values[name])}")
+    return " | ".join(rendered)
+
+
 
 
 def _style_worksheet_professional(ws, title: str, headers: list, data_rows: list):
@@ -41,7 +93,7 @@ def _style_worksheet_professional(ws, title: str, headers: list, data_rows: list
     ws.row_dimensions[1].height = 32
 
     # ردیف ۲: عناوین ستون‌ها
-    ws.append(headers)
+    ws.append([_clean_excel_value(value) for value in headers])
     ws.row_dimensions[2].height = 25
     header_fill = PatternFill("solid", fgColor="1E293B")
     header_font = Font(name="Tahoma", size=10, bold=True, color="FFFFFF")
@@ -65,14 +117,16 @@ def _style_worksheet_professional(ws, title: str, headers: list, data_rows: list
     body_font = Font(name="Tahoma", size=10, color="0F172A")
 
     for r_idx, r_vals in enumerate(data_rows, start=3):
-        ws.append(r_vals)
+        clean_values = [_clean_excel_value(value) for value in r_vals]
+        ws.append(clean_values)
         ws.row_dimensions[r_idx].height = 22
         row_fill = even_fill if r_idx % 2 == 0 else odd_fill
         for c_idx in range(1, col_count + 1):
             cell = ws.cell(row=r_idx, column=c_idx)
             cell.font = body_font
             cell.fill = row_fill
-            cell.alignment = Alignment(horizontal="center", vertical="center")
+            # Contextual reading direction prevents forced RTL on Latin-only cells.
+            cell.alignment = Alignment(horizontal="center", vertical="center", readingOrder=0)
             cell.border = thin_border
 
     # تنظیم هوشمند عرض ستون‌ها
@@ -106,17 +160,20 @@ def export_safe_inventory_excel(db: DatabaseManager, file_path: str, shop_name: 
         "موجودی فعلی",
     ]
 
+    catalog_config = db.get_product_catalog_config()
     with db.get_connection() as conn:
         rows = conn.execute("""
             SELECT p.code, p.name, p.category, p.sub_category, p.brand, p.model,
                    p.specs_json, p.description,
-                   COALESCE(SUM(b.remaining_qty), 0) as total_rem
+                   COALESCE(SUM(b.remaining_qty), 0) as total_rem,
+                   MAX(b.updated_at) as last_batch_activity
             FROM products p
             LEFT JOIN batches b ON p.id = b.product_id
             WHERE p.is_active = 1
             GROUP BY p.id
             HAVING total_rem > 0
-            ORDER BY p.category ASC, p.code ASC
+            ORDER BY COALESCE(last_batch_activity, p.updated_at) DESC,
+                     p.updated_at DESC, p.id DESC
         """).fetchall()
 
     data_rows = []
@@ -125,7 +182,9 @@ def export_safe_inventory_excel(db: DatabaseManager, file_path: str, shop_name: 
         sub_text = r["sub_category"] or "-"
         brand_model = f"{r['brand']} {r['model']}".strip() or r["name"]
         specs_dict = json.loads(r["specs_json"] or "{}")
-        specs_str = " | ".join(f"{k}: {v}" for k, v in specs_dict.items())
+        specs_str = _format_catalog_specs(
+            specs_dict, r["category"], catalog_config
+        )
         if r["description"]:
             specs_str = (
                 f"{specs_str} - {r['description']}".strip(" -")
@@ -170,13 +229,13 @@ def export_table_to_excel(
     start_data_row = 3
     if summary_text:
         ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=col_count)
-        ws.cell(2, 1, summary_text).font = Font(name="Tahoma", size=10, bold=True, color="1E3A8A")
+        ws.cell(2, 1, _clean_excel_value(summary_text)).font = Font(name="Tahoma", size=10, bold=True, color="1E3A8A")
         ws.cell(2, 1).fill = PatternFill("solid", fgColor="DBEAFE")
         ws.cell(2, 1).alignment = Alignment(horizontal="center", vertical="center", readingOrder=2)
         ws.row_dimensions[2].height = 22
         start_data_row = 4
 
-    ws.append(headers)
+    ws.append([_clean_excel_value(value) for value in headers])
     header_row_idx = start_data_row - 1
     for c_idx in range(1, col_count + 1):
         cell = ws.cell(header_row_idx, c_idx)
@@ -192,12 +251,12 @@ def export_table_to_excel(
     )
 
     for r_vals in data_rows:
-        ws.append(r_vals)
+        ws.append([_clean_excel_value(value) for value in r_vals])
 
     for row in ws.iter_rows(min_row=start_data_row, max_row=ws.max_row, max_col=col_count):
         for cell in row:
             cell.font = Font(name="Tahoma", size=10)
-            cell.alignment = Alignment(horizontal="center", vertical="center")
+            cell.alignment = Alignment(horizontal="center", vertical="center", readingOrder=0)
             cell.border = thin_border
 
     for col in range(1, col_count + 1):

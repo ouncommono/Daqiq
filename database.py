@@ -198,8 +198,10 @@ class DatabaseManager:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     target_batch_id INTEGER NOT NULL,
                     target_qty INTEGER NOT NULL DEFAULT 1,
-                    part_batch_id INTEGER NOT NULL,
+                    part_batch_id INTEGER,
                     part_qty_used INTEGER NOT NULL,
+                    manual_part_description TEXT DEFAULT '',
+                    stock_deducted_qty INTEGER DEFAULT 0,
                     part_unit_cost INTEGER NOT NULL,
                     labor_cost_unit INTEGER DEFAULT 0,
                     added_cost_unit INTEGER DEFAULT 0,
@@ -244,6 +246,7 @@ class DatabaseManager:
                     warranty_end TEXT DEFAULT '',
                     serial_number TEXT DEFAULT '',
                     notes TEXT DEFAULT '',
+                    specifications TEXT DEFAULT '',
                     FOREIGN KEY(product_id) REFERENCES products(id),
                     FOREIGN KEY(batch_id) REFERENCES batches(id),
                     FOREIGN KEY(seller_employee_id) REFERENCES employees(id)
@@ -388,8 +391,11 @@ class DatabaseManager:
             # Migrate existing databases without dropping any business records.
             migrations = (
                 ("upgrades", "added_cost_unit", "INTEGER DEFAULT 0"),
+                ("upgrades", "manual_part_description", "TEXT DEFAULT ''"),
+                ("upgrades", "stock_deducted_qty", "INTEGER DEFAULT -1"),
                 ("batches", "supplier_name_snapshot", "TEXT DEFAULT ''"),
                 ("sales", "warranty_days", "INTEGER DEFAULT 0"),
+                ("sales", "specifications", "TEXT DEFAULT ''"),
             )
             for table_name, column_name, column_type in migrations:
                 columns = {
@@ -400,6 +406,65 @@ class DatabaseManager:
                     cur.execute(
                         f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}"
                     )
+
+            # The current schema permits a manually described component with no batch.
+            # Rebuild only the upgrade table when an older schema marks part_batch_id NOT NULL.
+            upgrade_columns = {
+                row["name"]: row
+                for row in conn.execute("PRAGMA table_info(upgrades)").fetchall()
+            }
+            if upgrade_columns.get("part_batch_id") and upgrade_columns["part_batch_id"]["notnull"]:
+                has_updated_at = "updated_at" in upgrade_columns
+                conn.execute("""
+                    CREATE TABLE upgrades_rebuilt (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        target_batch_id INTEGER NOT NULL,
+                        target_qty INTEGER NOT NULL DEFAULT 1,
+                        part_batch_id INTEGER,
+                        part_qty_used INTEGER NOT NULL,
+                        part_unit_cost INTEGER NOT NULL,
+                        labor_cost_unit INTEGER DEFAULT 0,
+                        added_cost_unit INTEGER DEFAULT 0,
+                        old_specs TEXT DEFAULT '',
+                        new_specs TEXT DEFAULT '',
+                        upgrade_date TEXT NOT NULL,
+                        technician_id INTEGER,
+                        serial_number TEXT DEFAULT '',
+                        notes TEXT DEFAULT '',
+                        manual_part_description TEXT DEFAULT '',
+                        stock_deducted_qty INTEGER DEFAULT 0,
+                        updated_at TEXT,
+                        FOREIGN KEY(target_batch_id) REFERENCES batches(id),
+                        FOREIGN KEY(part_batch_id) REFERENCES batches(id),
+                        FOREIGN KEY(technician_id) REFERENCES employees(id)
+                    )
+                """)
+                copy_columns = [
+                    "id", "target_batch_id", "target_qty", "part_batch_id",
+                    "part_qty_used", "part_unit_cost", "labor_cost_unit",
+                    "added_cost_unit", "old_specs", "new_specs", "upgrade_date",
+                    "technician_id", "serial_number", "notes",
+                    "manual_part_description", "stock_deducted_qty",
+                ]
+                select_columns = list(copy_columns)
+                if has_updated_at:
+                    copy_columns.append("updated_at")
+                    select_columns.append("updated_at")
+                else:
+                    select_columns.append("NULL")
+                conn.execute(
+                    f"INSERT INTO upgrades_rebuilt ({', '.join(copy_columns)}) "
+                    f"SELECT {', '.join(select_columns)} FROM upgrades"
+                )
+                conn.execute("DROP TABLE upgrades")
+                conn.execute("ALTER TABLE upgrades_rebuilt RENAME TO upgrades")
+
+            # Historic upgrades deducted their full recorded quantity. New records
+            # explicitly track the amount actually removed from inventory.
+            conn.execute(
+                "UPDATE upgrades SET stock_deducted_qty=part_qty_used "
+                "WHERE stock_deducted_qty IS NULL OR stock_deducted_qty < 0"
+            )
 
             # Add a last-modified timestamp to operational records. Triggers update it
             # on both inserts and edits, allowing every screen to sort by recent activity
@@ -556,6 +621,7 @@ class DatabaseManager:
         raw_subcategories = config.get("subcategories")
         raw_attributes = config.get("attributes")
         raw_colors = config.get("colors")
+        raw_service_types = config.get("service_types")
 
         subcategories = {}
         if isinstance(raw_subcategories, dict):
@@ -590,11 +656,8 @@ class DatabaseManager:
                         "subcategory": str(item.get("subcategory", "") or "").strip(),
                     }
                     label = str(item.get("label", "") or "").strip()
-                    display_name = str(item.get("display_name", "") or "").strip()
                     if label:
                         normalized_item["label"] = label
-                    if display_name:
-                        normalized_item["display_name"] = display_name
                     normalized_items.append(normalized_item)
                 attributes[str(category)] = normalized_items
 
@@ -610,6 +673,13 @@ class DatabaseManager:
                 str(value).strip() for value in colors
                 if value is not None and str(value).strip()
             )),
+            "service_types": list(dict.fromkeys(
+                str(value).strip() for value in (
+                    raw_service_types if isinstance(raw_service_types, list)
+                    else ["نرم‌افزاری", "سخت‌افزاری"]
+                )
+                if value is not None and str(value).strip()
+            )),
         }
 
     def save_product_catalog_config(self, config, conn=None):
@@ -621,10 +691,13 @@ class DatabaseManager:
         subcategories = config.get("subcategories", {})
         attributes = config.get("attributes", {})
         colors = config.get("colors", [])
+        service_types = config.get("service_types", ["نرم‌افزاری", "سخت‌افزاری"])
         if not isinstance(categories, list) or not isinstance(subcategories, dict):
             raise ValueError("ساختار دسته‌بندی یا زیرمجموعه‌ها معتبر نیست.")
         if not isinstance(attributes, dict) or not isinstance(colors, list):
             raise ValueError("ساختار مشخصات فنی یا رنگ‌ها معتبر نیست.")
+        if not isinstance(service_types, list):
+            raise ValueError("فهرست نوع خدمات معتبر نیست.")
 
         clean_categories = list(dict.fromkeys(
             str(value).strip() for value in categories
@@ -662,11 +735,8 @@ class DatabaseManager:
                     "subcategory": str(item.get("subcategory", "") or "").strip(),
                 }
                 label = str(item.get("label", "") or "").strip()
-                display_name = str(item.get("display_name", "") or "").strip()
                 if label:
                     clean_item["label"] = label
-                if display_name:
-                    clean_item["display_name"] = display_name
                 clean_items.append(clean_item)
             clean_attributes[str(category)] = clean_items
 
@@ -676,6 +746,10 @@ class DatabaseManager:
             "attributes": clean_attributes,
             "colors": list(dict.fromkeys(
                 str(value).strip() for value in colors
+                if value is not None and str(value).strip()
+            )),
+            "service_types": list(dict.fromkeys(
+                str(value).strip() for value in service_types
                 if value is not None and str(value).strip()
             )),
         }
@@ -1230,11 +1304,16 @@ class DatabaseManager:
         part_batch = conn.execute(
             "SELECT id FROM batches WHERE id=?", (upgrade["part_batch_id"],)
         ).fetchone()
-        if part_batch:
+        stock_deducted = int(
+            upgrade["stock_deducted_qty"]
+            if "stock_deducted_qty" in upgrade.keys() and upgrade["stock_deducted_qty"] is not None
+            else upgrade["part_qty_used"]
+        )
+        if part_batch and stock_deducted > 0:
             conn.execute(
                 """UPDATE batches SET sold_qty=MAX(0,sold_qty-?),
                    remaining_qty=remaining_qty+? WHERE id=?""",
-                (upgrade["part_qty_used"], upgrade["part_qty_used"], upgrade["part_batch_id"]),
+                (stock_deducted, stock_deducted, upgrade["part_batch_id"]),
             )
 
         target = conn.execute(
@@ -1275,6 +1354,8 @@ class DatabaseManager:
         notes="",
         add_part_cost_to_product=False,
         upgrade_id=None,
+        manual_part_description="",
+        consume_stock=True,
     ):
         target_qty = int(target_qty)
         part_qty_per_unit = int(part_qty_per_unit)
@@ -1284,8 +1365,11 @@ class DatabaseManager:
             raise ValueError("تعداد کالای هدف و تعداد قطعه مصرفی باید بیشتر از صفر باشند.")
         if labor_cost_unit < 0:
             raise ValueError("اجرت ارتقا نمی‌تواند منفی باشد.")
-        if int(target_batch_id) == int(part_batch_id):
+        if part_batch_id is not None and int(target_batch_id) == int(part_batch_id):
             raise ValueError("محموله کالای هدف و محموله قطعه مصرفی باید متفاوت باشند.")
+        manual_part_description = str(manual_part_description or "").strip()
+        if part_batch_id is None and not manual_part_description:
+            raise ValueError("محموله قطعه یا شرح دستی قطعه مصرفی را مشخص کنید.")
 
         with self.get_connection() as conn:
             previous_upgrade = None
@@ -1308,29 +1392,43 @@ class DatabaseManager:
             target_b = conn.execute(
                 "SELECT * FROM batches WHERE id=?", (target_batch_id,)
             ).fetchone()
-            part_b = conn.execute(
-                "SELECT * FROM batches WHERE id=?", (part_batch_id,)
-            ).fetchone()
-            if not target_b or not part_b:
-                raise ValueError("محموله هدف یا محموله قطعه یافت نشد.")
-            if int(target_b["remaining_qty"]) < target_qty:
-                raise ValueError(
-                    f"موجودی محموله هدف برای ارتقا کافی نیست. موجودی فعلی: {target_b['remaining_qty']} عدد."
-                )
-            if int(part_b["remaining_qty"]) < part_qty_total:
-                raise ValueError(
-                    f"موجودی قطعه ارتقا کافی نیست. موجودی فعلی: {part_b['remaining_qty']} عدد."
-                )
-
-            conn.execute(
-                """UPDATE batches SET sold_qty=sold_qty+?, remaining_qty=remaining_qty-?
-                   WHERE id=?""",
-                (part_qty_total, part_qty_total, part_batch_id),
+            part_b = (
+                conn.execute("SELECT * FROM batches WHERE id=?", (part_batch_id,)).fetchone()
+                if part_batch_id is not None else None
             )
+            if not target_b or (part_batch_id is not None and not part_b):
+                raise ValueError("محموله هدف یا محموله قطعه یافت نشد.")
+            # The target batch may be out of stock (for example, a customer-owned device).
+            # Upgrade never deducts target stock, so target availability is not a blocker.
+            target_has_stock = int(target_b["remaining_qty"]) >= target_qty
+            part_has_stock = bool(part_b) and int(part_b["remaining_qty"]) >= part_qty_total
+            if part_b and consume_stock and not target_has_stock:
+                raise ValueError(
+                    "موجودی کالای هدف کافی نیست؛ برای ادامه بدون کسر موجودی، تأیید کاربر لازم است."
+                )
+            if part_b and consume_stock and not part_has_stock:
+                raise ValueError(
+                    "موجودی قطعه کافی نیست؛ برای ادامه بدون کسر موجودی، تأیید کاربر لازم است."
+                )
+            # UI passes consume_stock=False only after the user approves the warning.
+            stock_deducted_qty = (
+                part_qty_total
+                if part_b and consume_stock and target_has_stock and part_has_stock
+                else 0
+            )
+            if stock_deducted_qty:
+                conn.execute(
+                    """UPDATE batches SET sold_qty=sold_qty+?, remaining_qty=remaining_qty-?
+                       WHERE id=? AND remaining_qty>=?""",
+                    (stock_deducted_qty, stock_deducted_qty, part_batch_id, stock_deducted_qty),
+                )
+                if conn.execute("SELECT changes()").fetchone()[0] != 1:
+                    raise ValueError("موجودی قطعه در حین ثبت تغییر کرده است؛ دوباره تلاش کنید.")
 
+            part_unit_cost = int(part_b["unit_cost_price"]) if part_b else 0
             part_cost_share = (
-                int(part_b["unit_cost_price"]) * part_qty_per_unit
-                if add_part_cost_to_product else 0
+                part_unit_cost * part_qty_per_unit
+                if add_part_cost_to_product and part_b else 0
             )
             added_cost_per_unit = part_cost_share + labor_cost_unit
             new_upgrade_cost = int(target_b["upgrade_cost_unit"]) + added_cost_per_unit
@@ -1351,7 +1449,7 @@ class DatabaseManager:
                 target_qty,
                 part_batch_id,
                 part_qty_total,
-                int(part_b["unit_cost_price"]),
+                part_unit_cost,
                 labor_cost_unit,
                 added_cost_per_unit,
                 target_b["final_specs"],
@@ -1360,29 +1458,37 @@ class DatabaseManager:
                 technician_id,
                 serial_number,
                 notes,
+                manual_part_description,
+                stock_deducted_qty,
             )
             if upgrade_id is None:
                 conn.execute(
                     """INSERT INTO upgrades (
                        target_batch_id, target_qty, part_batch_id, part_qty_used,
                        part_unit_cost, labor_cost_unit, added_cost_unit, old_specs, new_specs,
-                       upgrade_date, technician_id, serial_number, notes
-                       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       upgrade_date, technician_id, serial_number, notes,
+                       manual_part_description, stock_deducted_qty
+                       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     values,
                 )
             else:
                 conn.execute(
                     """UPDATE upgrades SET target_batch_id=?, target_qty=?, part_batch_id=?,
                        part_qty_used=?, part_unit_cost=?, labor_cost_unit=?, added_cost_unit=?,
-                       old_specs=?, new_specs=?, upgrade_date=?, technician_id=?, serial_number=?, notes=?
+                       old_specs=?, new_specs=?, upgrade_date=?, technician_id=?, serial_number=?, notes=?,
+                       manual_part_description=?, stock_deducted_qty=?
                        WHERE id=?""",
                     values + (upgrade_id,),
                 )
 
+            part_label = (
+                part_b["batch_code"] if part_b
+                else manual_part_description or "قطعه با شرح دستی"
+            )
             self.log_audit(
                 conn,
                 "ویرایش ارتقای کالا" if upgrade_id is not None else "ثبت ارتقای کالا",
-                f"محموله هدف: {target_b['batch_code']} با قطعه {part_b['batch_code']}",
+                f"محموله هدف: {target_b['batch_code']} با قطعه {part_label}",
             )
             conn.commit()
 
@@ -1428,6 +1534,7 @@ class DatabaseManager:
         notes="",
         settlement_status=None,
         warranty_days=None,
+        specifications="",
     ):
         qty = int(qty)
         if qty <= 0:
@@ -1481,8 +1588,9 @@ class DatabaseManager:
                     qty, suggested_unit_price, actual_unit_price, unit_cost_price,
                     unit_discount, total_discount, price_Markup_unit, unit_profit, total_profit,
                     total_amount, paid_amount, settlement_status, sale_datetime,
-                    warranty_company, warranty_start, warranty_months, warranty_days, warranty_end, serial_number, notes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    warranty_company, warranty_start, warranty_months, warranty_days, warranty_end,
+                    serial_number, notes, specifications
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     invoice_number,
@@ -1510,6 +1618,7 @@ class DatabaseManager:
                     warranty_end,
                     serial_number,
                     notes,
+                    str(specifications or ""),
                 ),
             )
             sale_id = cur.lastrowid
@@ -1556,6 +1665,7 @@ class DatabaseManager:
         notes,
         settlement_status=None,
         warranty_days=None,
+        specifications=None,
     ):
         new_qty = int(new_qty)
         if new_qty <= 0:
@@ -1607,7 +1717,8 @@ class DatabaseManager:
                 suggested_unit_price=?, actual_unit_price=?, unit_discount=?, total_discount=?,
                 price_Markup_unit=?, unit_profit=?, total_profit=?, total_amount=?,
                 paid_amount=?, settlement_status=?, warranty_company=?, warranty_start=?,
-                warranty_months=?, warranty_days=?, warranty_end=?, serial_number=?, notes=?
+                warranty_months=?, warranty_days=?, warranty_end=?, serial_number=?, notes=?,
+                specifications=?
                 WHERE id=?
             """,
                 (
@@ -1631,6 +1742,7 @@ class DatabaseManager:
                     warranty_end,
                     serial_number,
                     notes,
+                    str(specifications if specifications is not None else old_sale["specifications"] or ""),
                     sale_id,
                 ),
             )

@@ -39,13 +39,15 @@ PERSIAN_ARABIC_MAP = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "
 _LTR_TOKEN_RE = re.compile(
     r"(?<![A-Za-z0-9])([A-Za-z][A-Za-z0-9._/+%-]*:|[A-Za-z][A-Za-z0-9._/+%-]*|\d+(?:[.,]\d+)?(?:[A-Za-z]+|%))"
 )
-_BIDI_CONTROL_RE = re.compile(r"[\u2066-\u2069\u200e\u200f]")
+_BIDI_CONTROL_RE = re.compile(r"[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]")
 
 
 def bidi_isolate_text(value) -> str:
-    """Keep Latin/number fragments in their logical order inside Persian UI text."""
+    """Return clean logical text. Widgets choose paragraph direction; data stays unmarked."""
     text = "" if value is None else str(value)
-    return _LTR_TOKEN_RE.sub(lambda match: "\u2066" + match.group(1) + "\u2069", text)
+    return _BIDI_CONTROL_RE.sub("", text).translate(
+        dict.fromkeys(map(ord, "\u061c\u200e\u200f\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069"))
+    )
 
 
 def strip_bidi_controls(value) -> str:
@@ -440,7 +442,7 @@ class CollapsibleSection(QWidget):
         self._expanded = False
         self.header.setMinimumHeight(38)
         self.header.setStyleSheet(
-            "QPushButton { text-align: right; font-weight: 700; padding: 8px 12px; "
+            "QPushButton { text-align: center; font-weight: 700; padding: 8px 12px; "
             "border: 1px solid #cbd5e1; border-radius: 7px; background: palette(base); }"
             "QPushButton:checked { border-color: #64748b; }"
         )
@@ -1350,7 +1352,9 @@ class DynamicSpecsWidget(QGroupBox):
             field_name = str(definition.get("name", "")).strip()
             if not field_name:
                 continue
-            form_label = str(definition.get("label") or field_name).strip()
+            # The feature name is always the form label. "label" is a storage/output
+            # title and may contain @reference syntax, not a widget caption.
+            form_label = field_name
             raw_values = definition.get("values", [])
             values = [
                 str(value).strip() for value in raw_values
