@@ -1195,12 +1195,6 @@ class MainWindow(QMainWindow):
 
         self.ed_prod_brand = SmartLineEdit("مثلاً ASUS, Lenovo, HP, Logitech...")
         self.ed_prod_model = SmartLineEdit("مدل کالا (مثلاً G102, VivoBook 15...)")
-        self.cb_prod_color = SearchableComboBox()
-        configured_colors = self.catalog_config.get("colors") or [
-            "مشکی", "سفید", "نقره‌ای", "خاکستری", "آبی",
-            "قرمز", "طلایی", "سبز", "سایر",
-        ]
-        self.cb_prod_color.addItems([""] + configured_colors)
         self.sp_prod_reorder = QSpinBox()
         self.sp_prod_reorder.setRange(0, 1000)
         self.sp_prod_reorder.setValue(3)
@@ -1218,7 +1212,6 @@ class MainWindow(QMainWindow):
         f_layout.addRow("دسته‌بندی اصلی *:", self.cb_prod_cat)
         f_layout.addRow("برند کالا:", self.ed_prod_brand)
         f_layout.addRow("مدل کالا:", self.ed_prod_model)
-        f_layout.addRow("رنگ کالا:", self.cb_prod_color)
         f_layout.addRow("حداقل موجودی (هشدار سفارش):", self.sp_prod_reorder)
         f_layout.addRow("درصد سود پیشنهادی (%):", self.sp_prod_profit)
         f_layout.addRow("توضیحات:", self.ed_prod_desc)
@@ -1283,7 +1276,6 @@ class MainWindow(QMainWindow):
         self._configure_product_specs(self.cb_prod_cat.currentText())
         self.ed_prod_brand.clear()
         self.ed_prod_model.clear()
-        self.cb_prod_color.setCurrentIndex(0)
         self.sp_prod_reorder.setValue(3)
         self.sp_prod_profit.setValue(int(float(self.db.cfg.get("default_profit_pct", 20))))
         self.ed_prod_desc.clear()
@@ -1302,9 +1294,6 @@ class MainWindow(QMainWindow):
         brand = self.ed_prod_brand.text().strip()
         model = self.ed_prod_model.text().strip()
         specs_dict = self.specs_widget.get_specs_dict()
-        color_val = self.cb_prod_color.currentText().strip()
-        if color_val:
-            specs_dict["رنگ"] = color_val
         if not brand and not model and sub == "سایر موارد":
             QMessageBox.warning(
                 self,
@@ -1370,14 +1359,11 @@ class MainWindow(QMainWindow):
             ).fetchone()
             if r and r["specs_json"]:
                 sp_data = json.loads(r["specs_json"])
-                self.cb_prod_color.setCurrentText(sp_data.get("رنگ", ""))
+                sp_data.pop("رنگ", None)
                 self.specs_widget.set_specs_dict(sp_data)
 
     def _update_selected_product(self):
         specs = self.specs_widget.get_specs_dict()
-        color = self.cb_prod_color.currentText().strip()
-        if color:
-            specs["رنگ"] = color
         if not self.selected_product_id:
             QMessageBox.warning(self, "انتخاب کالا", "ابتدا کالای موردنظر را از جدول انتخاب کنید.")
             return
@@ -1468,6 +1454,13 @@ class MainWindow(QMainWindow):
         self.cb_batch_status.currentTextChanged.connect(self._on_batch_status_changed)
 
         self.ed_batch_serial = SmartLineEdit("مشخصات فنی یا توضیحات خرید...")
+        self.lst_batch_colors = SmoothScrollListWidget()
+        self.lst_batch_colors.setMaximumHeight(82)
+        self.lst_batch_colors.setToolTip("رنگ یا رنگ‌های موجود در همین محموله را انتخاب کنید.")
+        self._populate_color_checklist(
+            self.lst_batch_colors,
+            self.catalog_config.get("colors") or DEFAULT_COLORS,
+        )
 
         self.pr_batch_buy.valueChanged.connect(self._recalc_batch_suggested)
         self.pr_batch_extra.valueChanged.connect(self._recalc_batch_suggested)
@@ -1501,8 +1494,10 @@ class MainWindow(QMainWindow):
         grid.addWidget(QLabel("مبلغ پرداخت‌شده:"), 3, 4)
         grid.addWidget(self.pr_batch_paid, 3, 5)
 
-        grid.addWidget(QLabel("مشخصات فنی / توضیحات:"), 4, 0)
-        grid.addWidget(self.ed_batch_serial, 4, 1, 1, 5)
+        grid.addWidget(QLabel("رنگ‌های این محموله:"), 4, 0)
+        grid.addWidget(self.lst_batch_colors, 4, 1, 1, 5)
+        grid.addWidget(QLabel("مشخصات فنی / توضیحات:"), 5, 0)
+        grid.addWidget(self.ed_batch_serial, 5, 1, 1, 5)
 
         layout.addWidget(gb)
 
@@ -1549,6 +1544,7 @@ class MainWindow(QMainWindow):
                 "مانده بدهی",
                 "مشخصات فنی / توضیحات",
                 "بهای کل محموله (تومان)",
+                "رنگ‌های محموله",
             ]
         )
         self.tbl_batches.itemSelectionChanged.connect(self._on_batch_row_selected)
@@ -1584,6 +1580,10 @@ class MainWindow(QMainWindow):
         self.pr_batch_suggest.set_value(0)
         self.pr_batch_paid.set_value(0)
         self.cb_batch_status.setCurrentIndex(0)
+        self._populate_color_checklist(
+            self.lst_batch_colors,
+            self.catalog_config.get("colors") or DEFAULT_COLORS,
+        )
         self.ed_batch_serial.clear()
         self.tbl_batches.clearSelection()
 
@@ -1768,6 +1768,8 @@ class MainWindow(QMainWindow):
         self.cb_sale_batch.currentIndexChanged.connect(self._on_sale_batch_changed)
         self.cb_sale_seller = SearchableComboBox()
         self.ed_sale_customer = SmartLineEdit("نام مشتری (اختیاری)")
+        self.lst_sale_colors = SmoothScrollListWidget()
+        self.lst_sale_colors.setMaximumHeight(82)
         self.ed_sale_specs = SmartLineEdit("مشخصات دقیق کالای فروخته‌شده؛ قابل ویرایش...")
         self.ed_sale_specs.setLayoutDirection(Qt.LeftToRight)
         self.ed_sale_specs.setToolTip("این مشخصات در زمان فروش ثبت و در گزارش‌های آینده حفظ می‌شود.")
@@ -1849,9 +1851,11 @@ class MainWindow(QMainWindow):
         grid.addWidget(QLabel("سریال کالا:"), 4, 4)
         grid.addWidget(self.ed_sale_serial, 4, 5)
 
-        grid.addWidget(QLabel("مشخصات فنی کالای فروخته‌شده:"), 5, 0)
-        grid.addWidget(self.ed_sale_specs, 5, 1, 1, 5)
-        grid.addWidget(self.lbl_sale_summary, 6, 0, 1, 6)
+        grid.addWidget(QLabel("رنگ‌های فروخته‌شده:"), 5, 0)
+        grid.addWidget(self.lst_sale_colors, 5, 1, 1, 5)
+        grid.addWidget(QLabel("مشخصات فنی کالای فروخته‌شده:"), 6, 0)
+        grid.addWidget(self.ed_sale_specs, 6, 1, 1, 5)
+        grid.addWidget(self.lbl_sale_summary, 7, 0, 1, 6)
 
         layout.addWidget(gb)
 
@@ -1898,6 +1902,7 @@ class MainWindow(QMainWindow):
                 "گارانتی و انقضا",
                 "شماره سریال",
                 "مشخصات فنی فروخته‌شده",
+                "رنگ‌های فروخته‌شده",
             ]
         )
         self.tbl_sales.itemSelectionChanged.connect(self._on_sale_row_selected)
@@ -2075,11 +2080,16 @@ class MainWindow(QMainWindow):
             self.pr_sale_actual.set_value(0)
             self.pr_sale_paid.set_value(0)
             self.ed_sale_specs.clear()
+            self._populate_color_checklist(self.lst_sale_colors, [])
             self._recalc_sale_live()
             return
         self.cb_sale_qty.set_max_qty(b["remaining_qty"])
         self.ed_sale_specs.setText(
             str(b.get("final_specs") or b.get("initial_specs") or "")
+        )
+        self._populate_color_checklist(
+            self.lst_sale_colors,
+            self._decode_colors(b.get("colors_json")),
         )
         sug = int(b["suggested_sell_price"])
         self.pr_sale_suggest.set_value(sug)
@@ -2089,7 +2099,7 @@ class MainWindow(QMainWindow):
     def _clear_sale_form(self):
         self.selected_sale_id = None
         self._set_generated_code_placeholder(self.ed_sale_inv, "sales", "invoice_number", "INV-")
-        self.cb_sale_prod.setCurrentIndex(-1)
+        self.cb_sale_prod.setCurrentIndex(0)
         self.cb_sale_prod.clearEditText()
         self.cb_sale_seller.setCurrentIndex(-1)
         self.cb_sale_seller.clearEditText()
@@ -2106,6 +2116,7 @@ class MainWindow(QMainWindow):
         self.ed_sale_serial.clear()
         self.tbl_sales.clearSelection()
         self.cb_sale_qty.setCurrentText("1")
+        self._on_sale_prod_changed()
         self._on_sale_batch_changed()
         self.pr_sale_actual.set_value(0)
         self.pr_sale_paid.set_value(0)
