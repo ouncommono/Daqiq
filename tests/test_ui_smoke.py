@@ -45,9 +45,10 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
     try:
         assert window.tabs.count() == 10
         assert window.tabs.tabText(9).endswith("تنظیمات")
-        assert window.lbl_app_version.text() == "نسخه برنامه: 1.0.2"
+        assert window.lbl_app_version.text() == "نسخه برنامه: 1.1.0"
         assert [window.catalog_tabs.tabText(i) for i in range(window.catalog_tabs.count())] == [
-            "مدیریت کالاها", "مدیریت خدمات"
+            "مدیریت کالاها", "مدیریت خدمات",
+            "مدیریت سطوح دسترسی", "تنظیمات خروجی موجودی همکار",
         ]
         assert window.lbl_store_name.text().strip("\u2067\u2069") == "فروشگاه من"
         assert "مدیریت فروش" not in window.lbl_store_name.text()
@@ -81,7 +82,7 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
         assert not hasattr(window, "chk_zero_enabled")
         assert window.lbl_live_clock.toolTip()
         assert window.lst_cfg_subcategories.count() > 0
-        assert "لپ‌تاپ عمومی / مالتی‌مدیا" in [
+        assert "عمومی / اداری" in [
             window.lst_cfg_subcategories.item(index).text()
             for index in range(window.lst_cfg_subcategories.count())
         ]
@@ -1322,5 +1323,107 @@ def test_dark_theme_updates_settings_and_read_only_field_contrast(tmp_path, monk
     finally:
         manager.cfg["theme"] = "light"
         window._apply_styles()
+        window.close()
+        qapp.processEvents()
+
+
+
+def test_v110_selector_and_date_picker_layout_contracts(tmp_path, monkeypatch, qapp):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    window = MainWindow(manager, active_employee=None)
+    try:
+        for combo in (
+            window.cb_rep_emp, window.cb_rep_cat,
+            window.cb_batch_buyer, window.cb_batch_supplier,
+            window.cb_sale_seller, window.cb_srv_seller, window.cb_upg_tech,
+        ):
+            assert combo.isEditable() is False
+        assert window.cb_war_months.isEditable() is True
+        assert window.cb_rep_sort.count() == 10
+        assert window.cb_rep_sort.currentData() == "activity_desc"
+        assert window.cb_zero_count.findData("12") >= 0
+        zero_label = window.cb_zero_count.itemText(
+            window.cb_zero_count.findData("12")
+        )
+        assert "۱۲" in zero_label
+        assert window.inventory_export_column_checks["code"].isChecked()
+        assert window.inventory_export_column_checks["batch_code"].isChecked()
+        assert not window.inventory_export_column_checks["suggested_price"].isChecked()
+        assert not window.inventory_export_column_checks["stock"].isChecked()
+
+        window.cb_war_months.setEditText("۱۸ ماه")
+        assert window._warranty_duration_days() == 540
+        window.cb_war_months.setEditText("۵۴۰ روز")
+        assert window._warranty_duration_days() == 540
+
+        dialog = JalaliCalendarDialog("1405/01/01", window)
+        try:
+            assert dialog.minimumWidth() >= 470
+            assert dialog.cb_year.sizePolicy().horizontalPolicy() == QSizePolicy.Expanding
+            assert dialog.cb_month.sizePolicy().horizontalPolicy() == QSizePolicy.Expanding
+            assert dialog.cb_day.sizePolicy().horizontalPolicy() == QSizePolicy.Expanding
+            today_button = next(
+                button for button in dialog.findChildren(main_module.QPushButton)
+                if button.text() == "برو به امروز"
+            )
+            assert today_button.sizePolicy().horizontalPolicy() == QSizePolicy.Expanding
+        finally:
+            dialog.close()
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
+def test_v110_granular_permissions_control_views_and_actions(tmp_path, monkeypatch, qapp):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    manager.set_setting(
+        "access_levels",
+        json.dumps([{
+            "name": "کاربر فروش",
+            "permissions": [
+                "dashboard.view", "sales.view", "sales.create",
+                "reports.view", "reports.sales",
+            ],
+        }], ensure_ascii=False),
+    )
+    window = MainWindow(
+        manager,
+        active_employee={"id": 999, "name": "آزمون", "permissions": "کاربر فروش"},
+    )
+    try:
+        assert window._has_permission("sales.view")
+        assert window._has_permission("sales.create")
+        assert not window._has_permission("sales.delete")
+        assert not window._has_permission("purchases.view")
+        assert not window._has_permission("access_levels.manage")
+        assert window.tabs.isTabEnabled(3) is True
+        assert window.tabs.isTabEnabled(2) is False
+        assert window.tabs.isTabEnabled(9) is False
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
+def test_v110_service_discount_color_tracks_underpricing(tmp_path, monkeypatch, qapp):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    window = MainWindow(manager, active_employee=None)
+    try:
+        window.pr_srv_fee.set_value(100)
+        window.pr_srv_paid.set_value(90)
+        window._recalc_srv_live_summary()
+        assert "#dc2626" in window.lbl_srv_diff_summary.styleSheet()
+        assert "#dc2626" in window.pr_srv_paid.styleSheet()
+
+        window.pr_srv_paid.set_value(120)
+        window._recalc_srv_live_summary()
+        assert "#16a34a" in window.lbl_srv_diff_summary.styleSheet()
+        assert "#16a34a" in window.pr_srv_paid.styleSheet()
+    finally:
         window.close()
         qapp.processEvents()

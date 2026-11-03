@@ -1,6 +1,8 @@
 import json
 import os
 import sqlite3
+import time
+from datetime import datetime
 
 import pytest
 
@@ -90,9 +92,14 @@ def test_new_schema_tracks_creation_and_update_activity(manager):
         assert {"idx_products_activity"} <= index_names
         created_at = product["created_at"]
         first_updated_at = product["updated_at"]
-        assert created_at
-        assert first_updated_at
+        parsed_created = datetime.fromisoformat(created_at)
+        parsed_updated = datetime.fromisoformat(first_updated_at)
+        assert parsed_created.tzinfo is not None
+        assert parsed_updated.tzinfo is not None
+        assert len(created_at.split(".")[-1].split("+")[0]) == 6
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 110
 
+        time.sleep(0.002)
         conn.execute(
             "UPDATE products SET description=? WHERE id=?",
             ("changed", product_id),
@@ -114,17 +121,88 @@ def test_colleague_inventory_export_honors_selected_columns(manager, tmp_path):
     export_safe_inventory_excel(
         manager,
         str(output_path),
-        included_columns=["code", "suggested_price"],
+        included_columns=["code", "batch_code", "suggested_price"],
     )
 
     workbook = load_workbook(output_path, read_only=True)
     worksheet = workbook["موجودی همکار"]
     assert [cell.value for cell in worksheet[2]] == [
-        "کد کالا", "قیمت فروش (پیشنهادی)"
+        "کد کالا", "کد محموله", "قیمت فروش پیشنهادی"
     ]
-    assert [cell.value for cell in worksheet[3]] == ["P-EXPORT", 175]
+    assert [cell.value for cell in worksheet[3]] == ["P-EXPORT", "C-EXPORT", 175]
     workbook.close()
 
+
+
+
+def test_sale_edit_updates_audit_timestamp_without_changing_sale_datetime(manager):
+    product_id = create_product(manager, "P-SALE-TIME")
+    batch_id = create_batch(manager, product_id, code="C-SALE-TIME")
+    sale_id = create_sale(manager, product_id, batch_id, warranty_days=30)
+    with manager.get_connection() as conn:
+        before = conn.execute(
+            "SELECT sale_datetime, created_at, updated_at FROM sales WHERE id=?",
+            (sale_id,),
+        ).fetchone()
+
+    time.sleep(0.002)
+    manager.update_sale(
+        sale_id,
+        None,
+        "مشتری اصلاح‌شده",
+        1,
+        150,
+        140,
+        100,
+        "گارانتی آزمون",
+        "1405/01/01",
+        0,
+        "1405/02/01",
+        "SERIAL-TEST",
+        "",
+        "تسویه‌نشده",
+        warranty_days=30,
+        specifications="مشخصات اصلاح‌شده",
+    )
+
+    with manager.get_connection() as conn:
+        after = conn.execute(
+            "SELECT sale_datetime, created_at, updated_at FROM sales WHERE id=?",
+            (sale_id,),
+        ).fetchone()
+
+    assert after["sale_datetime"] == before["sale_datetime"]
+    assert after["created_at"] == before["created_at"]
+    assert after["updated_at"] > before["updated_at"]
+
+
+def test_fresh_schema_has_standard_audit_columns_and_named_markup_column(manager):
+    expected_tables = {
+        "settings", "employees", "suppliers", "customers", "products", "batches",
+        "upgrades", "sales", "service_catalog", "service_price_history",
+        "service_records", "payments", "audit_logs",
+    }
+    with manager.get_connection() as conn:
+        actual_tables = {
+            row["name"] for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        assert expected_tables <= actual_tables
+        for table_name in expected_tables - {"sqlite_sequence"}:
+            columns = {
+                row["name"] for row in conn.execute(
+                    f"PRAGMA table_info({table_name})"
+                )
+            }
+            assert {"created_at", "updated_at"} <= columns
+        sales_columns = {
+            row["name"] for row in conn.execute("PRAGMA table_info(sales)")
+        }
+        assert "unit_markup_price" in sales_columns
+        assert "price_Markup_unit" not in sales_columns
+        foreign_keys = conn.execute("PRAGMA foreign_key_list(service_records)").fetchall()
+        assert any(row["from"] == "technician_employee_id" for row in foreign_keys)
 
 def test_add_batch_and_sale_persist_warranty_days(manager):
     product_id = create_product(manager)

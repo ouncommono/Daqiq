@@ -8,5 +8,5 @@ pyinstaller --noconfirm --onefile --windowed --name "ComputerShopERP" main.py
 
 echo.
 echo Build Completed Successfully!
-echo Your executable file is located in: dist\ComputerShopERP.exe
+echo Your executable file is located in: dist\ComputerShopERP_%APP_VERSION%.exe
 pause

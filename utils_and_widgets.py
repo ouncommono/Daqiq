@@ -89,7 +89,7 @@ def _unique_catalog_labels(values):
             result.append(label)
     return result
 
-# فهرست جامع دسته‌بندی‌های اصلی فروشگاه (بند ۱ و ۲)
+# Compact, editable taxonomy: broad templates replace model-by-model seed lists.
 MAIN_CATEGORIES = [
     "لپ‌تاپ",
     "قطعات",
@@ -102,176 +102,112 @@ MAIN_CATEGORIES = [
     "سایر موارد",
 ]
 
-# زیرمجموعه‌های پیش‌فرض برای شروع؛ پس از ذخیره قابل تغییر توسط هر فروشگاه هستند.
 DEFAULT_SUBCATEGORIES = {
     "لپ‌تاپ": [
-        "لپ‌تاپ عمومی / مالتی‌مدیا", "لپ‌تاپ گیمینگ (Gaming)",
-        "لپ‌تاپ مهندسی و رندرینگ", "لپ‌تاپ استوک / صنعتی",
-        "اولترابوک / تبلت‌شو", "مک‌بوک (MacBook)", "سایر موارد",
+        "عمومی / اداری",
+        "مهندسی / حرفه‌ای",
+        "گیمینگ",
+        "سبک / اولترابوک",
+        "مک‌بوک",
+        "سایر موارد",
     ],
     "قطعات": [
-        "سایر موارد", "پردازنده (CPU)", "رم کامپیوتر (RAM PC)",
-        "رم لپ‌تاپ (RAM Laptop)", "حافظه اس‌اس‌دی (SSD)",
-        "هارد دیسک اینترنال (HDD)", "کارت گرافیک (Graphic Card)",
-        "مادربرد (Motherboard)", "پاور / منبع تغذیه کیس (Power)",
-        "فن و خنک‌کننده (Cooling / Fan)", "صفحه‌نمایش لپ‌تاپ (LED / LCD Panel)",
-        "باتری لپ‌تاپ (Laptop Battery)", "کیبورد تعمیراتی لپ‌تاپ (Internal Keyboard)",
-        "قاب، لولا و فلت لپ‌تاپ", "کارت شبکه و صدا اینترنال",
-        "درایو نوری (DVD RW / Caddy)",
+        "پردازنده (CPU)",
+        "رم (RAM)",
+        "حافظه (SSD / HDD)",
+        "کارت گرافیک (GPU)",
+        "مادربرد / پاور / خنک‌کننده",
+        "نمایشگر و قطعات لپ‌تاپ",
+        "سایر قطعات",
     ],
     "لوازم جانبی": [
-        "سایر موارد", "ماوس (Mouse)", "کیبورد (Keyboard)",
-        "پک کمبو ماوس و کیبورد", "هدست، هدفون و هندزفری", "اسپیکر (Speaker)",
-        "فلش مموری (Flash Memory)", "هارد اکسترنال (External HDD)",
-        "اس‌اس‌دی اکسترنال (External SSD)", "کول‌پد لپ‌تاپ (Coolpad)",
-        "کیف و کوله‌پشتی لپ‌تاپ", "هاب USB و Type-C",
-        "کابل تصویر (HDMI / DisplayPort / VGA)", "کابل برق، شبکه و افزایش طول",
-        "مبدل و دانگل (Converter / Dongle)", "ماوس‌پد (Mouse Pad)",
-        "وب‌کم و میکروفون (Webcam / Mic)", "گیم‌پد و دسته بازی (Gamepad)",
-        "خمیر سیلیکون و اسپری تمیزکننده",
+        "ماوس / کیبورد / کنترلر",
+        "صوتی و تصویری",
+        "کابل / مبدل / هاب",
+        "حافظه و ذخیره‌سازی",
+        "کیف / کول‌پد / متعلقات",
+        "سایر لوازم",
     ],
     "مانیتور": [
-        "مانیتور اداری و خانگی", "مانیتور گیمینگ (Gaming)",
-        "مانیتور طراحی و صنعتی", "مانیتور استوک", "مانیتور منحنی (Curved)",
+        "اداری / عمومی",
+        "طراحی / حرفه‌ای",
+        "گیمینگ / نرخ نوسازی بالا",
+        "منحنی / عریض",
+        "سایر نمایشگرها",
     ],
     "کیس و مینی‌کیس": [
-        "مینی‌کیس استوک (Mini Case)", "کیس کامل اسمبل‌شده (PC)",
-        "آل‌این‌وان (All-in-One)", "تین‌کلاینت (Thin Client)",
-        "پوسته کیس خالی (Case Chassis)",
+        "مینی‌کیس",
+        "کیس رومیزی / ورک‌استیشن",
+        "آل‌این‌وان / تین‌کلاینت",
+        "پوسته کیس",
     ],
     "آداپتور و تغذیه": [
-        "شارژر و آداپتور لپ‌تاپ", "آداپتور مانیتور و مینی‌کیس",
-        "آداپتور مودم و سوئیچ (9V/12V)", "محافظ برق و چندراهی",
-        "برق اضطراری (UPS) و باتری UPS", "کابل برق سهند / سه‌پین / دوپین",
+        "شارژر / آداپتور",
+        "منبع تغذیه و کابل برق",
+        "محافظ / چندراهی",
+        "UPS و باتری",
+        "سایر موارد",
     ],
     "شبکه و مودم": [
-        "سایر موارد", "مودم ADSL / VDSL", "مودم سیم‌کارتی 4G / 5G / TD-LTE",
-        "روتر و اکسس‌پوینت بی‌سیم", "سوئیچ شبکه (5/8/16/24 پورت)",
-        "کارت شبکه USB / PCIe",
+        "مودم ADSL / VDSL / سیم‌کارتی",
+        "روتر / اکسس‌پوینت",
+        "سوئیچ / تجهیزات شبکه",
+        "کارت شبکه / دانگل",
+        "سایر موارد",
     ],
     "ماشین‌های اداری": [
-        "سایر موارد", "پرینتر و چندکاره", "اسکنر", "کارتریج و تونر",
+        "پرینتر / چندکاره",
+        "اسکنر",
+        "کارتریج / تونر / مواد مصرفی",
+        "سایر موارد",
     ],
     "سایر موارد": ["سایر موارد"],
 }
 
-# فهرست جامع پردازنده‌های قدیمی و جدید (بند ۲)
-# Broad CPU families and suffix patterns. The editable search field lets the user
-# replace xxx with the exact SKU digits without maintaining an endless model catalogue.
+# Parameterized family templates: replace X / XXXX with the exact generation or SKU.
 CPU_LIST = [
     "",
-    "Intel Celeron N4xxx / N5xxx",
-    "Intel Celeron 4xxxU / 5xxxU",
-    "Intel Pentium N5xxx / N6xxx",
-    "Intel Pentium 6xxxU / 7xxxU",
-    "Intel Core i3 6xxxU / 6xxxH",
-    "Intel Core i3 7xxxU / 7xxxH",
-    "Intel Core i3 8xxxU / 8xxxH",
-    "Intel Core i3 9xxxU / 9xxxH",
-    "Intel Core i3 10xxxU / 10xxxH",
-    "Intel Core i3 11xxxU / 11xxxH",
-    "Intel Core i3 12xxxU / 12xxxH",
-    "Intel Core i3 13xxxU / 13xxxH",
-    "Intel Core i3 14xxxU / 14xxxH",
-    "Intel Core i5 6xxxU / 6xxxH / HQ",
-    "Intel Core i5 7xxxU / 7xxxH / HQ",
-    "Intel Core i5 8xxxU / 8xxxH / HQ",
-    "Intel Core i5 9xxxU / 9xxxH / HK",
-    "Intel Core i5 10xxxU / 10xxxH / 10xxxHK",
-    "Intel Core i5 11xxxU / 11xxxH",
-    "Intel Core i5 12xxxU / 12xxxH",
-    "Intel Core i5 13xxxU / 13xxxH",
-    "Intel Core i5 14xxxU / 14xxxH",
-    "Intel Core i7 6xxxU / 6xxxH / HQ",
-    "Intel Core i7 7xxxU / 7xxxH / HQ",
-    "Intel Core i7 8xxxU / 8xxxH / HQ",
-    "Intel Core i7 9xxxU / 9xxxH / HK",
-    "Intel Core i7 10xxxU / 10xxxH / 10xxxHK",
-    "Intel Core i7 11xxxU / 11xxxH",
-    "Intel Core i7 12xxxU / 12xxxH",
-    "Intel Core i7 13xxxU / 13xxxH",
-    "Intel Core i7 14xxxU / 14xxxH",
-    "Intel Core i9 9xxxH / 9xxxHK",
-    "Intel Core i9 10xxxH / 10xxxHK",
-    "Intel Core i9 11xxxH / 11xxxHK",
-    "Intel Core i9 12xxxH / 12xxxHX",
-    "Intel Core i9 13xxxH / 13xxxHX",
-    "Intel Core i9 14xxxH / 14xxxHX",
-    "Intel Core Ultra 5 / 7 / 9 (Series 1 / 2)",
-    "Intel Xeon E / W Series",
-    "AMD Ryzen 3 3xxxU / 4xxxU / 5xxxU",
-    "AMD Ryzen 5 3xxxU / 4xxxU / 5xxxU / 6xxxU / 7xxxU",
-    "AMD Ryzen 5 4xxxH / 5xxxH / 6xxxH / 7xxxH",
-    "AMD Ryzen 7 3xxxU / 4xxxU / 5xxxU / 6xxxU / 7xxxU",
-    "AMD Ryzen 7 4xxxH / 5xxxH / 6xxxH / 7xxxH",
-    "AMD Ryzen 9 4xxxH / 5xxxH / 6xxxH / 7xxxH",
-    "AMD Athlon / A-Series",
-    "AMD FX Series",
-    "Apple M1 / M2 / M3 / M4",
+    "Intel Celeron / Pentium Nxxxx / Uxxxx",
+    "Intel Core i3 Xxxx U / P / H / HQ / HK",
+    "Intel Core i5 Xxxx U / P / H / HQ / HK / HX",
+    "Intel Core i7 Xxxx U / P / H / HQ / HK / HX",
+    "Intel Core i9 Xxxx H / HK / HX",
+    "Intel Core Ultra 5 / 7 / 9 Series X",
+    "Intel Xeon E / W Series X",
+    "AMD Ryzen 3 / 5 / 7 / 9 XXXX U / HS / H / HX",
+    "AMD Athlon / A-Series X",
+    "Apple M-Series Mx / Pro / Max / Ultra",
 ]
 
 RAM_CAPACITIES = [
     "",
-    "2GB",
-    "4GB",
-    "6GB",
-    "8GB",
-    "12GB",
-    "16GB",
-    "20GB",
-    "24GB",
-    "32GB",
-    "48GB",
-    "64GB",
-    "128GB",
+    "2GB", "4GB", "8GB", "16GB", "32GB", "64GB", "128GB",
 ]
 
 STORAGE_LIST = [
     "",
-    "120GB SSD",
-    "128GB SSD",
-    "240GB SSD",
-    "256GB SSD",
-    "480GB SSD",
-    "512GB SSD",
-    "1TB SSD NVMe",
-    "2TB SSD NVMe",
-    "4TB SSD",
-    "320GB HDD",
-    "500GB HDD",
-    "1TB HDD",
-    "2TB HDD",
-    "4TB HDD",
-    "1TB HDD + 128GB SSD",
-    "1TB HDD + 256GB SSD",
-    "1TB HDD + 512GB SSD",
+    "SATA SSD 2.5-inch XGB / XTB",
+    "M.2 SATA SSD XGB / XTB",
+    "NVMe PCIe Gen 3 / 4 / 5 XGB / XTB",
+    "SATA HDD 2.5 / 3.5-inch XGB / XTB",
+    "Hybrid HDD + SSD XGB / XTB",
+    "External SSD / HDD XGB / XTB",
 ]
 
 GPU_LIST = [
     "",
-    "Intel HD / UHD Graphics (Onboard)",
-    "Intel Iris Xe Graphics",
-    "AMD Radeon Vega / Integrated",
-    "NVIDIA GeForce MX110 / MX130 / MX150",
-    "NVIDIA GeForce MX230 / MX250 / MX330 / MX350 / MX450 / MX550",
-    "NVIDIA GeForce GT 710 / 730 / 1030",
-    "NVIDIA GeForce GTX 1050 / 1050Ti / 1060 / 1070 / 1080",
-    "NVIDIA GeForce GTX 1650 / 1650Ti / 1660 / 1660Ti / 1660 Super",
-    "NVIDIA GeForce RTX 2050 / 2060 / 2070 / 2080",
-    "NVIDIA GeForce RTX 3050 / 3050Ti / 3060 / 3070 / 3080 / 3090",
-    "NVIDIA GeForce RTX 4050 / 4060 / 4070 / 4080 / 4090",
-    "AMD Radeon RX 550 / 560 / 570 / 580 / 590",
-    "AMD Radeon RX 5500 / 5600 / 5700 XT",
-    "AMD Radeon RX 6500 / 6600 / 6700 / 6800 / 6900 XT",
-    "AMD Radeon RX 7600 / 7700 / 7800 / 7900 XT",
+    "Intel UHD / Iris / Arc Integrated or Discrete",
+    "AMD Radeon Integrated / RX XXXX Series",
+    "NVIDIA GeForce MX / GTX XXXX Series",
+    "NVIDIA GeForce RTX XX50 / XX60 / XX70 / XX80 / XX90",
+    "Professional NVIDIA RTX / AMD Radeon Pro",
+    "Other GPU / Dedicated Graphics",
 ]
 
 
 DEFAULT_COLORS = [
-    "مشکی", "سفید", "نقره‌ای", "خاکستری", "ذغالی", "سرمه‌ای",
-    "آبی", "قرمز", "زرشکی", "سبز", "زیتونی", "طلایی",
-    "رزگلد", "صورتی", "بنفش", "قهوه‌ای", "بژ", "شفاف",
-    "چند‌رنگ", "سایر",
+    "مشکی", "سفید", "خاکستری", "نقره‌ای", "آبی", "قرمز",
+    "سبز", "طلایی", "صورتی", "قهوه‌ای", "شفاف", "چند‌رنگ", "سایر",
 ]
 
 
@@ -280,35 +216,26 @@ DEFAULT_ATTRIBUTES = {
     "لپ‌تاپ": [
         {"name": "پردازنده", "label": "CPU", "values": CPU_LIST[1:]},
         {"name": "ظرفیت رم", "label": "RAM", "values": RAM_CAPACITIES[1:]},
-        {"name": "نسل رم", "label": "RAM Type", "values": ["DDR3 / DDR3L", "DDR4", "DDR5", "LPDDR4 / LPDDR5"]},
+        {"name": "نسل رم", "label": "RAM Type", "values": ["DDR3 / DDR4 / DDR5 / LPDDR"]},
         {"name": "حافظه داخلی", "label": "Storage", "values": STORAGE_LIST[1:]},
         {"name": "پردازنده گرافیکی", "label": "GPU", "values": GPU_LIST[1:]},
-        {"name": "صفحه‌نمایش", "label": "Display", "values": [
-            "13.3 inch", "14 inch HD / FHD", "15.6 inch HD",
-            "15.6 inch FHD IPS", "15.6 inch 144Hz / 165Hz",
-            "16 inch FHD+ / 2K", "17.3 inch FHD",
-        ]},
+        {"name": "صفحه‌نمایش", "label": "Display", "values": ["HD / FHD / QHD / 4K", "IPS / VA / OLED", "60 / 120 / 144 / 165 / 240Hz"]},
     ],
     "قطعات": [
-        {"name": "ظرفیت", "label": "Capacity", "values": RAM_CAPACITIES[1:], "subcategory": "رم کامپیوتر (RAM PC)"},
-        {"name": "ظرفیت", "label": "Capacity", "values": RAM_CAPACITIES[1:], "subcategory": "رم لپ‌تاپ (RAM Laptop)"},
-        {"name": "نوع رابط", "label": "Interface", "values": ["SATA", "NVMe", "PCIe"], "subcategory": "حافظه اس‌اس‌دی (SSD)"},
-        {"name": "ظرفیت", "label": "Capacity", "values": [], "subcategory": "هارد دیسک اینترنال (HDD)"},
-        {"name": "نوع سوکت", "label": "Socket", "values": [], "subcategory": "پردازنده (CPU)"},
+        {"name": "ظرفیت", "label": "Capacity", "values": RAM_CAPACITIES[1:]},
+        {"name": "نوع رابط", "label": "Interface", "values": ["SATA", "M.2 SATA", "NVMe PCIe Gen 3 / 4 / 5", "USB"]},
+        {"name": "سری / مدل", "label": "Model", "values": CPU_LIST[1:] + GPU_LIST[1:]},
+        {"name": "سوکت / فرم", "label": "Socket / Form Factor", "values": ["LGA / AMx", "M.2 2242 / 2280", "2.5 / 3.5 inch", "ATX / mATX / ITX"]},
     ],
     "لوازم جانبی": [
-        {"name": "نوع اتصال / پورت", "label": "Connectivity", "values": [
-            "Wired USB", "2.4GHz Wireless", "Bluetooth",
-            "Tri-mode (Wired / Wireless / Bluetooth)", "USB Type-C",
-            "3.5mm Audio Jack", "HDMI / DisplayPort / VGA",
-        ]},
-        {"name": "مشخصه", "label": "Specification", "values": []},
+        {"name": "نوع اتصال", "label": "Connectivity", "values": ["USB-A / USB-C", "2.4GHz Wireless", "Bluetooth", "Wired", "HDMI / DisplayPort"]},
+        {"name": "سازگاری / مدل", "label": "Compatibility / Model", "values": []},
     ],
     "مانیتور": [
-        {"name": "سایز", "label": "Size", "values": ["19 inch", "20 inch", "22 inch", "24 inch", "27 inch", "32 inch", "34 inch"]},
-        {"name": "نوع پنل", "label": "Panel", "values": ["IPS", "VA", "TN", "OLED", "Nano IPS"]},
-        {"name": "نرخ نوسازی", "label": "Refresh Rate", "values": ["60Hz", "75Hz", "100Hz", "144Hz", "165Hz", "180Hz", "240Hz"]},
-        {"name": "درگاه‌ها", "label": "Ports", "values": ["HDMI + VGA", "HDMI + DisplayPort", "HDMI + DP + Type-C", "VGA + DVI"]},
+        {"name": "سایز", "label": "Size", "values": ["14 / 15.6 / 19 / 22 / 24 / 27 / 32 / 34 inch"]},
+        {"name": "نوع پنل", "label": "Panel", "values": ["IPS", "VA", "TN", "OLED", "Mini-LED"]},
+        {"name": "رزولوشن / نرخ", "label": "Resolution / Refresh", "values": ["HD / FHD / QHD / 4K", "60 / 75 / 100 / 144 / 165 / 180 / 240Hz"]},
+        {"name": "درگاه‌ها", "label": "Ports", "values": ["HDMI", "DisplayPort", "USB-C", "VGA / DVI"]},
     ],
     "کیس و مینی‌کیس": [
         {"name": "پردازنده", "label": "CPU", "values": CPU_LIST[1:]},
@@ -317,17 +244,17 @@ DEFAULT_ATTRIBUTES = {
         {"name": "پردازنده گرافیکی", "label": "GPU", "values": GPU_LIST[1:]},
     ],
     "آداپتور و تغذیه": [
-        {"name": "ولتاژ", "label": "Voltage", "values": ["5V", "9V", "12V", "19V", "19.5V", "20V", "220V AC"]},
-        {"name": "آمپر و توان", "label": "Current / Power", "values": ["1A / 1.5A / 2A", "2.31A (45W)", "3.25A (65W)", "4.5A (90W)", "6.75A / 7.7A (135W-150W)"]},
-        {"name": "نوع سوکت", "label": "Connector", "values": ["5.5x2.5mm", "HP / Dell Barrel", "Lenovo Rectangular", "USB Type-C PD"]},
+        {"name": "ولتاژ", "label": "Voltage", "values": ["5 / 9 / 12 / 19 / 19.5 / 20V", "220V AC"]},
+        {"name": "توان", "label": "Power", "values": ["45 / 65 / 90 / 120 / 135 / 150 / 180 / 240W"]},
+        {"name": "نوع سوکت", "label": "Connector", "values": ["5.5x2.5mm", "Barrel", "Rectangular", "USB Type-C PD"]},
     ],
     "شبکه و مودم": [
-        {"name": "استاندارد شبکه", "label": "Network Standard", "values": ["Wi-Fi 4", "Wi-Fi 5", "Wi-Fi 6", "Wi-Fi 6E", "Wi-Fi 7", "4G", "5G"]},
+        {"name": "استاندارد", "label": "Standard", "values": ["ADSL / VDSL", "4G / 5G", "Wi-Fi 4 / 5 / 6 / 6E / 7", "Ethernet 1G / 2.5G / 10G"]},
         {"name": "تعداد درگاه", "label": "Ports", "values": []},
     ],
     "ماشین‌های اداری": [
         {"name": "فناوری چاپ", "label": "Print Technology", "values": ["Laser", "Inkjet", "Thermal", "Dot Matrix"]},
-        {"name": "نوع چاپ", "label": "Print Color", "values": ["Monochrome", "Color"]},
+        {"name": "نوع چاپ", "label": "Print Type", "values": ["Monochrome", "Color"]},
     ],
     "سایر موارد": [
         {"name": "مشخصه", "label": "Specification", "values": []},
@@ -735,7 +662,8 @@ class JalaliCalendarDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("انتخاب تاریخ شمسی")
         self.setLayoutDirection(Qt.RightToLeft)
-        self.setFixedSize(470, 438)
+        self.setMinimumSize(470, 438)
+        self.resize(520, 460)
         self.selected_date = initial_date_str
 
         dark = False
@@ -793,6 +721,7 @@ class JalaliCalendarDialog(QDialog):
         self.cb_year.setCurrentText(str(self.cur_year))
         self.cb_year.setMinimumWidth(115)
         self.cb_year.setMinimumHeight(38)
+        self.cb_year.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.cb_year.lineEdit().setAlignment(Qt.AlignCenter)
         self.cb_year.lineEdit().setValidator(QIntValidator(1400, 1600, self.cb_year))
         self.cb_year.setStyleSheet("font-size: 15px; font-weight: bold;")
@@ -801,6 +730,7 @@ class JalaliCalendarDialog(QDialog):
         self.cb_month = QComboBox()
         self.cb_month.setMinimumWidth(165)
         self.cb_month.setMinimumHeight(38)
+        self.cb_month.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.cb_month.setStyleSheet("font-size: 15px; font-weight: bold;")
         months = [
             "فروردین",
@@ -824,6 +754,7 @@ class JalaliCalendarDialog(QDialog):
         self.cb_day = QComboBox()
         self.cb_day.setMinimumWidth(74)
         self.cb_day.setMinimumHeight(38)
+        self.cb_day.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.cb_day.setStyleSheet("font-size: 15px; font-weight: bold;")
         self.cb_day.addItems([f"{day:02d}" for day in range(1, 32)])
         self.cb_day.setCurrentIndex(max(0, min(30, self.cur_day - 1)))
@@ -831,6 +762,7 @@ class JalaliCalendarDialog(QDialog):
 
         btn_today = QPushButton("برو به امروز")
         btn_today.setMinimumHeight(38)
+        btn_today.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         btn_today.clicked.connect(self._go_today)
 
         lbl_y = QLabel("سال:")
@@ -841,18 +773,15 @@ class JalaliCalendarDialog(QDialog):
         lbl_d.setStyleSheet("font-weight: bold; font-size: 14px;")
 
         year_row.addWidget(lbl_y)
-        year_row.addWidget(self.cb_year)
-        year_row.addStretch()
-        year_row.addWidget(btn_today)
+        year_row.addWidget(self.cb_year, 1)
+        year_row.addWidget(btn_today, 1)
         nav.addLayout(year_row)
 
         month_row = QHBoxLayout()
         month_row.addWidget(lbl_m)
-        month_row.addWidget(self.cb_month)
-        month_row.addSpacing(8)
+        month_row.addWidget(self.cb_month, 3)
         month_row.addWidget(lbl_d)
-        month_row.addWidget(self.cb_day)
-        month_row.addStretch()
+        month_row.addWidget(self.cb_day, 2)
         nav.addLayout(month_row)
         layout.addLayout(nav)
 
