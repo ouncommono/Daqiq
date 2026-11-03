@@ -1298,6 +1298,7 @@ class MainWindow(QMainWindow):
         btn_safe_export.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
 
         self.lbl_active_user = QLabel()
+        self.lbl_active_user.setObjectName("activeUser")
         self.lbl_active_user.setStyleSheet(
             "color: #fde047; font-size: 12px; font-weight: bold; background: rgba(255,255,255,0.12); padding: 4px 8px; border-radius: 6px;"
         )
