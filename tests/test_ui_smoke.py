@@ -1298,6 +1298,31 @@ def test_comprehensive_report_orders_by_last_edit_and_aligns_specification_colum
         qapp.processEvents()
 
 
+def test_discount_amount_is_red_without_recolouring_the_sales_summary(tmp_path, monkeypatch, qapp):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    window = MainWindow(manager, active_employee=None)
+    try:
+        window.pr_sale_suggest.set_value(150)
+        window.pr_sale_actual.set_value(140)
+        window._recalc_sale_live()
+        discounted = window.lbl_sale_summary.text()
+        assert "color:#dc2626" in discounted
+        assert "مبلغ کل فاکتور" in discounted
+        assert window.lbl_sale_summary.styleSheet() == ""
+
+        window.pr_sale_actual.set_value(160)
+        window._recalc_sale_live()
+        marked_up = window.lbl_sale_summary.text()
+        assert "color:#059669" in marked_up
+        assert "مبلغ کل فاکتور" in marked_up
+        assert window.lbl_sale_summary.styleSheet() == ""
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
 def test_subcategory_caption_drafts_survive_category_switching(tmp_path, monkeypatch, qapp):
     monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
     monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
