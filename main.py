@@ -86,6 +86,65 @@ DEFAULT_ACCESS_LEVELS = [
     {"name": "ثبت خرید و انبارداری (گزارش محدود به خریدهای خود)", "policy": "ثبت خرید و انبارداری (گزارش محدود به خریدهای خود)"},
 ]
 
+PERMISSION_GROUPS = [
+    ("داشبورد", "dashboard", [("view", "مشاهده")]),
+    ("مدیریت کالاها", "products", [
+        ("view", "مشاهده"), ("create", "ثبت"), ("edit", "ویرایش"), ("delete", "حذف"),
+    ]),
+    ("ثبت خرید و محموله‌ها", "batches", [
+        ("view", "مشاهده"), ("create", "ثبت"), ("edit", "ویرایش"), ("delete", "حذف"),
+    ]),
+    ("ثبت فروش", "sales", [
+        ("view", "مشاهده"), ("create", "ثبت"), ("edit", "ویرایش"), ("delete", "حذف"),
+    ]),
+    ("میز خدمت", "services", [
+        ("view", "مشاهده"), ("create", "ثبت"), ("edit", "ویرایش"), ("delete", "حذف"),
+    ]),
+    ("ارتقای کالا", "upgrades", [
+        ("view", "مشاهده"), ("create", "ثبت"), ("edit", "ویرایش"), ("delete", "حذف"),
+    ]),
+    ("تأمین‌کنندگان و پرداخت‌ها", "suppliers", [
+        ("view", "مشاهده"), ("create", "ثبت"), ("edit", "ویرایش"), ("delete", "حذف"),
+    ]),
+    ("گزارش‌های جامع", "reports", [
+        ("view", "مشاهده"), ("export", "خروجی اکسل"),
+    ]),
+    ("مدیریت کاربران", "employees", [
+        ("view", "مشاهده"), ("create", "افزودن"), ("edit", "ویرایش"),
+        ("delete", "حذف"), ("manage_access", "مدیریت سطوح دسترسی"),
+    ]),
+    ("تنظیمات", "settings", [
+        ("view", "مشاهده"), ("edit", "ویرایش تنظیمات"),
+        ("manage_database", "مدیریت پایگاه داده و پشتیبان"),
+        ("manage_access", "مدیریت مجوزها"),
+    ]),
+    ("خروجی موجودی همکار", "inventory_export", [("export", "تهیه خروجی")]),
+]
+ALL_PERMISSION_KEYS = tuple(
+    f"{module}.{action}"
+    for _title, module, actions in PERMISSION_GROUPS
+    for action, _label in actions
+)
+ROLE_PERMISSION_PRESETS = {
+    "دسترسی کامل (مدیر کل)": list(ALL_PERMISSION_KEYS),
+    "مدیر ارشد (بدون مدیریت کارکنان)": [
+        key for key in ALL_PERMISSION_KEYS
+        if not key.startswith("employees.")
+    ],
+    "سرپرست عملیات (گزارش‌های محدود به عملکرد خود)": [
+        "dashboard.view", "products.view", "batches.view", "sales.view",
+        "services.view", "upgrades.view", "reports.view",
+    ],
+    "فروش و خدمات (گزارش محدود به عملکرد خود)": [
+        "dashboard.view", "sales.view", "sales.create", "sales.edit",
+        "services.view", "services.create", "services.edit", "reports.view",
+    ],
+    "ثبت خرید و انبارداری (گزارش محدود به خریدهای خود)": [
+        "dashboard.view", "products.view", "batches.view", "batches.create",
+        "batches.edit", "suppliers.view", "reports.view",
+    ],
+}
+
 PERSIAN_WEEKDAYS = {
     0: "شنبه",
     1: "یکشنبه",
@@ -636,7 +695,7 @@ class MainWindow(QMainWindow):
         except (TypeError, ValueError, json.JSONDecodeError):
             saved = None
         if not isinstance(saved, list):
-            return copy.deepcopy(DEFAULT_ACCESS_LEVELS)
+            saved = copy.deepcopy(DEFAULT_ACCESS_LEVELS)
         allowed_policies = {item["policy"] for item in DEFAULT_ACCESS_LEVELS}
         result, seen = [], set()
         for item in saved:
@@ -645,16 +704,52 @@ class MainWindow(QMainWindow):
             name = str(item.get("name") or "").strip()
             policy = str(item.get("policy") or "").strip()
             key = normalize_catalog_label(name)
-            if name and policy in allowed_policies and key and key not in seen:
-                result.append({"name": name, "policy": policy})
-                seen.add(key)
-        return result or copy.deepcopy(DEFAULT_ACCESS_LEVELS)
+            if not name or policy not in allowed_policies or not key or key in seen:
+                continue
+            raw_permissions = item.get("permissions")
+            if isinstance(raw_permissions, list):
+                permissions = [
+                    permission for permission in raw_permissions
+                    if permission in ALL_PERMISSION_KEYS
+                ]
+            else:
+                permissions = list(ROLE_PERMISSION_PRESETS.get(policy, []))
+            result.append({
+                "name": name,
+                "policy": policy,
+                "permissions": list(dict.fromkeys(permissions)),
+            })
+            seen.add(key)
+        if result:
+            return result
+        return [
+            {
+                **copy.deepcopy(level),
+                "permissions": list(ROLE_PERMISSION_PRESETS.get(level["policy"], [])),
+            }
+            for level in DEFAULT_ACCESS_LEVELS
+        ]
 
     def _permission_policy(self, permission_name):
         for level in self._get_access_levels():
             if level["name"] == permission_name:
                 return level["policy"]
         return permission_name or ""
+
+    def _permission_grants(self, permission_name=None):
+        """Return the explicitly assigned capability keys for an access level."""
+        target = permission_name
+        if target is None and self.active_employee:
+            target = self.active_employee.get("permissions")
+        for level in self._get_access_levels():
+            if level["name"] == target:
+                return set(level.get("permissions") or [])
+        for level in self._get_access_levels():
+            if level["policy"] == target:
+                return set(level.get("permissions") or [])
+        if str(target or "").strip() in ("all", "دسترسی کامل"):
+            return set(ALL_PERMISSION_KEYS)
+        return set()
 
     def _refresh_employee_permission_combo(self):
         if not hasattr(self, "cb_emp_perm"):
@@ -697,8 +792,27 @@ class MainWindow(QMainWindow):
         name = self.cb_cfg_access_level.currentData()
         level = next((item for item in self._get_access_levels() if item["name"] == name), None)
         self.ed_cfg_access_level.setText(level["name"] if level else "")
-        index = self.cb_cfg_access_policy.findData(level["policy"]) if level else -1
+        if not level:
+            return
+        index = self.cb_cfg_access_policy.findData(level["policy"])
+        self.cb_cfg_access_policy.blockSignals(True)
         self.cb_cfg_access_policy.setCurrentIndex(index if index >= 0 else 0)
+        self.cb_cfg_access_policy.blockSignals(False)
+        grants = set(level.get("permissions") or [])
+        for key, checkbox in self.access_permission_checks.items():
+            checkbox.setChecked(key in grants)
+
+    def _on_permission_preset_changed(self, *_):
+        policy = self.cb_cfg_access_policy.currentData()
+        grants = set(ROLE_PERMISSION_PRESETS.get(policy, []))
+        for key, checkbox in self.access_permission_checks.items():
+            checkbox.setChecked(key in grants)
+
+    def _collect_access_permissions(self):
+        return [
+            key for key, checkbox in self.access_permission_checks.items()
+            if checkbox.isChecked()
+        ]
 
     def _add_access_level(self):
         name = self.ed_cfg_access_level.text().strip()
@@ -710,7 +824,11 @@ class MainWindow(QMainWindow):
         if any(normalize_catalog_label(item["name"]) == normalize_catalog_label(name) for item in levels):
             QMessageBox.warning(self, "نام تکراری", "این سطح دسترسی از قبل ثبت شده است.")
             return
-        levels.append({"name": name, "policy": policy})
+        levels.append({
+            "name": name,
+            "policy": policy,
+            "permissions": self._collect_access_permissions(),
+        })
         self._persist_access_levels(levels)
         self.ed_cfg_access_level.clear()
 
@@ -739,7 +857,11 @@ class MainWindow(QMainWindow):
             return
         for item in levels:
             if item["name"] == old_name:
-                item.update({"name": new_name, "policy": new_policy})
+                item.update({
+                    "name": new_name,
+                    "policy": new_policy,
+                    "permissions": self._collect_access_permissions(),
+                })
                 break
         if assigned:
             with self.db.get_connection() as conn:
@@ -917,35 +1039,45 @@ class MainWindow(QMainWindow):
         self._refresh_visual_layout()
 
     def _apply_employee_permissions(self):
-        """Role-based tab access and data-scope setup."""
-        permission = self._permission_policy((
-            self.active_employee.get("permissions")
-            if self.active_employee else "دسترسی کامل"
-        ) or "")
-        is_full = "دسترسی کامل" in permission or permission == "all"
-        is_senior = "مدیر ارشد" in permission
-        is_sales = "فروش و خدمات" in permission
-        is_warehouse = "ثبت خرید و انبارداری" in permission
-        is_scoped = self._is_scoped_access()
+        """Enforce per-module view and per-action grants selected in the RBAC editor."""
+        grants = self._permission_grants()
+        if not self.active_employee:
+            grants = set(ALL_PERMISSION_KEYS)
 
-        for index in range(self.tabs.count()):
-            self.tabs.setTabEnabled(index, True)
-        if not is_full:
-            self.tabs.setTabEnabled(8, False)
-        if is_sales:
-            for index in (2, 6, 9):
-                self.tabs.setTabEnabled(index, False)
-        elif is_warehouse:
-            for index in (3, 4, 9):
-                self.tabs.setTabEnabled(index, False)
-        elif is_scoped:
-            # Operations supervisor: own transactions only, without supplier-wide and system settings.
-            self.tabs.setTabEnabled(6, False)
-            self.tabs.setTabEnabled(9, False)
+        tab_modules = (
+            "dashboard", "products", "batches", "sales", "services",
+            "upgrades", "suppliers", "reports", "employees", "settings",
+        )
+        is_scoped = self._is_scoped_access()
+        for index, module in enumerate(tab_modules):
+            allowed = f"{module}.view" in grants
+            self.tabs.setTabEnabled(index, allowed)
 
         for button in self.findChildren(QPushButton):
-            if button.objectName() == "btnDanger":
-                button.setEnabled(is_full)
+            page_index = -1
+            for index in range(self.tabs.count()):
+                page = self.tabs.widget(index)
+                if page is not None and page.isAncestorOf(button):
+                    page_index = index
+                    break
+            if page_index < 0:
+                continue
+            module = tab_modules[page_index]
+            label = button.text().strip()
+            if button.objectName() == "btnDanger" or any(
+                token in label for token in ("حذف", "🗑")
+            ):
+                action = "delete"
+            elif any(token in label for token in ("افزودن", "ثبت", "➕", "✅")):
+                action = "create"
+            elif any(token in label for token in ("ویرایش", "ذخیره تغییرات", "ذخیره ویرایش")):
+                action = "edit"
+            elif any(token in label for token in ("خروجی", "📥", "📤")):
+                action = "export"
+            else:
+                action = None
+            if action:
+                button.setEnabled(f"{module}.{action}" in grants)
 
         if hasattr(self, "cb_rep_emp"):
             self.cb_rep_emp.setEnabled(not is_scoped)
@@ -954,10 +1086,25 @@ class MainWindow(QMainWindow):
                 if own_index >= 0:
                     self.cb_rep_emp.setCurrentIndex(own_index)
         if hasattr(self, "btn_safe_export"):
-            self.btn_safe_export.setEnabled(not is_scoped)
+            self.btn_safe_export.setEnabled(
+                not is_scoped and "inventory_export.export" in grants
+            )
+        if hasattr(self, "cb_rep_sort"):
+            self.cb_rep_sort.setEnabled("reports.view" in grants)
+        if hasattr(self, "cb_cfg_access_level"):
+            access_enabled = (
+                "settings.manage_access" in grants
+                and "settings.view" in grants
+            )
+            for widget in (
+                self.cb_cfg_access_level, self.ed_cfg_access_level,
+                self.cb_cfg_access_policy,
+            ):
+                widget.setEnabled(access_enabled)
+            for checkbox in self.access_permission_checks.values():
+                checkbox.setEnabled(access_enabled)
         if hasattr(self, "btn_switch_user"):
-            # تغییر کاربر بخشی از جریان دسترسی است و برای همه نقش‌ها در دسترس می‌ماند.
-            self.btn_switch_user.setEnabled(1)
+            self.btn_switch_user.setEnabled(True)
 
 
     def _apply_styles(self):
@@ -4861,12 +5008,33 @@ class MainWindow(QMainWindow):
             self.cb_cfg_access_policy.addItem(
                 access_level["name"], access_level["policy"]
             )
-        access_layout.addWidget(QLabel("سطح موجود:"), 0, 0)
+        access_layout.addWidget(QLabel("سطح:"), 0, 0)
         access_layout.addWidget(self.cb_cfg_access_level, 0, 1)
         access_layout.addWidget(QLabel("نام سطح دسترسی:"), 1, 0)
         access_layout.addWidget(self.ed_cfg_access_level, 1, 1)
-        access_layout.addWidget(QLabel("الگوی مجوز:"), 2, 0)
+        access_layout.addWidget(QLabel("مجوزها:"), 2, 0)
         access_layout.addWidget(self.cb_cfg_access_policy, 2, 1)
+
+        permissions_scroll = SmoothScrollArea()
+        permissions_scroll.setMaximumHeight(360)
+        permissions_container = QWidget()
+        permissions_grid = QGridLayout(permissions_container)
+        self.access_permission_checks = {}
+        for group_index, (group_title, module, actions) in enumerate(PERMISSION_GROUPS):
+            group = QGroupBox(group_title)
+            group_layout = QGridLayout(group)
+            for action_index, (action, label_text) in enumerate(actions):
+                key = f"{module}.{action}"
+                checkbox = QCheckBox(label_text)
+                self.access_permission_checks[key] = checkbox
+                group_layout.addWidget(checkbox, action_index // 3, action_index % 3)
+            permissions_grid.addWidget(group, group_index // 2, group_index % 2)
+        permissions_scroll.setWidget(permissions_container)
+        permissions_scroll.setWidgetResizable(True)
+        access_layout.addWidget(permissions_scroll, 4, 0, 1, 2)
+        self.cb_cfg_access_policy.currentIndexChanged.connect(
+            self._on_permission_preset_changed
+        )
         access_buttons = QHBoxLayout()
         btn_add_access = QPushButton("افزودن سطح")
         btn_add_access.clicked.connect(self._add_access_level)
@@ -4879,7 +5047,7 @@ class MainWindow(QMainWindow):
         access_buttons.addWidget(btn_add_access)
         access_buttons.addWidget(btn_edit_access)
         access_buttons.addWidget(btn_delete_access)
-        access_layout.addLayout(access_buttons, 3, 0, 1, 2)
+        access_layout.addLayout(access_buttons, 5, 0, 1, 2)
         self.cb_cfg_access_level.currentIndexChanged.connect(
             self._on_access_level_selected
         )
