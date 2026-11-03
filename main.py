@@ -5077,28 +5077,36 @@ class MainWindow(QMainWindow):
         colors_layout.addWidget(self.ed_cfg_color)
         colors_layout.addLayout(color_btn_row)
 
-        gb_subcategory_caption = QGroupBox("عنوان فیلد زیرمجموعه برای هر دسته")
-        subcaption_layout = QFormLayout(gb_subcategory_caption)
+        # Configure the per-category subcategory caption inline with the main categories.
         self.cb_subcategory_caption_category = QComboBox()
         self.cb_subcategory_caption_category.addItems(
             self.catalog_config.get("categories") or list(MAIN_CATEGORIES)
+        )
+        self.cb_subcategory_caption_category.setCurrentText(
+            self.cb_cfg_category.currentText()
         )
         self.ed_subcategory_caption = QLineEdit()
         self.ed_subcategory_caption.setPlaceholderText("عنوان دلخواه؛ مانند نوع دستگاه")
         self.cb_subcategory_caption_category.currentTextChanged.connect(
             self._load_subcategory_caption
         )
-        btn_save_subcaption = QPushButton("ذخیره عنوان فیلد")
+        subcaption_row = QHBoxLayout()
+        subcaption_row.addWidget(QLabel("عنوان فیلد زیرمجموعه:"))
+        subcaption_row.addWidget(self.ed_subcategory_caption, 1)
+        btn_save_subcaption = QPushButton("ذخیره")
         btn_save_subcaption.clicked.connect(self._save_subcategory_caption)
-        subcaption_layout.addRow("دسته‌بندی:", self.cb_subcategory_caption_category)
-        subcaption_layout.addRow("عنوان فیلد:", self.ed_subcategory_caption)
-        subcaption_layout.addRow(btn_save_subcaption)
+        subcaption_row.addWidget(btn_save_subcaption)
+        categories_layout.addLayout(subcaption_row)
+        categories_layout.addWidget(self.cb_subcategory_caption_category)
+
+        for frame in (gb_categories, gb_subcategories, gb_attributes, gb_colors):
+            frame.setFixedHeight(360)
+            frame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
         catalog_grid.addWidget(gb_categories, 0, 0)
         catalog_grid.addWidget(gb_subcategories, 0, 1)
         catalog_grid.addWidget(gb_attributes, 1, 0)
         catalog_grid.addWidget(gb_colors, 1, 1)
-        catalog_grid.addWidget(gb_subcategory_caption, 2, 0, 1, 2)
         self.cb_cfg_category.currentTextChanged.connect(
             self._refresh_catalog_management_lists
         )
@@ -5155,17 +5163,21 @@ class MainWindow(QMainWindow):
         inventory_export_layout = QGridLayout(gb_inventory_export)
         inventory_export_options = [
             ("code", "کد کالا"),
+            ("batch_code", "کد محموله"),
             ("category", "دسته‌بندی"),
             ("subcategory", "زیرمجموعه"),
             ("brand_model", "برند و مدل"),
             ("specs", "مشخصات فنی"),
-            ("suggested_price", "قیمت فروش (پیشنهادی)"),
+            ("suggested_price", "قیمت فروش پیشنهادی"),
             ("stock", "موجودی"),
         ]
         self.inventory_export_column_checks = {}
+        default_inventory_columns = {
+            "code", "batch_code", "category", "subcategory", "brand_model", "specs",
+        }
         for index, (key, label_text) in enumerate(inventory_export_options):
             checkbox = QCheckBox(label_text)
-            checkbox.setChecked(True)
+            checkbox.setChecked(key in default_inventory_columns)
             self.inventory_export_column_checks[key] = checkbox
             inventory_export_layout.addWidget(checkbox, index // 4, index % 4)
         inventory_export_hint = QLabel(
@@ -5173,12 +5185,18 @@ class MainWindow(QMainWindow):
         )
         inventory_export_hint.setWordWrap(True)
         inventory_export_layout.addWidget(inventory_export_hint, 2, 0, 1, 4)
-        catalog_layout.addWidget(CollapsibleSection(
-            "تنظیمات خروجی موجودی همکار", gb_inventory_export
-        ))
-        catalog_layout.addWidget(CollapsibleSection(
-            "مدیریت سطوح دسترسی", gb_access_levels
-        ))
+        inventory_export_page = QWidget()
+        inventory_export_page_layout = QVBoxLayout(inventory_export_page)
+        inventory_export_page_layout.addWidget(gb_inventory_export)
+        inventory_export_page_layout.addStretch(1)
+
+        access_management_page = QWidget()
+        access_management_page_layout = QVBoxLayout(access_management_page)
+        access_management_page_layout.addWidget(gb_access_levels)
+        access_management_page_layout.addStretch(1)
+
+        self.catalog_tabs.addTab(inventory_export_page, "تنظیمات خروجی موجودی همکار")
+        self.catalog_tabs.addTab(access_management_page, "مدیریت سطوح دسترسی")
         layout.addWidget(CollapsibleSection(
             "مدیریت ساختار کالاها، خدمات، خروجی‌ها و دسترسی‌ها", gb_catalog
         ))
