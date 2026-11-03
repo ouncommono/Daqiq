@@ -159,21 +159,36 @@ def export_safe_inventory_excel(
     column_definitions = [
         ("code", "کد کالا"),
         ("batch_code", "کد محموله"),
+        ("product_name", "نام کالا"),
         ("category", "دسته‌بندی"),
         ("subcategory", "زیرمجموعه"),
         ("brand_model", "برند و مدل"),
         ("description", "توضیحات کالا"),
+        ("reorder_point", "حد سفارش مجدد"),
         ("specs", "مشخصات فنی کالا"),
         ("shipment_specs", "مشخصات فنی محموله"),
         ("supplier", "تأمین‌کننده"),
         ("buyer", "مسئول خرید"),
         ("purchase_date", "تاریخ خرید"),
         ("purchase_invoice", "شماره فاکتور خرید"),
+        ("purchase_status", "وضعیت تسویه خرید"),
+        ("purchase_paid_amount", "مبلغ پرداخت‌شده به تأمین‌کننده"),
         ("serial_numbers", "شماره سریال"),
         ("colors", "رنگ‌ها"),
-        ("initial_qty", "تعداد اولیه محموله"),
+        ("initial_qty", "تعداد اولیه"),
+        ("sold_qty", "تعداد فروخته‌شده"),
+        ("returned_qty", "تعداد مرجوعی"),
+        ("stock", "موجودی فعلی"),
+        ("shipment_notes", "یادداشت محموله"),
+        ("warranty_history", "سوابق گارانتی فروش"),
+        ("batch_created_at", "زمان ثبت محموله"),
+        ("batch_updated_at", "آخرین ویرایش محموله"),
         ("suggested_price", "قیمت فروش پیشنهادی"),
-        ("stock", "موجودی"),
+        ("purchase_unit_price", "قیمت خرید واحد"),
+        ("unit_cost_price", "بهای تمام‌شده واحد"),
+        ("extra_cost_total", "هزینه‌های اضافی محموله"),
+        ("upgrade_cost_unit", "هزینه ارتقای واحد"),
+        ("profit_pct", "درصد سود"),
     ]
     labels = dict(column_definitions)
     if included_columns is None:
@@ -190,9 +205,29 @@ def export_safe_inventory_excel(
     catalog_config = db.get_product_catalog_config()
     with db.get_connection() as conn:
         rows = conn.execute("""
+            WITH warranty_history AS (
+                SELECT
+                    batch_id,
+                    GROUP_CONCAT(DISTINCT TRIM(
+                        COALESCE(NULLIF(warranty_company, ''), 'بدون نام شرکت')
+                        || CASE WHEN COALESCE(warranty_days, 0) > 0
+                                THEN ' - ' || warranty_days || ' روز' ELSE '' END
+                        || CASE WHEN COALESCE(warranty_start, '') <> ''
+                                THEN ' | از ' || warranty_start ELSE '' END
+                        || CASE WHEN COALESCE(warranty_end, '') <> ''
+                                THEN ' | تا ' || warranty_end ELSE '' END
+                    )) AS warranty_history
+                FROM sales
+                WHERE COALESCE(TRIM(warranty_company), '') <> ''
+                   OR COALESCE(warranty_days, 0) > 0
+                   OR COALESCE(warranty_start, '') <> ''
+                   OR COALESCE(warranty_end, '') <> ''
+                GROUP BY batch_id
+            )
             SELECT
                 p.code,
                 p.name AS product_name,
+                p.reorder_point,
                 p.category,
                 p.sub_category,
                 p.brand,
@@ -208,14 +243,28 @@ def export_safe_inventory_excel(
                 b.serial_numbers,
                 b.colors_json,
                 b.initial_qty,
+                b.sold_qty,
+                b.returned_qty,
                 b.suggested_sell_price,
                 b.remaining_qty,
+                b.settlement_status AS purchase_status,
+                b.paid_amount AS purchase_paid_amount,
+                b.unit_purchase_price,
+                b.unit_cost_price,
+                b.extra_cost_total,
+                b.upgrade_cost_unit,
+                b.profit_pct,
+                b.notes AS shipment_notes,
+                b.created_at AS batch_created_at,
+                b.updated_at AS batch_updated_at,
+                COALESCE(wh.warranty_history, '') AS warranty_history,
                 COALESCE(sup.name, b.supplier_name_snapshot, '') AS supplier_name,
                 COALESCE(emp.name, '') AS buyer_name
             FROM batches b
             JOIN products p ON p.id = b.product_id
             LEFT JOIN suppliers sup ON sup.id = b.supplier_id
             LEFT JOIN employees emp ON emp.id = b.buyer_employee_id
+            LEFT JOIN warranty_history wh ON wh.batch_id = b.id
             WHERE p.is_active = 1 AND b.remaining_qty > 0
             ORDER BY b.updated_at DESC, b.id DESC
         """).fetchall()
@@ -250,7 +299,9 @@ def export_safe_inventory_excel(
         values = {
             "code": row["code"],
             "batch_code": row["batch_code"],
+            "product_name": row["product_name"] or "-",
             "category": row["category"] or "سایر موارد",
+            "reorder_point": int(row["reorder_point"] or 0),
             "subcategory": row["sub_category"] or "-",
             "brand_model": (
                 f"{row['brand'] or ''} {row['model'] or ''}".strip()
@@ -266,8 +317,21 @@ def export_safe_inventory_excel(
             "serial_numbers": row["serial_numbers"] or "-",
             "colors": "، ".join(str(value) for value in colors) or "-",
             "initial_qty": int(row["initial_qty"] or 0),
-            "suggested_price": int(row["suggested_sell_price"] or 0),
+            "sold_qty": int(row["sold_qty"] or 0),
+            "returned_qty": int(row["returned_qty"] or 0),
             "stock": int(row["remaining_qty"] or 0),
+            "purchase_status": row["purchase_status"] or "-",
+            "purchase_paid_amount": int(row["purchase_paid_amount"] or 0),
+            "purchase_unit_price": int(row["unit_purchase_price"] or 0),
+            "unit_cost_price": int(row["unit_cost_price"] or 0),
+            "extra_cost_total": int(row["extra_cost_total"] or 0),
+            "upgrade_cost_unit": int(row["upgrade_cost_unit"] or 0),
+            "profit_pct": float(row["profit_pct"] or 0),
+            "shipment_notes": row["shipment_notes"] or "-",
+            "warranty_history": (row["warranty_history"] or "").replace(",", "؛ ") or "-",
+            "batch_created_at": row["batch_created_at"] or "-",
+            "batch_updated_at": row["batch_updated_at"] or "-",
+            "suggested_price": int(row["suggested_sell_price"] or 0),
         }
         data_rows.append([values[key] for key in selected_columns])
 
