@@ -1066,8 +1066,18 @@ class MainWindow(QMainWindow):
             for c_idx, val in enumerate(row_values):
                 text_val = "" if val is None else str(val)
                 display_text = strip_bidi_controls(text_val)
+                header_item = table.horizontalHeaderItem(c_idx)
+                header_text = header_item.text() if header_item else ""
+                signed_value = (
+                    ("تخفیف" in header_text or "تشدید" in header_text)
+                    and text_val.startswith(("+", "-"))
+                )
+                if signed_value:
+                    display_text = "\u200e" + display_text
                 item = QTableWidgetItem(display_text)
-                item.setToolTip(display_text)
+                item.setToolTip(strip_bidi_controls(text_val))
+                if signed_value:
+                    item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
                 if highlight_col is not None and c_idx == highlight_col:
                     if text_val in ("ناموجود", "کم‌موجود", "تسویه‌نشده") or text_val.startswith("-"):
                         item.setForeground(QColor("#dc2626"))
@@ -2224,9 +2234,10 @@ class MainWindow(QMainWindow):
 
         profit_total = (act_u - cost_u) * qty
         signed_diff = format_Signed_diff(act_u, sug_u, qty)
+        signed_diff_display = "\u200e" + signed_diff if signed_diff.startswith(("+", "-")) else signed_diff
 
         self.lbl_sale_summary.setText(
-            f"تخفیف (-) / تشدید (+): {signed_diff} تومان   |   مبلغ کل فاکتور: {total_bill:,} تومان   |   سود فروش: {profit_total:,} تومان"
+            f"تخفیف (-) / تشدید (+): {signed_diff_display} تومان   |   مبلغ کل فاکتور: {total_bill:,} تومان   |   سود فروش: {profit_total:,} تومان"
         )
 
     def _recalc_warranty_end(self):
@@ -2578,9 +2589,10 @@ class MainWindow(QMainWindow):
         paid_val = self.pr_srv_paid.get_value()
         side = self.pr_srv_side.get_value()
         diff_str = format_Signed_diff(paid_val, base_fee, 1)
+        diff_display = "\u200e" + diff_str if diff_str.startswith(("+", "-")) else diff_str
         net = paid_val - side
         self.lbl_srv_diff_summary.setText(
-            f"تخفیف (-) / تشدید (+): {diff_str} تومان   |   سود خالص خدمت: {net:,} تومان"
+            f"تخفیف (-) / تشدید (+): {diff_display} تومان   |   سود خالص خدمت: {net:,} تومان"
         )
 
     def _on_srv_status_changed(self, st):
@@ -3415,6 +3427,7 @@ class MainWindow(QMainWindow):
                     "دسته‌بندی",
                     "زیرمجموعه",
                     "برند و مدل / عنوان",
+                    "مشخصات فنی",
                     "کارمند ثبت‌کننده",
                     "مشتری / تأمین‌کننده",
                     "تعداد",
@@ -3426,7 +3439,6 @@ class MainWindow(QMainWindow):
                     "مانده حساب (تومان)",
                     "سود خالص (تومان)",
                     "وضعیت تسویه",
-                    "مشخصات فنی",
                 ]
                 s_rows = conn.execute("""
                     SELECT 'فروش کالا' as t_type, s.invoice_number as ref, s.sale_datetime as dt,
