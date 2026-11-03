@@ -67,6 +67,32 @@ def create_sale(manager, product_id, batch_id, employee_id=None, warranty_days=0
     )
 
 
+def test_new_database_places_activity_columns_last_and_creates_activity_indexes(manager):
+    tracked_tables = (
+        "employees", "suppliers", "customers", "products", "batches", "upgrades",
+        "sales", "service_catalog", "service_price_history", "service_records",
+        "payments", "audit_logs",
+    )
+    with manager.get_connection() as conn:
+        for table in tracked_tables:
+            columns = [
+                row["name"] for row in conn.execute(f"PRAGMA table_info({table})")
+            ]
+            assert columns[-1] == "updated_at", (table, columns)
+
+        expected_indexes = {
+            "batches": "idx_batches_product_activity",
+            "sales": "idx_sales_activity",
+            "service_records": "idx_service_records_activity",
+            "products": "idx_products_activity",
+        }
+        for table, expected_index in expected_indexes.items():
+            indexes = {
+                row["name"] for row in conn.execute(f"PRAGMA index_list({table})")
+            }
+            assert expected_index in indexes, (table, indexes)
+
+
 def test_new_database_has_no_seeded_employees_and_codes_are_sequenced(manager):
     with manager.get_connection() as conn:
         count = conn.execute("SELECT COUNT(*) AS n FROM employees").fetchone()["n"]
