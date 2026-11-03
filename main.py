@@ -226,7 +226,7 @@ class LoginDialog(QDialog):
     def _check_login(self):
         employee = self.cb_emp.currentData()
         if not employee:
-            QMessageBox.warning(self, "انتخاب کاربر", "ابتدا یک کارمند را انتخاب کنید.")
+            QMessageBox.warning(self, "انتخاب کاربر", "ابتدا یک کاربر را انتخاب کنید.")
             return
         stored_hash = employee.get("password") or ""
         typed_password = normalize_digits(self.ed_pass.text())
@@ -234,7 +234,7 @@ class LoginDialog(QDialog):
             QMessageBox.warning(
                 self,
                 "رمز عبور تعریف نشده",
-                "ورود این حساب به دلیل فعال بودن اجبار رمز ممکن نیست. مدیر باید ابتدا برای این کارمند رمز تعیین کند.",
+                "ورود این حساب به دلیل فعال بودن اجبار رمز ممکن نیست. مدیر باید ابتدا برای این کاربر رمز تعیین کند.",
             )
             return
         if stored_hash:
@@ -491,7 +491,7 @@ class MainWindow(QMainWindow):
             ).fetchone()[0]
         if not active_count:
             QMessageBox.information(
-                self, "کاربری ثبت نشده", "برای این پایگاه داده هنوز کارمند فعالی ثبت نشده است."
+                self, "کاربری ثبت نشده", "برای این پایگاه داده هنوز کاربر فعالی ثبت نشده است."
             )
             return
         dialog = LoginDialog(self.db, self)
@@ -3439,7 +3439,7 @@ class MainWindow(QMainWindow):
                 "۴. گزارش موجودی و سود به تفکیک محموله",
                 "۵. گزارش سود تجمعی هر کالا",
                 "۶. گزارش سود و عملکرد هر محموله",
-                "۷. گزارش جامع عملکرد هر کارمند / فروشنده",
+                "۷. گزارش جامع عملکرد هر کاربر / فروشنده",
                 "۸. گزارش کالاهای کم‌موجود (نیازمند خرید)",
                 "۹. گزارش بدهی به تأمین‌کنندگان",
                 "۱۰. گزارش فاکتورهای تسویه‌نشده (طلب و بدهی)",
@@ -3452,7 +3452,7 @@ class MainWindow(QMainWindow):
             if "ثبت خرید و انبارداری" in permission:
                 allowed_reports = [
                     "۲. گزارش کامل تمام خریدها (محموله‌ها)",
-                    "۷. گزارش جامع عملکرد هر کارمند / فروشنده",
+                    "۷. گزارش جامع عملکرد هر کاربر / فروشنده",
                 ]
             elif "سرپرست عملیات" in permission:
                 allowed_reports = [
@@ -3520,7 +3520,7 @@ class MainWindow(QMainWindow):
         grid.addWidget(QLabel("تا تاریخ:"), 0, 6)
         grid.addWidget(self.dt_rep_to, 0, 7)
 
-        grid.addWidget(QLabel("کارمند:"), 1, 0)
+        grid.addWidget(QLabel("کاربر:"), 1, 0)
         grid.addWidget(self.cb_rep_emp, 1, 1)
         grid.addWidget(QLabel("دسته‌بندی:"), 1, 2)
         grid.addWidget(self.cb_rep_cat, 1, 3)
@@ -3622,7 +3622,7 @@ class MainWindow(QMainWindow):
                     "زیرمجموعه",
                     "برند و مدل / عنوان",
                     "مشخصات فنی",
-                    "کارمند ثبت‌کننده",
+                    "کاربر ثبت‌کننده",
                     "مشتری / تأمین‌کننده",
                     "تعداد",
                     "مبلغ واحد (تومان)",
@@ -4007,7 +4007,7 @@ class MainWindow(QMainWindow):
                     f"سود تجمعی کالاها: {sum_prof:,} تومان"
                 )
 
-            # ۷. گزارش جامع عملکرد هر کارمند
+            # ۷. گزارش جامع عملکرد هر کاربر
             elif rep_type.startswith("۷."):
                 headers = [
                     "نام کاربر",
@@ -4021,7 +4021,7 @@ class MainWindow(QMainWindow):
                     "سود حاصل از فروش کالا",
                     "تعداد خدمات انجام‌شده",
                     "سود خالص خدمات",
-                    "مجموع سود ایجادی کارمند",
+                    "مجموع سود ایجادی کاربر",
                 ]
                 emps = conn.execute("SELECT * FROM employees").fetchall()
                 for e in emps:
@@ -4079,7 +4079,7 @@ class MainWindow(QMainWindow):
                     "شماره فاکتور / محموله",
                     "تاریخ",
                     "طرف حساب (مشتری / تأمین‌کننده)",
-                    "کارمند مسئول",
+                    "کاربر مسئول",
                     "شرح کالا / خدمت",
                     "مبلغ کل (تومان)",
                     "مبلغ پرداخت‌شده (تومان)",
@@ -4317,7 +4317,7 @@ class MainWindow(QMainWindow):
         gb = QGroupBox("مدیریت کاربران، نقش‌ها، سطوح دسترسی و رمز ورود")
         grid = QGridLayout(gb)
 
-        self.ed_emp_name = SmartLineEdit("نام و نام خانوادگی کارمند...")
+        self.ed_emp_name = SmartLineEdit("نام و نام خانوادگی کاربر...")
         self.cb_emp_role = QComboBox()
         self.cb_emp_role.addItems(
             ["مدیر", "فروشنده", "مسئول خرید", "تکنسین فنی"]
@@ -4331,7 +4331,7 @@ class MainWindow(QMainWindow):
         self.ed_emp_pass.setPlaceholderText("رمز عبور جدید...")
         self.cb_emp_perm = QComboBox()
         self.cb_emp_perm.addItems(self._base_permission_choices())
-        self.chk_emp_active = QCheckBox("کارمند فعال است")
+        self.chk_emp_active = QCheckBox("کاربر فعال است")
         self.chk_emp_active.setChecked(True)
 
         grid.addWidget(QLabel("نام کاربر *:"), 0, 0)
@@ -4350,12 +4350,12 @@ class MainWindow(QMainWindow):
         grid.addWidget(self.chk_emp_active, 2, 0, 1, 2)
 
         btn_row = QHBoxLayout()
-        btn_add = QPushButton("➕ افزودن کارمند جدید")
+        btn_add = QPushButton("➕ افزودن کاربر جدید")
         btn_add.clicked.connect(self._add_employee)
-        btn_edit = QPushButton("✏️ ذخیره ویرایش کارمند انتخابی")
+        btn_edit = QPushButton("✏️ ذخیره ویرایش کاربر انتخابی")
         btn_edit.setObjectName("btnSuccess")
         btn_edit.clicked.connect(self._update_employee)
-        btn_del = QPushButton("🗑️ حذف کارمند")
+        btn_del = QPushButton("🗑️ حذف کاربر")
         btn_del.setObjectName("btnDanger")
         btn_del.clicked.connect(self._delete_employee)
         btn_row.addWidget(btn_add)
@@ -4373,7 +4373,7 @@ class MainWindow(QMainWindow):
         self.tbl_employees = self._create_table(
             [
                 "شناسه",
-                "نام کارمند",
+                "نام کاربر",
                 "نقش",
                 "تلفن تماس",
                 "سطح دسترسی",
@@ -4390,13 +4390,13 @@ class MainWindow(QMainWindow):
     def _add_employee(self):
         name = self.ed_emp_name.text().strip()
         if not name:
-            QMessageBox.warning(self, "خطا", "نام کارمند را وارد کنید.")
+            QMessageBox.warning(self, "خطا", "نام کاربر را وارد کنید.")
             return
         raw_pass = normalize_digits(self.ed_emp_pass.text().strip())
         if self.db.cfg.get("require_login_password", False) and self.chk_emp_active.isChecked() and not raw_pass:
             QMessageBox.warning(
                 self, "رمز عبور لازم است",
-                "تا زمانی که اجبار رمز عبور فعال است، کارمند فعال باید هنگام ثبت رمز تعیین کند."
+                "تا زمانی که اجبار رمز عبور فعال است، کاربر فعال باید هنگام ثبت رمز تعیین کند."
             )
             return
         hashed = hash_password(raw_pass) if raw_pass else ""
@@ -4422,7 +4422,7 @@ class MainWindow(QMainWindow):
             self.ed_emp_pass.clear()
             self.refresh_all_data()
         except Exception as e:
-            QMessageBox.critical(self, "خطا در ثبت کارمند", str(e))
+            QMessageBox.critical(self, "خطا در ثبت کاربر", str(e))
 
     def _on_emp_selected(self):
         items = self.tbl_employees.selectedItems()
@@ -4468,18 +4468,18 @@ class MainWindow(QMainWindow):
             ):
                 QMessageBox.warning(
                     self, "رمز عبور لازم است",
-                    "این کارمند فعال باید پیش از ذخیره اطلاعات، رمز عبور دریافت کند."
+                    "این کاربر فعال باید پیش از ذخیره اطلاعات، رمز عبور دریافت کند."
                 )
                 return
 
-            # مورد ۴: اگر کاربر قصد تغییر رمز (یا ثبت رمز جدید برای کارمند دارای رمز) را دارد، رمز فعلی الزامی است
+            # مورد ۴: اگر کاربر قصد تغییر رمز (یا ثبت رمز جدید برای کاربر دارای رمز) را دارد، رمز فعلی الزامی است
             if new_raw:
                 if saved_hash:
                     if not old_raw:
                         QMessageBox.warning(
                             self,
                             "نیاز به رمز فعلی",
-                            "برای تغییر رمز عبور، لطفاً ابتدا «رمز عبور فعلی» این کارمند را وارد کنید.",
+                            "برای تغییر رمز عبور، لطفاً ابتدا «رمز عبور فعلی» این کاربر را وارد کنید.",
                         )
                         return
                     if hash_password(old_raw) != saved_hash and old_raw != saved_hash:
@@ -4522,11 +4522,11 @@ class MainWindow(QMainWindow):
         self.ed_emp_old_pass.clear()
         self.ed_emp_pass.clear()
         self.refresh_all_data()
-        QMessageBox.information(self, "ذخیره شد", "اطلاعات کارمند بروزرسانی شد.")
+        QMessageBox.information(self, "ذخیره شد", "اطلاعات کاربر بروزرسانی شد.")
 
     def _remove_employee_password(self):
         if not self.selected_emp_id:
-            QMessageBox.warning(self, "انتخاب کارمند", "ابتدا کارمند موردنظر را انتخاب کنید.")
+            QMessageBox.warning(self, "انتخاب کاربر", "ابتدا کاربر موردنظر را انتخاب کنید.")
             return
         current_password = normalize_digits(self.ed_emp_old_pass.text().strip())
         if not current_password:
@@ -4537,7 +4537,7 @@ class MainWindow(QMainWindow):
                 "SELECT password FROM employees WHERE id=?", (self.selected_emp_id,)
             ).fetchone()
             if not employee or not employee["password"]:
-                QMessageBox.information(self, "بدون رمز", "برای این کارمند رمزی ثبت نشده است.")
+                QMessageBox.information(self, "بدون رمز", "برای این کاربر رمزی ثبت نشده است.")
                 return
             stored = employee["password"]
             if hash_password(current_password) != stored and current_password != stored:
@@ -4551,22 +4551,22 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "رمز حذف شد", "رمز عبور پس از تأیید رمز فعلی حذف شد.")
 
     def _delete_employee(self):
-        """مورد ۳: پنجره سه‌گزینه‌ای حذف کارمند"""
+        """مورد ۳: پنجره سه‌گزینه‌ای حذف کاربر"""
         if not self.selected_emp_id:
-            QMessageBox.warning(self, "انتخاب کارمند", "ابتدا یک کارمند را از جدول انتخاب کنید.")
+            QMessageBox.warning(self, "انتخاب کاربر", "ابتدا یک کاربر را از جدول انتخاب کنید.")
             return
 
         if self.active_employee and int(self.active_employee.get("id", -1)) == int(self.selected_emp_id):
             QMessageBox.warning(
-                self, "کارمند فعال",
+                self, "کاربر فعال",
                 "حساب کاربری فعال را نمی‌توان از همان نشست حذف کرد. ابتدا با حساب مدیریتی دیگری وارد شوید."
             )
             return
         msg = QMessageBox(self)
-        msg.setWindowTitle("حذف کارمند")
+        msg.setWindowTitle("حذف کاربر")
         msg.setText(
-            "چگونه می‌خواهید این کارمند را حذف کنید؟\n"
-            "(می‌توانید فقط نام کارمند را حذف کنید تا سوابق مالی و فاکتورها حفظ شوند، یا تمام داده‌های مرتبط با او را نیز حذف نمایید)"
+            "چگونه می‌خواهید این کاربر را حذف کنید؟\n"
+            "(می‌توانید فقط نام کاربر را حذف کنید تا سوابق مالی و فاکتورها حفظ شوند، یا تمام داده‌های مرتبط با او را نیز حذف نمایید)"
         )
         btn_cancel = msg.addButton("انصراف", QMessageBox.RejectRole)
         btn_keep_data = msg.addButton(
@@ -4591,7 +4591,7 @@ class MainWindow(QMainWindow):
             self.ed_emp_old_pass.clear()
             self.ed_emp_pass.clear()
             self.refresh_all_data()
-            QMessageBox.information(self, "حذف شد", "عملیات حذف کارمند با موفقیت انجام شد.")
+            QMessageBox.information(self, "حذف شد", "عملیات حذف کاربر با موفقیت انجام شد.")
         except Exception as e:
             QMessageBox.critical(self, "خطا در حذف", str(e))
 
@@ -4613,14 +4613,14 @@ class MainWindow(QMainWindow):
         gb_security = QGroupBox("امنیت و ورود کاربران")
         security_layout = QVBoxLayout(gb_security)
         self.chk_req_pass = QCheckBox(
-            "اجبار ورود با رمز عبور برای تمام کارکنان فعال"
+            "اجبار ورود با رمز عبور برای تمام کاربران فعال"
         )
         self.chk_req_pass.toggled.connect(self._confirm_password_policy_change)
         self.chk_req_pass.setToolTip(
-            "در حالت فعال، تمام کارکنان فعال باید رمز داشته باشند و برای ورود آن را وارد کنند."
+            "در حالت فعال، تمام کاربران فعال باید رمز داشته باشند و برای ورود آن را وارد کنند."
         )
         security_hint = QLabel(
-            "پیش از فعال‌سازی، برای تمام کارکنان فعال رمز عبور تعیین کنید."
+            "پیش از فعال‌سازی، برای تمام کاربران فعال رمز عبور تعیین کنید."
         )
         security_hint.setWordWrap(True)
         security_hint.setObjectName("settingsHint")
@@ -5102,7 +5102,7 @@ class MainWindow(QMainWindow):
         # Keep the existing stored value for data compatibility; only the visible caption is modernized.
         return [
             "دسترسی کامل (مدیر کل)",
-            "مدیر ارشد (بدون مدیریت کارکنان)",
+            "مدیر ارشد (بدون مدیریت کاربران)",
             "سرپرست عملیات (گزارش‌های محدود به عملکرد خود)",
             "فروش و خدمات (گزارش محدود به عملکرد خود)",
             "ثبت خرید و انبارداری (گزارش محدود به خریدهای خود)",
@@ -5110,7 +5110,7 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def _permission_display_label(value):
-        return str(value).replace("کارکنان", "کاربران")
+        return str(value).replace("کاربران", "کاربران")
 
     def _populate_base_permission_combo(self, combo):
         combo.clear()
@@ -6384,13 +6384,13 @@ class MainWindow(QMainWindow):
         elif missing_passwords:
             names = "\n".join(f"• {row['name']}" for row in missing_passwords)
             impact_text = (
-                "کارکنان زیر رمز عبور ندارند و پس از فعال‌سازی این قابلیت تا زمان تعریف رمز "
+                "کاربران زیر رمز عبور ندارند و پس از فعال‌سازی این قابلیت تا زمان تعریف رمز "
                 "نمی‌توانند وارد برنامه شوند:\n\n"
                 f"{names}"
             )
         else:
             impact_text = (
-                "تمام کارکنان فعال در حال حاضر رمز عبور دارند و با فعال‌سازی این گزینه "
+                "تمام کاربران فعال در حال حاضر رمز عبور دارند و با فعال‌سازی این گزینه "
                 "ورود همهٔ آن‌ها با رمز عبور انجام خواهد شد."
             )
         message = (
@@ -6745,7 +6745,7 @@ class MainWindow(QMainWindow):
 
         self.cb_rep_emp.blockSignals(True)
         self.cb_rep_emp.clear()
-        self.cb_rep_emp.addItem("همه کارکنان", None)
+        self.cb_rep_emp.addItem("همه کاربران", None)
         for e in emps:
             self.cb_rep_emp.addItem(e["name"], e["id"])
         self.cb_rep_emp.blockSignals(False)
