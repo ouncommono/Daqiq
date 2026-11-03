@@ -164,6 +164,10 @@ class ColorSelectionButton(QPushButton):
     def selected_colors(self):
         return list(self._selected)
 
+    def available_colors(self):
+        """Return the options shown by the modal colour selector."""
+        return list(self._colors)
+
     def _refresh_label(self):
         count = len(self._selected)
         self.setText(f"انتخاب رنگ ({count})" if count else "انتخاب رنگ")

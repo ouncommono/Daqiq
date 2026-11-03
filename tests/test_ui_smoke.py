@@ -45,7 +45,7 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
     try:
         assert window.tabs.count() == 10
         assert window.tabs.tabText(9).endswith("تنظیمات")
-        assert window.lbl_app_version.text() == "نسخه برنامه: 1.0.1"
+        assert window.lbl_app_version.text() == "نسخه برنامه: 1.0.2"
         assert [window.catalog_tabs.tabText(i) for i in range(window.catalog_tabs.count())] == [
             "مدیریت کالاها", "مدیریت خدمات"
         ]
@@ -924,8 +924,7 @@ def test_sales_all_products_loads_batches_and_saves_the_selected_batch_product(
         window.cb_sale_batch.setCurrentIndex(batch_index)
         batch = window.cb_sale_batch.currentData()
         assert batch["product_id"] == product_ids["P-ALL-2"]
-        assert [window.lst_sale_colors.item(i).text()
-                for i in range(window.lst_sale_colors.count())] == ["آبی"]
+        assert window.btn_sale_colors.available_colors() == ["آبی"]
         window.lst_sale_colors.item(0).setCheckState(Qt.Checked)
         window.cb_sale_qty.setCurrentText("1")
         window.ed_sale_inv.setText("INV-ALL-PRODUCTS")
