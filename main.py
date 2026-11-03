@@ -4412,7 +4412,7 @@ class MainWindow(QMainWindow):
                         self.cb_emp_role.currentText(),
                         self.ed_emp_phone.text().strip(),
                         hashed,
-                        self.cb_emp_perm.currentText(),
+                        self.cb_emp_perm.currentData() or self.cb_emp_perm.currentText(),
                         1 if self.chk_emp_active.isChecked() else 0,
                     ),
                 )
@@ -4440,7 +4440,11 @@ class MainWindow(QMainWindow):
                 self.ed_emp_phone.setText(emp["phone"] or "")
                 # مورد ۵: رمز عبور هرگز در فیلد بازخوانی و نمایش داده نمی‌شود
                 self.ed_emp_pass.clear()
-                self.cb_emp_perm.setCurrentText(emp["permissions"] or "")
+                permission_index = self.cb_emp_perm.findData(emp["permissions"] or "")
+                if permission_index >= 0:
+                    self.cb_emp_perm.setCurrentIndex(permission_index)
+                else:
+                    self.cb_emp_perm.setCurrentText(emp["permissions"] or "")
                 self.chk_emp_active.setChecked(emp["is_active"] == 1)
 
     def _update_employee(self):
@@ -4944,7 +4948,7 @@ class MainWindow(QMainWindow):
         self.ed_cfg_permission_name = QLineEdit()
         self.ed_cfg_permission_name.setPlaceholderText("نام سطح دسترسی جدید...")
         self.cb_cfg_permission_base = QComboBox()
-        self.cb_cfg_permission_base.addItems(self._base_permission_choices())
+        self._populate_base_permission_combo(self.cb_cfg_permission_base)
         access_layout.addWidget(QLabel("سطوح دسترسی تعریف‌شده:"))
         access_layout.addWidget(self.lst_cfg_permissions)
         access_layout.addWidget(QLabel("نام سطح دسترسی:"))
@@ -5095,13 +5099,23 @@ class MainWindow(QMainWindow):
         self._refresh_permission_profiles()
 
     def _base_permission_choices(self):
+        # Keep the existing stored value for data compatibility; only the visible caption is modernized.
         return [
             "دسترسی کامل (مدیر کل)",
-            "مدیر ارشد (بدون مدیریت کاربران)",
+            "مدیر ارشد (بدون مدیریت کارکنان)",
             "سرپرست عملیات (گزارش‌های محدود به عملکرد خود)",
             "فروش و خدمات (گزارش محدود به عملکرد خود)",
             "ثبت خرید و انبارداری (گزارش محدود به خریدهای خود)",
         ]
+
+    @staticmethod
+    def _permission_display_label(value):
+        return str(value).replace("کارکنان", "کاربران")
+
+    def _populate_base_permission_combo(self, combo):
+        combo.clear()
+        for value in self._base_permission_choices():
+            combo.addItem(self._permission_display_label(value), value)
 
     def _get_permission_profiles(self):
         raw = self.db.get_setting("permission_profiles", "")
@@ -5127,15 +5141,18 @@ class MainWindow(QMainWindow):
     def _refresh_permission_profiles(self):
         if not hasattr(self, "cb_emp_perm"):
             return
-        current = self.cb_emp_perm.currentText()
+        current = self.cb_emp_perm.currentData() or self.cb_emp_perm.currentText()
         profiles = self._get_permission_profiles()
         self.cb_emp_perm.blockSignals(True)
         self.cb_emp_perm.clear()
-        self.cb_emp_perm.addItems(self._base_permission_choices())
+        self._populate_base_permission_combo(self.cb_emp_perm)
         for profile in profiles:
             value = self._permission_profile_value(profile)
-            self.cb_emp_perm.addItem(value, value)
-        restored = self.cb_emp_perm.findText(current)
+            visible = f"{self._permission_display_label(profile['base'])} — {profile['name']}"
+            self.cb_emp_perm.addItem(visible, value)
+        restored = self.cb_emp_perm.findData(current)
+        if restored < 0:
+            restored = self.cb_emp_perm.findText(current)
         self.cb_emp_perm.setCurrentIndex(restored if restored >= 0 else 0)
         self.cb_emp_perm.blockSignals(False)
 
@@ -5159,7 +5176,8 @@ class MainWindow(QMainWindow):
         )
         if profile:
             self.ed_cfg_permission_name.setText(profile["name"])
-            self.cb_cfg_permission_base.setCurrentText(profile["base"])
+            base_index = self.cb_cfg_permission_base.findData(profile["base"])
+            self.cb_cfg_permission_base.setCurrentIndex(base_index if base_index >= 0 else 0)
 
     def _persist_permission_profiles(self, profiles):
         self.db.set_setting(
@@ -5190,7 +5208,7 @@ class MainWindow(QMainWindow):
 
     def _add_permission_profile(self):
         name = self.ed_cfg_permission_name.text().strip()
-        base = self.cb_cfg_permission_base.currentText()
+        base = self.cb_cfg_permission_base.currentData() or self.cb_cfg_permission_base.currentText()
         if not name:
             QMessageBox.warning(self, "نام سطح دسترسی", "نام سطح دسترسی را وارد کنید.")
             return
@@ -5210,7 +5228,7 @@ class MainWindow(QMainWindow):
             return
         old_name = str(selected.data(Qt.UserRole) or "")
         new_name = self.ed_cfg_permission_name.text().strip()
-        new_base = self.cb_cfg_permission_base.currentText()
+        new_base = self.cb_cfg_permission_base.currentData() or self.cb_cfg_permission_base.currentText()
         if not new_name:
             QMessageBox.warning(self, "نام سطح دسترسی", "نام سطح دسترسی را وارد کنید.")
             return
