@@ -1724,7 +1724,7 @@ def test_settings_catalog_synchronizes_builtin_and_saved_product_features(
             for i in range(window.lst_cfg_attributes.count())
         }
         assert "ویژگی مختص آزمون" in specific_names
-        assert "ویژگی عمومی آزمون" not in specific_names
+        assert "ویژگی عمومی آزمون" in specific_names  # Global definitions apply to every subcategory.
 
         window.cb_cfg_attribute_subcategory.setCurrentIndex(0)
         window._refresh_catalog_attribute_list()
