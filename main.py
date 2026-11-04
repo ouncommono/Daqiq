@@ -7026,6 +7026,7 @@ class MainWindow(QMainWindow):
         else:
             values.append(name)
         self.ed_cfg_subcategory.clear()
+        self._merge_builtin_product_features_into_draft()
         self._refresh_catalog_management_lists()
 
     def _rename_catalog_subcategory(self):
@@ -7069,6 +7070,7 @@ class MainWindow(QMainWindow):
             if normalize_catalog_label(definition.get("subcategory") or "") == normalize_catalog_label(old):
                 definition["subcategory"] = canonical
         self.ed_cfg_subcategory.clear()
+        self._merge_builtin_product_features_into_draft()
         self._refresh_catalog_management_lists()
 
     def _delete_catalog_subcategory(self):
