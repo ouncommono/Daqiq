@@ -1788,12 +1788,27 @@ class MainWindow(QMainWindow):
                 financial_value = _financial_number(text_val)
                 debt_column = "بدهی" in header_text
                 receivable_column = "طلب" in header_text or "مطالبات" in header_text
-                if debt_column:
+                row_kind = str(
+                    rows_data[r_idx][0] if rows_data[r_idx] else ""
+                )
+                mixed_balance_column = (
+                    "مانده حساب" in header_text
+                    or "مانده تسویه‌نشده" in header_text
+                    or "مانده تسویه نشده" in header_text
+                )
+                row_is_payable = mixed_balance_column and (
+                    "بدهی" in row_kind or "خرید محموله" in row_kind
+                )
+                row_is_receivable = mixed_balance_column and (
+                    "طلب" in row_kind or "فروش کالا" in row_kind
+                    or "فاکتور خدمات" in row_kind
+                )
+                if financial_value is not None and financial_value < 0:
                     item.setForeground(QColor("#dc2626"))
-                elif receivable_column:
+                elif debt_column or row_is_payable:
+                    item.setForeground(QColor("#dc2626"))
+                elif receivable_column or row_is_receivable:
                     item.setForeground(QColor("#059669"))
-                elif financial_value is not None and financial_value < 0:
-                    item.setForeground(QColor("#dc2626"))
                 elif highlight_col is not None and c_idx == highlight_col:
                     if text_val in ("ناموجود", "کم‌موجود", "تسویه‌نشده"):
                         item.setForeground(QColor("#dc2626"))
