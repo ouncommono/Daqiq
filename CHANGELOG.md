@@ -1,3 +1,9 @@
+# Daqiq 3.3.0
+
+- Corrected first-shipment creation argument binding so the complete purchase form payload maps to the database API in declared order; added cold-start UI regression coverage for quantity 10, edits 1 → 10 → 2, and shipment deletion.
+- Restored three independent subcategory management actions (افزودن، تغییر نام، حذف) with dedicated handlers.
+- Established the greenfield schema baseline at version 330 and updated all release metadata.
+
 # Daqiq 3.2.0
 
 - Serialized product and sale stock changes with immediate SQLite transactions and guarded quantity deltas.
