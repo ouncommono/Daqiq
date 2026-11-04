@@ -1106,6 +1106,12 @@ class DynamicSpecsWidget(QGroupBox):
         self.main_layout = QVBoxLayout(self)
         self.form_widget = QWidget()
         self.form_layout = QFormLayout(self.form_widget)
+        self.form_widget.setLayoutDirection(Qt.RightToLeft)
+        self.form_layout.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.form_layout.setFormAlignment(Qt.AlignRight | Qt.AlignTop)
+        self.form_layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+        self.form_layout.setHorizontalSpacing(12)
+        self.form_layout.setVerticalSpacing(9)
         self.form_scroll = SmoothScrollArea(self)
         self.form_scroll.setWidget(self.form_widget)
         self.form_scroll.setWidgetResizable(True)
@@ -1143,6 +1149,52 @@ class DynamicSpecsWidget(QGroupBox):
         self.fields.clear()
         self._custom_field_widgets.clear()
         self.cb_sub = None
+
+    def _apply_compact_form_layouts(self):
+        """Keep RTL field captions compact while giving editors consistent spacing."""
+        layouts = [self.form_layout]
+        sub_layout = getattr(self, "sub_layout", None)
+        if sub_layout is not None:
+            try:
+                layouts.append(sub_layout)
+            except RuntimeError:
+                pass
+
+        for form_layout in layouts:
+            try:
+                form_layout.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                form_layout.setFormAlignment(Qt.AlignRight | Qt.AlignTop)
+                form_layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+                form_layout.setHorizontalSpacing(12)
+                form_layout.setVerticalSpacing(9)
+                for row in range(form_layout.rowCount()):
+                    field_item = form_layout.itemAt(row, QFormLayout.FieldRole)
+                    field_widget = field_item.widget() if field_item else None
+                    label_widget = (
+                        form_layout.labelForField(field_widget)
+                        if field_widget is not None else None
+                    )
+                    if isinstance(label_widget, QLabel):
+                        label_widget.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                        label_widget.setLayoutDirection(Qt.RightToLeft)
+                        label_widget.setSizePolicy(
+                            QSizePolicy.Maximum, QSizePolicy.Fixed
+                        )
+                        label_widget.setMinimumWidth(72)
+                        label_widget.setMaximumWidth(
+                            max(100, min(220, label_widget.sizeHint().width() + 8))
+                        )
+                        label_widget.setWordWrap(False)
+                    if field_widget is not None:
+                        field_widget.setMinimumHeight(
+                            max(30, field_widget.minimumHeight())
+                        )
+                        field_widget.setSizePolicy(
+                            QSizePolicy.Expanding, QSizePolicy.Fixed
+                        )
+            except RuntimeError:
+                # A category rebuild may have just scheduled this layout for deletion.
+                continue
 
     def set_subcategory_label(self, label: str):
         """Customize the caption associated with the category-specific subcategory selector."""
@@ -1393,6 +1445,8 @@ class DynamicSpecsWidget(QGroupBox):
             self.form_layout.addRow("زیرمجموعه:", self.cb_sub)
             self.form_layout.addRow("مشخصات فنی:", ed_spec)
 
+        self._apply_compact_form_layouts()
+
     def apply_custom_catalog(self, subcategories=None, custom_fields=None):
         """Apply user-managed subcategories and extra specification fields."""
         if self.cb_sub is not None and isinstance(subcategories, list):
@@ -1499,6 +1553,8 @@ class DynamicSpecsWidget(QGroupBox):
             self._custom_field_widgets[field_name] = widget
             self.form_layout.addRow(f"{form_label}:", widget)
 
+        self._apply_compact_form_layouts()
+
     def _rebuild_part_subfields(self, part_type: str):
         while self.sub_layout.count():
             it = self.sub_layout.takeAt(0)
@@ -1559,6 +1615,7 @@ class DynamicSpecsWidget(QGroupBox):
             self.fields = {"مشخصه فنی": ed_custom}
             self.sub_layout.addRow("مشخصات فنی قطعه:", ed_custom)
 
+        self._apply_compact_form_layouts()
         # Run only after the built-in fields for the newly selected part type exist.
         self._notify_custom_field_callback()
 
