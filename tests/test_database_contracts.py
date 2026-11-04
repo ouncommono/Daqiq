@@ -189,62 +189,30 @@ def test_upgrade_on_empty_target_with_manual_component_never_changes_stock(manag
     assert upgrade["stock_deducted_qty"] == 0
 
 
-def test_upgrade_schema_rebuild_preserves_history_and_allows_manual_parts(manager):
-    product_id = create_product(manager)
-    target_id = create_batch(manager, product_id, code="C-MIGRATION-TARGET")
-    part_id = create_batch(manager, product_id, code="C-MIGRATION-PART")
+def test_v2_schema_initialization_is_idempotent_and_keeps_upgrade_column_order(manager):
     with manager.get_connection() as conn:
-        conn.execute("DROP TABLE upgrades")
-        conn.execute("""
-            CREATE TABLE upgrades (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                target_batch_id INTEGER NOT NULL,
-                target_qty INTEGER NOT NULL DEFAULT 1,
-                part_batch_id INTEGER NOT NULL,
-                part_qty_used INTEGER NOT NULL,
-                part_unit_cost INTEGER NOT NULL,
-                labor_cost_unit INTEGER DEFAULT 0,
-                added_cost_unit INTEGER DEFAULT 0,
-                old_specs TEXT DEFAULT '',
-                new_specs TEXT DEFAULT '',
-                upgrade_date TEXT NOT NULL,
-                technician_id INTEGER,
-                serial_number TEXT DEFAULT '',
-                notes TEXT DEFAULT '',
-                updated_at TEXT,
-                FOREIGN KEY(target_batch_id) REFERENCES batches(id),
-                FOREIGN KEY(part_batch_id) REFERENCES batches(id),
-                FOREIGN KEY(technician_id) REFERENCES employees(id)
-            )
-        """)
-        conn.execute(
-            """INSERT INTO upgrades (
-                id, target_batch_id, target_qty, part_batch_id, part_qty_used,
-                part_unit_cost, labor_cost_unit, added_cost_unit, old_specs, new_specs,
-                upgrade_date, technician_id, serial_number, notes, updated_at
-            ) VALUES (41, ?, 1, ?, 2, 75, 20, 95, 'RAM: 8GB', 'RAM: 16GB', ?, NULL, '', 'legacy', '00000000000000000042')""",
-            (target_id, part_id, "1405/01/02"),
-        )
-        conn.commit()
+        before = [
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(upgrades)").fetchall()
+        ]
 
     manager.init_db()
 
     with manager.get_connection() as conn:
-        columns = {
-            row["name"]: row
+        after = [
+            row["name"]
             for row in conn.execute("PRAGMA table_info(upgrades)").fetchall()
-        }
-        legacy = conn.execute("SELECT * FROM upgrades WHERE id=41").fetchone()
+        ]
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
 
-    assert columns["part_batch_id"]["notnull"] == 0
-    assert legacy["target_batch_id"] == target_id
-    assert legacy["part_batch_id"] == part_id
-    assert legacy["part_qty_used"] == 2
-    assert legacy["stock_deducted_qty"] == 2
-    assert legacy["old_specs"] == "RAM: 8GB"
-    assert legacy["new_specs"] == "RAM: 16GB"
-    assert legacy["updated_at"] == "00000000000000000042"
-    assert legacy["manual_part_description"] == ""
+    assert after == before
+    assert after == [
+        "id", "target_batch_id", "part_batch_id", "technician_id", "target_qty",
+        "part_qty_used", "stock_deducted_qty", "part_unit_cost", "labor_cost_unit",
+        "added_cost_unit", "upgrade_date", "serial_number", "manual_part_description",
+        "old_specs", "new_specs", "notes", "created_at", "updated_at",
+    ]
+    assert version == 200
 
 
 def test_upgrade_backend_rejects_unconfirmed_insufficient_inventory(manager):
@@ -524,32 +492,27 @@ def test_automatic_backup_folder_tracks_each_database_path(tmp_path, monkeypatch
     assert second_backup.startswith(str(tmp_path / "second" / "Backups"))
 
 
-def test_application_settings_migrate_from_database_to_config(manager):
-    manager.set_setting("default_profit_pct", "35")
-    manager.set_setting("zero_append_count", "4")
-    manager.set_setting("zero_append_enabled", "1")
-    manager.set_setting("default_window_maximized", "0")
-    manager.set_setting("require_login_password", "1")
-    manager.cfg["config_schema_version"] = 1
-
-    manager._migrate_legacy_application_settings()
+def test_v2_application_config_records_release_and_preserves_current_preferences(manager):
+    manager.cfg["default_profit_pct"] = 35
+    manager.cfg["zero_append_count"] = 4
+    manager.cfg["default_window_maximized"] = False
+    manager.cfg["require_login_password"] = True
+    manager._normalize_application_config()
 
     assert manager.cfg["default_profit_pct"] == 35
     assert manager.cfg["zero_append_count"] == 4
     assert manager.cfg["default_window_maximized"] is False
     assert manager.cfg["require_login_password"] is True
-    assert manager.get_setting("default_profit_pct", None) is None
-    assert manager.get_setting("zero_append_count", None) is None
+    assert manager.cfg["app_version"] == "2.0.0"
+    assert manager.cfg["schema_version"] == 200
+    assert manager.cfg["config_schema_version"] == 2
 
 
-def test_zero_count_migration_respects_legacy_disabled_flag(manager):
-    manager.set_setting("zero_append_count", "3")
-    manager.set_setting("zero_append_enabled", "0")
-    manager.cfg["config_schema_version"] = 1
-
-    manager._migrate_legacy_application_settings()
-
+def test_v2_config_normalization_preserves_zero_extra_price_count(manager):
+    manager.cfg["zero_append_count"] = 0
+    manager._normalize_application_config()
     assert manager.cfg["zero_append_count"] == 0
+    assert manager.cfg["config_schema_version"] == 2
 
 
 def test_shop_name_is_stored_per_database(manager):
@@ -572,41 +535,30 @@ def test_service_code_is_the_tariff_identity(manager):
     ]
 
 
-def test_upgrade_migration_removes_only_legacy_sample_employees(manager):
+def test_v2_schema_initialization_does_not_delete_employee_records(manager):
+    expected = {
+        "فروشنده اول", "فروشنده دوم", "کاربر واقعی", "مدیر واقعی",
+    }
     with manager.get_connection() as conn:
-        conn.execute(
-            "INSERT INTO employees (name, role, permissions) VALUES (?, ?, ?)",
+        for name, role, permission in (
             ("فروشنده اول", "مدیر / فروشنده", "دسترسی کامل"),
-        )
-        conn.execute(
-            "INSERT INTO employees (name, role, permissions) VALUES (?, ?, ?)",
             ("فروشنده دوم", "فروشنده", "دسترسی کامل"),
-        )
-        conn.execute(
-            "INSERT INTO employees (name, role, permissions) VALUES (?, ?, ?)",
             ("کاربر واقعی", "فروشنده", "فروش و خدمات"),
-        )
-        conn.execute(
-            "INSERT INTO employees (name, role, permissions) VALUES (?, ?, ?)",
             ("مدیر واقعی", "مدیر / فروشنده", "دسترسی کامل"),
-        )
+        ):
+            conn.execute(
+                "INSERT INTO employees (name, role, permissions) VALUES (?, ?, ?)",
+                (name, role, permission),
+            )
         conn.commit()
 
     manager.init_db()
 
     with manager.get_connection() as conn:
-        names = [
-            row["name"] for row in conn.execute(
-                "SELECT name FROM employees ORDER BY name"
-            ).fetchall()
-        ]
-
-    assert set(names) == {"کاربر واقعی", "مدیر واقعی"}
-    with manager.get_connection() as conn:
-        migrated_role = conn.execute(
-            "SELECT role FROM employees WHERE name='مدیر واقعی'"
-        ).fetchone()["role"]
-    assert migrated_role == "مدیر"
+        names = {
+            row["name"] for row in conn.execute("SELECT name FROM employees").fetchall()
+        }
+    assert names == expected
 
 
 def test_excel_report_title_is_right_to_left_for_digit_prefixed_shop_name(tmp_path):
@@ -729,34 +681,34 @@ def test_product_catalog_configuration_is_persisted_per_database(manager, tmp_pa
 
 
 
-def test_legacy_generic_supplier_is_removed_without_losing_purchase_history(manager, tmp_path):
-    product_id = create_product(manager, "P-LEGACY")
+def test_v2_reinitialization_preserves_user_suppliers_and_linked_purchases(manager, tmp_path):
+    product_id = create_product(manager, "P-V2-SUPPLIER")
     with manager.get_connection() as conn:
         cursor = conn.execute(
             "INSERT INTO suppliers (name, phone, address, notes) VALUES (?, ?, ?, ?)",
-            ("تأمین‌کننده عمومی بازار", "021-88990011", "تهران", "پیش‌فرض"),
+            ("تأمین‌کننده بازار", "021-88990011", "تهران", "ورودی کاربر"),
         )
         supplier_id = int(cursor.lastrowid)
         conn.commit()
 
     manager.add_batch(
-        "C-LEGACY", product_id, supplier_id, None, "PO-OLD", "1404/01/01",
-        2, 100, 0, 150, 0, "", "RAM:8GB", "سوابق خرید", "تسویه‌نشده",
+        "C-V2-SUPPLIER", product_id, supplier_id, None, "PO-V2", "1405/01/01",
+        2, 100, 0, 150, 0, "", "RAM:8GB", "خرید آزمون", "تسویه‌نشده",
     )
+    manager.init_db()
 
-    reloaded = DatabaseManager(str(tmp_path / "shop.db"))
-    with reloaded.get_connection() as conn:
+    with manager.get_connection() as conn:
         supplier_count = conn.execute(
-            "SELECT COUNT(*) FROM suppliers WHERE name='تأمین‌کننده عمومی بازار'"
+            "SELECT COUNT(*) FROM suppliers WHERE id=?", (supplier_id,)
         ).fetchone()[0]
         batch = conn.execute(
-            "SELECT supplier_id, supplier_name_snapshot FROM batches WHERE batch_code='C-LEGACY'"
+            "SELECT supplier_id, supplier_name_snapshot FROM batches "
+            "WHERE batch_code='C-V2-SUPPLIER'"
         ).fetchone()
 
-    assert supplier_count == 0
-    assert batch["supplier_id"] is None
-    assert batch["supplier_name_snapshot"] == "تأمین‌کننده عمومی بازار"
-
+    assert supplier_count == 1
+    assert batch["supplier_id"] == supplier_id
+    assert batch["supplier_name_snapshot"] == "تأمین‌کننده بازار"
 
 
 def test_manual_backup_can_replace_an_existing_user_selected_file(manager, tmp_path):
@@ -925,17 +877,100 @@ def test_service_update_recalculates_net_profit_from_received_amount(manager):
         record["service_fee"], record["paid_amount"], record["settlement_status"]
     ) == (-100, 0)
 
-def test_fresh_schema_places_audit_columns_last_and_sets_version(manager):
-    expected_tables = (
-        "employees", "suppliers", "customers", "products", "batches", "upgrades",
-        "sales", "service_catalog", "service_price_history", "service_records",
-        "payments", "audit_logs",
-    )
+def test_fresh_schema_has_v2_physical_column_order_and_metadata(manager):
+    expected_columns = {
+        "employees": [
+            "id", "name", "role", "phone", "is_active", "permissions",
+            "password", "created_at", "updated_at",
+        ],
+        "batches": [
+            "id", "batch_code", "product_id", "supplier_id", "buyer_employee_id",
+            "invoice_number", "purchase_date", "initial_qty", "sold_qty",
+            "returned_qty", "remaining_qty", "unit_purchase_price", "extra_cost_total",
+            "upgrade_cost_unit", "unit_cost_price", "suggested_sell_price", "profit_pct",
+            "paid_amount", "settlement_status", "serial_numbers", "colors_json",
+            "initial_specs", "final_specs", "supplier_name_snapshot", "notes",
+            "created_at", "updated_at",
+        ],
+        "upgrades": [
+            "id", "target_batch_id", "part_batch_id", "technician_id", "target_qty",
+            "part_qty_used", "stock_deducted_qty", "part_unit_cost", "labor_cost_unit",
+            "added_cost_unit", "upgrade_date", "serial_number", "manual_part_description",
+            "old_specs", "new_specs", "notes", "created_at", "updated_at",
+        ],
+        "sales": [
+            "id", "invoice_number", "product_id", "batch_id", "seller_employee_id",
+            "customer_name", "qty", "returned_qty", "suggested_unit_price",
+            "actual_unit_price", "unit_cost_price", "unit_discount", "total_discount",
+            "price_Markup_unit", "unit_profit", "total_profit", "total_amount",
+            "paid_amount", "settlement_status", "sale_datetime", "warranty_company",
+            "warranty_start", "warranty_months", "warranty_days", "warranty_end",
+            "serial_number", "specifications", "colors_json", "notes",
+            "created_at", "updated_at",
+        ],
+        "service_records": [
+            "id", "invoice_number", "service_id", "seller_employee_id",
+            "technician_employee_id", "service_type", "service_name", "customer_name",
+            "historical_tariff", "service_fee", "side_cost", "paid_amount", "net_profit",
+            "settlement_status", "service_datetime", "description", "created_at",
+            "updated_at",
+        ],
+    }
     with manager.get_connection() as conn:
-        for table_name in expected_tables:
+        for table_name, expected in expected_columns.items():
             columns = [
                 row["name"]
                 for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
             ]
-            assert columns[-2:] == ["created_at", "updated_at"], table_name
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 120
+            assert columns == expected, table_name
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 200
+        metadata = dict(conn.execute("SELECT key, value FROM settings").fetchall())
+        assert metadata["app_version"] == "2.0.0"
+        assert metadata["schema_version"] == "200"
+
+
+def test_v2_rejects_pre_v2_database_without_attempting_migration(tmp_path, monkeypatch):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    legacy_path = tmp_path / "legacy.db"
+    with sqlite3.connect(legacy_path) as conn:
+        conn.execute("CREATE TABLE legacy_records (id INTEGER PRIMARY KEY, value TEXT)")
+        conn.commit()
+
+    with pytest.raises(RuntimeError, match="نسخه 2.0.0"):
+        DatabaseManager(str(legacy_path))
+
+
+def test_upgrade_can_apply_specs_without_consuming_available_part_stock(manager):
+    product_id = create_product(manager)
+    target_id = create_batch(manager, product_id, code="C-NO-CONSUME-TARGET", quantity=2)
+    part_id = create_batch(manager, product_id, code="C-NO-CONSUME-PART", quantity=4)
+    with manager.get_connection() as conn:
+        part_before = conn.execute(
+            "SELECT remaining_qty, sold_qty FROM batches WHERE id=?", (part_id,)
+        ).fetchone()
+
+    manager.upgrade_batch_product(
+        target_id, 1, part_id, 2, 25, "RAM: 16GB DDR5",
+        "1405/01/03", None, consume_stock=False,
+    )
+
+    with manager.get_connection() as conn:
+        part_after = conn.execute(
+            "SELECT remaining_qty, sold_qty FROM batches WHERE id=?", (part_id,)
+        ).fetchone()
+        upgrade = conn.execute(
+            "SELECT id, stock_deducted_qty FROM upgrades ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+
+    assert part_after["remaining_qty"] == part_before["remaining_qty"]
+    assert part_after["sold_qty"] == part_before["sold_qty"]
+    assert upgrade["stock_deducted_qty"] == 0
+
+    manager.revert_upgrade(int(upgrade["id"]))
+    with manager.get_connection() as conn:
+        part_reverted = conn.execute(
+            "SELECT remaining_qty, sold_qty FROM batches WHERE id=?", (part_id,)
+        ).fetchone()
+    assert part_reverted["remaining_qty"] == part_before["remaining_qty"]
+    assert part_reverted["sold_qty"] == part_before["sold_qty"]

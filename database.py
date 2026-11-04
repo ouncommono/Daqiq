@@ -7,6 +7,9 @@ import jdatetime
 import time
 import hashlib
 
+APP_VERSION = "2.0.0"
+SCHEMA_VERSION = 200
+
 
 def get_app_data_dir():
     base = os.environ.get("APPDATA") or os.path.expanduser("~")
@@ -49,7 +52,9 @@ def load_app_config():
         "zero_append_count": 3,
         "default_window_maximized": True,
         "require_login_password": False,
-        "config_schema_version": 1,
+        "config_schema_version": 2,
+        "app_version": APP_VERSION,
+        "schema_version": SCHEMA_VERSION,
         "theme": "light",
     }
     if os.path.exists(CONFIG_FILE):
@@ -110,7 +115,7 @@ class DatabaseManager:
         self.cfg["db_path"] = self.db_path
         self.cfg["backup_dir"] = os.path.dirname(self.db_path) or "."
         self.init_db()
-        self._migrate_legacy_application_settings()
+        self._normalize_application_config()
         save_app_config(self.cfg)
 
     def get_connection(self):
@@ -127,6 +132,20 @@ class DatabaseManager:
 
     def init_db(self):
         with self.get_connection() as conn:
+            current_version = int(conn.execute("PRAGMA user_version").fetchone()[0])
+            existing_tables = {
+                row["name"]
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master "
+                    "WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+                ).fetchall()
+            }
+            if existing_tables and current_version != SCHEMA_VERSION:
+                raise RuntimeError(
+                    "این پایگاه داده برای نسخه 2.0.0 ساخته نشده است. "
+                    "نسخه 2.0.0 به پایگاه داده تازه نیاز دارد و مهاجرت خودکار "
+                    "از نسخه‌های قبلی پشتیبانی نمی‌شود."
+                )
             cur = conn.cursor()
 
             cur.execute("""
@@ -142,9 +161,9 @@ class DatabaseManager:
                     name TEXT NOT NULL UNIQUE,
                     role TEXT NOT NULL DEFAULT 'فروشنده',
                     phone TEXT DEFAULT '',
-                    password TEXT DEFAULT '',
+                    is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
                     permissions TEXT DEFAULT 'دسترسی کامل',
-                    is_active INTEGER DEFAULT 1,
+                    password TEXT DEFAULT '',
                     created_at TEXT NOT NULL DEFAULT '',
                     updated_at TEXT NOT NULL DEFAULT ''
                 )
@@ -201,24 +220,24 @@ class DatabaseManager:
                     buyer_employee_id INTEGER,
                     invoice_number TEXT DEFAULT '',
                     purchase_date TEXT NOT NULL,
-                    initial_qty INTEGER NOT NULL,
-                    sold_qty INTEGER DEFAULT 0,
-                    returned_qty INTEGER DEFAULT 0,
-                    remaining_qty INTEGER NOT NULL,
-                    unit_purchase_price INTEGER NOT NULL,
-                    extra_cost_total INTEGER DEFAULT 0,
-                    upgrade_cost_unit INTEGER DEFAULT 0,
-                    unit_cost_price INTEGER NOT NULL,
-                    suggested_sell_price INTEGER NOT NULL,
-                    profit_pct REAL NOT NULL,
-                    settlement_status TEXT DEFAULT 'تسویه‌شده',
-                    paid_amount INTEGER DEFAULT 0,
+                    initial_qty INTEGER NOT NULL CHECK (initial_qty >= 0),
+                    sold_qty INTEGER NOT NULL DEFAULT 0 CHECK (sold_qty >= 0),
+                    returned_qty INTEGER NOT NULL DEFAULT 0 CHECK (returned_qty >= 0),
+                    remaining_qty INTEGER NOT NULL CHECK (remaining_qty >= 0),
+                    unit_purchase_price INTEGER NOT NULL CHECK (unit_purchase_price >= 0),
+                    extra_cost_total INTEGER NOT NULL DEFAULT 0 CHECK (extra_cost_total >= 0),
+                    upgrade_cost_unit INTEGER NOT NULL DEFAULT 0 CHECK (upgrade_cost_unit >= 0),
+                    unit_cost_price INTEGER NOT NULL CHECK (unit_cost_price >= 0),
+                    suggested_sell_price INTEGER NOT NULL CHECK (suggested_sell_price >= 0),
+                    profit_pct REAL NOT NULL DEFAULT 0,
+                    paid_amount INTEGER NOT NULL DEFAULT 0 CHECK (paid_amount >= 0),
+                    settlement_status TEXT NOT NULL DEFAULT 'تسویه‌شده',
                     serial_numbers TEXT DEFAULT '',
+                    colors_json TEXT NOT NULL DEFAULT '[]',
                     initial_specs TEXT DEFAULT '',
                     final_specs TEXT DEFAULT '',
-                    notes TEXT DEFAULT '',
                     supplier_name_snapshot TEXT DEFAULT '',
-                    colors_json TEXT DEFAULT '[]',
+                    notes TEXT DEFAULT '',
                     created_at TEXT NOT NULL DEFAULT '',
                     updated_at TEXT NOT NULL DEFAULT '',
                     FOREIGN KEY(product_id) REFERENCES products(id),
@@ -231,19 +250,19 @@ class DatabaseManager:
                 CREATE TABLE IF NOT EXISTS upgrades (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     target_batch_id INTEGER NOT NULL,
-                    target_qty INTEGER NOT NULL DEFAULT 1,
                     part_batch_id INTEGER,
-                    part_qty_used INTEGER NOT NULL,
+                    technician_id INTEGER,
+                    target_qty INTEGER NOT NULL DEFAULT 1 CHECK (target_qty > 0),
+                    part_qty_used INTEGER NOT NULL CHECK (part_qty_used >= 0),
+                    stock_deducted_qty INTEGER NOT NULL DEFAULT 0 CHECK (stock_deducted_qty >= 0),
+                    part_unit_cost INTEGER NOT NULL DEFAULT 0 CHECK (part_unit_cost >= 0),
+                    labor_cost_unit INTEGER NOT NULL DEFAULT 0 CHECK (labor_cost_unit >= 0),
+                    added_cost_unit INTEGER NOT NULL DEFAULT 0 CHECK (added_cost_unit >= 0),
+                    upgrade_date TEXT NOT NULL,
+                    serial_number TEXT DEFAULT '',
                     manual_part_description TEXT DEFAULT '',
-                    stock_deducted_qty INTEGER DEFAULT 0,
-                    part_unit_cost INTEGER NOT NULL,
-                    labor_cost_unit INTEGER DEFAULT 0,
-                    added_cost_unit INTEGER DEFAULT 0,
                     old_specs TEXT DEFAULT '',
                     new_specs TEXT DEFAULT '',
-                    upgrade_date TEXT NOT NULL,
-                    technician_id INTEGER,
-                    serial_number TEXT DEFAULT '',
                     notes TEXT DEFAULT '',
                     created_at TEXT NOT NULL DEFAULT '',
                     updated_at TEXT NOT NULL DEFAULT '',
@@ -261,29 +280,29 @@ class DatabaseManager:
                     batch_id INTEGER NOT NULL,
                     seller_employee_id INTEGER,
                     customer_name TEXT DEFAULT '',
-                    qty INTEGER NOT NULL,
-                    returned_qty INTEGER DEFAULT 0,
-                    suggested_unit_price INTEGER NOT NULL,
-                    actual_unit_price INTEGER NOT NULL,
-                    unit_cost_price INTEGER NOT NULL,
-                    unit_discount INTEGER DEFAULT 0,
-                    total_discount INTEGER DEFAULT 0,
-                    price_Markup_unit INTEGER DEFAULT 0,
-                    unit_profit INTEGER NOT NULL,
-                    total_profit INTEGER NOT NULL,
-                    total_amount INTEGER NOT NULL,
-                    paid_amount INTEGER NOT NULL,
-                    settlement_status TEXT DEFAULT 'تسویه‌شده',
+                    qty INTEGER NOT NULL CHECK (qty > 0),
+                    returned_qty INTEGER NOT NULL DEFAULT 0 CHECK (returned_qty >= 0),
+                    suggested_unit_price INTEGER NOT NULL CHECK (suggested_unit_price >= 0),
+                    actual_unit_price INTEGER NOT NULL CHECK (actual_unit_price >= 0),
+                    unit_cost_price INTEGER NOT NULL CHECK (unit_cost_price >= 0),
+                    unit_discount INTEGER NOT NULL DEFAULT 0,
+                    total_discount INTEGER NOT NULL DEFAULT 0,
+                    price_Markup_unit INTEGER NOT NULL DEFAULT 0,
+                    unit_profit INTEGER NOT NULL DEFAULT 0,
+                    total_profit INTEGER NOT NULL DEFAULT 0,
+                    total_amount INTEGER NOT NULL CHECK (total_amount >= 0),
+                    paid_amount INTEGER NOT NULL CHECK (paid_amount >= 0),
+                    settlement_status TEXT NOT NULL DEFAULT 'تسویه‌شده',
                     sale_datetime TEXT NOT NULL,
                     warranty_company TEXT DEFAULT '',
                     warranty_start TEXT DEFAULT '',
-                    warranty_months INTEGER DEFAULT 0,
-                    warranty_days INTEGER DEFAULT 0,
+                    warranty_months INTEGER NOT NULL DEFAULT 0,
+                    warranty_days INTEGER NOT NULL DEFAULT 0,
                     warranty_end TEXT DEFAULT '',
                     serial_number TEXT DEFAULT '',
-                    notes TEXT DEFAULT '',
                     specifications TEXT DEFAULT '',
-                    colors_json TEXT DEFAULT '[]',
+                    colors_json TEXT NOT NULL DEFAULT '[]',
+                    notes TEXT DEFAULT '',
                     created_at TEXT NOT NULL DEFAULT '',
                     updated_at TEXT NOT NULL DEFAULT '',
                     FOREIGN KEY(product_id) REFERENCES products(id),
@@ -311,9 +330,9 @@ class DatabaseManager:
                 CREATE TABLE IF NOT EXISTS service_price_history (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     service_id INTEGER NOT NULL,
+                    change_date TEXT NOT NULL,
                     old_fee INTEGER,
                     new_fee INTEGER,
-                    change_date TEXT NOT NULL,
                     created_at TEXT NOT NULL DEFAULT '',
                     updated_at TEXT NOT NULL DEFAULT '',
                     FOREIGN KEY(service_id) REFERENCES service_catalog(id)
@@ -325,17 +344,17 @@ class DatabaseManager:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     invoice_number TEXT NOT NULL,
                     service_id INTEGER NOT NULL,
-                    service_type TEXT NOT NULL,
-                    service_name TEXT NOT NULL,
                     seller_employee_id INTEGER,
                     technician_employee_id INTEGER,
+                    service_type TEXT NOT NULL,
+                    service_name TEXT NOT NULL,
                     customer_name TEXT DEFAULT '',
-                    historical_tariff INTEGER NOT NULL,
-                    service_fee INTEGER NOT NULL,
-                    side_cost INTEGER DEFAULT 0,
-                    net_profit INTEGER NOT NULL,
-                    paid_amount INTEGER NOT NULL,
-                    settlement_status TEXT DEFAULT 'تسویه‌شده',
+                    historical_tariff INTEGER NOT NULL CHECK (historical_tariff >= 0),
+                    service_fee INTEGER NOT NULL CHECK (service_fee >= 0),
+                    side_cost INTEGER NOT NULL DEFAULT 0 CHECK (side_cost >= 0),
+                    paid_amount INTEGER NOT NULL CHECK (paid_amount >= 0),
+                    net_profit INTEGER NOT NULL DEFAULT 0,
+                    settlement_status TEXT NOT NULL DEFAULT 'تسویه‌شده',
                     service_datetime TEXT NOT NULL,
                     description TEXT DEFAULT '',
                     created_at TEXT NOT NULL DEFAULT '',
@@ -371,208 +390,18 @@ class DatabaseManager:
                 )
             """)
 
-            # مهاجرت خودکار دسته‌بندی‌های قدیمی
-            cur.execute("UPDATE products SET category='قطعات' WHERE category='قطعات کامپیوتر'")
-            cur.execute("UPDATE products SET category='سایر موارد' WHERE category='خدمات'")
-
             # نام فروشگاه به هر پایگاه داده تعلق دارد؛ تنظیمات عمومی برنامه
             # در app_config.json نگهداری می‌شوند.
             default_settings = {
                 "shop_name": str(self.cfg.get("shop_name") or "فروشگاه من"),
+                "app_version": APP_VERSION,
+                "schema_version": str(SCHEMA_VERSION),
             }
             for k, v in default_settings.items():
                 cur.execute(
                     "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
                     (k, v),
                 )
-
-            # Never seed a generic supplier: suppliers are entered by the shop owner.
-            # Remove only the exact legacy placeholder when it has never been used;
-            # real suppliers and historical purchase references are preserved.
-            cur.execute(
-                """
-                DELETE FROM suppliers
-                WHERE name=? AND phone=? AND address=? AND notes=?
-                  AND NOT EXISTS (
-                      SELECT 1 FROM batches WHERE batches.supplier_id=suppliers.id
-                  )
-                """,
-                ("تأمین‌کننده عمومی بازار", "021-88990011", "تهران", "پیش‌فرض"),
-            )
-
-            # Remove only the two legacy sample employees created by older releases.
-            # Keep their historic transactions and detach the employee references.
-            legacy_employees = conn.execute(
-                """SELECT id FROM employees WHERE
-                   (name=? AND role=?) OR (name=? AND role=?)""",
-                ("فروشنده اول", "مدیر / فروشنده", "فروشنده دوم", "فروشنده"),
-            ).fetchall()
-            legacy_ids = [int(row["id"]) for row in legacy_employees]
-            if legacy_ids:
-                marks = ",".join("?" for _ in legacy_ids)
-                conn.execute(
-                    f"UPDATE batches SET buyer_employee_id=NULL WHERE buyer_employee_id IN ({marks})",
-                    legacy_ids,
-                )
-                conn.execute(
-                    f"UPDATE sales SET seller_employee_id=NULL WHERE seller_employee_id IN ({marks})",
-                    legacy_ids,
-                )
-                conn.execute(
-                    f"""UPDATE service_records
-                        SET seller_employee_id=NULL, technician_employee_id=NULL
-                        WHERE seller_employee_id IN ({marks}) OR technician_employee_id IN ({marks})""",
-                    legacy_ids + legacy_ids,
-                )
-                conn.execute(
-                    f"UPDATE upgrades SET technician_id=NULL WHERE technician_id IN ({marks})",
-                    legacy_ids,
-                )
-                conn.execute(
-                    f"DELETE FROM employees WHERE id IN ({marks})",
-                    legacy_ids,
-                )
-
-            # نقش مدیر از عنوان ترکیبی قدیمی به عنوان کوتاه و یکپارچه مهاجرت می‌کند.
-            conn.execute(
-                "UPDATE employees SET role='مدیر' WHERE TRIM(role)='مدیر / فروشنده'"
-            )
-
-            # Migrate existing databases without dropping any business records.
-            # Track first-time colour-column creation so legacy product colours can
-            # be transferred to each purchase batch exactly once.
-            batch_colors_added = "colors_json" not in {
-                row["name"] for row in conn.execute("PRAGMA table_info(batches)").fetchall()
-            }
-            sales_colors_added = "colors_json" not in {
-                row["name"] for row in conn.execute("PRAGMA table_info(sales)").fetchall()
-            }
-            migrations = (
-                ("upgrades", "added_cost_unit", "INTEGER DEFAULT 0"),
-                ("upgrades", "manual_part_description", "TEXT DEFAULT ''"),
-                ("upgrades", "stock_deducted_qty", "INTEGER DEFAULT -1"),
-                ("batches", "supplier_name_snapshot", "TEXT DEFAULT ''"),
-                ("batches", "colors_json", "TEXT DEFAULT '[]'"),
-                ("sales", "warranty_days", "INTEGER DEFAULT 0"),
-                ("sales", "specifications", "TEXT DEFAULT ''"),
-                ("sales", "colors_json", "TEXT DEFAULT '[]'"),
-            )
-            for table_name, column_name, column_type in migrations:
-                columns = {
-                    row["name"]
-                    for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
-                }
-                if column_name not in columns:
-                    cur.execute(
-                        f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}"
-                    )
-
-            # The current schema permits a manually described component with no batch.
-            # Rebuild only the upgrade table when an older schema marks part_batch_id NOT NULL.
-            upgrade_columns = {
-                row["name"]: row
-                for row in conn.execute("PRAGMA table_info(upgrades)").fetchall()
-            }
-            if upgrade_columns.get("part_batch_id") and upgrade_columns["part_batch_id"]["notnull"]:
-                has_updated_at = "updated_at" in upgrade_columns
-                conn.execute("""
-                    CREATE TABLE upgrades_rebuilt (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        target_batch_id INTEGER NOT NULL,
-                        target_qty INTEGER NOT NULL DEFAULT 1,
-                        part_batch_id INTEGER,
-                        part_qty_used INTEGER NOT NULL,
-                        part_unit_cost INTEGER NOT NULL,
-                        labor_cost_unit INTEGER DEFAULT 0,
-                        added_cost_unit INTEGER DEFAULT 0,
-                        old_specs TEXT DEFAULT '',
-                        new_specs TEXT DEFAULT '',
-                        upgrade_date TEXT NOT NULL,
-                        technician_id INTEGER,
-                        serial_number TEXT DEFAULT '',
-                        notes TEXT DEFAULT '',
-                        manual_part_description TEXT DEFAULT '',
-                        stock_deducted_qty INTEGER DEFAULT 0,
-                        updated_at TEXT,
-                        FOREIGN KEY(target_batch_id) REFERENCES batches(id),
-                        FOREIGN KEY(part_batch_id) REFERENCES batches(id),
-                        FOREIGN KEY(technician_id) REFERENCES employees(id)
-                    )
-                """)
-                copy_columns = [
-                    "id", "target_batch_id", "target_qty", "part_batch_id",
-                    "part_qty_used", "part_unit_cost", "labor_cost_unit",
-                    "added_cost_unit", "old_specs", "new_specs", "upgrade_date",
-                    "technician_id", "serial_number", "notes",
-                    "manual_part_description", "stock_deducted_qty",
-                ]
-                select_columns = list(copy_columns)
-                if has_updated_at:
-                    copy_columns.append("updated_at")
-                    select_columns.append("updated_at")
-                else:
-                    select_columns.append("NULL")
-                conn.execute(
-                    f"INSERT INTO upgrades_rebuilt ({', '.join(copy_columns)}) "
-                    f"SELECT {', '.join(select_columns)} FROM upgrades"
-                )
-                conn.execute("DROP TABLE upgrades")
-                conn.execute("ALTER TABLE upgrades_rebuilt RENAME TO upgrades")
-
-            # One-time transfer from the old product-level colour field to purchase
-            # batches. Each existing batch inherits its product's former colour.
-            if batch_colors_added:
-                product_rows = conn.execute(
-                    "SELECT id, specs_json FROM products"
-                ).fetchall()
-                for product_row in product_rows:
-                    try:
-                        specs = json.loads(product_row["specs_json"] or "{}")
-                    except (TypeError, ValueError, json.JSONDecodeError):
-                        continue
-                    if not isinstance(specs, dict):
-                        continue
-                    legacy_color = None
-                    for color_key in ("رنگ", "رنگ کالا", "Color", "Colour"):
-                        value = specs.pop(color_key, None)
-                        if value and not legacy_color:
-                            legacy_color = value
-                    if legacy_color:
-                        colors = (
-                            [str(value).strip() for value in legacy_color if str(value).strip()]
-                            if isinstance(legacy_color, list)
-                            else [str(legacy_color).strip()]
-                        )
-                        colors = list(dict.fromkeys(value for value in colors if value))
-                        if colors:
-                            conn.execute(
-                                """UPDATE batches SET colors_json=?
-                                   WHERE product_id=?
-                                     AND (colors_json IS NULL OR colors_json='' OR colors_json='[]')""",
-                                (json.dumps(colors, ensure_ascii=False), product_row["id"]),
-                            )
-                    if len(specs) != len(json.loads(product_row["specs_json"] or "{}")):
-                        conn.execute(
-                            "UPDATE products SET specs_json=? WHERE id=?",
-                            (json.dumps(specs, ensure_ascii=False), product_row["id"]),
-                        )
-
-            if sales_colors_added:
-                conn.execute(
-                    """UPDATE sales
-                       SET colors_json=COALESCE(
-                           (SELECT NULLIF(b.colors_json,'[]') FROM batches b WHERE b.id=sales.batch_id),
-                           '[]'
-                       )
-                       WHERE colors_json IS NULL OR colors_json='' OR colors_json='[]'"""
-                )
-
-            # Historic upgrades deducted their full recorded quantity. New records
-            # explicitly track the amount actually removed from inventory.
-            conn.execute(
-                "UPDATE upgrades SET stock_deducted_qty=part_qty_used "
-                "WHERE stock_deducted_qty IS NULL OR stock_deducted_qty < 0"
-            )
 
             # Activity timestamps are ISO-like local datetimes with millisecond precision.
             # The audit columns are appended in one stable order on every operational table:
@@ -584,37 +413,6 @@ class DatabaseManager:
                 "service_price_history", "audit_logs",
             )
             for table_name in activity_tables:
-                columns = {
-                    row["name"]
-                    for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
-                }
-                if "created_at" not in columns:
-                    conn.execute(
-                        f"ALTER TABLE {table_name} ADD COLUMN created_at TEXT NOT NULL DEFAULT ''"
-                    )
-                if "updated_at" not in columns:
-                    conn.execute(
-                        f"ALTER TABLE {table_name} ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''"
-                    )
-
-                # Populate empty audit fields on pre-existing rows without rewriting
-                # non-empty historic audit values.
-                conn.execute(
-                    f"""
-                    UPDATE {table_name}
-                    SET created_at = CASE
-                            WHEN created_at IS NULL OR created_at=''
-                            THEN strftime('%Y-%m-%d %H:%M:%f', 'now', 'localtime')
-                            ELSE created_at END,
-                        updated_at = CASE
-                            WHEN updated_at IS NULL OR updated_at=''
-                            THEN strftime('%Y-%m-%d %H:%M:%f', 'now', 'localtime')
-                            ELSE updated_at END
-                    WHERE created_at IS NULL OR created_at=''
-                       OR updated_at IS NULL OR updated_at=''
-                    """
-                )
-
                 conn.execute(f"DROP TRIGGER IF EXISTS trg_{table_name}_updated_at_insert")
                 conn.execute(f"DROP TRIGGER IF EXISTS trg_{table_name}_updated_at_update")
                 conn.execute(f"""
@@ -660,91 +458,37 @@ class DatabaseManager:
                 "products", "batches", "sales", "upgrades", "service_catalog",
                 "service_records", "suppliers", "employees", "customers", "payments",
             ):
-                conn.execute(f"DROP INDEX IF EXISTS idx_{table_name}_activity")
                 conn.execute(
-                    f"CREATE INDEX idx_{table_name}_activity "
+                    f"CREATE INDEX IF NOT EXISTS idx_{table_name}_activity "
                     f"ON {table_name}(COALESCE(updated_at, created_at) DESC, id DESC)"
                 )
             for index_sql in (
                 "CREATE INDEX IF NOT EXISTS idx_batches_product_activity ON batches(product_id, updated_at DESC, id DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_batches_supplier_activity ON batches(supplier_id, updated_at DESC, id DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_batches_buyer_activity ON batches(buyer_employee_id, updated_at DESC, id DESC)",
                 "CREATE INDEX IF NOT EXISTS idx_sales_batch_activity ON sales(batch_id, updated_at DESC, id DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_sales_product_activity ON sales(product_id, updated_at DESC, id DESC)",
                 "CREATE INDEX IF NOT EXISTS idx_sales_seller_activity ON sales(seller_employee_id, updated_at DESC, id DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_upgrades_target_activity ON upgrades(target_batch_id, updated_at DESC, id DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_upgrades_part_activity ON upgrades(part_batch_id, updated_at DESC, id DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_upgrades_technician_activity ON upgrades(technician_id, updated_at DESC, id DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_service_records_service_activity ON service_records(service_id, updated_at DESC, id DESC)",
                 "CREATE INDEX IF NOT EXISTS idx_services_seller_activity ON service_records(seller_employee_id, updated_at DESC, id DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_services_technician_activity ON service_records(technician_employee_id, updated_at DESC, id DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_service_history_service_date ON service_price_history(service_id, change_date DESC, id DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_payments_reference ON payments(ref_type, ref_id, payment_date DESC)",
             ):
                 conn.execute(index_sql)
 
-            conn.execute("PRAGMA user_version = 120")
-
-            # Remove the exact legacy generic supplier from the selector on upgraded
-            # databases too, but retain its historical name on linked purchase rows.
-            legacy_supplier_rows = conn.execute(
-                """
-                SELECT id, name FROM suppliers
-                WHERE name=? AND phone=? AND address=? AND notes=?
-                """,
-                ("تأمین‌کننده عمومی بازار", "021-88990011", "تهران", "پیش‌فرض"),
-            ).fetchall()
-            for legacy_supplier in legacy_supplier_rows:
-                conn.execute(
-                    """
-                    UPDATE batches
-                    SET supplier_name_snapshot=CASE
-                        WHEN supplier_name_snapshot IS NULL OR TRIM(supplier_name_snapshot)=''
-                        THEN ? ELSE supplier_name_snapshot END,
-                        supplier_id=NULL
-                    WHERE supplier_id=?
-                    """,
-                    (legacy_supplier["name"], legacy_supplier["id"]),
-                )
-                conn.execute(
-                    "DELETE FROM suppliers WHERE id=?", (legacy_supplier["id"],)
-                )
+            conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
             conn.commit()
 
-    def _migrate_legacy_application_settings(self):
-        """Move application-wide preferences out of each database, preserving legacy values once."""
-        version = int(self.cfg.get("config_schema_version", 1) or 1)
-        legacy_map = {
-            "default_profit_pct": ("default_profit_pct", lambda value: int(float(value))),
-            "zero_append_count": ("zero_append_count", lambda value: max(0, int(value))),
-            "default_window_maximized": (
-                "default_window_maximized",
-                lambda value: str(value).strip().lower() in ("1", "true", "yes", "on"),
-            ),
-            "require_login_password": (
-                "require_login_password",
-                lambda value: str(value).strip().lower() in ("1", "true", "yes", "on"),
-            ),
-        }
-
-        with self.get_connection() as conn:
-            if version < 2:
-                for database_key, (config_key, converter) in legacy_map.items():
-                    row = conn.execute(
-                        "SELECT value FROM settings WHERE key=?", (database_key,)
-                    ).fetchone()
-                    if row is not None:
-                        try:
-                            self.cfg[config_key] = converter(row["value"])
-                        except (TypeError, ValueError, OverflowError):
-                            pass
-
-                old_zero_toggle = conn.execute(
-                    "SELECT value FROM settings WHERE key='zero_append_enabled'"
-                ).fetchone()
-                if old_zero_toggle is not None and str(old_zero_toggle["value"]) == "0":
-                    self.cfg["zero_append_count"] = 0
-
-            # Remove obsolete per-database copies after their one-time migration.
-            conn.executemany(
-                "DELETE FROM settings WHERE key=?",
-                [(key,) for key in (*legacy_map.keys(), "zero_append_enabled")],
-            )
-            conn.commit()
-
+    def _normalize_application_config(self):
+        """Normalize current application settings without database migration."""
         self.cfg["config_schema_version"] = 2
-        self.cfg.pop("shop_name", None)
+        self.cfg["app_version"] = APP_VERSION
+        self.cfg["schema_version"] = SCHEMA_VERSION
         self.cfg["backup_dir"] = os.path.dirname(os.path.abspath(self.db_path)) or "."
         self.cfg["db_path"] = os.path.abspath(self.db_path)
         self.cfg["auto_backup_retention_count"] = max(
@@ -1056,20 +800,32 @@ class DatabaseManager:
         if not clauses:
             return
         rows = conn.execute(
-            "SELECT * FROM upgrades WHERE " + " OR ".join(clauses) + " ORDER BY updated_at DESC, id DESC",
+            """SELECT id, target_batch_id, part_batch_id, technician_id, target_qty,
+            part_qty_used, stock_deducted_qty, part_unit_cost, labor_cost_unit,
+            added_cost_unit, upgrade_date, serial_number, manual_part_description,
+            old_specs, new_specs, notes, created_at, updated_at FROM upgrades WHERE """ + " OR ".join(clauses) + " ORDER BY updated_at DESC, id DESC",
             params,
         ).fetchall()
         removed_ids = set(batch_ids)
         for upgrade in rows:
-            if upgrade["part_batch_id"] not in removed_ids:
+            stock_deducted = int(upgrade["stock_deducted_qty"] or 0)
+            if (
+                upgrade["part_batch_id"] not in removed_ids
+                and stock_deducted > 0
+            ):
                 conn.execute(
                     """UPDATE batches SET sold_qty=MAX(0,sold_qty-?),
                        remaining_qty=remaining_qty+? WHERE id=?""",
-                    (upgrade["part_qty_used"], upgrade["part_qty_used"], upgrade["part_batch_id"]),
+                    (stock_deducted, stock_deducted, upgrade["part_batch_id"]),
                 )
             if upgrade["target_batch_id"] not in removed_ids:
                 target = conn.execute(
-                    "SELECT * FROM batches WHERE id=?", (upgrade["target_batch_id"],)
+                    """SELECT id, batch_code, product_id, supplier_id, buyer_employee_id, invoice_number,
+            purchase_date, initial_qty, sold_qty, returned_qty, remaining_qty,
+            unit_purchase_price, extra_cost_total, upgrade_cost_unit, unit_cost_price,
+            suggested_sell_price, profit_pct, paid_amount, settlement_status,
+            serial_numbers, colors_json, initial_specs, final_specs,
+            supplier_name_snapshot, notes, created_at, updated_at FROM batches WHERE id=?""", (upgrade["target_batch_id"],)
                 ).fetchone()
                 if target:
                     added = int(upgrade["added_cost_unit"] or 0)
@@ -1388,7 +1144,12 @@ class DatabaseManager:
         colors=None,
     ):
         with self.get_connection() as conn:
-            old = conn.execute("SELECT * FROM batches WHERE id=?", (batch_id,)).fetchone()
+            old = conn.execute("""SELECT id, batch_code, product_id, supplier_id, buyer_employee_id, invoice_number,
+            purchase_date, initial_qty, sold_qty, returned_qty, remaining_qty,
+            unit_purchase_price, extra_cost_total, upgrade_cost_unit, unit_cost_price,
+            suggested_sell_price, profit_pct, paid_amount, settlement_status,
+            serial_numbers, colors_json, initial_specs, final_specs,
+            supplier_name_snapshot, notes, created_at, updated_at FROM batches WHERE id=?""", (batch_id,)).fetchone()
             if not old:
                 raise ValueError("محموله یافت نشد.")
             new_product_id = int(product_id) if product_id is not None else int(old["product_id"])
@@ -1489,11 +1250,7 @@ class DatabaseManager:
         part_batch = conn.execute(
             "SELECT id FROM batches WHERE id=?", (upgrade["part_batch_id"],)
         ).fetchone()
-        stock_deducted = int(
-            upgrade["stock_deducted_qty"]
-            if "stock_deducted_qty" in upgrade.keys() and upgrade["stock_deducted_qty"] is not None
-            else upgrade["part_qty_used"]
-        )
+        stock_deducted = int(upgrade["stock_deducted_qty"] or 0)
         if part_batch and stock_deducted > 0:
             conn.execute(
                 """UPDATE batches SET sold_qty=MAX(0,sold_qty-?),
@@ -1502,7 +1259,12 @@ class DatabaseManager:
             )
 
         target = conn.execute(
-            "SELECT * FROM batches WHERE id=?", (upgrade["target_batch_id"],)
+            """SELECT id, batch_code, product_id, supplier_id, buyer_employee_id, invoice_number,
+            purchase_date, initial_qty, sold_qty, returned_qty, remaining_qty,
+            unit_purchase_price, extra_cost_total, upgrade_cost_unit, unit_cost_price,
+            suggested_sell_price, profit_pct, paid_amount, settlement_status,
+            serial_numbers, colors_json, initial_specs, final_specs,
+            supplier_name_snapshot, notes, created_at, updated_at FROM batches WHERE id=?""", (upgrade["target_batch_id"],)
         ).fetchone()
         if target:
             added_cost = int(upgrade["added_cost_unit"] or 0)
@@ -1560,7 +1322,10 @@ class DatabaseManager:
             previous_upgrade = None
             if upgrade_id is not None:
                 previous_upgrade = conn.execute(
-                    "SELECT * FROM upgrades WHERE id=?", (upgrade_id,)
+                    """SELECT id, target_batch_id, part_batch_id, technician_id, target_qty,
+            part_qty_used, stock_deducted_qty, part_unit_cost, labor_cost_unit,
+            added_cost_unit, upgrade_date, serial_number, manual_part_description,
+            old_specs, new_specs, notes, created_at, updated_at FROM upgrades WHERE id=?""", (upgrade_id,)
                 ).fetchone()
                 if not previous_upgrade:
                     raise ValueError("رکورد ارتقای انتخاب‌شده یافت نشد.")
@@ -1575,31 +1340,34 @@ class DatabaseManager:
                 self._reverse_upgrade_effects(conn, previous_upgrade)
 
             target_b = conn.execute(
-                "SELECT * FROM batches WHERE id=?", (target_batch_id,)
+                """SELECT id, batch_code, product_id, supplier_id, buyer_employee_id, invoice_number,
+            purchase_date, initial_qty, sold_qty, returned_qty, remaining_qty,
+            unit_purchase_price, extra_cost_total, upgrade_cost_unit, unit_cost_price,
+            suggested_sell_price, profit_pct, paid_amount, settlement_status,
+            serial_numbers, colors_json, initial_specs, final_specs,
+            supplier_name_snapshot, notes, created_at, updated_at FROM batches WHERE id=?""", (target_batch_id,)
             ).fetchone()
             part_b = (
-                conn.execute("SELECT * FROM batches WHERE id=?", (part_batch_id,)).fetchone()
+                conn.execute("""SELECT id, batch_code, product_id, supplier_id, buyer_employee_id, invoice_number,
+            purchase_date, initial_qty, sold_qty, returned_qty, remaining_qty,
+            unit_purchase_price, extra_cost_total, upgrade_cost_unit, unit_cost_price,
+            suggested_sell_price, profit_pct, paid_amount, settlement_status,
+            serial_numbers, colors_json, initial_specs, final_specs,
+            supplier_name_snapshot, notes, created_at, updated_at FROM batches WHERE id=?""", (part_batch_id,)).fetchone()
                 if part_batch_id is not None else None
             )
             if not target_b or (part_batch_id is not None and not part_b):
                 raise ValueError("محموله هدف یا محموله قطعه یافت نشد.")
-            # The target batch may be out of stock (for example, a customer-owned device).
-            # Upgrade never deducts target stock, so target availability is not a blocker.
-            target_has_stock = int(target_b["remaining_qty"]) >= target_qty
+            # Only the consumed component's availability controls stock deduction.
+            # The target device is not consumed by an upgrade.
             part_has_stock = bool(part_b) and int(part_b["remaining_qty"]) >= part_qty_total
-            if part_b and consume_stock and not target_has_stock:
-                raise ValueError(
-                    "موجودی کالای هدف کافی نیست؛ برای ادامه بدون کسر موجودی، تأیید کاربر لازم است."
-                )
             if part_b and consume_stock and not part_has_stock:
                 raise ValueError(
                     "موجودی قطعه کافی نیست؛ برای ادامه بدون کسر موجودی، تأیید کاربر لازم است."
                 )
             # UI passes consume_stock=False only after the user approves the warning.
             stock_deducted_qty = (
-                part_qty_total
-                if part_b and consume_stock and target_has_stock and part_has_stock
-                else 0
+                part_qty_total if part_b and consume_stock and part_has_stock else 0
             )
             if stock_deducted_qty:
                 conn.execute(
@@ -1673,7 +1441,12 @@ class DatabaseManager:
             self.log_audit(
                 conn,
                 "ویرایش ارتقای کالا" if upgrade_id is not None else "ثبت ارتقای کالا",
-                f"محموله هدف: {target_b['batch_code']} با قطعه {part_label}",
+                (
+                    f"محموله هدف: {target_b['batch_code']} با قطعه {part_label}؛ "
+                    f"کسر موجودی: {stock_deducted_qty} عدد"
+                    if stock_deducted_qty
+                    else f"محموله هدف: {target_b['batch_code']} با قطعه {part_label}؛ بدون کسر موجودی"
+                ),
             )
             conn.commit()
 
@@ -1681,7 +1454,10 @@ class DatabaseManager:
         """Delete an upgrade and reverse its stock and cost effects atomically."""
         with self.get_connection() as conn:
             upgrade = conn.execute(
-                "SELECT * FROM upgrades WHERE id=?", (upgrade_id,)
+                """SELECT id, target_batch_id, part_batch_id, technician_id, target_qty,
+            part_qty_used, stock_deducted_qty, part_unit_cost, labor_cost_unit,
+            added_cost_unit, upgrade_date, serial_number, manual_part_description,
+            old_specs, new_specs, notes, created_at, updated_at FROM upgrades WHERE id=?""", (upgrade_id,)
             ).fetchone()
             if not upgrade:
                 raise ValueError("رکورد ارتقا یافت نشد.")
@@ -1727,7 +1503,12 @@ class DatabaseManager:
             raise ValueError("تعداد فروش باید حداقل ۱ عدد باشد.")
 
         with self.get_connection() as conn:
-            batch = conn.execute("SELECT * FROM batches WHERE id=?", (batch_id,)).fetchone()
+            batch = conn.execute("""SELECT id, batch_code, product_id, supplier_id, buyer_employee_id, invoice_number,
+            purchase_date, initial_qty, sold_qty, returned_qty, remaining_qty,
+            unit_purchase_price, extra_cost_total, upgrade_cost_unit, unit_cost_price,
+            suggested_sell_price, profit_pct, paid_amount, settlement_status,
+            serial_numbers, colors_json, initial_specs, final_specs,
+            supplier_name_snapshot, notes, created_at, updated_at FROM batches WHERE id=?""", (batch_id,)).fetchone()
             if not batch:
                 raise ValueError("محموله انتخاب شده وجود ندارد.")
             if batch["remaining_qty"] < qty:
@@ -1871,12 +1652,23 @@ class DatabaseManager:
             raise ValueError("تعداد فروش باید بیشتر از صفر باشد.")
 
         with self.get_connection() as conn:
-            old_sale = conn.execute("SELECT * FROM sales WHERE id=?", (sale_id,)).fetchone()
+            old_sale = conn.execute("""SELECT id, invoice_number, product_id, batch_id, seller_employee_id,
+            customer_name, qty, returned_qty, suggested_unit_price, actual_unit_price,
+            unit_cost_price, unit_discount, total_discount, price_Markup_unit,
+            unit_profit, total_profit, total_amount, paid_amount, settlement_status,
+            sale_datetime, warranty_company, warranty_start, warranty_months,
+            warranty_days, warranty_end, serial_number, specifications, colors_json,
+            notes, created_at, updated_at FROM sales WHERE id=?""", (sale_id,)).fetchone()
             if not old_sale:
                 raise ValueError("ردیف فروش یافت نشد.")
 
             batch = conn.execute(
-                "SELECT * FROM batches WHERE id=?", (old_sale["batch_id"],)
+                """SELECT id, batch_code, product_id, supplier_id, buyer_employee_id, invoice_number,
+            purchase_date, initial_qty, sold_qty, returned_qty, remaining_qty,
+            unit_purchase_price, extra_cost_total, upgrade_cost_unit, unit_cost_price,
+            suggested_sell_price, profit_pct, paid_amount, settlement_status,
+            serial_numbers, colors_json, initial_specs, final_specs,
+            supplier_name_snapshot, notes, created_at, updated_at FROM batches WHERE id=?""", (old_sale["batch_id"],)
             ).fetchone()
             diff_qty = new_qty - old_sale["qty"]
             if diff_qty > batch["remaining_qty"]:
@@ -1983,7 +1775,13 @@ class DatabaseManager:
 
     def delete_sale(self, sale_id):
         with self.get_connection() as conn:
-            old_sale = conn.execute("SELECT * FROM sales WHERE id=?", (sale_id,)).fetchone()
+            old_sale = conn.execute("""SELECT id, invoice_number, product_id, batch_id, seller_employee_id,
+            customer_name, qty, returned_qty, suggested_unit_price, actual_unit_price,
+            unit_cost_price, unit_discount, total_discount, price_Markup_unit,
+            unit_profit, total_profit, total_amount, paid_amount, settlement_status,
+            sale_datetime, warranty_company, warranty_start, warranty_months,
+            warranty_days, warranty_end, serial_number, specifications, colors_json,
+            notes, created_at, updated_at FROM sales WHERE id=?""", (sale_id,)).fetchone()
             if not old_sale:
                 return
             conn.execute(
@@ -2096,7 +1894,8 @@ class DatabaseManager:
     ):
         with self.get_connection() as conn:
             srv = conn.execute(
-                "SELECT * FROM service_catalog WHERE id=?", (service_id,)
+                """SELECT id, code, service_type, name, default_fee, default_side_cost,
+            description, is_active, created_at, updated_at FROM service_catalog WHERE id=?""", (service_id,)
             ).fetchone()
             if not srv:
                 raise ValueError("تعرفه خدمت یافت نشد.")

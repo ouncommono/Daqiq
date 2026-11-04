@@ -52,3 +52,37 @@ This release update preserves the existing business-table identifiers and relati
 - Added regression coverage for settlement accounting, service net profit, export defaults, audit column order, and schema version.
 - GitHub Actions run 159 passed: 65 tests passed, 0 failed (Python 3.11 / PySide6 6.11.3).
 - Manual desktop/Windows visual acceptance remains outstanding. CI currently reports 137 non-failing Qt deprecation warnings for `QSortFilterProxyModel.invalidateFilter()`.
+
+## 2.0.0 — Clean schema and operational UI release
+
+### Database architecture
+- Introduce a fresh-database-only SQLite schema contract, recorded as `PRAGMA user_version = 200`; pre-v2 databases are rejected with an actionable error rather than silently migrated.
+- Reorder employee, batch, upgrade, sales, service history and service-record columns to the v2 logical workflow order, with stable IDs and audit timestamps at the end.
+- Add foreign-key and activity/reference indexes for product, batch, sales, upgrades, service records, service history and payment lookups.
+- Add integrity checks for non-negative stock, quantities, costs and monetary values where appropriate.
+- Store application and schema versions in database settings and JSON configuration.
+
+### Reporting, sorting and financial presentation
+- Make all shared report tables sortable by clicking column headers; first click sorts ascending and the next click reverses direction.
+- Use typed comparisons for Persian/English numeric values, formatted prices, Gregorian/Jalali date strings, natural alphanumeric codes and text.
+- Add the inverse “اولین ویرایش / ایجاد” activity sort in comprehensive reports.
+- Apply red to negative financial values and debt, and green to positive receivables; mixed balance rows are colored by transaction type.
+- Show service catalogue codes in comprehensive service rows rather than a generic placeholder.
+
+### Sales, upgrade and operational UI
+- Show shipment code, available stock and suggested price together in the sales shipment selector, with full product/shipment specifications in an RTL tooltip.
+- Add an explicit upgrade checkbox to deduct or preserve part inventory; persist the actual quantity deducted, log the selected outcome and reverse exactly that amount when an upgrade is reverted or deleted.
+- Rename the supplier tab to “تأمین‌کنندگان” and render the active database path LTR.
+- Fix recent-database row heights, active-status badge sizing and remove-button clipping.
+- Select existing backup interval and retention values automatically on focus/click.
+- Keep the defined custom-specification list visible; improve grid spacing, row height and compact RTL labels in product-management settings.
+
+### Dashboard access controls
+- Add per-metric and per-table dashboard visibility grants for sales, profit, purchases, stock, low-stock, supplier debt, service profit and dashboard detail tables.
+- Apply role presets and hide each metric/table unless both dashboard view and the specific permission are granted.
+
+### Validation and acceptance
+- Add regression tests for the v2 schema/version contract, rejection of old databases, stock-preserving upgrades, typed table sorting, financial colors and service-code reporting.
+- GitHub Actions run [#173](https://github.com/ouncommono/Accounting-Software/actions/runs/41749974130) passed: **71 passed, 0 failed**; Python compilation also passed.
+- CI emitted 141 non-failing Qt deprecation warnings for `QSortFilterProxyModel.invalidateFilter()`.
+- Manual Windows/desktop visual acceptance remains a release checklist item.

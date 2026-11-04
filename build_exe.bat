@@ -1,6 +1,6 @@
 @echo off
 chcp 65001 >nul
-set "APP_VERSION=1.2.0"
+set "APP_VERSION=2.0.0"
 echo Building Accounting Software %APP_VERSION%...
 echo Installing required libraries...
 pip install -r requirements.txt

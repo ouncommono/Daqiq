@@ -9,8 +9,10 @@ from PySide6.QtWidgets import (
     QBoxLayout,
     QCompleter,
     QSizePolicy,
+    QPushButton,
     QToolButton,
     QScrollBar,
+    QLabel,
     QWidget,
 )
 from PySide6.QtCore import Qt
@@ -45,7 +47,7 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
     try:
         assert window.tabs.count() == 10
         assert window.tabs.tabText(9).endswith("تنظیمات")
-        assert window.lbl_app_version.text() == "نسخه برنامه: 1.2.0"
+        assert window.lbl_app_version.text() == "نسخه برنامه: 2.0.0"
         assert [window.catalog_tabs.tabText(i) for i in range(window.catalog_tabs.count())] == [
             "مدیریت کالاها",
             "مدیریت خدمات",
@@ -73,6 +75,10 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
         assert window.top_right_layout.itemAt(window.top_right_layout.count() - 1).widget() == window.btn_switch_user
         assert window.lbl_active_user.minimumWidth() >= 90
         assert window.lbl_active_user.sizePolicy().horizontalPolicy() == QSizePolicy.Preferred
+        assert window.lbl_active_db_path.layoutDirection() == Qt.LeftToRight
+        assert window.lbl_active_db_path.alignment() & Qt.AlignLeft
+        assert window.lst_cfg_attributes.minimumHeight() >= 92
+        assert not window.lst_cfg_attributes.isHidden()
         assert window.btn_theme.isEnabled()
         assert window.btn_table_width.isEnabled()
         assert window.tbl_batches.columnCount() >= 22
@@ -393,7 +399,7 @@ def test_sale_batch_picker_shows_only_distinguishing_specifications(tmp_path, mo
         ]
         assert any("RAM: 8GB" in tooltip for tooltip in tooltips)
         assert any("RAM: 16GB" in tooltip for tooltip in tooltips)
-        assert all("CPU: Core i7" not in tooltip and "SSD: 512GB" not in tooltip for tooltip in tooltips)
+        assert all("CPU: Core i7" in tooltip and "SSD: 512GB" in tooltip for tooltip in tooltips)
         assert all("مشخصات اولیه" not in tooltip for tooltip in tooltips)
 
         window.cb_sale_batch._search_proxy.set_query("SSD: 512GB")
@@ -441,10 +447,15 @@ def test_settings_are_drafts_until_saved_and_recent_database_x_keeps_the_file(
         active_widget = window.lst_recent_databases.itemWidget(
             window.lst_recent_databases.item(0)
         )
+        active_badge = active_widget.findChild(QLabel, "databaseActiveBadge")
+        assert active_badge is not None
+        assert active_badge.text() == "فعال / متصل"
+        assert active_badge.width() >= 96 and active_badge.height() >= 32
         active_x = [
             button for button in active_widget.findChildren(QToolButton)
             if button.text() == "×"
         ][0]
+        assert active_x.width() >= 32 and active_x.height() >= 32
         assert not active_x.isEnabled()
 
         other_widget = window.lst_recent_databases.itemWidget(
@@ -455,6 +466,7 @@ def test_settings_are_drafts_until_saved_and_recent_database_x_keeps_the_file(
             if button.text() == "×"
         ][0]
         assert other_x.isEnabled()
+        assert other_x.width() >= 32 and other_x.height() >= 32
         other_x.click()
         assert window.lst_recent_databases.count() == 1
         assert os.path.isfile(other_path)  # X removes the recent path, not the file.
@@ -1333,5 +1345,140 @@ def test_dark_theme_updates_settings_and_read_only_field_contrast(tmp_path, monk
     finally:
         manager.cfg["theme"] = "light"
         window._apply_styles()
+        window.close()
+        qapp.processEvents()
+
+def test_table_headers_toggle_smart_sort_and_financial_colors(tmp_path, monkeypatch, qapp):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    window = MainWindow(manager, active_employee=None)
+    try:
+        table = window._create_table(["کد", "مبلغ", "بدهی", "طلب"])
+        window._populate_table_safely(
+            table,
+            [
+                ["S-12", "-100", "50", "-10"],
+                ["S-2", "100", "0", "25"],
+                ["S-1", "1,200", "40", "800"],
+            ],
+        )
+        assert table.item(0, 1).foreground().color().name() == "#dc2626"
+        assert table.item(0, 2).foreground().color().name() == "#dc2626"
+        assert table.item(1, 3).foreground().color().name() == "#059669"
+        assert table.item(2, 3).foreground().color().name() == "#059669"
+
+        table.horizontalHeader().sectionClicked.emit(0)
+        assert table.item(0, 0).text() == "S-1"
+        table.horizontalHeader().sectionClicked.emit(0)
+        assert table.item(0, 0).text() == "S-12"
+        table.horizontalHeader().sectionClicked.emit(1)
+        assert table.item(0, 1).text() == "-100"
+        assert table.item(1, 1).text() == "100"
+        assert table.item(2, 1).text() == "1,200"
+
+        # Switching back to a previously sorted column starts a fresh ascending sort.
+        table.horizontalHeader().sectionClicked.emit(0)
+        assert table.item(0, 0).text() == "S-1"
+        table.horizontalHeader().sectionClicked.emit(0)
+        assert table.item(0, 0).text() == "S-12"
+
+        assert main_module._smart_table_sort_key("S-2") < main_module._smart_table_sort_key("S-12")
+        assert main_module._smart_table_sort_key("۱۴۰۵/۰۱/۰۲") < main_module._smart_table_sort_key("۱۴۰۵/۰۱/۱۲")
+        assert main_module._smart_table_sort_key("250 تومان") < main_module._smart_table_sort_key("1,200 تومان")
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
+def test_backup_numeric_fields_select_their_current_value_on_focus(tmp_path, monkeypatch, qapp):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    window = MainWindow(manager, active_employee=None)
+    try:
+        assert isinstance(window.sp_bk_interval, main_module.SelectAllSpinBox)
+        assert isinstance(window.sp_bk_retention, main_module.SelectAllSpinBox)
+        window.show()
+        window.tabs.setCurrentIndex(window._settings_tab_index)
+        qapp.processEvents()
+        backup_header = next(
+            button for button in window.findChildren(QPushButton, "collapsibleSectionHeader")
+            if "پایگاه داده و پشتیبان‌گیری" in button.text()
+        )
+        backup_header.click()
+        qapp.processEvents()
+        for spin, value in (
+            (window.sp_bk_interval, 90),
+            (window.sp_bk_retention, 12),
+        ):
+            spin.setValue(value)
+            spin.lineEdit().setFocus(Qt.OtherFocusReason)
+            qapp.processEvents()
+            assert spin.lineEdit().selectedText() == str(value)
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
+def test_dashboard_roles_have_granular_metric_and_table_permissions():
+    required = {
+        "dashboard.metric.sales_today",
+        "dashboard.metric.profit_today",
+        "dashboard.metric.purchase_today",
+        "dashboard.metric.total_stock",
+        "dashboard.metric.low_stock_count",
+        "dashboard.metric.supplier_debt",
+        "dashboard.metric.service_profit_today",
+        "dashboard.table.low_stock",
+        "dashboard.table.employee_performance",
+    }
+    assert required.issubset(set(main_module.ALL_PERMISSION_KEYS))
+    assert required.issubset(
+        set(main_module.ROLE_PERMISSION_PRESETS[
+            "سرپرست عملیات (گزارش‌های محدود به عملکرد خود)"
+        ])
+    )
+
+
+def test_comprehensive_report_uses_real_service_catalog_code(tmp_path, monkeypatch, qapp):
+    import jdatetime
+
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    manager.save_service_catalog(
+        None, "S-1001", "نرم‌افزاری", "نصب سیستم‌عامل", 1000, 0, ""
+    )
+    with manager.get_connection() as conn:
+        service_id = conn.execute(
+            "SELECT id FROM service_catalog WHERE code='S-1001'"
+        ).fetchone()["id"]
+    window = MainWindow(manager, active_employee=None)
+    try:
+        today = jdatetime.date.today().strftime("%Y/%m/%d")
+        manager.add_service_record(
+            "", service_id, None, None, "مشتری آزمون", 1000, 0, 1000,
+            f"{today} 12:00:00", "آزمون", "تسویه‌شده",
+        )
+        window.dt_rep_from.set_date(today)
+        window.dt_rep_to.set_date(today)
+        window.cb_rep_type.setCurrentIndex(0)
+        window._update_report_live()
+
+        headers = [
+            window.tbl_report.horizontalHeaderItem(i).text()
+            for i in range(window.tbl_report.columnCount())
+        ]
+        code_column = headers.index("کد کالا / خدمت")
+        type_column = headers.index("نوع عملیات")
+        visible_codes = [
+            window.tbl_report.item(row, code_column).text()
+            for row in range(window.tbl_report.rowCount())
+            if "خدمات" in window.tbl_report.item(row, type_column).text()
+        ]
+        assert "S-1001" in visible_codes
+        assert "SRV" not in visible_codes
+    finally:
         window.close()
         qapp.processEvents()
