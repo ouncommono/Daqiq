@@ -76,7 +76,7 @@ from exporter import (
     get_next_excel_filename,
 )
 
-APP_VERSION = "3.1.0"
+APP_VERSION = "3.2.0"
 
 DEFAULT_ACCESS_LEVELS = [
     {"name": "دسترسی کامل (مدیر کل)", "policy": "دسترسی کامل (مدیر کل)"},
@@ -5923,16 +5923,12 @@ class MainWindow(QMainWindow):
         self.ed_cfg_subcategory = QLineEdit()
         self.ed_cfg_subcategory.setPlaceholderText("نام زیرمجموعه را وارد کنید؛ مثلاً صفحه‌نمایش یا پردازنده...")
         sub_btn_row = QHBoxLayout()
-        btn_add_sub = QPushButton("افزودن")
-        btn_add_sub.clicked.connect(self._add_catalog_subcategory)
-        btn_rename_sub = QPushButton("تغییر نام")
-        btn_rename_sub.setObjectName("btnSecondary")
-        btn_rename_sub.clicked.connect(self._rename_catalog_subcategory)
+        btn_add_or_rename_sub = QPushButton("افزودن/تغییرنام")
+        btn_add_or_rename_sub.clicked.connect(self._add_or_rename_catalog_subcategory)
         btn_delete_sub = QPushButton("حذف")
         btn_delete_sub.setObjectName("btnDanger")
         btn_delete_sub.clicked.connect(self._delete_catalog_subcategory)
-        sub_btn_row.addWidget(btn_add_sub)
-        sub_btn_row.addWidget(btn_rename_sub)
+        sub_btn_row.addWidget(btn_add_or_rename_sub)
         sub_btn_row.addWidget(btn_delete_sub)
         sub_layout.addWidget(CollapsibleSection("فهرست زیرمجموعه‌ها", self.lst_cfg_subcategories))
         sub_layout.addWidget(labeled_field("نام زیرمجموعه:", self.ed_cfg_subcategory))
@@ -5943,9 +5939,6 @@ class MainWindow(QMainWindow):
         subcaption_row.setContentsMargins(0, 0, 0, 0)
         subcaption_row.setSpacing(8)
         subcaption_row.addWidget(self.ed_subcategory_caption, 1)
-        btn_save_subcaption = QPushButton("ذخیره عنوان")
-        btn_save_subcaption.clicked.connect(self._save_subcategory_caption)
-        subcaption_row.addWidget(btn_save_subcaption)
         sub_layout.addWidget(
             labeled_field("عنوان فیلد زیرمجموعه:", subcaption_editor)
         )
@@ -6672,7 +6665,7 @@ class MainWindow(QMainWindow):
             identity = (feature_key, scope_key)
             if not feature_key or identity in seen:
                 continue
-            if selected_scope and scope_key and scope_key != selected_scope:
+            if selected_scope and scope_key != selected_scope:
                 continue
             seen.add(identity)
             values = "، ".join(definition.get("values", []))
@@ -7062,23 +7055,7 @@ class MainWindow(QMainWindow):
             self.ed_cfg_attribute_name.setText(definition["name"])
             self.ed_cfg_attribute_label.setText(definition.get("label", ""))
             self.ed_cfg_attribute_values.setText(", ".join(definition.get("values", [])))
-            scope_index = self.cb_cfg_attribute_subcategory.findData(
-                definition.get("subcategory", "") or ""
-            )
-            current_scope = self.cb_cfg_attribute_subcategory.currentIndex()
-            target_scope = scope_index if scope_index >= 0 else 0
-            if target_scope != current_scope:
-                # A filter change rebuilds the list. Block the signal, rebuild
-                # intentionally, then restore the selected definition by index.
-                self.cb_cfg_attribute_subcategory.blockSignals(True)
-                self.cb_cfg_attribute_subcategory.setCurrentIndex(target_scope)
-                self.cb_cfg_attribute_subcategory.blockSignals(False)
-                self._refresh_catalog_attribute_list()
-                for row in range(self.lst_cfg_attributes.count()):
-                    entry = self.lst_cfg_attributes.item(row)
-                    if entry.data(Qt.UserRole) == definition_index:
-                        self.lst_cfg_attributes.setCurrentItem(entry)
-                        break
+            # Selecting a feature populates its editor without changing the active filter.
 
     def _update_catalog_attribute(self):
         category = self.cb_cfg_category.currentText().strip()
@@ -7098,7 +7075,7 @@ class MainWindow(QMainWindow):
         old_name = str(current.get("name") or "").strip()
         old_scope = str(current.get("subcategory") or "").strip()
         new_name = self.ed_cfg_attribute_name.text().strip() or old_name
-        new_scope = self.cb_cfg_attribute_subcategory.currentData() or ""
+        new_scope = self.cb_cfg_attribute_subcategory.currentData() or old_scope
         if not new_name:
             QMessageBox.warning(self, "نام ویژگی لازم است", "نام ویژگی را وارد کنید.")
             return
