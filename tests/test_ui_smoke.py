@@ -80,11 +80,11 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
         assert window.lbl_active_db_path.layoutDirection() == Qt.LeftToRight
         assert window.lbl_active_db_path.alignment() & Qt.AlignLeft
         assert window.lst_cfg_attributes.minimumHeight() >= 92
-        assert not window.lst_cfg_attributes.isHidden()
         assert isinstance(
             window.cfg_attributes_section, main_module.CollapsibleSection
         )
-        assert window.cfg_attributes_section._expanded is True
+        assert window.cfg_attributes_section.content is window.lst_cfg_attributes
+        assert window.cfg_attributes_section._expanded is False
         assert window.cb_cfg_data_scope_mode.currentData() == "all"
         assert window.lst_cfg_data_scope_roles.isEnabled() is False
         assert window.lst_cfg_data_scope_users.isEnabled() is False

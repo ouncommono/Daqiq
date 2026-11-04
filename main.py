@@ -3103,8 +3103,8 @@ class MainWindow(QMainWindow):
             unique_lines = []
             seen_labels = set()
             for line in str(formatted_specs or "").splitlines():
-                label = line.partition(":")[0].strip()
-                key = normalize_catalog_label(label or line)
+                spec_label = line.partition(":")[0].strip()
+                key = normalize_catalog_label(spec_label or line)
                 if key and key not in seen_labels:
                     seen_labels.add(key)
                     unique_lines.append(line.strip())
@@ -3951,8 +3951,6 @@ class MainWindow(QMainWindow):
                 and self.cb_upg_part.currentData() is not None
             )
             self.chk_upg_consume_stock.setEnabled(is_batch)
-            if not is_batch:
-                self.chk_upg_consume_stock.setChecked(False)
 
     def _save_upgrade(self):
         t_id = self.cb_upg_target.currentData()
@@ -4052,6 +4050,9 @@ class MainWindow(QMainWindow):
         self.chk_upg_consume_stock.setEnabled(False)
         self.dt_upg_date.set_date(jdatetime.date.today().strftime("%Y/%m/%d"))
         self._on_upg_target_changed()
+        # Reset semantics are explicit even when the selected part is currently blank.
+        self.chk_upg_consume_stock.setChecked(True)
+        self.chk_upg_consume_stock.setEnabled(True)
 
     def _on_upgrade_selected(self):
         selected = self.tbl_upgrades.selectedItems()
@@ -5900,7 +5901,6 @@ class MainWindow(QMainWindow):
         self.cfg_attributes_section = CollapsibleSection(
             "فهرست ویژگی‌های تعریف‌شده", self.lst_cfg_attributes
         )
-        self.cfg_attributes_section._on_header_pressed()
         attr_layout.addWidget(self.cfg_attributes_section)
 
         lbl_attribute_name = QLabel("نام ویژگی (فارسی):")
@@ -7595,10 +7595,9 @@ class MainWindow(QMainWindow):
                     if batch["buyer_employee_id"] is not None
                     and int(batch["buyer_employee_id"]) in owner_set
                 ]
-            sale_product_ids = {
-                row["product_id"] for row in batches
-                if int(row["remaining_qty"] or 0) > 0
-            }
+            # Product masters are shared catalogue data; shipment availability
+            # is independently restricted to the active data-scope owners.
+            sale_product_ids = {int(row["id"]) for row in prods}
 
         # بند ۳: قرار دادن دسته‌بندی و زیرگروه در متن آیتم‌های کمبوباکس کالا برای جست‌وجوی مستقیم (مثلاً تایپ «کیبورد»)
         self.cb_batch_prod.blockSignals(True)
