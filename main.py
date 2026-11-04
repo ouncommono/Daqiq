@@ -1636,7 +1636,8 @@ class MainWindow(QMainWindow):
         tbl.setSortingEnabled(False)
         tbl.horizontalHeader().setSectionsClickable(True)
         tbl.horizontalHeader().setSortIndicatorShown(True)
-        tbl._column_sort_directions = {}
+        tbl._last_sorted_column = None
+        tbl._last_sort_order = None
         tbl.horizontalHeader().sectionClicked.connect(
             lambda column, table=tbl: self._sort_table_by_header(table, column)
         )
@@ -1652,14 +1653,15 @@ class MainWindow(QMainWindow):
         """Toggle ascending/descending sorting for the clicked table column."""
         if table is None or column < 0 or column >= table.columnCount():
             return
-        directions = getattr(table, "_column_sort_directions", {})
+        is_same_column = getattr(table, "_last_sorted_column", None) == column
+        last_order = getattr(table, "_last_sort_order", None)
         next_order = (
             Qt.DescendingOrder
-            if directions.get(column) == Qt.AscendingOrder
+            if is_same_column and last_order == Qt.AscendingOrder
             else Qt.AscendingOrder
         )
-        directions[column] = next_order
-        table._column_sort_directions = directions
+        table._last_sorted_column = column
+        table._last_sort_order = next_order
         table.horizontalHeader().setSortIndicator(column, next_order)
         table.sortItems(column, next_order)
 
