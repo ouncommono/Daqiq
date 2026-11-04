@@ -6571,14 +6571,22 @@ class MainWindow(QMainWindow):
                     item["name"] = "مشخصات"
                 name = str(item.get("name") or "").strip()
                 raw_label = str(item.get("label") or "").strip()
-                if (
-                    not raw_label or raw_label.casefold() in generic_titles
+                expected_title = display_titles.get(normalize_catalog_label(name))
+                if expected_title and (
+                    not raw_label
+                    or raw_label.casefold() in generic_titles
+                    or normalize_catalog_label(raw_label) ==
+                       normalize_catalog_label("Additional Details")
+                    or raw_label != expected_title
+                ):
+                    item["label"] = expected_title
+                elif (
+                    not raw_label
+                    or raw_label.casefold() in generic_titles
                     or normalize_catalog_label(raw_label) ==
                        normalize_catalog_label("Additional Details")
                 ):
-                    item["label"] = display_titles.get(
-                        normalize_catalog_label(name), "Technical Specifications"
-                    )
+                    item["label"] = "Technical Specifications"
             attributes[category] = definitions
 
         other_key = normalize_catalog_label("سایر موارد")
@@ -6887,76 +6895,9 @@ class MainWindow(QMainWindow):
                             (category, old_name, new_name, scope, scope)
                         )
 
-        legacy_attribute_names = {
-            "CPU": ("پردازنده", "CPU"),
-            "RAM": ("ظرفیت رم", "RAM"),
-            "نوع RAM": ("نسل رم", "RAM Type"),
-            "RAM Type": ("نسل رم", "RAM Type"),
-            "Storage": ("حافظه داخلی", "Storage"),
-            "Graphic": ("پردازنده گرافیکی", "GPU"),
-            "GPU": ("پردازنده گرافیکی", "GPU"),
-            "Graphic Card": ("پردازنده گرافیکی", "GPU"),
-            "Display": ("صفحه‌نمایش", "Display"),
-            "Panel": ("پنل", "Panel"),
-            "نوع پنل": ("پنل", "Panel"),
-            "Refresh Rate": ("نرخ بروزرسانی", "Refresh Rate"),
-            "نرخ نوسازی": ("نرخ بروزرسانی", "Refresh Rate"),
-            "Ports": ("پورت‌ها", "Ports"),
-            "درگاه‌ها": ("پورت‌ها", "Ports"),
-            "Capacity": ("ظرفیت", "Capacity"),
-            "Interface": ("نوع رابط", "Interface"),
-            "Socket": ("سوکت", "Socket"),
-            "نوع سوکت": ("سوکت", "Socket"),
-            "Interface": ("رابط و فرم", "Interface"),
-            "نوع رابط": ("رابط و فرم", "Interface"),
-            "Connectivity": ("نوع اتصال / پورت", "Connectivity"),
-            "Specification": ("مشخصه", "Specification"),
-            "Size": ("سایز", "Size"),
-            "Voltage": ("ولتاژ", "Voltage"),
-            "Current / Power": ("آمپر و توان", "Current / Power"),
-            "Network Standard": ("استاندارد شبکه", "Network Standard"),
-            "Print Technology": ("فناوری چاپ", "Print Technology"),
-            "Print Color": ("نوع چاپ", "Print Color"),
-            "TDP": ("توان طراحی حرارتی", "TDP"),
-            "VRAM": ("حافظه گرافیکی", "VRAM"),
-        }
-        default_display_titles = {
-            "پردازنده": "CPU", "ظرفیت رم": "RAM", "نسل رم": "RAM Type",
-            "حافظه داخلی": "Storage", "پردازنده گرافیکی": "GPU",
-            "صفحه‌نمایش": "Display", "نوع پنل": "Panel",
-            "نرخ نوسازی": "Refresh Rate", "درگاه‌ها": "Ports",
-            "ظرفیت": "Capacity", "نوع رابط": "Interface", "نوع سوکت": "Socket",
-            "نوع اتصال / پورت": "Connectivity", "مشخصه": "Specification",
-            "سایز": "Size", "ولتاژ": "Voltage", "آمپر و توان": "Current / Power",
-            "استاندارد شبکه": "Network Standard", "فناوری چاپ": "Print Technology",
-            "نوع چاپ": "Print Color", "توان طراحی حرارتی": "TDP",
-            "حافظه گرافیکی": "VRAM",
-        }
-        for category, definitions in self._taxonomy_draft.get("attributes", {}).items():
-            for definition in definitions:
-                old_name = str(definition.get("name") or "").strip()
-                if old_name in legacy_attribute_names:
-                    new_name, default_title = legacy_attribute_names[old_name]
-                    scope = str(definition.get("subcategory") or "")
-                    definition["name"] = new_name
-                    if old_name != new_name:
-                        self._pending_attribute_renames.append(
-                            (category, old_name, new_name, scope, scope)
-                        )
-                    if not str(definition.get("label") or "").strip():
-                        definition["label"] = default_title
-                current_name = str(definition.get("name") or "").strip()
-                current_label = str(definition.get("label") or "").strip()
-                if (
-                    not current_label
-                    or (
-                        not re.search(r"[A-Za-z]", current_label)
-                        and not current_label.startswith("@")
-                    )
-                ):
-                    definition["label"] = (
-                        default_display_titles.get(current_name, "Specification")
-                    )
+        # Attribute names and display titles are canonicalized in
+        # _merge_default_catalog_subcategories above. Their paired
+        # product-spec JSON-key renames were queued from the raw stored config.
         self._merge_builtin_product_features_into_draft()
         self._merge_persisted_product_spec_fields_into_draft()
         self._deduplicate_catalog_draft()
