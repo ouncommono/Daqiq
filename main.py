@@ -45,8 +45,11 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QTimer, QObject, QEvent
 from PySide6.QtGui import QFont, QColor, QFontMetrics
 
-from database import (DatabaseManager, load_app_config, save_app_config, hash_password,
-                      receivable_balance, service_financial_breakdown)
+from database import (
+    DatabaseManager, load_app_config, save_app_config, hash_password,
+    receivable_balance, service_financial_breakdown, app_config_exists,
+    get_default_database_path,
+)
 from utils_and_widgets import (
     MAIN_CATEGORIES,
     DEFAULT_SUBCATEGORIES,
@@ -76,7 +79,7 @@ from exporter import (
     get_next_excel_filename,
 )
 
-APP_VERSION = "3.3.0"
+APP_VERSION = "4.0.0"
 
 DEFAULT_ACCESS_LEVELS = [
     {"name": "دسترسی کامل (مدیر کل)", "policy": "دسترسی کامل (مدیر کل)"},
@@ -620,6 +623,7 @@ class DatabaseBootstrapDialog(QDialog):
         )
         buttons.button(QDialogButtonBox.Ok).setText("ادامه")
         buttons.button(QDialogButtonBox.Cancel).setText("انصراف")
+        buttons.setCenterButtons(True)
         buttons.accepted.connect(self._validate_and_accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -672,51 +676,45 @@ class DatabaseBootstrapDialog(QDialog):
 
 
 def select_startup_database_path(parent=None):
-    """Choose an existing database or show the first-run setup wizard."""
+    """Auto-connect only when an explicit app_config.json already exists."""
+    has_explicit_config = app_config_exists()
     config = load_app_config()
     configured_value = str(config.get("db_path") or "").strip()
     configured_path = (
         os.path.abspath(os.path.expanduser(configured_value))
         if configured_value else ""
     )
-    candidates = ([configured_path] if configured_path else [])
-    candidates.extend(
-        os.path.abspath(os.path.expanduser(path))
-        for path in config.get("recent_databases", [])
-        if path
-    )
 
-    existing_path = next(
-        (
-            path for path in dict.fromkeys(candidates)
-            if _is_valid_sqlite_database_file(path)
-        ),
-        None,
-    )
-    if existing_path:
-        config["db_path"] = existing_path
-        recent = [
-            os.path.abspath(path) for path in config.get("recent_databases", [])
-            if path and os.path.abspath(path) != existing_path
-        ]
-        config["recent_databases"] = [existing_path] + recent
-        save_app_config(config)
-        return existing_path
+    # Without the user-created configuration file, even a valid database in the
+    # default Documents folder must be offered through the initial setup dialog.
+    if has_explicit_config:
+        candidates = ([configured_path] if configured_path else [])
+        candidates.extend(
+            os.path.abspath(os.path.expanduser(path))
+            for path in config.get("recent_databases", [])
+            if path
+        )
+        existing_path = next(
+            (
+                path for path in dict.fromkeys(candidates)
+                if _is_valid_sqlite_database_file(path)
+            ),
+            None,
+        )
+        if existing_path:
+            config["db_path"] = existing_path
+            recent = [
+                os.path.abspath(path) for path in config.get("recent_databases", [])
+                if path and os.path.abspath(path) != existing_path
+            ]
+            config["recent_databases"] = [existing_path] + recent
+            save_app_config(config)
+            return existing_path
 
-    default_path = configured_path or os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "Daqiq.db"
-    )
-    if os.path.exists(default_path):
-        base_dir = os.path.dirname(default_path) or "."
-        stem, extension = os.path.splitext(os.path.basename(default_path))
-        extension = extension or ".db"
-        suffix = 1
-        proposed = os.path.join(base_dir, f"{stem}_new{extension}")
-        while os.path.exists(proposed):
-            suffix += 1
-            proposed = os.path.join(base_dir, f"{stem}_new_{suffix}{extension}")
-        default_path = proposed
+    default_path = configured_path or get_default_database_path()
     dialog = DatabaseBootstrapDialog(default_path, parent)
+    if os.path.isfile(default_path):
+        dialog.rb_existing.setChecked(True)
     if dialog.exec() != QDialog.Accepted or not dialog.selected_path:
         return None
 
@@ -2691,7 +2689,8 @@ class MainWindow(QMainWindow):
         self.cb_batch_prod.clearEditText()
         self.cb_batch_supplier.setCurrentIndex(-1)
         self.cb_batch_supplier.clearEditText()
-        self.cb_batch_buyer.setCurrentIndex(0)
+        self.cb_batch_buyer.setCurrentIndex(-1)
+        self.cb_batch_buyer.clearEditText()
         self.ed_batch_inv.clear()
         self.ed_batch_serial.clear()
         self.dt_batch_date.set_date(jdatetime.date.today().strftime("%Y/%m/%d"))
@@ -2845,10 +2844,22 @@ class MainWindow(QMainWindow):
         self.ed_batch_serial.setText(self.tbl_batches.item(r, 20).text())
         with self.db.get_connection() as conn:
             batch_state = conn.execute(
-                "SELECT colors_json, supplier_id, buyer_employee_id FROM batches WHERE id=?",
+                """SELECT colors_json, supplier_id, buyer_employee_id, product_id
+                   FROM batches WHERE id=?""",
                 (self.selected_batch_id,),
             ).fetchone()
         if batch_state:
+            product_index = next(
+                (
+                    index for index in range(self.cb_batch_prod.count())
+                    if isinstance(self.cb_batch_prod.itemData(index), dict)
+                    and int(self.cb_batch_prod.itemData(index).get("id", 0))
+                    == int(batch_state["product_id"])
+                ),
+                -1,
+            )
+            if product_index >= 0:
+                self.cb_batch_prod.setCurrentIndex(product_index)
             supplier_index = self.cb_batch_supplier.findData(batch_state["supplier_id"])
             buyer_index = self.cb_batch_buyer.findData(batch_state["buyer_employee_id"])
             self.cb_batch_supplier.setCurrentIndex(
@@ -2945,7 +2956,7 @@ class MainWindow(QMainWindow):
         self.cb_sale_batch.currentIndexChanged.connect(self._on_sale_batch_changed)
         self.cb_sale_seller = SearchableComboBox()
         self.cb_sale_seller.setEditable(False)
-        self.ed_sale_customer = SmartLineEdit("نام مشتری (اختیاری)")
+        self.ed_sale_customer = SmartLineEdit("")
         self.btn_sale_colors = ColorSelectionButton()
         self.ed_sale_specs = SmartLineEdit("مشخصات دقیق کالای فروخته‌شده؛ قابل ویرایش...")
         self.ed_sale_specs.setLayoutDirection(Qt.LeftToRight)
@@ -2974,7 +2985,7 @@ class MainWindow(QMainWindow):
         self.lbl_sale_summary.setObjectName("saleSummary")
 
         self.ed_war_company = SmartLineEdit("شرکت گارانتی‌کننده")
-        self.dt_war_start = JalaliDateEdit(default_today=True)
+        self.dt_war_start = JalaliDateEdit(default_today=False)
         self.cb_war_months = QComboBox()
         self.cb_war_months.setEditable(True)
         self.cb_war_months.setInsertPolicy(QComboBox.NoInsert)
@@ -2989,8 +3000,8 @@ class MainWindow(QMainWindow):
         ]
         for label, days in warranty_options:
             self.cb_war_months.addItem(label, days)
-        self.dt_war_end = JalaliDateEdit(default_today=True)
-        self.ed_sale_serial = SmartLineEdit("شماره سریال دستگاه")
+        self.dt_war_end = JalaliDateEdit(default_today=False)
+        self.ed_sale_serial = SmartLineEdit("")
 
         self.dt_war_start.dateChanged.connect(self._recalc_warranty_end)
         self.cb_war_months.currentIndexChanged.connect(self._recalc_warranty_end)
@@ -3182,8 +3193,8 @@ class MainWindow(QMainWindow):
                     parts.append(short_specs)
         return " | ".join(part for part in parts if part)
 
-    def _on_sale_prod_changed(self):
-        """Load stocked batches for one product or for all products."""
+    def _on_sale_prod_changed(self, *_args, include_batch_id=None):
+        """Load stocked batches for a product, optionally retaining an existing sold batch."""
         product = self.cb_sale_prod.currentData()
         self.cb_sale_batch.blockSignals(True)
         self.cb_sale_batch.clear()
@@ -3204,16 +3215,16 @@ class MainWindow(QMainWindow):
                    p.specs_json AS product_specs_json, p.description AS product_description
             FROM batches b
             JOIN products p ON p.id=b.product_id
-            WHERE b.remaining_qty > 0
+            WHERE (b.remaining_qty > 0 OR b.id=?)
         """
-        params = ()
+        params = [int(include_batch_id) if include_batch_id is not None else None]
         if not all_products:
             query += " AND b.product_id=?"
-            params = (int(product["id"]),)
+            params.append(int(product["id"]))
         query += " ORDER BY b.updated_at DESC, b.id DESC"
         with self.db.get_connection() as conn:
             batch_rows = self._execute_scoped_query(
-                conn, query, "b.buyer_employee_id", parameters=params
+                conn, query, "b.buyer_employee_id", parameters=tuple(params)
             ).fetchall()
 
         batches = [dict(row) for row in batch_rows]
@@ -3334,9 +3345,8 @@ class MainWindow(QMainWindow):
         self.cb_sale_status.setCurrentIndex(0)
         self.ed_war_company.clear()
         self.cb_war_months.setCurrentIndex(0)
-        today = jdatetime.date.today().strftime("%Y/%m/%d")
-        self.dt_war_start.set_date(today)
-        self.dt_war_end.set_date(today)
+        self.dt_war_start.set_date("")
+        self.dt_war_end.set_date("")
         self.ed_sale_serial.clear()
         self.tbl_sales.clearSelection()
         self.cb_sale_qty.setCurrentText("1")
@@ -3475,68 +3485,107 @@ class MainWindow(QMainWindow):
             return
         row_index = selected[0].row()
         self.selected_sale_id = int(self.tbl_sales.item(row_index, 0).text())
-        self.ed_sale_inv.setText(self.tbl_sales.item(row_index, 1).text())
-        self.ed_sale_customer.setText(self.tbl_sales.item(row_index, 7).text())
-        self.cb_sale_qty.setCurrentText(self.tbl_sales.item(row_index, 8).text())
-        self.pr_sale_suggest.set_value(
-            int(self.tbl_sales.item(row_index, 9).text().replace(",", ""))
-        )
-        self.pr_sale_actual.set_value(
-            int(self.tbl_sales.item(row_index, 10).text().replace(",", ""))
-        )
-        self.pr_sale_paid.set_value(
-            int(self.tbl_sales.item(row_index, 16).text().replace(",", ""))
-        )
-        self.cb_sale_status.setCurrentText(self.tbl_sales.item(row_index, 17).text())
-        self.ed_sale_serial.setText(self.tbl_sales.item(row_index, 19).text())
-        with self.db.get_connection() as conn:
-            sale_specs = conn.execute(
-                """SELECT s.specifications, s.colors_json AS sale_colors,
-                          b.id AS batch_id, b.colors_json AS batch_colors,
-                          b.final_specs, b.initial_specs
-                   FROM sales s JOIN batches b ON b.id=s.batch_id
-                   WHERE s.id=?""",
-                (self.selected_sale_id,),
-            ).fetchone()
-            if sale_specs:
-                self.ed_sale_specs.setText(
-                    sale_specs["specifications"]
-                    or sale_specs["final_specs"]
-                    or sale_specs["initial_specs"]
-                    or ""
-                )
-                batch_colors = self._decode_colors(sale_specs["batch_colors"])
-                sold_colors = self._decode_colors(sale_specs["sale_colors"])
-                available_colors = list(dict.fromkeys(batch_colors + sold_colors))
-                self._populate_color_checklist(
-                    self.btn_sale_colors, available_colors, selected=sold_colors
-                )
 
         with self.db.get_connection() as conn:
             sale = conn.execute(
-                """SELECT warranty_company, warranty_start, warranty_months,
-                   warranty_days, warranty_end FROM sales WHERE id=?""",
+                """SELECT s.*, b.colors_json AS batch_colors, b.final_specs,
+                          b.initial_specs, p.code AS product_code, p.name AS product_name,
+                          p.category, p.sub_category, p.brand, p.model, p.specs_json,
+                          p.description AS product_description, e.name AS seller_name
+                   FROM sales s
+                   JOIN batches b ON b.id=s.batch_id
+                   JOIN products p ON p.id=s.product_id
+                   LEFT JOIN employees e ON e.id=s.seller_employee_id
+                   WHERE s.id=?""",
                 (self.selected_sale_id,),
             ).fetchone()
-        if sale:
-            self.ed_war_company.setText(sale["warranty_company"] or "")
-            self.dt_war_start.set_date(sale["warranty_start"] or jdatetime.date.today().strftime("%Y/%m/%d"))
-            self.dt_war_end.set_date(sale["warranty_end"] or sale["warranty_start"] or "")
-            duration_days = int(sale["warranty_days"] or (int(sale["warranty_months"] or 0) * 30))
-            if duration_days:
-                index = self.cb_war_months.findData(duration_days)
-                if index < 0:
-                    choices = [
-                        (abs(int(self.cb_war_months.itemData(i)) - duration_days), i)
-                        for i in range(1, self.cb_war_months.count())
-                        if self.cb_war_months.itemData(i) is not None
-                    ]
-                    if choices:
-                        index = min(choices)[1]
-                if index >= 0:
-                    self.cb_war_months.setCurrentIndex(index)
-            else:
-                self.cb_war_months.setCurrentIndex(0)
+        if not sale:
+            return
+
+        # Restore selectors in dependency order: product -> batches -> batch -> seller.
+        # The requested batch is included even when it has since sold out.
+        product_index = next(
+            (
+                index for index in range(self.cb_sale_prod.count())
+                if isinstance(self.cb_sale_prod.itemData(index), dict)
+                and int(self.cb_sale_prod.itemData(index).get("id", 0))
+                == int(sale["product_id"])
+            ),
+            -1,
+        )
+        if product_index < 0:
+            product_data = {
+                "id": int(sale["product_id"]), "code": sale["product_code"],
+                "name": sale["product_name"], "category": sale["category"],
+                "sub_category": sale["sub_category"], "brand": sale["brand"],
+                "model": sale["model"], "specs_json": sale["specs_json"],
+                "description": sale["product_description"],
+            }
+            product_index = self.cb_sale_prod.count()
+            self.cb_sale_prod.addItem(
+                bidi_isolate_text(self._format_product_picker_label(product_data)),
+                product_data,
+            )
+        self.cb_sale_prod.setCurrentIndex(product_index)
+        self._on_sale_prod_changed(include_batch_id=int(sale["batch_id"]))
+
+        batch_index = next(
+            (
+                index for index in range(self.cb_sale_batch.count())
+                if isinstance(self.cb_sale_batch.itemData(index), dict)
+                and int(self.cb_sale_batch.itemData(index).get("id", 0))
+                == int(sale["batch_id"])
+            ),
+            -1,
+        )
+        if batch_index >= 0:
+            self.cb_sale_batch.setCurrentIndex(batch_index)
+
+        seller_id = sale["seller_employee_id"]
+        seller_index = self.cb_sale_seller.findData(seller_id)
+        if seller_id is not None and seller_index < 0:
+            seller_index = self.cb_sale_seller.count()
+            self.cb_sale_seller.addItem(str(sale["seller_name"] or ""), seller_id)
+        self.cb_sale_seller.setCurrentIndex(seller_index if seller_index >= 0 else -1)
+
+        self.ed_sale_inv.setText(sale["invoice_number"] or "")
+        self.ed_sale_customer.setText(sale["customer_name"] or "")
+        self.cb_sale_qty.setCurrentText(str(sale["qty"]))
+        self.pr_sale_suggest.set_value(int(sale["suggested_unit_price"] or 0))
+        self.pr_sale_actual.set_value(int(sale["actual_unit_price"] or 0))
+        self.pr_sale_paid.set_value(int(sale["paid_amount"] or 0))
+        self.cb_sale_status.setCurrentText(sale["settlement_status"] or "تسویه‌شده")
+        self.ed_sale_serial.setText(sale["serial_number"] or "")
+        self.ed_sale_specs.setText(
+            sale["specifications"] or sale["final_specs"] or sale["initial_specs"] or ""
+        )
+
+        batch_colors = self._decode_colors(sale["batch_colors"])
+        sold_colors = self._decode_colors(sale["colors_json"])
+        self._populate_color_checklist(
+            self.btn_sale_colors, list(dict.fromkeys(batch_colors + sold_colors)),
+            selected=sold_colors,
+        )
+
+        self.ed_war_company.setText(sale["warranty_company"] or "")
+        self.dt_war_start.set_date(sale["warranty_start"] or "")
+        duration_days = int(sale["warranty_days"] or (int(sale["warranty_months"] or 0) * 30))
+        if duration_days:
+            index = self.cb_war_months.findData(duration_days)
+            if index < 0:
+                choices = [
+                    (abs(int(self.cb_war_months.itemData(i)) - duration_days), i)
+                    for i in range(1, self.cb_war_months.count())
+                    if self.cb_war_months.itemData(i) is not None
+                ]
+                if choices:
+                    index = min(choices)[1]
+            if index >= 0:
+                self.cb_war_months.setCurrentIndex(index)
+        else:
+            self.cb_war_months.setCurrentIndex(0)
+        # Duration changes recalculate this field; restore the stored value last.
+        self.dt_war_end.set_date(sale["warranty_end"] or "")
 
 
     def _update_selected_sale(self):
@@ -6438,6 +6487,71 @@ class MainWindow(QMainWindow):
                     values.append(scope)
                     known.add(key)
 
+        name_aliases = {
+            "cpu": "پردازنده", "processor": "پردازنده",
+            "ram": "ظرفیت رم", "ramcapacity": "ظرفیت رم",
+            "ramtype": "نسل رم", "ddrversion": "نسخه DDR",
+            "storage": "حافظه داخلی", "internalstorage": "حافظه داخلی",
+            "gpu": "پردازنده گرافیکی", "graphicsprocessor": "پردازنده گرافیکی",
+            "display": "صفحه‌نمایش", "capacity": "ظرفیت",
+            "interface": "نوع رابط", "socket": "نوع سوکت",
+            "connectivity": "نوع اتصال / پورت", "specification": "مشخصات",
+            "specifications": "مشخصات", "additionaldetails": "مشخصات تکمیلی",
+            "size": "سایز", "panel": "نوع پنل", "paneltype": "نوع پنل",
+            "refreshrate": "نرخ نوسازی", "ports": "درگاه‌ها",
+            "voltage": "ولتاژ", "currentpower": "آمپر و توان",
+            "connector": "نوع سوکت", "networkstandard": "استاندارد شبکه",
+            "portcount": "تعداد درگاه", "printtechnology": "فناوری چاپ",
+            "printcolor": "نوع چاپ", "printtype": "نوع چاپ",
+            "frequency": "فرکانس", "bus": "فرکانس",
+            "warranty": "گارانتی", "serialnumber": "شماره سریال",
+            "model": "مدل", "brand": "برند",
+        }
+        display_titles = {
+            "پردازنده": "CPU", "ظرفیت رم": "RAM Capacity",
+            "نسل رم": "RAM Type", "نسخه DDR": "DDR Version",
+            "حافظه داخلی": "Storage", "پردازنده گرافیکی": "GPU",
+            "صفحه‌نمایش": "Display", "ظرفیت": "Capacity",
+            "نوع رابط": "Interface", "نوع سوکت": "Socket",
+            "نوع اتصال / پورت": "Connectivity", "مشخصات": "Specifications",
+            "مشخصات تکمیلی": "Additional Specifications",
+            "سایز": "Size", "نوع پنل": "Panel Type",
+            "نرخ نوسازی": "Refresh Rate", "درگاه‌ها": "Ports",
+            "ولتاژ": "Voltage", "آمپر و توان": "Current / Power",
+            "استاندارد شبکه": "Network Standard", "تعداد درگاه": "Port Count",
+            "فناوری چاپ": "Print Technology", "نوع چاپ": "Print Type",
+            "فرکانس": "Frequency", "گارانتی": "Warranty",
+            "شماره سریال": "Serial Number", "مدل": "Model", "برند": "Brand",
+        }
+        generic_titles = {
+            "specification", "specifications", "additional details",
+            "additional detail", "additional specifications",
+        }
+        for category, definitions in list(attributes.items()):
+            if not isinstance(definitions, list):
+                definitions = []
+            for item in definitions:
+                if not isinstance(item, dict):
+                    continue
+                raw_name = str(item.get("name") or "").strip()
+                normalized_name = normalize_catalog_label(raw_name)
+                if normalized_name in name_aliases:
+                    item["name"] = name_aliases[normalized_name]
+                elif normalized_name == normalize_catalog_label("مشخصه"):
+                    item["name"] = "مشخصات"
+                name = str(item.get("name") or "").strip()
+                raw_label = str(item.get("label") or "").strip()
+                if (
+                    not raw_label or raw_label.casefold() in generic_titles
+                    or normalize_catalog_label(raw_label) ==
+                       normalize_catalog_label("Additional Details")
+                ):
+                    item["label"] = display_titles.get(
+                        normalize_catalog_label(name), "Technical Specifications"
+                    )
+            attributes[category] = definitions
+
+        other_key = normalize_catalog_label("سایر موارد")
         for category in categories:
             current = subcategories.setdefault(category, [])
             removed_keys = {
@@ -6453,6 +6567,22 @@ class MainWindow(QMainWindow):
                 if key and key not in removed_keys and key not in known:
                     current.append(default_value)
                     known.add(key)
+            current[:] = [
+                value for value in current
+                if normalize_catalog_label(value) != other_key
+            ] + ["سایر موارد"]
+
+            definitions = attributes.setdefault(category, [])
+            definitions[:] = [
+                item for item in definitions
+                if not isinstance(item, dict)
+                or normalize_catalog_label(item.get("subcategory") or "") != other_key
+            ]
+            definitions.append({
+                "name": "مشخصات", "label": "Specifications",
+                "values": [], "subcategory": "سایر موارد",
+            })
+        merged["attributes"] = attributes
         return merged
 
     def _set_default_subcategory_removed(self, category, value, removed=True):
@@ -7367,15 +7497,21 @@ class MainWindow(QMainWindow):
         """Return the configured catalogue plus all active standard subcategories."""
         stored = self.db.get_product_catalog_config()
         if self.db.get_setting("product_catalog_config", ""):
-            return self._merge_default_catalog_subcategories(stored)
-        return self._merge_default_catalog_subcategories({
-            "categories": list(MAIN_CATEGORIES),
-            "subcategories": copy.deepcopy(DEFAULT_SUBCATEGORIES),
-            "removed_default_subcategories": {},
-            "attributes": copy.deepcopy(DEFAULT_ATTRIBUTES),
-            "colors": list(DEFAULT_COLORS),
-            "service_types": ["نرم‌افزاری", "سخت‌افزاری"],
-        })
+            normalized = self._merge_default_catalog_subcategories(stored)
+        else:
+            normalized = self._merge_default_catalog_subcategories({
+                "categories": list(MAIN_CATEGORIES),
+                "subcategories": copy.deepcopy(DEFAULT_SUBCATEGORIES),
+                "removed_default_subcategories": {},
+                "attributes": copy.deepcopy(DEFAULT_ATTRIBUTES),
+                "colors": list(DEFAULT_COLORS),
+                "service_types": ["نرم‌افزاری", "سخت‌افزاری"],
+            })
+        raw = self.db.get_setting("product_catalog_config", "")
+        normalized_json = json.dumps(normalized, ensure_ascii=False, separators=(",", ":"))
+        if raw != normalized_json:
+            self.db.save_product_catalog_config(normalized)
+        return normalized
 
     def _load_subcategory_caption(self, category):
         raw = self.db.get_setting("subcategory_field_labels", "{}")
@@ -7473,11 +7609,20 @@ class MainWindow(QMainWindow):
         # such as "Graphic Card" remain compatible with the visible "GRAPHIC CARD".
         subcategory = QComboBox.currentText(self.specs_widget.cb_sub).strip()
         definitions = self.catalog_config.get("attributes", {}).get(category, [])
-        applicable = [
-            item for item in definitions
-            if not str(item.get("subcategory") or "").strip()
-            or str(item.get("subcategory") or "").strip().casefold() == subcategory.casefold()
-        ]
+        if normalize_catalog_label(subcategory) == normalize_catalog_label("سایر موارد"):
+            applicable = [
+                item for item in definitions
+                if normalize_catalog_label(item.get("subcategory") or "") ==
+                   normalize_catalog_label("سایر موارد")
+                and normalize_catalog_label(item.get("name") or "") ==
+                    normalize_catalog_label("مشخصات")
+            ]
+        else:
+            applicable = [
+                item for item in definitions
+                if not str(item.get("subcategory") or "").strip()
+                or str(item.get("subcategory") or "").strip().casefold() == subcategory.casefold()
+            ]
         self.specs_widget.apply_custom_catalog(None, applicable)
 
     def _refresh_multi_db_combo(self):
@@ -8008,9 +8153,8 @@ class MainWindow(QMainWindow):
                     if batch["buyer_employee_id"] is not None
                     and int(batch["buyer_employee_id"]) in visible_employee_ids
                 ]
-            sale_product_ids = {
-                row["product_id"] for row in batches if int(row["remaining_qty"] or 0) > 0
-            }
+            # Keep products with historical sales selectable for invoice editing.
+            sale_product_ids = {row["product_id"] for row in batches}
 
         # بند ۳: قرار دادن دسته‌بندی و زیرگروه در متن آیتم‌های کمبوباکس کالا برای جست‌وجوی مستقیم (مثلاً تایپ «کیبورد»)
         self.cb_batch_prod.blockSignals(True)
@@ -8301,9 +8445,10 @@ class MainWindow(QMainWindow):
         data = []
         for r in rows:
             war_str = (
-                f"{r['warranty_company']} ({r['warranty_end']})"
-                if r["warranty_company"] or r["warranty_months"] or r["warranty_days"]
-                else "-"
+                f"{r['warranty_company']} ({r['warranty_end']})".strip()
+                if r["warranty_company"] or r["warranty_end"]
+                or r["warranty_months"] or r["warranty_days"]
+                else ""
             )
             product_prefix = str(r["sub_category"] or r["category"] or "").strip()
             brand_model = " ".join(
@@ -8325,7 +8470,7 @@ class MainWindow(QMainWindow):
                     prod_title,
                     r["batch_code"],
                     r["emp_name"],
-                    r["customer_name"] or "-",
+                    r["customer_name"] or "",
                     r["qty"],
                     f"{r['suggested_unit_price']:,}",
                     f"{r['actual_unit_price']:,}",
@@ -8337,7 +8482,7 @@ class MainWindow(QMainWindow):
                     f"{r['paid_amount']:,}",
                     r["settlement_status"],
                     war_str,
-                    r["serial_number"] or "-",
+                    r["serial_number"] or "",
                     r["specifications"] or r["final_specs"] or r["initial_specs"] or "-",
                     "، ".join(self._decode_colors(r["colors_json"])) or "-",
                 ]
