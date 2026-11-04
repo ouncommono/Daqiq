@@ -6663,7 +6663,7 @@ class MainWindow(QMainWindow):
             "Socket": ("سوکت", "Socket"),
             "نوع سوکت": ("سوکت", "Socket"),
             "Interface": ("رابط و فرم", "Interface"),
-            "نوع رابط": ("رابط و فرم", "Interface"),
+            "نوع رابط": ("نوع رابط", "Interface"),
             "Connectivity": ("نوع اتصال / پورت", "Connectivity"),
             "Specification": ("مشخصه", "Additional Details"),
             "Size": ("سایز", "Size"),
