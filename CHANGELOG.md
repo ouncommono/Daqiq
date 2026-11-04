@@ -1,3 +1,9 @@
+# Daqiq 3.2.0
+
+- Serialized product and sale stock changes with immediate SQLite transactions and guarded quantity deltas.
+- Synchronized hard-coded product fields and persisted specification keys with the configurable settings catalogue; corrected exact subcategory filtering and preserved the active scope during selection.
+- Unified subcategory management and field-caption saving, added taxonomy/stock indexes, and standardized fresh-install metadata to 3.2.0.
+
 # Daqiq 3.1.0
 
 - Serialized purchase shipment create/update/delete operations with SQLite write locks, bounded busy handling, and atomic supplier/batch/payment/audit writes.

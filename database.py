@@ -7,8 +7,8 @@ import jdatetime
 import time
 import hashlib
 
-APP_VERSION = "3.1.0"
-SCHEMA_VERSION = 310
+APP_VERSION = "3.2.0"
+SCHEMA_VERSION = 320
 
 
 def get_app_data_dir():
@@ -151,8 +151,8 @@ class DatabaseManager:
             }
             if existing_tables and current_version != SCHEMA_VERSION:
                 raise RuntimeError(
-                    "این پایگاه داده برای نسخه 3.1.0 ساخته نشده است. "
-                    "نسخه 3.1.0 به پایگاه داده تازه نیاز دارد و مهاجرت خودکار "
+                    "این پایگاه داده برای نسخه 3.2.0 ساخته نشده است. "
+                    "نسخه 3.2.0 به پایگاه داده تازه نیاز دارد و مهاجرت خودکار "
                     "از نسخه‌های قبلی پشتیبانی نمی‌شود."
                 )
             cur = conn.cursor()
@@ -503,6 +503,8 @@ class DatabaseManager:
                     f"ON {table_name}(COALESCE(updated_at, created_at) DESC, id DESC)"
                 )
             for index_sql in (
+                "CREATE INDEX IF NOT EXISTS idx_products_taxonomy ON products(category, sub_category, updated_at DESC, id DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_batches_product_stock ON batches(product_id, remaining_qty)",
                 "CREATE INDEX IF NOT EXISTS idx_batches_product_activity ON batches(product_id, updated_at DESC, id DESC)",
                 "CREATE INDEX IF NOT EXISTS idx_batches_supplier_activity ON batches(supplier_id, updated_at DESC, id DESC)",
                 "CREATE INDEX IF NOT EXISTS idx_batches_buyer_activity ON batches(buyer_employee_id, updated_at DESC, id DESC)",
@@ -801,14 +803,15 @@ class DatabaseManager:
         reorder_point,
         default_profit_pct,
     ):
-        if not code:
-            code = self.generate_next_code("products", "code", "P-", 1001)
         auto_name = (
             name.strip()
             if name and name.strip()
             else self.build_product_title(category, sub_category, brand, model)
         )
         with self.get_connection() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            if not code:
+                code = self.generate_next_code("products", "code", "P-", 1001, conn=conn)
             conn.execute(
                 """
                 INSERT INTO products (code, name, category, sub_category, brand, model, specs_json, description, reorder_point, default_profit_pct)
@@ -851,6 +854,7 @@ class DatabaseManager:
             else self.build_product_title(category, sub_category, brand, model)
         )
         with self.get_connection() as conn:
+            conn.execute("BEGIN IMMEDIATE")
             conn.execute(
                 """
                 UPDATE products SET code=?, name=?, category=?, sub_category=?, brand=?, model=?,
@@ -973,6 +977,7 @@ class DatabaseManager:
     def delete_product(self, prod_id):
         """Hard-delete product history and dependent batches transactionally."""
         with self.get_connection() as conn:
+            conn.execute("BEGIN IMMEDIATE")
             batch_rows = conn.execute(
                 "SELECT id FROM batches WHERE product_id=?", (prod_id,)
             ).fetchall()
@@ -1690,11 +1695,12 @@ class DatabaseManager:
         specifications="",
         colors=None,
     ):
-        qty = int(qty)
-        if qty <= 0:
-            raise ValueError("تعداد فروش باید حداقل ۱ عدد باشد.")
+        qty = self._batch_integer(qty, "تعداد فروش", minimum=1)
+        product_id = self._batch_integer(product_id, "کالا", minimum=1)
+        batch_id = self._batch_integer(batch_id, "محموله", minimum=1)
 
         with self.get_connection() as conn:
+            conn.execute("BEGIN IMMEDIATE")
             batch = conn.execute("""SELECT id, batch_code, product_id, supplier_id, buyer_employee_id, invoice_number,
             purchase_date, initial_qty, sold_qty, returned_qty, remaining_qty,
             unit_purchase_price, extra_cost_total, upgrade_cost_unit, unit_cost_price,
@@ -1720,7 +1726,7 @@ class DatabaseManager:
                     raise ValueError("یکی از رنگ‌های انتخاب‌شده در این محموله ثبت نشده است.")
 
             if not invoice_number:
-                invoice_number = self.generate_next_code("sales", "invoice_number", "INV-", 1001)
+                invoice_number = self.generate_next_code("sales", "invoice_number", "INV-", 1001, conn=conn)
 
             suggested_unit_price = int(suggested_unit_price)
             actual_unit_price = int(actual_unit_price)
@@ -1794,13 +1800,16 @@ class DatabaseManager:
             )
             sale_id = cur.lastrowid
 
-            cur.execute(
+            stock_update = conn.execute(
                 """
-                UPDATE batches SET sold_qty = sold_qty + ?, remaining_qty = remaining_qty - ?
-                WHERE id = ?
-            """,
-                (qty, qty, batch_id),
+                UPDATE batches
+                SET sold_qty = sold_qty + ?, remaining_qty = remaining_qty - ?
+                WHERE id = ? AND remaining_qty >= ?
+                """,
+                (qty, qty, batch_id, qty),
             )
+            if stock_update.rowcount != 1:
+                raise ValueError("موجودی محموله برای ثبت این تعداد کافی نیست.")
 
             if paid_amount > 0:
                 cur.execute(
@@ -1839,11 +1848,11 @@ class DatabaseManager:
         specifications=None,
         colors=None,
     ):
-        new_qty = int(new_qty)
-        if new_qty <= 0:
-            raise ValueError("تعداد فروش باید بیشتر از صفر باشد.")
+        new_qty = self._batch_integer(new_qty, "تعداد فروش", minimum=1)
+        sale_id = self._batch_integer(sale_id, "شناسه فروش", minimum=1)
 
         with self.get_connection() as conn:
+            conn.execute("BEGIN IMMEDIATE")
             old_sale = conn.execute("""SELECT id, invoice_number, product_id, batch_id, seller_employee_id,
             customer_name, qty, returned_qty, suggested_unit_price, actual_unit_price,
             unit_cost_price, unit_discount, total_discount, price_Markup_unit,
@@ -1862,7 +1871,11 @@ class DatabaseManager:
             serial_numbers, colors_json, initial_specs, final_specs,
             supplier_name_snapshot, notes, created_at, updated_at FROM batches WHERE id=?""", (old_sale["batch_id"],)
             ).fetchone()
-            diff_qty = new_qty - old_sale["qty"]
+            if batch is None:
+                raise ValueError("محموله مربوط به این فروش یافت نشد.")
+            if new_qty < int(old_sale["returned_qty"] or 0):
+                raise ValueError("تعداد فروش نمی‌تواند از تعداد مرجوع‌شده کمتر باشد.")
+            diff_qty = new_qty - int(old_sale["qty"])
             if diff_qty > batch["remaining_qty"]:
                 raise ValueError(
                     f"موجودی محموله برای افزایش تعداد کافی نیست. موجودی فعلی: {batch['remaining_qty']}"
@@ -1950,13 +1963,29 @@ class DatabaseManager:
                 ),
             )
 
-            conn.execute(
-                """
-                UPDATE batches SET sold_qty = sold_qty + ?, remaining_qty = remaining_qty - ?
-                WHERE id = ?
-            """,
-                (diff_qty, diff_qty, old_sale["batch_id"]),
-            )
+            if diff_qty > 0:
+                stock_update = conn.execute(
+                    """
+                    UPDATE batches
+                    SET sold_qty = sold_qty + ?, remaining_qty = remaining_qty - ?
+                    WHERE id = ? AND remaining_qty >= ?
+                    """,
+                    (diff_qty, diff_qty, old_sale["batch_id"], diff_qty),
+                )
+            elif diff_qty < 0:
+                restored_qty = -diff_qty
+                stock_update = conn.execute(
+                    """
+                    UPDATE batches
+                    SET sold_qty = sold_qty - ?, remaining_qty = remaining_qty + ?
+                    WHERE id = ? AND sold_qty >= ?
+                    """,
+                    (restored_qty, restored_qty, old_sale["batch_id"], restored_qty),
+                )
+            else:
+                stock_update = None
+            if diff_qty and stock_update.rowcount != 1:
+                raise ValueError("تغییر تعداد فروش با موجودی محموله سازگار نیست.")
 
             self.log_audit(
                 conn,
@@ -1966,7 +1995,9 @@ class DatabaseManager:
             conn.commit()
 
     def delete_sale(self, sale_id):
+        sale_id = self._batch_integer(sale_id, "شناسه فروش", minimum=1)
         with self.get_connection() as conn:
+            conn.execute("BEGIN IMMEDIATE")
             old_sale = conn.execute("""SELECT id, invoice_number, product_id, batch_id, seller_employee_id,
             customer_name, qty, returned_qty, suggested_unit_price, actual_unit_price,
             unit_cost_price, unit_discount, total_discount, price_Markup_unit,
@@ -1976,13 +2007,16 @@ class DatabaseManager:
             notes, created_at, updated_at FROM sales WHERE id=?""", (sale_id,)).fetchone()
             if not old_sale:
                 return
-            conn.execute(
+            stock_update = conn.execute(
                 """
-                UPDATE batches SET sold_qty = sold_qty - ?, remaining_qty = remaining_qty + ?
-                WHERE id = ?
-            """,
-                (old_sale["qty"], old_sale["qty"], old_sale["batch_id"]),
+                UPDATE batches
+                SET sold_qty = sold_qty - ?, remaining_qty = remaining_qty + ?
+                WHERE id = ? AND sold_qty >= ?
+                """,
+                (old_sale["qty"], old_sale["qty"], old_sale["batch_id"], old_sale["qty"]),
             )
+            if stock_update.rowcount != 1:
+                raise ValueError("موجودی مصرف‌شدهٔ محموله با سابقهٔ فروش سازگار نیست.")
             conn.execute("DELETE FROM payments WHERE ref_type='sale' AND ref_id=?", (sale_id,))
             conn.execute("DELETE FROM sales WHERE id=?", (sale_id,))
             self.log_audit(

@@ -48,7 +48,7 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
         assert window.tabs.count() == 10
         assert window.chk_upg_consume_stock.isChecked()
         assert window.tabs.tabText(9).endswith("تنظیمات")
-        assert window.lbl_app_version.text() == "دقیق | نسخه برنامه: 3.1.0"
+        assert window.lbl_app_version.text() == "دقیق | نسخه برنامه: 3.2.0"
         assert [window.catalog_tabs.tabText(i) for i in range(window.catalog_tabs.count())] == [
             "مدیریت کالاها",
             "مدیریت خدمات",
@@ -1663,6 +1663,91 @@ def test_comprehensive_report_uses_real_service_catalog_code(tmp_path, monkeypat
         ]
         assert "S-1001" in visible_codes
         assert "SRV" not in visible_codes
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
+def test_settings_catalog_synchronizes_builtin_and_saved_product_features(
+    tmp_path, monkeypatch, qapp
+):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    manager.add_product(
+        "P-CATALOG-SYNC", "", "قطعات", "رم کامپیوتر (RAM PC)",
+        "TestBrand", "TestModel",
+        {"فرکانس": "3200MHz", "ویژگی ذخیره‌شده": "مقدار آزمایشی"},
+        "", 2, 20,
+    )
+    window = MainWindow(manager, active_employee=None)
+    try:
+        parts = window._taxonomy_draft["attributes"]["قطعات"]
+        part_names = {
+            (item["name"], item.get("subcategory", ""))
+            for item in parts
+        }
+        assert ("فرکانس", "رم کامپیوتر (RAM PC)") in part_names
+        assert ("نسخه DDR", "رم کامپیوتر (RAM PC)") in part_names
+        assert ("ویژگی ذخیره‌شده", "رم کامپیوتر (RAM PC)") in part_names
+
+        monitor_names = {
+            item["name"] for item in window._taxonomy_draft["attributes"]["مانیتور"]
+        }
+        assert {"سایز", "پنل", "نرخ بروزرسانی", "پورت‌ها"} <= monitor_names
+
+        window.cb_cfg_category.setCurrentText("مانیتور")
+        scoped_subcategory = window._taxonomy_draft["subcategories"]["مانیتور"][0]
+        definitions = window._taxonomy_draft["attributes"].setdefault("مانیتور", [])
+        definitions.extend([
+            {"name": "ویژگی عمومی آزمون", "label": "", "values": [], "subcategory": ""},
+            {
+                "name": "ویژگی مختص آزمون", "label": "", "values": [],
+                "subcategory": scoped_subcategory,
+            },
+        ])
+        window.cb_cfg_attribute_subcategory.setCurrentIndex(0)
+        window._refresh_catalog_attribute_list()
+        all_names = {
+            window.lst_cfg_attributes.item(i).text().split("  ←")[0].split(" — ")[0].split("  [")[0]
+            for i in range(window.lst_cfg_attributes.count())
+        }
+        assert "ویژگی عمومی آزمون" in all_names
+        assert "ویژگی مختص آزمون" in all_names
+
+        scope_index = window.cb_cfg_attribute_subcategory.findData(scoped_subcategory)
+        assert scope_index > 0
+        window.cb_cfg_attribute_subcategory.setCurrentIndex(scope_index)
+        window._refresh_catalog_attribute_list()
+        specific_names = {
+            window.lst_cfg_attributes.item(i).text().split("  ←")[0].split(" — ")[0].split("  [")[0]
+            for i in range(window.lst_cfg_attributes.count())
+        }
+        assert "ویژگی مختص آزمون" in specific_names
+        assert "ویژگی عمومی آزمون" in specific_names  # Global definitions apply to every subcategory.
+
+        window.cb_cfg_attribute_subcategory.setCurrentIndex(0)
+        window._refresh_catalog_attribute_list()
+        target_index = next(
+            index for index, definition in enumerate(definitions)
+            if definition["name"] == "ویژگی مختص آزمون"
+        )
+        target_item = next(
+            window.lst_cfg_attributes.item(i)
+            for i in range(window.lst_cfg_attributes.count())
+            if window.lst_cfg_attributes.item(i).data(Qt.UserRole) == target_index
+        )
+        window.lst_cfg_attributes.setCurrentItem(target_item)
+        assert window.cb_cfg_attribute_subcategory.currentData() == ""
+
+        button_labels = {button.text() for button in window.findChildren(QPushButton)}
+        assert "افزودن/تغییرنام" in button_labels
+        assert "ذخیره عنوان" not in button_labels
+
+        window.ed_subcategory_caption.setText("نوع دستگاه آزمایشی")
+        window._add_or_rename_catalog_subcategory()
+        saved_labels = json.loads(manager.get_setting("subcategory_field_labels", "{}"))
+        assert saved_labels["مانیتور"] == "نوع دستگاه آزمایشی"
     finally:
         window.close()
         qapp.processEvents()

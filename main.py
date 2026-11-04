@@ -76,7 +76,7 @@ from exporter import (
     get_next_excel_filename,
 )
 
-APP_VERSION = "3.1.0"
+APP_VERSION = "3.2.0"
 
 DEFAULT_ACCESS_LEVELS = [
     {"name": "دسترسی کامل (مدیر کل)", "policy": "دسترسی کامل (مدیر کل)"},
@@ -5923,16 +5923,12 @@ class MainWindow(QMainWindow):
         self.ed_cfg_subcategory = QLineEdit()
         self.ed_cfg_subcategory.setPlaceholderText("نام زیرمجموعه را وارد کنید؛ مثلاً صفحه‌نمایش یا پردازنده...")
         sub_btn_row = QHBoxLayout()
-        btn_add_sub = QPushButton("افزودن")
-        btn_add_sub.clicked.connect(self._add_catalog_subcategory)
-        btn_rename_sub = QPushButton("تغییر نام")
-        btn_rename_sub.setObjectName("btnSecondary")
-        btn_rename_sub.clicked.connect(self._rename_catalog_subcategory)
+        btn_add_or_rename_sub = QPushButton("افزودن/تغییرنام")
+        btn_add_or_rename_sub.clicked.connect(self._add_or_rename_catalog_subcategory)
         btn_delete_sub = QPushButton("حذف")
         btn_delete_sub.setObjectName("btnDanger")
         btn_delete_sub.clicked.connect(self._delete_catalog_subcategory)
-        sub_btn_row.addWidget(btn_add_sub)
-        sub_btn_row.addWidget(btn_rename_sub)
+        sub_btn_row.addWidget(btn_add_or_rename_sub)
         sub_btn_row.addWidget(btn_delete_sub)
         sub_layout.addWidget(CollapsibleSection("فهرست زیرمجموعه‌ها", self.lst_cfg_subcategories))
         sub_layout.addWidget(labeled_field("نام زیرمجموعه:", self.ed_cfg_subcategory))
@@ -5943,9 +5939,6 @@ class MainWindow(QMainWindow):
         subcaption_row.setContentsMargins(0, 0, 0, 0)
         subcaption_row.setSpacing(8)
         subcaption_row.addWidget(self.ed_subcategory_caption, 1)
-        btn_save_subcaption = QPushButton("ذخیره عنوان")
-        btn_save_subcaption.clicked.connect(self._save_subcategory_caption)
-        subcaption_row.addWidget(btn_save_subcaption)
         sub_layout.addWidget(
             labeled_field("عنوان فیلد زیرمجموعه:", subcaption_editor)
         )
@@ -6509,6 +6502,112 @@ class MainWindow(QMainWindow):
             ):
                 values.append(raw_subcategory)
 
+    def _merge_builtin_product_features_into_draft(self):
+        """Mirror DynamicSpecsWidget's built-in fields into the configurable catalogue."""
+        attributes = self._taxonomy_draft.setdefault("attributes", {})
+        subcategories = self._taxonomy_draft.setdefault("subcategories", {})
+        for category in list(self._taxonomy_draft.get("categories", [])):
+            widget = DynamicSpecsWidget()
+            try:
+                widget.set_category(category)
+                scopes = (
+                    list(subcategories.get(category, []))
+                    if category == "قطعات" else [""]
+                )
+                for scope in scopes:
+                    if category == "قطعات" and widget.cb_sub is not None:
+                        if widget.cb_sub.findText(scope) < 0:
+                            widget.cb_sub.addItem(scope)
+                        widget.cb_sub.setCurrentText(scope)
+                    definitions = attributes.setdefault(category, [])
+                    for field_name, field_widget in widget.fields.items():
+                        name = str(field_name or "").strip()
+                        name_key = normalize_catalog_label(name)
+                        if not name_key:
+                            continue
+                        values = []
+                        if isinstance(field_widget, QComboBox):
+                            values = [
+                                field_widget.itemText(index).strip()
+                                for index in range(field_widget.count())
+                                if field_widget.itemText(index).strip()
+                            ]
+                        existing = next(
+                            (
+                                item for item in definitions
+                                if normalize_catalog_label(item.get("name")) == name_key
+                                and normalize_catalog_label(item.get("subcategory") or "")
+                                == normalize_catalog_label(scope)
+                            ),
+                            None,
+                        )
+                        if existing is None:
+                            definitions.append({
+                                "name": name,
+                                "label": "",
+                                "values": list(dict.fromkeys(values)),
+                                "subcategory": scope,
+                            })
+            finally:
+                widget.deleteLater()
+
+    def _merge_persisted_product_spec_fields_into_draft(self):
+        """Recover feature keys saved on products but missing from the settings catalogue."""
+        with self.db.get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT category, sub_category, specs_json
+                FROM products
+                WHERE TRIM(COALESCE(category, '')) <> ''
+                ORDER BY category COLLATE NOCASE, sub_category COLLATE NOCASE, id
+                """
+            ).fetchall()
+
+        attributes = self._taxonomy_draft.setdefault("attributes", {})
+        for row in rows:
+            category = str(row["category"] or "").strip()
+            scope = str(row["sub_category"] or "").strip()
+            if not category:
+                continue
+            try:
+                specs = json.loads(row["specs_json"] or "{}")
+            except (TypeError, ValueError, json.JSONDecodeError):
+                continue
+            if not isinstance(specs, dict):
+                continue
+            definitions = attributes.setdefault(category, [])
+            for raw_name in specs:
+                name = str(raw_name or "").strip()
+                name_key = normalize_catalog_label(name)
+                if not name_key:
+                    continue
+                if any(
+                    normalize_catalog_label(item.get("name")) == name_key
+                    and (
+                        not str(item.get("subcategory") or "").strip()
+                        or normalize_catalog_label(item.get("subcategory"))
+                        == normalize_catalog_label(scope)
+                    )
+                    for item in definitions
+                ):
+                    continue
+                definitions.append({
+                    "name": name,
+                    "label": "",
+                    "values": [],
+                    "subcategory": scope,
+                })
+
+    def _add_or_rename_catalog_subcategory(self):
+        """Apply subcategory create/rename and field-caption changes from one action."""
+        selected = self.lst_cfg_subcategories.currentItem()
+        new_name = self.ed_cfg_subcategory.text().strip()
+        if selected is None and new_name:
+            self._add_catalog_subcategory()
+        elif selected is not None and new_name and new_name != selected.text():
+            self._rename_catalog_subcategory()
+        self._save_subcategory_caption(show_warning=False)
+
     def _load_catalog_customization_form(self):
         stored = self.db.get_product_catalog_config()
         defaults = {
@@ -6543,12 +6642,18 @@ class MainWindow(QMainWindow):
             "GPU": ("پردازنده گرافیکی", "GPU"),
             "Graphic Card": ("پردازنده گرافیکی", "GPU"),
             "Display": ("صفحه‌نمایش", "Display"),
-            "Panel": ("نوع پنل", "Panel"),
-            "Refresh Rate": ("نرخ نوسازی", "Refresh Rate"),
-            "Ports": ("درگاه‌ها", "Ports"),
+            "Panel": ("پنل", "Panel"),
+            "نوع پنل": ("پنل", "Panel"),
+            "Refresh Rate": ("نرخ بروزرسانی", "Refresh Rate"),
+            "نرخ نوسازی": ("نرخ بروزرسانی", "Refresh Rate"),
+            "Ports": ("پورت‌ها", "Ports"),
+            "درگاه‌ها": ("پورت‌ها", "Ports"),
             "Capacity": ("ظرفیت", "Capacity"),
             "Interface": ("نوع رابط", "Interface"),
-            "Socket": ("نوع سوکت", "Socket"),
+            "Socket": ("سوکت", "Socket"),
+            "نوع سوکت": ("سوکت", "Socket"),
+            "Interface": ("رابط و فرم", "Interface"),
+            "نوع رابط": ("رابط و فرم", "Interface"),
             "Connectivity": ("نوع اتصال / پورت", "Connectivity"),
             "Specification": ("مشخصه", "Specification"),
             "Size": ("سایز", "Size"),
@@ -6597,6 +6702,8 @@ class MainWindow(QMainWindow):
                     definition["label"] = (
                         default_display_titles.get(current_name, "Specification")
                     )
+        self._merge_builtin_product_features_into_draft()
+        self._merge_persisted_product_spec_fields_into_draft()
         self._deduplicate_catalog_draft()
 
         # Use the normalized draft immediately in product forms; persistence and
@@ -6912,6 +7019,7 @@ class MainWindow(QMainWindow):
         else:
             values.append(name)
         self.ed_cfg_subcategory.clear()
+        self._merge_builtin_product_features_into_draft()
         self._refresh_catalog_management_lists()
 
     def _rename_catalog_subcategory(self):
@@ -6955,6 +7063,7 @@ class MainWindow(QMainWindow):
             if normalize_catalog_label(definition.get("subcategory") or "") == normalize_catalog_label(old):
                 definition["subcategory"] = canonical
         self.ed_cfg_subcategory.clear()
+        self._merge_builtin_product_features_into_draft()
         self._refresh_catalog_management_lists()
 
     def _delete_catalog_subcategory(self):
@@ -7062,23 +7171,7 @@ class MainWindow(QMainWindow):
             self.ed_cfg_attribute_name.setText(definition["name"])
             self.ed_cfg_attribute_label.setText(definition.get("label", ""))
             self.ed_cfg_attribute_values.setText(", ".join(definition.get("values", [])))
-            scope_index = self.cb_cfg_attribute_subcategory.findData(
-                definition.get("subcategory", "") or ""
-            )
-            current_scope = self.cb_cfg_attribute_subcategory.currentIndex()
-            target_scope = scope_index if scope_index >= 0 else 0
-            if target_scope != current_scope:
-                # A filter change rebuilds the list. Block the signal, rebuild
-                # intentionally, then restore the selected definition by index.
-                self.cb_cfg_attribute_subcategory.blockSignals(True)
-                self.cb_cfg_attribute_subcategory.setCurrentIndex(target_scope)
-                self.cb_cfg_attribute_subcategory.blockSignals(False)
-                self._refresh_catalog_attribute_list()
-                for row in range(self.lst_cfg_attributes.count()):
-                    entry = self.lst_cfg_attributes.item(row)
-                    if entry.data(Qt.UserRole) == definition_index:
-                        self.lst_cfg_attributes.setCurrentItem(entry)
-                        break
+            # Selecting a feature populates its editor without changing the active filter.
 
     def _update_catalog_attribute(self):
         category = self.cb_cfg_category.currentText().strip()
@@ -7098,7 +7191,7 @@ class MainWindow(QMainWindow):
         old_name = str(current.get("name") or "").strip()
         old_scope = str(current.get("subcategory") or "").strip()
         new_name = self.ed_cfg_attribute_name.text().strip() or old_name
-        new_scope = self.cb_cfg_attribute_subcategory.currentData() or ""
+        new_scope = self.cb_cfg_attribute_subcategory.currentData() or old_scope
         if not new_name:
             QMessageBox.warning(self, "نام ویژگی لازم است", "نام ویژگی را وارد کنید.")
             return
@@ -7285,12 +7378,13 @@ class MainWindow(QMainWindow):
             if isinstance(labels, dict) else "زیرمجموعه"
         )
 
-    def _save_subcategory_caption(self):
+    def _save_subcategory_caption(self, show_warning=True):
         category = self.cb_cfg_category.currentText().strip()
         caption = self.ed_subcategory_caption.text().strip()
         if not category or not caption:
-            QMessageBox.warning(self, "عنوان فیلد", "دسته‌بندی و عنوان فیلد را وارد کنید.")
-            return
+            if show_warning:
+                QMessageBox.warning(self, "عنوان فیلد", "دسته‌بندی و عنوان فیلد را وارد کنید.")
+            return False
         raw = self.db.get_setting("subcategory_field_labels", "{}")
         try:
             labels = json.loads(raw or "{}")
@@ -7304,6 +7398,7 @@ class MainWindow(QMainWindow):
         )
         if self.cb_prod_cat.currentText().strip() == category:
             self._configure_product_specs(category)
+        return True
 
     def _configure_product_specs(self, category):
         if not hasattr(self, "specs_widget"):
