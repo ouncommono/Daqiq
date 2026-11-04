@@ -5413,15 +5413,24 @@ class MainWindow(QMainWindow):
 
         gb_attributes = QGroupBox("مشخصات فنی سفارشی")
         attr_layout = QVBoxLayout(gb_attributes)
-        attr_layout.setContentsMargins(10, 10, 10, 10)
-        attr_layout.setSpacing(8)
+        gb_attributes.setLayoutDirection(Qt.RightToLeft)
+        attr_layout.setContentsMargins(12, 12, 12, 12)
+        attr_layout.setSpacing(9)
         self.lst_cfg_attributes = SmoothScrollListWidget()
         self.lst_cfg_attributes.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.lst_cfg_attributes.verticalScrollBar().setSingleStep(18)
-        self.lst_cfg_attributes.setMaximumHeight(125)
+        self.lst_cfg_attributes.setMinimumHeight(92)
+        self.lst_cfg_attributes.setMaximumHeight(100)
+        self.lst_cfg_attributes.setSizePolicy(
+            QSizePolicy.Expanding, QSizePolicy.Fixed
+        )
         self.ed_cfg_attribute_name = QLineEdit()
-        self.ed_cfg_attribute_name.setPlaceholderText("نام فارسی ویژگی؛ مثلاً پردازنده، ظرفیت رم یا نوع پنل")
+        self.ed_cfg_attribute_name.setMinimumHeight(32)
+        self.ed_cfg_attribute_name.setPlaceholderText(
+            "نام فارسی ویژگی؛ مثلاً پردازنده، ظرفیت رم یا نوع پنل"
+        )
         self.ed_cfg_attribute_label = QLineEdit()
+        self.ed_cfg_attribute_label.setMinimumHeight(32)
         self.ed_cfg_attribute_label.setPlaceholderText(
             "عنوان انگلیسی برای نمایش؛ مثلاً CPU یا RAM. در صورت نیاز می‌توانید خالی بگذارید."
         )
@@ -5433,20 +5442,29 @@ class MainWindow(QMainWindow):
         )
         self.lbl_cfg_attribute_help.setWordWrap(True)
         self.lbl_cfg_attribute_help.setObjectName("settingsHint")
+        self.lbl_cfg_attribute_help.setMinimumHeight(38)
         self.ed_cfg_attribute_values = QLineEdit()
+        self.ed_cfg_attribute_values.setMinimumHeight(32)
         self.ed_cfg_attribute_values.setPlaceholderText(
             "مقادیر پیشنهادی را با ویرگول جدا کنید؛ هنگام ثبت کالا امکان تایپ مقدار دیگر هم وجود دارد."
         )
         self.cb_cfg_attribute_subcategory = QComboBox()
         self.cb_cfg_attribute_subcategory.addItem("همهٔ زیرمجموعه‌ها", "")
-        lbl_scope = QLabel("این ویژگی برای کدام زیرمجموعه باشد؟")
+        self.cb_cfg_attribute_subcategory.setMinimumHeight(32)
+        lbl_scope = QLabel("دامنه زیرمجموعه:")
         lbl_scope.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        attr_layout.addWidget(lbl_scope)
-        attr_layout.addWidget(self.cb_cfg_attribute_subcategory)
+        lbl_scope.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        scope_row = QHBoxLayout()
+        scope_row.setSpacing(10)
+        scope_row.addWidget(lbl_scope)
+        scope_row.addWidget(self.cb_cfg_attribute_subcategory, 1)
+        attr_layout.addLayout(scope_row)
+
         self.lst_cfg_attributes.currentItemChanged.connect(
             self._on_catalog_attribute_selected
         )
         attr_btn_row = QHBoxLayout()
+        attr_btn_row.setSpacing(8)
         btn_add_attr = QPushButton("افزودن ویژگی")
         btn_add_attr.clicked.connect(self._add_catalog_attribute)
         btn_update_attr = QPushButton("ویرایش")
@@ -5458,21 +5476,39 @@ class MainWindow(QMainWindow):
         attr_btn_row.addWidget(btn_add_attr)
         attr_btn_row.addWidget(btn_update_attr)
         attr_btn_row.addWidget(btn_delete_attr)
+
+        lbl_attribute_list = QLabel("فهرست ویژگی‌های تعریف‌شده:")
+        lbl_attribute_list.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        lbl_attribute_list.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        attr_layout.addWidget(lbl_attribute_list)
+        attr_layout.addWidget(self.lst_cfg_attributes)
+
         lbl_attribute_name = QLabel("نام ویژگی (فارسی):")
         lbl_attribute_name.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         lbl_attribute_title = QLabel("عنوان نمایشی (انگلیسی، اختیاری):")
         lbl_attribute_title.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         lbl_attribute_values = QLabel("مقادیر پیشنهادی:")
         lbl_attribute_values.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        attr_layout.addWidget(CollapsibleSection("فهرست ویژگی‌های تعریف‌شده", self.lst_cfg_attributes))
-        attr_layout.addWidget(lbl_attribute_name)
-        attr_layout.addWidget(self.ed_cfg_attribute_name)
-        attr_layout.addWidget(lbl_attribute_title)
-        attr_layout.addWidget(self.ed_cfg_attribute_label)
-        attr_layout.addWidget(self.lbl_cfg_attribute_help)
-        attr_layout.addWidget(lbl_attribute_values)
-        attr_layout.addWidget(self.ed_cfg_attribute_values)
-        attr_layout.addLayout(attr_btn_row)
+        for label_widget in (
+            lbl_attribute_name, lbl_attribute_title, lbl_attribute_values,
+        ):
+            label_widget.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+
+        attribute_grid = QGridLayout()
+        attribute_grid.setContentsMargins(0, 0, 0, 0)
+        attribute_grid.setHorizontalSpacing(10)
+        attribute_grid.setVerticalSpacing(8)
+        attribute_grid.setColumnStretch(1, 1)
+        attribute_grid.setColumnStretch(3, 1)
+        attribute_grid.addWidget(lbl_attribute_name, 0, 0)
+        attribute_grid.addWidget(self.ed_cfg_attribute_name, 0, 1)
+        attribute_grid.addWidget(lbl_attribute_title, 0, 2)
+        attribute_grid.addWidget(self.ed_cfg_attribute_label, 0, 3)
+        attribute_grid.addWidget(lbl_attribute_values, 1, 0)
+        attribute_grid.addWidget(self.ed_cfg_attribute_values, 1, 1, 1, 3)
+        attribute_grid.addWidget(self.lbl_cfg_attribute_help, 2, 0, 1, 4)
+        attribute_grid.addLayout(attr_btn_row, 3, 0, 1, 4)
+        attr_layout.addLayout(attribute_grid)
 
         gb_colors = QGroupBox("رنگ‌های قابل انتخاب کالا")
         colors_layout = QVBoxLayout(gb_colors)
@@ -5525,8 +5561,16 @@ class MainWindow(QMainWindow):
         categories_layout.addLayout(subcaption_row)
         categories_layout.addWidget(self.cb_subcategory_caption_category)
 
+        catalog_grid.setContentsMargins(8, 8, 8, 8)
+        catalog_grid.setHorizontalSpacing(14)
+        catalog_grid.setVerticalSpacing(14)
+        catalog_grid.setColumnStretch(0, 1)
+        catalog_grid.setColumnStretch(1, 1)
+        catalog_grid.setRowStretch(0, 1)
+        catalog_grid.setRowStretch(1, 1)
         for frame in (gb_categories, gb_subcategories, gb_attributes, gb_colors):
-            frame.setFixedHeight(360)
+            frame.setMinimumHeight(440)
+            frame.setMaximumHeight(440)
             frame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
         catalog_grid.addWidget(gb_categories, 0, 0)
