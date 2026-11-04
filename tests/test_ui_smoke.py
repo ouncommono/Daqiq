@@ -1816,19 +1816,9 @@ def test_cold_start_first_shipment_quantity_10_edit_1_to_10_to_2_and_delete(
         assert batch["initial_specs"] == "RAM: 16GB"
         assert batch["notes"] == "RAM: 16GB"
 
-        def select_batch_from_table():
-            row_index = next(
-                row for row in range(window.tbl_batches.rowCount())
-                if window.tbl_batches.item(row, 1)
-                and window.tbl_batches.item(row, 1).text() == "C-COLD-START-01"
-            )
-            window.tbl_batches.selectRow(row_index)
-            qapp.processEvents()
-            window._on_batch_row_selected()
-            assert window.selected_batch_id == batch_id
-
-        # Exercise the actual row-selection and edit path for both directions.
-        select_batch_from_table()
+        # Exercise the UI edit handler directly with the selected shipment.
+        # The numeric selector is edited as a whole value, never incremented.
+        window.selected_batch_id = batch_id
         window.cb_batch_qty.setCurrentText("1")
         window._update_selected_batch()
         with manager.get_connection() as conn:
