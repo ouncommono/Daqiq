@@ -6548,12 +6548,6 @@ class MainWindow(QMainWindow):
                                 "values": list(dict.fromkeys(values)),
                                 "subcategory": scope,
                             })
-                        else:
-                            merged_values = list(existing.get("values") or []) + values
-                            existing["values"] = list(dict.fromkeys(
-                                str(value).strip() for value in merged_values
-                                if value is not None and str(value).strip()
-                            ))
             finally:
                 widget.deleteLater()
 
@@ -6669,8 +6663,7 @@ class MainWindow(QMainWindow):
             "Print Technology": ("فناوری چاپ", "Print Technology"),
             "Print Color": ("نوع چاپ", "Print Color"),
             "TDP": ("توان طراحی حرارتی", "TDP"),
-            "VRAM": ("حافظه VRAM", "VRAM"),
-            "حافظه گرافیکی": ("حافظه VRAM", "VRAM"),
+            "VRAM": ("حافظه گرافیکی", "VRAM"),
         }
         default_display_titles = {
             "پردازنده": "CPU", "ظرفیت رم": "RAM", "نسل رم": "RAM Type",
@@ -6786,7 +6779,7 @@ class MainWindow(QMainWindow):
             identity = (feature_key, scope_key)
             if not feature_key or identity in seen:
                 continue
-            if selected_scope and scope_key != selected_scope:
+            if selected_scope and scope_key and scope_key != selected_scope:
                 continue
             seen.add(identity)
             values = "، ".join(definition.get("values", []))
