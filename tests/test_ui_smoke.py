@@ -48,7 +48,7 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
         assert window.tabs.count() == 10
         assert window.chk_upg_consume_stock.isChecked()
         assert window.tabs.tabText(9).endswith("تنظیمات")
-        assert window.lbl_app_version.text() == "دقیق | نسخه برنامه: 3.0.0"
+        assert window.lbl_app_version.text() == "دقیق | نسخه برنامه: 3.1.0"
         assert [window.catalog_tabs.tabText(i) for i in range(window.catalog_tabs.count())] == [
             "مدیریت کالاها",
             "مدیریت خدمات",
@@ -248,6 +248,42 @@ def test_database_refresh_keeps_services_suppliers_and_password_status_visible(
             batch_count = conn.execute("SELECT COUNT(*) FROM batches").fetchone()[0]
         assert batch_count == 2
 
+        # The same purchase form must update and delete a shipment without
+        # leaving supplier, payment, or sale references behind.
+        with manager.get_connection() as conn:
+            purchase_id = int(conn.execute(
+                "SELECT id FROM batches WHERE invoice_number='PO-2'"
+            ).fetchone()["id"])
+        window.selected_batch_id = purchase_id
+        window.ed_batch_inv.setText("PO-2-EDIT")
+        window.cb_batch_qty.setCurrentText("3")
+        window.pr_batch_buy.set_value(110)
+        window.pr_batch_extra.set_value(30)
+        window.pr_batch_suggest.set_value(170)
+        window.cb_batch_status.setCurrentText("تسویه‌نشده")
+        window.pr_batch_paid.set_value(0)
+        window.ed_batch_serial.setText("SERIAL-UPDATED")
+        window._update_selected_batch()
+        with manager.get_connection() as conn:
+            edited = conn.execute(
+                "SELECT invoice_number, initial_qty, remaining_qty, unit_purchase_price "
+                "FROM batches WHERE id=?",
+                (purchase_id,),
+            ).fetchone()
+        assert edited["invoice_number"] == "PO-2-EDIT"
+        assert edited["initial_qty"] == 3
+        assert edited["remaining_qty"] == 3
+        assert edited["unit_purchase_price"] == 110
+
+        monkeypatch.setattr(main_module, "_ask_yes_no", lambda *_args: True)
+        window.selected_batch_id = purchase_id
+        window._delete_selected_batch()
+        with manager.get_connection() as conn:
+            assert conn.execute(
+                "SELECT COUNT(*) FROM batches WHERE id=?", (purchase_id,)
+            ).fetchone()[0] == 0
+            assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+
         # Adding a tariff must both persist it and refresh the visible catalog.
         window.ed_srv_name.setText("نصب ویندوز آزمون")
         window.ed_srv_code.clear()
@@ -334,6 +370,29 @@ def test_database_refresh_keeps_services_suppliers_and_password_status_visible(
 
 
 
+def test_create_database_action_defaults_to_new_daqiq_filename(
+    tmp_path, monkeypatch, qapp
+):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "active.db"))
+    window = MainWindow(manager, active_employee=None)
+    captured = []
+
+    def capture_dialog(*args, **kwargs):
+        captured.append(args)
+        return "", ""
+
+    monkeypatch.setattr(main_module.QFileDialog, "getSaveFileName", capture_dialog)
+    try:
+        window._create_and_connect_new_db()
+        assert captured
+        assert os.path.basename(captured[0][2]) == "NewDaqiq.db"
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
 def test_first_run_database_wizard_validates_new_and_existing_files(tmp_path, monkeypatch, qapp):
     monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
     monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
@@ -391,9 +450,12 @@ def test_sale_batch_picker_shows_only_distinguishing_specifications(tmp_path, mo
             strip_bidi_controls(window.cb_sale_batch.itemText(index))
             for index in range(window.cb_sale_batch.count())
         ]
-        assert any("RAM: 8GB" in label for label in labels)
-        assert any("RAM: 16GB" in label for label in labels)
-        assert all("CPU:" not in label and "SSD:" not in label for label in labels)
+        assert set(labels) == {
+            "C-2001 | رنگ: - | قیمت پیشنهادی: 150 تومان",
+            "C-2002 | رنگ: - | قیمت پیشنهادی: 150 تومان",
+        }
+        assert all("RAM:" not in label and "CPU:" not in label for label in labels)
+        assert window.cb_sale_batch.view().layoutDirection() == Qt.RightToLeft
 
         missing_spec_labels = MainWindow._batch_variant_labels([
             {"id": 1, "final_specs": "CPU: Core i7 | RAM: 8GB"},
@@ -401,10 +463,12 @@ def test_sale_batch_picker_shows_only_distinguishing_specifications(tmp_path, mo
         ])
         assert missing_spec_labels[2] == "RAM: ثبت نشده"
 
-        tooltips = [
-            strip_bidi_controls(window.cb_sale_batch.itemData(index, Qt.ToolTipRole))
+        raw_tooltips = [
+            window.cb_sale_batch.itemData(index, Qt.ToolTipRole)
             for index in range(window.cb_sale_batch.count())
         ]
+        assert all('dir="rtl"' in tooltip and 'align="right"' in tooltip for tooltip in raw_tooltips)
+        tooltips = [strip_bidi_controls(tooltip) for tooltip in raw_tooltips]
         assert any("RAM: 8GB" in tooltip for tooltip in tooltips)
         assert any("RAM: 16GB" in tooltip for tooltip in tooltips)
         assert all("CPU: Core i7" in tooltip and "SSD: 512GB" in tooltip for tooltip in tooltips)
@@ -951,7 +1015,9 @@ def test_sales_all_products_loads_batches_and_saves_the_selected_batch_product(
             if window.cb_sale_batch.itemData(index)["batch_code"] == "C-ALL-2"
         )
         batch_label = window.cb_sale_batch.itemText(batch_index)
-        assert "View" in batch_label and "|" in batch_label
+        assert strip_bidi_controls(batch_label) == (
+            "C-ALL-2 | رنگ: آبی | قیمت پیشنهادی: 300 تومان"
+        )
         window.cb_sale_batch.setCurrentIndex(batch_index)
         batch = window.cb_sale_batch.currentData()
         assert batch["product_id"] == product_ids["P-ALL-2"]
@@ -1052,6 +1118,115 @@ def test_catalog_aliases_are_merged_and_existing_product_specs_are_migrated(
         qapp.processEvents()
 
 
+def test_catalog_settings_recovers_product_subcategories_and_filters_feature_scope(
+    tmp_path, monkeypatch, qapp
+):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "shop.db"))
+    manager.add_product(
+        "P-HIDDEN-SUBCATEGORY", "", "قطعات", "زیرمجموعه ثبت‌شده",
+        "Acme", "Part-1", {}, "", 1, 20,
+    )
+    manager.save_product_catalog_config({
+        "categories": ["قطعات"],
+        "subcategories": {
+            "قطعات": ["پردازنده (CPU)", "کارت گرافیک (Graphic Card)"]
+        },
+        "attributes": {
+            "قطعات": [
+                {
+                    "name": "فرکانس پردازنده",
+                    "label": "CPU Frequency",
+                    "values": [],
+                    "subcategory": "پردازنده (CPU)",
+                },
+                {
+                    "name": "حافظه گرافیکی",
+                    "label": "VRAM",
+                    "values": [],
+                    "subcategory": "کارت گرافیک (Graphic Card)",
+                },
+                {
+                    "name": "مشخصه مشترک",
+                    "label": "Specification",
+                    "values": [],
+                    "subcategory": "",
+                },
+            ]
+        },
+        "colors": [],
+    })
+    manager.set_setting(
+        "subcategory_field_labels",
+        json.dumps({"قطعات": "نوع قطعه"}, ensure_ascii=False),
+    )
+
+    window = MainWindow(manager, active_employee=None)
+    try:
+        window.cb_cfg_category.setCurrentText("قطعات")
+        subcategory_names = [
+            window.lst_cfg_subcategories.item(index).text()
+            for index in range(window.lst_cfg_subcategories.count())
+        ]
+        assert "زیرمجموعه ثبت‌شده" in subcategory_names
+        assert "کارت گرافیک (Graphic Card)" in subcategory_names
+
+        assert not hasattr(window, "cb_subcategory_caption_category")
+        assert window.ed_subcategory_caption.text() == "نوع قطعه"
+        window.ed_subcategory_caption.setText("نوع قطعه جدید")
+        window._save_subcategory_caption()
+        saved_labels = json.loads(manager.get_setting("subcategory_field_labels", "{}"))
+        assert saved_labels["قطعات"] == "نوع قطعه جدید"
+
+        cpu_index = window.cb_cfg_attribute_subcategory.findData("پردازنده (CPU)")
+        gpu_index = window.cb_cfg_attribute_subcategory.findData("کارت گرافیک (Graphic Card)")
+        assert cpu_index >= 0 and gpu_index >= 0
+
+        window.cb_cfg_attribute_subcategory.setCurrentIndex(cpu_index)
+        cpu_features = [
+            window.lst_cfg_attributes.item(index).text()
+            for index in range(window.lst_cfg_attributes.count())
+        ]
+        assert any("فرکانس پردازنده" in item for item in cpu_features)
+        assert any("مشخصه مشترک" in item for item in cpu_features)
+        assert not any("حافظه گرافیکی" in item for item in cpu_features)
+
+        window.cb_cfg_attribute_subcategory.setCurrentIndex(gpu_index)
+        gpu_features = [
+            window.lst_cfg_attributes.item(index).text()
+            for index in range(window.lst_cfg_attributes.count())
+        ]
+        assert any("حافظه گرافیکی" in item for item in gpu_features)
+        assert any("مشخصه مشترک" in item for item in gpu_features)
+        assert not any("فرکانس پردازنده" in item for item in gpu_features)
+
+        # Selecting a universal feature while filtered by a subcategory must
+        # preserve the selection after the list is rebuilt for its own scope.
+        common_index = next(
+            index for index in range(window.lst_cfg_attributes.count())
+            if "مشخصه مشترک" in window.lst_cfg_attributes.item(index).text()
+        )
+        window.lst_cfg_attributes.setCurrentRow(common_index)
+        assert window.lst_cfg_attributes.currentItem() is not None
+        window.ed_cfg_attribute_label.setText("Shared Specification")
+        window._update_catalog_attribute()
+        assert any(
+            item.get("name") == "مشخصه مشترک"
+            and item.get("label") == "Shared Specification"
+            for item in window._taxonomy_draft["attributes"]["قطعات"]
+        )
+
+        recent_rows = window.lst_recent_databases.findChildren(
+            QWidget, "databaseRecentRow"
+        )
+        assert window.lst_recent_databases.objectName() == "recentDatabasesList"
+        assert recent_rows
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
 def test_technical_attributes_follow_selected_subcategory_and_are_editable(
     tmp_path, monkeypatch, qapp
 ):
@@ -1083,14 +1258,14 @@ def test_technical_attributes_follow_selected_subcategory_and_are_editable(
     window = MainWindow(manager, active_employee=None)
     try:
         assert window.cb_prod_cat.currentText() == "قطعات"
-        assert "TDP" in window.specs_widget.fields
-        assert "VRAM" not in window.specs_widget.fields
-        assert window.specs_widget.fields["TDP"].count() == 3
+        assert "توان طراحی حرارتی" in window.specs_widget.fields
+        assert "حافظه گرافیکی" not in window.specs_widget.fields
+        assert window.specs_widget.fields["توان طراحی حرارتی"].count() == 3
 
         window.specs_widget.cb_sub.setCurrentText("کارت گرافیک (Graphic Card)")
-        assert "VRAM" in window.specs_widget.fields
-        assert "TDP" not in window.specs_widget.fields
-        assert window.specs_widget.fields["VRAM"].count() == 3
+        assert "حافظه گرافیکی" in window.specs_widget.fields
+        assert "توان طراحی حرارتی" not in window.specs_widget.fields
+        assert window.specs_widget.fields["حافظه گرافیکی"].count() == 3
     finally:
         window.close()
         qapp.processEvents()
@@ -1373,6 +1548,7 @@ def test_table_headers_toggle_smart_sort_and_financial_colors(tmp_path, monkeypa
         )
         assert table.item(0, 1).foreground().color().name() == "#dc2626"
         assert table.item(0, 2).foreground().color().name() == "#dc2626"
+        assert table.item(1, 2).foreground().color().name() != "#dc2626"
         assert table.item(1, 3).foreground().color().name() == "#059669"
         assert table.item(2, 3).foreground().color().name() == "#059669"
 

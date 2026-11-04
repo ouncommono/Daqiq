@@ -76,7 +76,7 @@ from exporter import (
     get_next_excel_filename,
 )
 
-APP_VERSION = "3.0.0"
+APP_VERSION = "3.1.0"
 
 DEFAULT_ACCESS_LEVELS = [
     {"name": "دسترسی کامل (مدیر کل)", "policy": "دسترسی کامل (مدیر کل)"},
@@ -1598,6 +1598,20 @@ class MainWindow(QMainWindow):
             QListWidget::item {{ padding: 5px 7px; border-radius: 4px; }}
             QListWidget::item:hover {{ background: {hover}; color: {text}; }}
             QListWidget::item:selected {{ background: #2563eb; color: #ffffff; }}
+            QListWidget#recentDatabasesList::item {{
+                padding: 0px; border: none; background: transparent;
+            }}
+            QListWidget#recentDatabasesList::item:hover,
+            QListWidget#recentDatabasesList::item:selected {{
+                background: transparent; color: {text}; border: none;
+            }}
+            QWidget#databaseRecentRow {{
+                background: {panel}; border: 1px solid {border};
+                border-radius: 9px;
+            }}
+            QWidget#databaseRecentRow:hover {{
+                background: {alternate}; border: 1px solid {accent};
+            }}
             QPushButton {{ background-color: #2563eb; color: #ffffff; border: none;
                 border-radius: 6px; padding: 7px 14px; font-weight: bold; }}
             QPushButton:hover {{ background-color: #1d4ed8; }}
@@ -2099,7 +2113,11 @@ class MainWindow(QMainWindow):
                 )
                 if financial_value is not None and financial_value < 0:
                     item.setForeground(QColor("#dc2626"))
-                elif debt_column or row_is_payable:
+                elif (
+                    (debt_column or row_is_payable)
+                    and financial_value is not None
+                    and financial_value > 0
+                ):
                     item.setForeground(QColor("#dc2626"))
                 elif receivable_column or row_is_receivable:
                     item.setForeground(QColor("#059669"))
@@ -2718,59 +2736,85 @@ class MainWindow(QMainWindow):
             self.pr_batch_paid.set_value(0)
 
     def _save_new_batch(self):
-        prod = self.cb_batch_prod.currentData()
-        if not prod:
+        product = self.cb_batch_prod.currentData()
+        if not product:
             QMessageBox.warning(self, "خطا", "لطفاً یک کالا انتخاب کنید.")
             return
-        try:
-            # تعریف sup_id: اگر تأمین‌کننده جدید تایپ شده باشد خودکار ساخته می‌شود، وگرنه از لیست انتخاب می‌شود
-            sup_id = self.db.get_or_create_supplier(
-                self.cb_batch_supplier.currentText()
-            )
-            if not sup_id:
-                sup_id = self.cb_batch_supplier.currentData()
 
-            custom_specs_or_notes = self.ed_batch_serial.text().strip()
-            code = self.ed_batch_code.text().strip()
-            batch_values = (
-                sup_id, self.cb_batch_buyer.currentData(), self.ed_batch_inv.text().strip(),
-                self.dt_batch_date.get_date(), self.cb_batch_qty.get_qty(),
-                self.pr_batch_buy.get_value(), self.pr_batch_extra.get_value(),
-                self.pr_batch_suggest.get_value(), self.pr_batch_paid.get_value(),
-                "", custom_specs_or_notes, self.cb_batch_status.currentText(),
+        try:
+            supplier_id = self.cb_batch_supplier.currentData()
+            supplier_name = (
+                "" if supplier_id is not None
+                else self.cb_batch_supplier.currentText().strip()
             )
+            specifications = self.ed_batch_serial.text().strip()
+            batch_code = self.ed_batch_code.text().strip()
+            batch_values = (
+                supplier_id,
+                self.cb_batch_buyer.currentData(),
+                self.ed_batch_inv.text().strip(),
+                self.dt_batch_date.get_date(),
+                self.cb_batch_qty.get_qty(),
+                self.pr_batch_buy.get_value(),
+                self.pr_batch_extra.get_value(),
+                self.pr_batch_suggest.get_value(),
+                self.pr_batch_paid.get_value(),
+                "",
+                specifications,
+                self.cb_batch_status.currentText(),
+            )
+
             duplicate = None
-            if code:
+            if batch_code:
                 with self.db.get_connection() as conn:
                     duplicate = conn.execute(
-                        "SELECT id FROM batches WHERE batch_code=?", (code,)
+                        "SELECT id FROM batches WHERE batch_code=?",
+                        (batch_code,),
                     ).fetchone()
+
             if duplicate:
-                msg = QMessageBox(self)
-                msg.setWindowTitle("کد محموله تکراری")
-                msg.setText(f"کد {code} قبلاً ثبت شده است. اطلاعات محموله قبلی جایگزین شود؟")
-                btn_replace = msg.addButton("جایگزین کردن", QMessageBox.AcceptRole)
-                msg.addButton("انصراف", QMessageBox.RejectRole)
-                _center_message_buttons(msg)
-                msg.exec()
-                if msg.clickedButton() != btn_replace:
+                message = QMessageBox(self)
+                message.setWindowTitle("کد محموله تکراری")
+                message.setText(
+                    f"کد {batch_code} قبلاً ثبت شده است. "
+                    "اطلاعات محموله قبلی جایگزین شود؟"
+                )
+                replace_button = message.addButton(
+                    "جایگزین کردن", QMessageBox.AcceptRole
+                )
+                message.addButton("انصراف", QMessageBox.RejectRole)
+                _center_message_buttons(message)
+                message.exec()
+                if message.clickedButton() != replace_button:
                     return
+
                 self.db.update_batch(
-                    int(duplicate["id"]), *batch_values,
-                    product_id=prod["id"], initial_specs=custom_specs_or_notes,
-                    batch_code=code,
+                    int(duplicate["id"]),
+                    *batch_values,
+                    product_id=product["id"],
+                    initial_specs=specifications,
+                    batch_code=batch_code,
                     colors=self._checked_colors(self.btn_batch_colors),
+                    supplier_name=supplier_name or None,
                 )
             else:
                 self.db.add_batch(
-                    code or None, prod["id"], *batch_values[:10],
-                    custom_specs_or_notes, batch_values[10], batch_values[11],
+                    batch_code,
+                    product["id"],
+                    *batch_values[:10],
+                    specifications,
+                    specifications,
+                    batch_values[11],
                     colors=self._checked_colors(self.btn_batch_colors),
+                    supplier_name=supplier_name or None,
                 )
+
             self.refresh_all_data()
             self._clear_batch_form()
-        except Exception as e:
-            QMessageBox.critical(self, "خطا در ثبت خرید", str(e))
+        except (ValueError, sqlite3.IntegrityError, sqlite3.OperationalError) as exc:
+            QMessageBox.critical(self, "خطا در ثبت خرید", str(exc))
+        except Exception as exc:
+            QMessageBox.critical(self, "خطا در ثبت خرید", str(exc))
 
     def _on_batch_row_selected(self):
         items = self.tbl_batches.selectedItems()
@@ -2797,30 +2841,38 @@ class MainWindow(QMainWindow):
         )
         self.ed_batch_serial.setText(self.tbl_batches.item(r, 20).text())
         with self.db.get_connection() as conn:
-            color_row = conn.execute(
-                "SELECT colors_json FROM batches WHERE id=?",
+            batch_state = conn.execute(
+                "SELECT colors_json, supplier_id, buyer_employee_id FROM batches WHERE id=?",
                 (self.selected_batch_id,),
             ).fetchone()
+        if batch_state:
+            supplier_index = self.cb_batch_supplier.findData(batch_state["supplier_id"])
+            buyer_index = self.cb_batch_buyer.findData(batch_state["buyer_employee_id"])
+            self.cb_batch_supplier.setCurrentIndex(
+                supplier_index if supplier_index >= 0 else -1
+            )
+            self.cb_batch_buyer.setCurrentIndex(
+                buyer_index if buyer_index >= 0 else -1
+            )
         self._populate_color_checklist(
             self.btn_batch_colors,
             self.catalog_config.get("colors") or DEFAULT_COLORS,
-            self._decode_colors(color_row["colors_json"]) if color_row else [],
+            self._decode_colors(batch_state["colors_json"]) if batch_state else [],
         )
 
     def _update_selected_batch(self):
         if not self.selected_batch_id:
             return
         try:
-            sup_id = self.db.get_or_create_supplier(
-                self.cb_batch_supplier.currentText()
+            supplier_id = self.cb_batch_supplier.currentData()
+            supplier_name = (
+                "" if supplier_id is not None
+                else self.cb_batch_supplier.currentText().strip()
             )
-            if not sup_id:
-                sup_id = self.cb_batch_supplier.currentData()
-
-            custom_specs_or_notes = self.ed_batch_serial.text().strip()
+            specifications = self.ed_batch_serial.text().strip()
             self.db.update_batch(
                 self.selected_batch_id,
-                sup_id,
+                supplier_id,
                 self.cb_batch_buyer.currentData(),
                 self.ed_batch_inv.text().strip(),
                 self.dt_batch_date.get_date(),
@@ -2829,17 +2881,20 @@ class MainWindow(QMainWindow):
                 self.pr_batch_extra.get_value(),
                 self.pr_batch_suggest.get_value(),
                 self.pr_batch_paid.get_value(),
-                custom_specs_or_notes,
-                custom_specs_or_notes,
+                specifications,
+                specifications,
                 self.cb_batch_status.currentText(),
                 colors=self._checked_colors(self.btn_batch_colors),
+                supplier_name=supplier_name or None,
             )
             self.refresh_all_data()
             QMessageBox.information(
                 self, "ذخیره شد", "محموله خرید با موفقیت اصلاح شد."
             )
-        except Exception as e:
-            QMessageBox.critical(self, "خطا", str(e))
+        except (ValueError, sqlite3.IntegrityError, sqlite3.OperationalError) as exc:
+            QMessageBox.critical(self, "خطا", str(exc))
+        except Exception as exc:
+            QMessageBox.critical(self, "خطا", str(exc))
 
     def _delete_selected_batch(self):
         if not self.selected_batch_id:
@@ -2882,6 +2937,8 @@ class MainWindow(QMainWindow):
         )
         self.cb_sale_prod.currentIndexChanged.connect(self._on_sale_prod_changed)
         self.cb_sale_batch = SearchableComboBox()
+        self.cb_sale_batch.setLayoutDirection(Qt.RightToLeft)
+        self.cb_sale_batch.view().setLayoutDirection(Qt.RightToLeft)
         self.cb_sale_batch.currentIndexChanged.connect(self._on_sale_batch_changed)
         self.cb_sale_seller = SearchableComboBox()
         self.cb_sale_seller.setEditable(False)
@@ -3157,24 +3214,20 @@ class MainWindow(QMainWindow):
             ).fetchall()
 
         batches = [dict(row) for row in batch_rows]
-        variant_labels = self._batch_variant_labels(batches)
         searchable_batch_fields = (
             "batch_code", "initial_specs", "final_specs", "serial_numbers",
             "notes", "supplier_name_snapshot", "invoice_number", "purchase_date",
             "p_code", "category", "sub_category", "brand", "model",
         )
         for batch in batches:
-            variant = variant_labels.get(int(batch["id"]), "")
             product_title = self._format_product_picker_label(batch)
-            label_parts = [
-                str(batch["batch_code"]),
-                f"موجودی: {int(batch['remaining_qty'])}",
-                f"قیمت پیشنهادی: {int(batch['suggested_sell_price']):,} تومان",
-                product_title,
-            ]
-            if variant and variant != "بدون تفاوت ثبت‌شده":
-                label_parts.append(f"تفاوت: {variant}")
-            label = " | ".join(label_parts)
+            color_text = "، ".join(
+                self._decode_colors(batch.get("colors_json"))
+            ) or "-"
+            label = (
+                f"{batch['batch_code']} | رنگ: {color_text} | "
+                f"قیمت پیشنهادی: {int(batch['suggested_sell_price']):,} تومان"
+            )
             try:
                 product_specs = json.loads(batch.get("product_specs_json") or "{}")
             except (TypeError, ValueError, json.JSONDecodeError):
@@ -3217,7 +3270,6 @@ class MainWindow(QMainWindow):
                             formatted_specs, "، ".join(unique_plain_specs)
                         ) if part
                     )
-            color_text = "، ".join(self._decode_colors(batch.get("colors_json"))) or "-"
             full_tooltip = (
                 f"کد محموله: {batch['batch_code']}\n"
                 f"کالا: {product_title}\n"
@@ -5666,9 +5718,12 @@ class MainWindow(QMainWindow):
             field_layout.setSpacing(3)
             caption_label = QLabel(caption)
             caption_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            caption_label.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+            caption_label.setFixedHeight(22)
+            caption_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
             field_layout.addWidget(caption_label)
             field_layout.addWidget(field_widget)
+            field_layout.setAlignment(Qt.AlignTop)
+            wrapper.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
             return wrapper
 
         tab = QWidget()
@@ -5879,10 +5934,21 @@ class MainWindow(QMainWindow):
         sub_btn_row.addWidget(btn_add_sub)
         sub_btn_row.addWidget(btn_rename_sub)
         sub_btn_row.addWidget(btn_delete_sub)
-        lbl_subcategory = QLabel("نام زیرمجموعه:")
-        lbl_subcategory.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         sub_layout.addWidget(CollapsibleSection("فهرست زیرمجموعه‌ها", self.lst_cfg_subcategories))
         sub_layout.addWidget(labeled_field("نام زیرمجموعه:", self.ed_cfg_subcategory))
+        self.ed_subcategory_caption = QLineEdit()
+        self.ed_subcategory_caption.setPlaceholderText("عنوان دلخواه؛ مانند نوع دستگاه")
+        subcaption_editor = QWidget()
+        subcaption_row = QHBoxLayout(subcaption_editor)
+        subcaption_row.setContentsMargins(0, 0, 0, 0)
+        subcaption_row.setSpacing(8)
+        subcaption_row.addWidget(self.ed_subcategory_caption, 1)
+        btn_save_subcaption = QPushButton("ذخیره عنوان")
+        btn_save_subcaption.clicked.connect(self._save_subcategory_caption)
+        subcaption_row.addWidget(btn_save_subcaption)
+        sub_layout.addWidget(
+            labeled_field("عنوان فیلد زیرمجموعه:", subcaption_editor)
+        )
         sub_layout.addLayout(sub_btn_row)
 
         gb_attributes = QGroupBox("مشخصات فنی سفارشی")
@@ -5893,8 +5959,8 @@ class MainWindow(QMainWindow):
         self.lst_cfg_attributes = SmoothScrollListWidget()
         self.lst_cfg_attributes.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.lst_cfg_attributes.verticalScrollBar().setSingleStep(18)
-        self.lst_cfg_attributes.setMinimumHeight(140)
-        self.lst_cfg_attributes.setMaximumHeight(175)
+        self.lst_cfg_attributes.setMinimumHeight(155)
+        self.lst_cfg_attributes.setMaximumHeight(190)
         self.lst_cfg_attributes.setSizePolicy(
             QSizePolicy.Expanding, QSizePolicy.Fixed
         )
@@ -6015,31 +6081,7 @@ class MainWindow(QMainWindow):
         colors_layout.addWidget(labeled_field("نام رنگ:", self.ed_cfg_color))
         colors_layout.addLayout(color_btn_row)
 
-        # Configure the per-category subcategory caption inline with the main categories.
-        self.cb_subcategory_caption_category = QComboBox()
-        self.cb_subcategory_caption_category.addItems(
-            self.catalog_config.get("categories") or list(MAIN_CATEGORIES)
-        )
-        self.cb_subcategory_caption_category.setCurrentText(
-            self.cb_cfg_category.currentText()
-        )
-        self.ed_subcategory_caption = QLineEdit()
-        self.ed_subcategory_caption.setPlaceholderText("عنوان دلخواه؛ مانند نوع دستگاه")
-        self.cb_subcategory_caption_category.currentTextChanged.connect(
-            self._load_subcategory_caption
-        )
-        subcaption_editor = QWidget()
-        subcaption_row = QHBoxLayout(subcaption_editor)
-        subcaption_row.setContentsMargins(0, 0, 0, 0)
-        subcaption_row.addWidget(self.ed_subcategory_caption, 1)
-        btn_save_subcaption = QPushButton("ذخیره")
-        btn_save_subcaption.clicked.connect(self._save_subcategory_caption)
-        subcaption_row.addWidget(btn_save_subcaption)
-        categories_layout.addWidget(
-            labeled_field("عنوان فیلد زیرمجموعه:", subcaption_editor)
-        )
-        categories_layout.addWidget(self.cb_subcategory_caption_category)
-
+        # The subcategory caption editor is kept with its subcategory controls.
         catalog_grid.setContentsMargins(8, 8, 8, 8)
         catalog_grid.setHorizontalSpacing(14)
         catalog_grid.setVerticalSpacing(14)
@@ -6051,8 +6093,11 @@ class MainWindow(QMainWindow):
             frame.setMinimumHeight(440)
             frame.setMaximumHeight(440)
             frame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        gb_attributes.setMinimumHeight(480)
-        gb_attributes.setMaximumHeight(480)
+        gb_attributes.setMinimumHeight(610)
+        gb_attributes.setMaximumHeight(610)
+        catalog_grid.setRowMinimumHeight(1, 610)
+        catalog_grid.setRowStretch(0, 1)
+        catalog_grid.setRowStretch(1, 2)
 
         catalog_grid.addWidget(gb_categories, 0, 0)
         catalog_grid.addWidget(gb_subcategories, 0, 1)
@@ -6063,6 +6108,12 @@ class MainWindow(QMainWindow):
         )
         self.cb_cfg_category.currentTextChanged.connect(
             self._on_catalog_category_selected
+        )
+        self.cb_cfg_category.currentTextChanged.connect(
+            self._load_subcategory_caption
+        )
+        self.cb_cfg_attribute_subcategory.currentIndexChanged.connect(
+            self._refresh_catalog_attribute_list
         )
         self.lst_cfg_subcategories.currentItemChanged.connect(
             self._on_catalog_subcategory_selected
@@ -6180,6 +6231,8 @@ class MainWindow(QMainWindow):
         self.lbl_active_db_path.setMargin(8)
 
         self.lst_recent_databases = SmoothScrollListWidget()
+        self.lst_recent_databases.setObjectName("recentDatabasesList")
+        self.lst_recent_databases.setMouseTracking(True)
         self.lst_recent_databases.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.lst_recent_databases.verticalScrollBar().setSingleStep(18)
         self.lst_recent_databases.setMinimumHeight(120)
@@ -6284,7 +6337,7 @@ class MainWindow(QMainWindow):
         for key, checkbox in self.inventory_export_column_checks.items():
             checkbox.setChecked(key in selected_export_columns)
         self._load_subcategory_caption(
-            self.cb_subcategory_caption_category.currentText()
+            self.cb_cfg_category.currentText()
         )
         self.chk_auto_bk.setChecked(bool(cfg.get("auto_backup_enabled", True)))
         try:
@@ -6356,20 +6409,123 @@ class MainWindow(QMainWindow):
                     existing["label"] = definition.get("label") or ""
             self._taxonomy_draft["attributes"][category] = unique
 
+    @staticmethod
+    def _merge_default_catalog_subcategories(config):
+        merged = copy.deepcopy(config) if isinstance(config, dict) else {}
+        categories = list(merged.get("categories") or MAIN_CATEGORIES)
+        subcategories = merged.setdefault("subcategories", {})
+        attributes = merged.get("attributes", {})
+        for category in list(subcategories) + list(attributes):
+            if category and category not in categories:
+                categories.append(category)
+        merged["categories"] = categories
+        removed = merged.setdefault("removed_default_subcategories", {})
+
+        # A surviving feature definition is also authoritative evidence that its
+        # subcategory exists, even when the taxonomy list was previously incomplete.
+        for category, definitions in attributes.items():
+            if not isinstance(definitions, list):
+                continue
+            values = subcategories.setdefault(category, [])
+            known = {normalize_catalog_label(value) for value in values}
+            for definition in definitions:
+                scope = str(definition.get("subcategory") or "").strip()
+                key = normalize_catalog_label(scope)
+                if key and key not in known:
+                    values.append(scope)
+                    known.add(key)
+
+        for category in categories:
+            current = subcategories.setdefault(category, [])
+            removed_keys = {
+                normalize_catalog_label(value)
+                for value in removed.get(category, [])
+            }
+            known = {
+                normalize_catalog_label(value)
+                for value in current if normalize_catalog_label(value)
+            }
+            for default_value in DEFAULT_SUBCATEGORIES.get(category, []):
+                key = normalize_catalog_label(default_value)
+                if key and key not in removed_keys and key not in known:
+                    current.append(default_value)
+                    known.add(key)
+        return merged
+
+    def _set_default_subcategory_removed(self, category, value, removed=True):
+        key = normalize_catalog_label(value)
+        if not key or not any(
+            normalize_catalog_label(item) == key
+            for item in DEFAULT_SUBCATEGORIES.get(category, [])
+        ):
+            return
+        removed_map = self._taxonomy_draft.setdefault(
+            "removed_default_subcategories", {}
+        )
+        excluded = removed_map.setdefault(category, [])
+        if removed:
+            if not any(normalize_catalog_label(item) == key for item in excluded):
+                excluded.append(value)
+        else:
+            removed_map[category] = [
+                item for item in excluded if normalize_catalog_label(item) != key
+            ]
+
+    def _merge_product_subcategories_into_draft(self):
+        """Expose categories/subcategories already referenced by persisted products."""
+        with self.db.get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT DISTINCT category, sub_category
+                FROM products
+                WHERE TRIM(COALESCE(category, '')) <> ''
+                   OR TRIM(COALESCE(sub_category, '')) <> ''
+                ORDER BY category COLLATE NOCASE, sub_category COLLATE NOCASE
+                """
+            ).fetchall()
+
+        categories = self._taxonomy_draft.setdefault("categories", [])
+        subcategories = self._taxonomy_draft.setdefault("subcategories", {})
+        for row in rows:
+            raw_category = str(row["category"] or "").strip()
+            raw_subcategory = str(row["sub_category"] or "").strip()
+            category = next(
+                (
+                    value for value in categories
+                    if normalize_catalog_label(value)
+                    == normalize_catalog_label(raw_category)
+                ),
+                raw_category,
+            )
+            if not category:
+                continue
+            if category not in categories:
+                categories.append(category)
+            values = subcategories.setdefault(category, [])
+            if raw_subcategory and not any(
+                normalize_catalog_label(value)
+                == normalize_catalog_label(raw_subcategory)
+                for value in values
+            ):
+                values.append(raw_subcategory)
+
     def _load_catalog_customization_form(self):
         stored = self.db.get_product_catalog_config()
         defaults = {
             "categories": list(MAIN_CATEGORIES),
             "subcategories": copy.deepcopy(DEFAULT_SUBCATEGORIES),
+            "removed_default_subcategories": {},
             "attributes": copy.deepcopy(DEFAULT_ATTRIBUTES),
             "colors": list(DEFAULT_COLORS),
             "service_types": ["نرم‌افزاری", "سخت‌افزاری"],
         }
         has_saved_catalog = bool(self.db.get_setting("product_catalog_config", ""))
-        self._taxonomy_draft = (
-            copy.deepcopy(stored)
-            if has_saved_catalog
-            else copy.deepcopy(defaults)
+        self._taxonomy_draft = self._merge_default_catalog_subcategories(
+            stored if has_saved_catalog else defaults
+        )
+        self._merge_product_subcategories_into_draft()
+        self._taxonomy_draft = self._merge_default_catalog_subcategories(
+            self._taxonomy_draft
         )
         self._pending_category_renames = []
         self._pending_subcategory_renames = []
@@ -6381,13 +6537,40 @@ class MainWindow(QMainWindow):
             "CPU": ("پردازنده", "CPU"),
             "RAM": ("ظرفیت رم", "RAM"),
             "نوع RAM": ("نسل رم", "RAM Type"),
+            "RAM Type": ("نسل رم", "RAM Type"),
             "Storage": ("حافظه داخلی", "Storage"),
             "Graphic": ("پردازنده گرافیکی", "GPU"),
             "GPU": ("پردازنده گرافیکی", "GPU"),
+            "Graphic Card": ("پردازنده گرافیکی", "GPU"),
             "Display": ("صفحه‌نمایش", "Display"),
             "Panel": ("نوع پنل", "Panel"),
             "Refresh Rate": ("نرخ نوسازی", "Refresh Rate"),
             "Ports": ("درگاه‌ها", "Ports"),
+            "Capacity": ("ظرفیت", "Capacity"),
+            "Interface": ("نوع رابط", "Interface"),
+            "Socket": ("نوع سوکت", "Socket"),
+            "Connectivity": ("نوع اتصال / پورت", "Connectivity"),
+            "Specification": ("مشخصه", "Specification"),
+            "Size": ("سایز", "Size"),
+            "Voltage": ("ولتاژ", "Voltage"),
+            "Current / Power": ("آمپر و توان", "Current / Power"),
+            "Network Standard": ("استاندارد شبکه", "Network Standard"),
+            "Print Technology": ("فناوری چاپ", "Print Technology"),
+            "Print Color": ("نوع چاپ", "Print Color"),
+            "TDP": ("توان طراحی حرارتی", "TDP"),
+            "VRAM": ("حافظه گرافیکی", "VRAM"),
+        }
+        default_display_titles = {
+            "پردازنده": "CPU", "ظرفیت رم": "RAM", "نسل رم": "RAM Type",
+            "حافظه داخلی": "Storage", "پردازنده گرافیکی": "GPU",
+            "صفحه‌نمایش": "Display", "نوع پنل": "Panel",
+            "نرخ نوسازی": "Refresh Rate", "درگاه‌ها": "Ports",
+            "ظرفیت": "Capacity", "نوع رابط": "Interface", "نوع سوکت": "Socket",
+            "نوع اتصال / پورت": "Connectivity", "مشخصه": "Specification",
+            "سایز": "Size", "ولتاژ": "Voltage", "آمپر و توان": "Current / Power",
+            "استاندارد شبکه": "Network Standard", "فناوری چاپ": "Print Technology",
+            "نوع چاپ": "Print Color", "توان طراحی حرارتی": "TDP",
+            "حافظه گرافیکی": "VRAM",
         }
         for category, definitions in self._taxonomy_draft.get("attributes", {}).items():
             for definition in definitions:
@@ -6396,10 +6579,23 @@ class MainWindow(QMainWindow):
                     new_name, default_title = legacy_attribute_names[old_name]
                     scope = str(definition.get("subcategory") or "")
                     definition["name"] = new_name
+                    if old_name != new_name:
+                        self._pending_attribute_renames.append(
+                            (category, old_name, new_name, scope, scope)
+                        )
                     if not str(definition.get("label") or "").strip():
                         definition["label"] = default_title
-                    self._pending_attribute_renames.append(
-                        (category, old_name, new_name, scope, scope)
+                current_name = str(definition.get("name") or "").strip()
+                current_label = str(definition.get("label") or "").strip()
+                if (
+                    not current_label
+                    or (
+                        not re.search(r"[A-Za-z]", current_label)
+                        and not current_label.startswith("@")
+                    )
+                ):
+                    definition["label"] = (
+                        default_display_titles.get(current_name, "Specification")
                     )
         self._deduplicate_catalog_draft()
 
@@ -6413,6 +6609,7 @@ class MainWindow(QMainWindow):
         self.cb_cfg_category.blockSignals(False)
         if self.cb_cfg_category.count():
             self.cb_cfg_category.setCurrentIndex(0)
+        self._load_subcategory_caption(self.cb_cfg_category.currentText())
         self._refresh_catalog_management_lists()
         if hasattr(self, "specs_widget"):
             current_category = self.cb_prod_cat.currentText()
@@ -6449,40 +6646,52 @@ class MainWindow(QMainWindow):
             scope_index if scope_index >= 0 else 0
         )
         self.cb_cfg_attribute_subcategory.blockSignals(False)
-
-        self.lst_cfg_attributes.clear()
-        visible_attribute_keys = set()
-        for definition_index, item in enumerate(
-            self._taxonomy_draft["attributes"].get(category, [])
-        ):
-            scope_key = normalize_catalog_label(item.get("subcategory") or "")
-            feature_key = normalize_catalog_label(item.get("name") or "")
-            identity = (feature_key, scope_key)
-            if not feature_key or identity in visible_attribute_keys:
-                continue
-            visible_attribute_keys.add(identity)
-            values = "، ".join(item.get("values", []))
-            scope = item.get("subcategory") or "همهٔ زیرمجموعه‌ها"
-            title = str(item.get("label") or "").strip()
-            title_text = f"  ← عنوان: {title}" if title else ""
-            label = f"{item['name']}{title_text}" + (f" — {values}" if values else "") + f"  [{scope}]"
-            entry = QListWidgetItem(label)
-            entry.setData(Qt.UserRole, definition_index)
-            entry.setToolTip(
-                mixed_bidi_tooltip(
-                    f"ویژگی: {item.get('name', '')}\n"
-                    f"عنوان نمایشی: {item.get('label', '') or '-'}\n"
-                    f"محدوده: {scope}\n"
-                    f"مقادیر پیشنهادی: {values or '-'}"
-                )
-            )
-            self.lst_cfg_attributes.addItem(entry)
+        self._refresh_catalog_attribute_list()
         self.lst_cfg_colors.clear()
         for color in self._taxonomy_draft["colors"]:
             self.lst_cfg_colors.addItem(color)
         self.lst_cfg_service_types.clear()
         for service_type in self._taxonomy_draft.get("service_types", []):
             self.lst_cfg_service_types.addItem(service_type)
+
+    def _refresh_catalog_attribute_list(self, *_):
+        if not hasattr(self, "_taxonomy_draft"):
+            return
+        category = self.cb_cfg_category.currentText().strip()
+        selected_scope = normalize_catalog_label(
+            self.cb_cfg_attribute_subcategory.currentData() or ""
+        )
+        self.lst_cfg_attributes.clear()
+        seen = set()
+        for definition_index, definition in enumerate(
+            self._taxonomy_draft.get("attributes", {}).get(category, [])
+        ):
+            scope = str(definition.get("subcategory") or "").strip()
+            scope_key = normalize_catalog_label(scope)
+            feature_key = normalize_catalog_label(definition.get("name") or "")
+            identity = (feature_key, scope_key)
+            if not feature_key or identity in seen:
+                continue
+            if selected_scope and scope_key and scope_key != selected_scope:
+                continue
+            seen.add(identity)
+            values = "، ".join(definition.get("values", []))
+            display_scope = scope or "همهٔ زیرمجموعه‌ها"
+            title = str(definition.get("label") or "").strip()
+            title_text = f"  ← عنوان: {title}" if title else ""
+            entry = QListWidgetItem(
+                f"{definition['name']}{title_text}"
+                + (f" — {values}" if values else "")
+                + f"  [{display_scope}]"
+            )
+            entry.setData(Qt.UserRole, definition_index)
+            entry.setToolTip(mixed_bidi_tooltip(
+                f"ویژگی: {definition.get('name', '')}\n"
+                f"عنوان نمایشی: {title or '-'}\n"
+                f"محدوده: {display_scope}\n"
+                f"مقادیر پیشنهادی: {values or '-'}"
+            ))
+            self.lst_cfg_attributes.addItem(entry)
 
     def _on_catalog_category_selected(self, category):
         if category:
@@ -6689,6 +6898,7 @@ class MainWindow(QMainWindow):
         if not category or not name:
             return
         values = self._taxonomy_draft["subcategories"].setdefault(category, [])
+        self._set_default_subcategory_removed(category, name, removed=False)
         existing = next(
             (value for value in values
              if normalize_catalog_label(value) == normalize_catalog_label(name)),
@@ -6727,6 +6937,8 @@ class MainWindow(QMainWindow):
         else:
             values[values.index(old)] = new
             canonical = new
+        self._set_default_subcategory_removed(category, old, removed=True)
+        self._set_default_subcategory_removed(category, canonical, removed=False)
         self._pending_subcategory_renames.append((category, old, canonical))
         self._pending_attribute_renames = [
             (
@@ -6798,6 +7010,7 @@ class MainWindow(QMainWindow):
         values = self._taxonomy_draft["subcategories"].get(category, [])
         if name in values:
             values.remove(name)
+        self._set_default_subcategory_removed(category, name, removed=True)
         self._refresh_catalog_management_lists()
 
     def _add_catalog_attribute(self):
@@ -6852,9 +7065,20 @@ class MainWindow(QMainWindow):
             scope_index = self.cb_cfg_attribute_subcategory.findData(
                 definition.get("subcategory", "") or ""
             )
-            self.cb_cfg_attribute_subcategory.setCurrentIndex(
-                scope_index if scope_index >= 0 else 0
-            )
+            current_scope = self.cb_cfg_attribute_subcategory.currentIndex()
+            target_scope = scope_index if scope_index >= 0 else 0
+            if target_scope != current_scope:
+                # A filter change rebuilds the list. Block the signal, rebuild
+                # intentionally, then restore the selected definition by index.
+                self.cb_cfg_attribute_subcategory.blockSignals(True)
+                self.cb_cfg_attribute_subcategory.setCurrentIndex(target_scope)
+                self.cb_cfg_attribute_subcategory.blockSignals(False)
+                self._refresh_catalog_attribute_list()
+                for row in range(self.lst_cfg_attributes.count()):
+                    entry = self.lst_cfg_attributes.item(row)
+                    if entry.data(Qt.UserRole) == definition_index:
+                        self.lst_cfg_attributes.setCurrentItem(entry)
+                        break
 
     def _update_catalog_attribute(self):
         category = self.cb_cfg_category.currentText().strip()
@@ -7037,17 +7261,18 @@ class MainWindow(QMainWindow):
             self.cb_srv_type.blockSignals(False)
 
     def _effective_product_catalog_config(self):
-        """Return persisted per-database catalog or the complete standard defaults."""
+        """Return the configured catalogue plus all active standard subcategories."""
         stored = self.db.get_product_catalog_config()
         if self.db.get_setting("product_catalog_config", ""):
-            return stored
-        return {
+            return self._merge_default_catalog_subcategories(stored)
+        return self._merge_default_catalog_subcategories({
             "categories": list(MAIN_CATEGORIES),
             "subcategories": copy.deepcopy(DEFAULT_SUBCATEGORIES),
+            "removed_default_subcategories": {},
             "attributes": copy.deepcopy(DEFAULT_ATTRIBUTES),
             "colors": list(DEFAULT_COLORS),
             "service_types": ["نرم‌افزاری", "سخت‌افزاری"],
-        }
+        })
 
     def _load_subcategory_caption(self, category):
         raw = self.db.get_setting("subcategory_field_labels", "{}")
@@ -7061,7 +7286,7 @@ class MainWindow(QMainWindow):
         )
 
     def _save_subcategory_caption(self):
-        category = self.cb_subcategory_caption_category.currentText().strip()
+        category = self.cb_cfg_category.currentText().strip()
         caption = self.ed_subcategory_caption.text().strip()
         if not category or not caption:
             QMessageBox.warning(self, "عنوان فیلد", "دسته‌بندی و عنوان فیلد را وارد کنید.")
@@ -7084,6 +7309,13 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "specs_widget"):
             return
         category = (category or "").strip()
+        previous_category = str(
+            getattr(self.specs_widget, "current_category", "") or ""
+        ).strip()
+        previous_subcategory = (
+            self.specs_widget.get_sub_category()
+            if self.specs_widget.cb_sub is not None else ""
+        )
         # The widget invokes this callback after category-specific built-in controls
         # have been rebuilt; a parent currentIndexChanged slot can run too early.
         self.specs_widget.set_custom_field_callback(
@@ -7101,10 +7333,30 @@ class MainWindow(QMainWindow):
         )
         self.specs_widget.set_subcategory_label(custom_caption)
         if hasattr(self, "catalog_config"):
-            self.specs_widget.apply_custom_catalog(
-                self.catalog_config.get("subcategories", {}).get(category),
-                [],
-            )
+            subcategories = self.catalog_config.get("subcategories", {}).get(category)
+            self.specs_widget.apply_custom_catalog(subcategories, [])
+
+            combo = self.specs_widget.cb_sub
+            if combo is not None and combo.count():
+                target_index = -1
+                if (
+                    normalize_catalog_label(previous_category)
+                    == normalize_catalog_label(category)
+                    and normalize_catalog_label(previous_subcategory)
+                ):
+                    previous_key = normalize_catalog_label(previous_subcategory)
+                    target_index = next(
+                        (
+                            index for index in range(combo.count())
+                            if normalize_catalog_label(combo.itemText(index)) == previous_key
+                        ),
+                        -1,
+                    )
+                if target_index < 0:
+                    target_index = 0
+                if combo.currentIndex() != target_index:
+                    combo.setCurrentIndex(target_index)
+
             self._apply_custom_specs_for_subcategory()
 
     def _apply_custom_specs_for_subcategory(self, *_):
@@ -7142,6 +7394,10 @@ class MainWindow(QMainWindow):
         for database_path in ordered:
             row_item = QListWidgetItem()
             row_widget = QWidget()
+            row_widget.setObjectName("databaseRecentRow")
+            row_widget.setAttribute(Qt.WA_StyledBackground, True)
+            row_widget.setAttribute(Qt.WA_Hover, True)
+            row_widget.setMouseTracking(True)
             row_layout = QHBoxLayout(row_widget)
             row_widget.setMinimumHeight(48)
             row_layout.setContentsMargins(8, 7, 8, 7)
@@ -7298,7 +7554,7 @@ class MainWindow(QMainWindow):
 
     def _create_and_connect_new_db(self):
         default_path = os.path.join(
-            os.path.dirname(os.path.abspath(self.db.db_path)), "NewShopDatabase.db"
+            os.path.dirname(os.path.abspath(self.db.db_path)), "NewDaqiq.db"
         )
         new_path, _ = QFileDialog.getSaveFileName(
             self, "ایجاد فایل پایگاه دادهٔ جدید", default_path,

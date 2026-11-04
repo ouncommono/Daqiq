@@ -57,17 +57,24 @@ def strip_bidi_controls(value) -> str:
 
 
 def mixed_bidi_tooltip(value) -> str:
-    """Build an HTML tooltip with per-line reading direction for mixed Persian/English text."""
+    """Render mixed Persian/English tooltip lines with explicit paragraph direction."""
     rendered = []
     for line in str(value or "").splitlines():
         direction = "ltr" if re.search(r"[A-Za-z]", line) else "rtl"
         alignment = "left" if direction == "ltr" else "right"
         rendered.append(
-            f'<div dir="{direction}" style="text-align:{alignment}; white-space:pre-wrap;">'
+            f'<div dir="{direction}" align="{alignment}" '
+            f'style="direction:{direction}; text-align:{alignment}; '
+            f'width:100%; white-space:pre-wrap;">'
             f'{html.escape(line)}</div>'
         )
-    return ('<html><body dir="rtl" style="direction:rtl;text-align:right;">'
-            + "".join(rendered) + "</body></html>")
+    return (
+        '<html dir="rtl"><body dir="rtl" align="right" '
+        'style="direction:rtl; text-align:right; width:100%; '
+        'margin:0; padding:4px;">'
+        + "".join(rendered)
+        + "</body></html>"
+    )
 
 
 def normalize_catalog_label(value) -> str:
