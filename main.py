@@ -49,7 +49,7 @@ from database import (
     DatabaseManager, load_app_config, save_app_config, hash_password,
     receivable_balance, service_financial_breakdown,
     app_config_has_database_selection, get_default_database_path,
-    round_integer_division, round_percentage_amount,
+    SCHEMA_VERSION, round_integer_division, round_percentage_amount,
 )
 from utils_and_widgets import (
     MAIN_CATEGORIES,
@@ -562,6 +562,9 @@ def _is_valid_sqlite_database_file(path):
         result = conn.execute("PRAGMA quick_check").fetchone()
         if not result or result[0] != "ok":
             return False
+        schema_version = conn.execute("PRAGMA user_version").fetchone()
+        if not schema_version or int(schema_version[0]) != SCHEMA_VERSION:
+            return False
         table_names = {
             row[0] for row in conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table'"
@@ -661,8 +664,8 @@ class DatabaseBootstrapDialog(QDialog):
                 QMessageBox.critical(
                     self,
                     "پایگاه دادهٔ نامعتبر",
-                    "فایل انتخاب‌شده یا سالم نیست یا ساختار پایگاه دادهٔ حسابداری را ندارد. "
-                    "برای ساخت فایل جدید، گزینهٔ ایجاد پایگاه داده را انتخاب کنید.",
+                    "فایل انتخاب‌شده سالم نیست یا با ساختار نسخه 4.0.0 سازگار نیست. "
+                    "مهاجرت خودکار پشتیبانی نمی‌شود؛ برای شروع، یک پایگاه دادهٔ نسخه 4.0.0 بسازید.",
                 )
                 return
         elif os.path.exists(path) and os.path.getsize(path) > 0:
@@ -713,8 +716,19 @@ def select_startup_database_path(parent=None):
             return existing_path
 
     default_path = configured_path or get_default_database_path()
+    if os.path.isfile(default_path) and not _is_valid_sqlite_database_file(default_path):
+        base_dir = os.path.dirname(default_path) or "."
+        stem, extension = os.path.splitext(os.path.basename(default_path))
+        extension = extension or ".db"
+        suffix = 1
+        proposed = os.path.join(base_dir, f"{stem}_v4{extension}")
+        while os.path.exists(proposed):
+            suffix += 1
+            proposed = os.path.join(base_dir, f"{stem}_v4_{suffix}{extension}")
+        default_path = proposed
+
     dialog = DatabaseBootstrapDialog(default_path, parent)
-    if os.path.isfile(default_path):
+    if _is_valid_sqlite_database_file(default_path):
         dialog.rb_existing.setChecked(True)
     if dialog.exec() != QDialog.Accepted or not dialog.selected_path:
         return None
