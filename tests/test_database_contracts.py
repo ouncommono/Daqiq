@@ -1083,7 +1083,7 @@ def test_v3_schema_creates_normalized_access_scope_tables(manager):
             ).fetchall()
         ]
         assert scope_columns == ["access_level_name", "mode"]
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 330
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 340
 
 
 def test_v3_rejects_pre_v3_database_without_attempting_migration(tmp_path, monkeypatch):
