@@ -621,13 +621,12 @@ class DatabaseManager:
                 attributes[str(category)] = normalized_items
 
         colors = raw_colors if isinstance(raw_colors, list) else []
-        return {
+        result = {
             "categories": list(dict.fromkeys(
                 str(value).strip() for value in categories
                 if value is not None and str(value).strip()
             )),
             "subcategories": subcategories,
-            "removed_default_subcategories": removed_default_subcategories,
             "attributes": attributes,
             "colors": list(dict.fromkeys(
                 str(value).strip() for value in colors
@@ -641,6 +640,9 @@ class DatabaseManager:
                 if value is not None and str(value).strip()
             )),
         }
+        if isinstance(raw_removed_defaults, dict):
+            result["removed_default_subcategories"] = removed_default_subcategories
+        return result
 
     def save_product_catalog_config(self, config, conn=None):
         """Validate and persist product taxonomy in the active database."""
@@ -752,6 +754,7 @@ class DatabaseManager:
             "batches": {"batch_code"},
             "sales": {"invoice_number"},
             "service_catalog": {"code"},
+            "service_records": {"invoice_number"},
         }
         if column not in allowed_columns.get(table, set()):
             raise ValueError("جدول یا ستون تولید کد معتبر نیست.")
