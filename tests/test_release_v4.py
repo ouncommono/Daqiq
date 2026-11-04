@@ -3,9 +3,10 @@ import os
 import sqlite3
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import database
+import main as main_module
 from database import (
     APP_VERSION,
     SCHEMA_VERSION,
@@ -62,6 +63,10 @@ class ReleaseV4Tests(unittest.TestCase):
             round_percentage_amount(2_600_000_000, 20),
             3_120_000_000,
         )
+        self.assertEqual(
+            round_percentage_amount(9_007_199_254_740_993, 1),
+            9_097_271_247_288_403,
+        )
 
     def test_sqlite_integer_range_is_enforced(self):
         self.assertEqual(
@@ -90,6 +95,11 @@ class ReleaseV4Tests(unittest.TestCase):
                             for row in conn.execute(f"PRAGMA table_info({table})")
                         )
                         self.assertEqual(actual, expected, table)
+                    sales_types = {
+                        row["name"]: row["type"]
+                        for row in conn.execute("PRAGMA table_info(sales)")
+                    }
+                    self.assertEqual(sales_types["total_amount"], "INTEGER")
                     product_id = conn.execute(
                         """INSERT INTO products (code, name, category, sub_category)
                            VALUES (?, ?, ?, ?)""",
@@ -159,6 +169,12 @@ class ReleaseV4Tests(unittest.TestCase):
                         "warranty_end", "serial_number",
                     ):
                         self.assertEqual(sale[field], "", field)
+                    with self.assertRaises(sqlite3.IntegrityError):
+                        conn.execute(
+                            """INSERT INTO payments
+                               (ref_type, ref_id, amount, payment_date)
+                               VALUES ('invalid-test', 1, -1, '1405/08/13')"""
+                        )
 
     def test_missing_app_config_is_not_reported_as_existing(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -168,6 +184,27 @@ class ReleaseV4Tests(unittest.TestCase):
                 with open(config_path, "w", encoding="utf-8") as handle:
                     handle.write("{}")
                 self.assertTrue(app_config_exists())
+
+    def test_startup_shows_dialog_without_config_even_when_database_exists(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = os.path.join(tmp, "Daqiq.db")
+            with sqlite3.connect(db_path) as connection:
+                connection.execute("CREATE TABLE probe (id INTEGER PRIMARY KEY)")
+
+            dialog = Mock()
+            dialog.exec.return_value = main_module.QDialog.Rejected
+            dialog.rb_existing = Mock()
+            config = {"db_path": db_path, "recent_databases": [db_path]}
+            with (
+                patch.object(main_module, "app_config_exists", return_value=False),
+                patch.object(main_module, "load_app_config", return_value=config),
+                patch.object(main_module, "get_default_database_path", return_value=db_path),
+                patch.object(main_module, "DatabaseBootstrapDialog", return_value=dialog) as dialog_factory,
+            ):
+                self.assertIsNone(main_module.select_startup_database_path())
+
+            dialog_factory.assert_called_once_with(db_path, None)
+            dialog.rb_existing.setChecked.assert_called_once_with(True)
 
     def test_empty_jalali_date_remains_empty(self):
         widget = JalaliDateEdit(default_today=False)
