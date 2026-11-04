@@ -118,17 +118,17 @@ DEFAULT_SUBCATEGORIES = {
         "اولترابوک / تبلت‌شو", "مک‌بوک (MacBook)", "سایر موارد",
     ],
     "قطعات": [
-        "سایر موارد", "پردازنده (CPU)", "رم کامپیوتر (RAM PC)",
+        "پردازنده (CPU)", "رم کامپیوتر (RAM PC)",
         "رم لپ‌تاپ (RAM Laptop)", "حافظه اس‌اس‌دی (SSD)",
         "هارد دیسک اینترنال (HDD)", "کارت گرافیک (Graphic Card)",
         "مادربرد (Motherboard)", "پاور / منبع تغذیه کیس (Power)",
         "فن و خنک‌کننده (Cooling / Fan)", "صفحه‌نمایش لپ‌تاپ (LED / LCD Panel)",
         "باتری لپ‌تاپ (Laptop Battery)", "کیبورد تعمیراتی لپ‌تاپ (Internal Keyboard)",
         "قاب، لولا و فلت لپ‌تاپ", "کارت شبکه و صدا اینترنال",
-        "درایو نوری (DVD RW / Caddy)",
+        "درایو نوری (DVD RW / Caddy)", "سایر موارد",
     ],
     "لوازم جانبی": [
-        "سایر موارد", "ماوس (Mouse)", "کیبورد (Keyboard)",
+        "ماوس (Mouse)", "کیبورد (Keyboard)",
         "پک کمبو ماوس و کیبورد", "هدست، هدفون و هندزفری", "اسپیکر (Speaker)",
         "فلش مموری (Flash Memory)", "هارد اکسترنال (External HDD)",
         "اس‌اس‌دی اکسترنال (External SSD)", "کول‌پد لپ‌تاپ (Coolpad)",
@@ -136,7 +136,7 @@ DEFAULT_SUBCATEGORIES = {
         "کابل تصویر (HDMI / DisplayPort / VGA)", "کابل برق، شبکه و افزایش طول",
         "مبدل و دانگل (Converter / Dongle)", "ماوس‌پد (Mouse Pad)",
         "وب‌کم و میکروفون (Webcam / Mic)", "گیم‌پد و دسته بازی (Gamepad)",
-        "خمیر سیلیکون و اسپری تمیزکننده",
+        "خمیر سیلیکون و اسپری تمیزکننده", "سایر موارد",
     ],
     "مانیتور": [
         "مانیتور اداری و خانگی", "مانیتور گیمینگ (Gaming)",
@@ -153,12 +153,12 @@ DEFAULT_SUBCATEGORIES = {
         "برق اضطراری (UPS) و باتری UPS", "کابل برق سهند / سه‌پین / دوپین",
     ],
     "شبکه و مودم": [
-        "سایر موارد", "مودم ADSL / VDSL", "مودم سیم‌کارتی 4G / 5G / TD-LTE",
+        "مودم ADSL / VDSL", "مودم سیم‌کارتی 4G / 5G / TD-LTE",
         "روتر و اکسس‌پوینت بی‌سیم", "سوئیچ شبکه (5/8/16/24 پورت)",
-        "کارت شبکه USB / PCIe",
+        "کارت شبکه USB / PCIe", "سایر موارد",
     ],
     "ماشین‌های اداری": [
-        "سایر موارد", "پرینتر و چندکاره", "اسکنر", "کارتریج و تونر",
+        "پرینتر و چندکاره", "اسکنر", "کارتریج و تونر", "سایر موارد",
     ],
     "سایر موارد": ["سایر موارد"],
 }
@@ -288,7 +288,7 @@ DEFAULT_ATTRIBUTES = {
             "Tri-mode (Wired / Wireless / Bluetooth)", "USB Type-C",
             "3.5mm Audio Jack", "HDMI / DisplayPort / VGA",
         ]},
-        {"name": "مشخصه", "label": "Specification", "values": []},
+        {"name": "مشخصات", "label": "Specifications", "values": []},
     ],
     "مانیتور": [
         {"name": "سایز", "label": "Size", "values": ["19 inch", "20 inch", "22 inch", "24 inch", "27 inch", "32 inch", "34 inch"]},
@@ -316,7 +316,7 @@ DEFAULT_ATTRIBUTES = {
         {"name": "نوع چاپ", "label": "Print Color", "values": ["Monochrome", "Color"]},
     ],
     "سایر موارد": [
-        {"name": "مشخصه", "label": "Specification", "values": []},
+        {"name": "مشخصات", "label": "Specifications", "values": []},
     ],
 }
 
@@ -548,7 +548,8 @@ class SmartLineEdit(QLineEdit):
 class PriceInput(QLineEdit):
     """فیلد قیمت بر حسب تومان با جداکننده هزارگان و افزودن خودکار صفر طبق تنظیمات"""
 
-    valueChanged = Signal(int)
+    # object keeps Python's full 64-bit integer value; Qt's C++ int signal is 32-bit.
+    valueChanged = Signal(object)
 
     def __init__(self, db_manager, parent=None):
         super().__init__(parent)
@@ -1087,20 +1088,30 @@ class JalaliDateEdit(QWidget):
             self.set_date(dlg.selected_date)
 
     def get_date(self) -> str:
-        y = self.ed_year.text().zfill(4)
-        m = self.ed_month.text().zfill(2)
-        d = self.ed_day.text().zfill(2)
-        return f"{y}/{m}/{d}"
+        year = self.ed_year.text().strip()
+        month = self.ed_month.text().strip()
+        day = self.ed_day.text().strip()
+        if not (year and month and day):
+            return ""
+        return f"{year.zfill(4)}/{month.zfill(2)}/{day.zfill(2)}"
 
     def set_date(self, date_str: str):
+        raw = normalize_digits(str(date_str or "")).strip()
+        if not raw:
+            for editor in (self.ed_year, self.ed_month, self.ed_day):
+                editor.clear()
+            self.dateChanged.emit("")
+            return
         try:
-            parts = normalize_digits(date_str).split("/")
-            self.ed_year.setText(parts[0])
-            self.ed_month.setText(parts[1].zfill(2))
-            self.ed_day.setText(parts[2].zfill(2))
+            parts = raw.split("/")
+            if len(parts) != 3 or not all(part.strip() for part in parts):
+                raise ValueError("Invalid Jalali date")
+            self.ed_year.setText(parts[0].strip())
+            self.ed_month.setText(parts[1].strip().zfill(2))
+            self.ed_day.setText(parts[2].strip().zfill(2))
             self.dateChanged.emit(self.get_date())
-        except Exception:
-            pass
+        except (TypeError, ValueError):
+            self.set_date("")
 
 
 class DynamicSpecsWidget(QGroupBox):
@@ -1583,7 +1594,8 @@ class DynamicSpecsWidget(QGroupBox):
             cb_cap = SearchableComboBox()
             cb_cap.addItems(RAM_CAPACITIES)
             cb_ddr = SearchableComboBox()
-            cb_ddr.addItems(["DDR2", "DDR3 / DDR3L", "DDR4", "DDR5"])
+            # Start blank so DDR2 is never silently assigned to an unspecified module.
+            cb_ddr.addItems(["", "DDR2", "DDR3 / DDR3L", "DDR4", "DDR5"])
             cb_bus = SearchableComboBox()
             cb_bus.addItems(["", "1333MHz", "1600MHz", "2400MHz", "2666MHz", "3200MHz", "3600MHz", "4800MHz", "5600MHz", "6000MHz"])
             self.fields = {"ظرفیت": cb_cap, "نسخه DDR": cb_ddr, "فرکانس": cb_bus}

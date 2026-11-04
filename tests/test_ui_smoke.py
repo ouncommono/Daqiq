@@ -48,7 +48,7 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
         assert window.tabs.count() == 10
         assert window.chk_upg_consume_stock.isChecked()
         assert window.tabs.tabText(9).endswith("تنظیمات")
-        assert window.lbl_app_version.text() == "دقیق | نسخه برنامه: 3.3.0"
+        assert window.lbl_app_version.text() == "دقیق | نسخه برنامه: 4.0.0"
         assert [window.catalog_tabs.tabText(i) for i in range(window.catalog_tabs.count())] == [
             "مدیریت کالاها",
             "مدیریت خدمات",
@@ -940,7 +940,6 @@ def test_sale_clear_form_resets_values_and_keeps_next_invoice_as_placeholder(
 
     window = MainWindow(manager, active_employee=None)
     try:
-        today = __import__("jdatetime").date.today().strftime("%Y/%m/%d")
         window.ed_sale_inv.setText("MANUAL-INV")
         window.ed_sale_customer.setText("مشتری آزمایشی")
         window.ed_sale_specs.setText("RAM: 16GB DDR5")
@@ -961,8 +960,8 @@ def test_sale_clear_form_resets_values_and_keeps_next_invoice_as_placeholder(
         assert window.pr_sale_paid.get_value() == 0
         assert window.ed_war_company.text() == ""
         assert window.ed_sale_serial.text() == ""
-        assert window.dt_war_start.get_date() == today
-        assert window.dt_war_end.get_date() == today
+        assert window.dt_war_start.get_date() == ""
+        assert window.dt_war_end.get_date() == ""
         assert window.cb_sale_qty.currentText() == "1"
         assert not window.cb_sale_qty.isEditable()
         assert window.cb_sale_prod.currentText() == "همه کالاها"
@@ -1308,7 +1307,17 @@ def test_taxonomy_attribute_rename_and_pending_category_delete_preserve_product_
     window = MainWindow(manager, active_employee=None)
     try:
         window.cb_cfg_category.setCurrentText("قطعات")
-        attribute_item = window.lst_cfg_attributes.item(0)
+        attribute_item = next(
+            (
+                window.lst_cfg_attributes.item(index)
+                for index in range(window.lst_cfg_attributes.count())
+                if window.lst_cfg_attributes.item(index).text().startswith(
+                    "توان طراحی حرارتی"
+                )
+            ),
+            None,
+        )
+        assert attribute_item is not None
         window.lst_cfg_attributes.setCurrentItem(attribute_item)
         window.ed_cfg_attribute_name.setText("توان مصرفی")
         window._update_catalog_attribute()
