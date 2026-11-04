@@ -1,3 +1,11 @@
+# Daqiq 3.4.0
+
+- Removed the arbitrary 300-item cap from the quantity selector's preset population; editable purchase quantities now accept large integer values, with stock and database constraints remaining authoritative.
+- Made the DDR version selector blank by default for both desktop and laptop RAM subcategories.
+- Replaced generic English `Specification` display-title fallbacks with `Additional Details`, standardized memory/interface labels, and corrected the duplicate interface attribute rename mapping.
+- Bumped application metadata, SQLite schema version, UI version label, and Windows executable naming to 3.4.0. The fresh-install schema keeps its established physical column order to protect every named and positional query contract.
+- Added regression coverage for 1,250/1,600-unit batch create/edit/delete and RAM DDR default selections.
+
 # Daqiq 3.3.0
 
 - Corrected the first-shipment `add_batch` payload mapping for the extra `initial_specs` parameter; added a full cold-start UI regression that creates a product, registers quantity 10, verifies settlement/specification fields, directly edits 1 → 10 → 2, and deletes the shipment.
