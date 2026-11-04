@@ -2841,11 +2841,14 @@ class MainWindow(QMainWindow):
         self.pr_batch_paid.set_value(
             int(self.tbl_batches.item(r, 18).text().replace(",", ""))
         )
-        self.ed_batch_serial.setText(self.tbl_batches.item(r, 20).text())
+        batch_serial_text = self.tbl_batches.item(r, 20).text()
         with self.db.get_connection() as conn:
             batch_state = conn.execute(
-                """SELECT colors_json, supplier_id, buyer_employee_id, product_id
-                   FROM batches WHERE id=?""",
+                """SELECT b.colors_json, b.supplier_id, b.buyer_employee_id,
+                          b.product_id, p.code, p.name, p.category, p.sub_category,
+                          p.brand, p.model, p.specs_json, p.description
+                   FROM batches b JOIN products p ON p.id=b.product_id
+                   WHERE b.id=?""",
                 (self.selected_batch_id,),
             ).fetchone()
         if batch_state:
@@ -2858,8 +2861,23 @@ class MainWindow(QMainWindow):
                 ),
                 -1,
             )
-            if product_index >= 0:
-                self.cb_batch_prod.setCurrentIndex(product_index)
+            if product_index < 0:
+                product_data = {
+                    "id": int(batch_state["product_id"]), "code": batch_state["code"],
+                    "name": batch_state["name"], "category": batch_state["category"],
+                    "sub_category": batch_state["sub_category"], "brand": batch_state["brand"],
+                    "model": batch_state["model"], "specs_json": batch_state["specs_json"],
+                    "description": batch_state["description"],
+                }
+                product_index = self.cb_batch_prod.count()
+                self.cb_batch_prod.addItem(
+                    bidi_isolate_text(self._format_product_picker_label(product_data)),
+                    product_data,
+                )
+            self.cb_batch_prod.blockSignals(True)
+            self.cb_batch_prod.setCurrentIndex(product_index)
+            self.cb_batch_prod.blockSignals(False)
+            self.ed_batch_serial.setText(batch_serial_text)
             supplier_index = self.cb_batch_supplier.findData(batch_state["supplier_id"])
             buyer_index = self.cb_batch_buyer.findData(batch_state["buyer_employee_id"])
             self.cb_batch_supplier.setCurrentIndex(
@@ -3410,8 +3428,7 @@ class MainWindow(QMainWindow):
     def _recalc_warranty_end(self, *_):
         days = self._get_warranty_days()
         self.dt_war_end.set_date(
-            add_jalali_days(self.dt_war_start.get_date(), days)
-            if days else self.dt_war_start.get_date()
+            add_jalali_days(self.dt_war_start.get_date(), days) if days else ""
         )
 
     def _save_new_sale(self):
@@ -3526,7 +3543,9 @@ class MainWindow(QMainWindow):
                 bidi_isolate_text(self._format_product_picker_label(product_data)),
                 product_data,
             )
+        self.cb_sale_prod.blockSignals(True)
         self.cb_sale_prod.setCurrentIndex(product_index)
+        self.cb_sale_prod.blockSignals(False)
         self._on_sale_prod_changed(include_batch_id=int(sale["batch_id"]))
 
         batch_index = next(
@@ -6507,7 +6526,8 @@ class MainWindow(QMainWindow):
             "tdp": "توان طراحی حرارتی", "vram": "حافظه گرافیکی",
             "ramfrequency": "فرکانس", "memoryfrequency": "فرکانس",
             "resolution": "وضوح تصویر", "screensize": "سایز",
-            "graphiccard": "پردازنده گرافیکی", "نوعram": "نسل رم",
+            "graphic": "پردازنده گرافیکی", "graphiccard": "پردازنده گرافیکی",
+            "نوعram": "نسل رم",
             "warranty": "گارانتی", "serialnumber": "شماره سریال",
             "model": "مدل", "brand": "برند",
         }
