@@ -237,6 +237,12 @@ class ReleaseV4Tests(unittest.TestCase):
             "service_types": [],
         }
         normalized = MainWindow._merge_default_catalog_subcategories(source)
+        # Simulate built-in/persisted-field merging after the initial defaults pass.
+        normalized["attributes"]["قطعات"].append({
+            "name": "پردازنده", "label": "CPU", "values": [],
+            "subcategory": "سایر موارد",
+        })
+        normalized = MainWindow._enforce_other_subcategory_attribute_contract(normalized)
 
         subcategories = normalized["subcategories"]["قطعات"]
         self.assertEqual(subcategories[-1], "سایر موارد")
