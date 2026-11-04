@@ -86,8 +86,24 @@ DEFAULT_ACCESS_LEVELS = [
     {"name": "ثبت خرید و انبارداری (گزارش محدود به خریدهای خود)", "policy": "ثبت خرید و انبارداری (گزارش محدود به خریدهای خود)"},
 ]
 
+DASHBOARD_PERMISSION_ACTIONS = [
+    ("metric.sales_today", "فروش امروز"),
+    ("metric.profit_today", "سود فروش امروز"),
+    ("metric.sales_count_today", "تعداد فروش امروز"),
+    ("metric.purchase_today", "خرید امروز"),
+    ("metric.total_stock", "کل موجودی انبار"),
+    ("metric.low_stock_count", "تعداد کالاهای کم‌موجود"),
+    ("metric.supplier_debt", "بدهی تأمین‌کنندگان"),
+    ("metric.service_profit_today", "سود خدمات امروز"),
+    ("table.low_stock", "جدول هشدار موجودی"),
+    ("table.employee_performance", "جدول عملکرد فروشندگان"),
+]
+
 PERMISSION_GROUPS = [
-    ("داشبورد", "dashboard", [("view", "مشاهده")]),
+    (
+        "داشبورد", "dashboard",
+        [("view", "مشاهده")] + DASHBOARD_PERMISSION_ACTIONS,
+    ),
     ("مدیریت کالاها", "products", [
         ("view", "مشاهده"), ("create", "ثبت"), ("edit", "ویرایش"), ("delete", "حذف"),
     ]),
@@ -132,15 +148,29 @@ ROLE_PERMISSION_PRESETS = {
         if not key.startswith("employees.")
     ],
     "سرپرست عملیات (گزارش‌های محدود به عملکرد خود)": [
-        "dashboard.view", "products.view", "batches.view", "sales.view",
+        "dashboard.view",
+        "dashboard.metric.sales_today", "dashboard.metric.profit_today",
+        "dashboard.metric.sales_count_today", "dashboard.metric.purchase_today",
+        "dashboard.metric.total_stock", "dashboard.metric.low_stock_count",
+        "dashboard.metric.supplier_debt", "dashboard.metric.service_profit_today",
+        "dashboard.table.low_stock", "dashboard.table.employee_performance",
+        "products.view", "batches.view", "sales.view",
         "services.view", "upgrades.view", "reports.view",
     ],
     "فروش و خدمات (گزارش محدود به عملکرد خود)": [
-        "dashboard.view", "sales.view", "sales.create", "sales.edit",
+        "dashboard.view",
+        "dashboard.metric.sales_today", "dashboard.metric.profit_today",
+        "dashboard.metric.sales_count_today", "dashboard.metric.service_profit_today",
+        "dashboard.table.employee_performance",
+        "sales.view", "sales.create", "sales.edit",
         "services.view", "services.create", "services.edit", "reports.view",
     ],
     "ثبت خرید و انبارداری (گزارش محدود به خریدهای خود)": [
-        "dashboard.view", "products.view", "batches.view", "batches.create",
+        "dashboard.view",
+        "dashboard.metric.purchase_today", "dashboard.metric.total_stock",
+        "dashboard.metric.low_stock_count", "dashboard.metric.supplier_debt",
+        "dashboard.table.low_stock",
+        "products.view", "batches.view", "batches.create",
         "batches.edit", "suppliers.view", "reports.view",
     ],
 }
@@ -1828,11 +1858,23 @@ class MainWindow(QMainWindow):
         self.tbl_dash_emp = self._create_table(
             ["نام فروشنده", "تعداد فروش", "مبلغ کل فروش (تومان)", "تخفیف داده شده", "سود حاصل از فروش"]
         )
+        self._dashboard_permission_widgets = {
+            "dashboard.metric.sales_today": self.lbl_dash_sales_today.parentWidget(),
+            "dashboard.metric.profit_today": self.lbl_dash_profit_today.parentWidget(),
+            "dashboard.metric.sales_count_today": self.lbl_dash_count_today.parentWidget(),
+            "dashboard.metric.purchase_today": self.lbl_dash_buy_today.parentWidget(),
+            "dashboard.metric.total_stock": self.lbl_dash_total_stock.parentWidget(),
+            "dashboard.metric.low_stock_count": self.lbl_dash_low_stock.parentWidget(),
+            "dashboard.metric.supplier_debt": self.lbl_dash_unpaid_supplier.parentWidget(),
+            "dashboard.metric.service_profit_today": self.lbl_dash_srv_profit.parentWidget(),
+        }
         self._add_table_search(
             l_emp, self.tbl_dash_emp, "dashboard_employees",
             "🔍 جست‌وجو در عملکرد کارکنان..."
         )
         l_emp.addWidget(self.tbl_dash_emp)
+        self._dashboard_permission_widgets["dashboard.table.low_stock"] = gb_low
+        self._dashboard_permission_widgets["dashboard.table.employee_performance"] = gb_emp
 
         split.addWidget(gb_low)
         split.addWidget(gb_emp)
@@ -7616,11 +7658,20 @@ class MainWindow(QMainWindow):
             sales_today = {"cnt": 0, "amt": 0, "prof": 0}
             service_profit_today = 0
 
-        self.lbl_dash_sales_today.setText(f"{int(sales_today['amt']):,}")
-        self.lbl_dash_profit_today.setText(f"{int(sales_today['prof']):,}")
+        dashboard_values = (
+            (self.lbl_dash_sales_today, int(sales_today["amt"]), "#1d4ed8"),
+            (self.lbl_dash_profit_today, int(sales_today["prof"]), "#047857"),
+            (self.lbl_dash_buy_today, int(purchase_today), "#b45309"),
+            (self.lbl_dash_srv_profit, int(service_profit_today), "#4338ca"),
+        )
+        for label, amount, default_color in dashboard_values:
+            label.setText(f"{amount:,}")
+            color = "#dc2626" if amount < 0 else default_color
+            label.setStyleSheet(
+                f"color: {color}; background: transparent; "
+                "font-size: 18px; font-weight: bold;"
+            )
         self.lbl_dash_count_today.setText(str(sales_today["cnt"]))
-        self.lbl_dash_buy_today.setText(f"{int(purchase_today):,}")
-        self.lbl_dash_srv_profit.setText(f"{int(service_profit_today):,}")
 
         if scoped:
             self.lbl_dash_total_stock.setText("—")
@@ -7630,6 +7681,10 @@ class MainWindow(QMainWindow):
             self.lbl_dash_total_stock.setText(f"{int(total_stock):,}")
             self.lbl_dash_low_stock.setText(str(len(low_products)))
             self.lbl_dash_unpaid_supplier.setText(f"{max(0, int(supplier_debt)):,}")
+            self.lbl_dash_unpaid_supplier.setStyleSheet(
+                "color: #dc2626; background: transparent; "
+                "font-size: 18px; font-weight: bold;"
+            )
 
         low_data = []
         for row in low_products:
