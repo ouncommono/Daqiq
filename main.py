@@ -6609,6 +6609,7 @@ class MainWindow(QMainWindow):
         self.cb_cfg_category.blockSignals(False)
         if self.cb_cfg_category.count():
             self.cb_cfg_category.setCurrentIndex(0)
+        self._load_subcategory_caption(self.cb_cfg_category.currentText())
         self._refresh_catalog_management_lists()
         if hasattr(self, "specs_widget"):
             current_category = self.cb_prod_cat.currentText()
@@ -7308,6 +7309,13 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "specs_widget"):
             return
         category = (category or "").strip()
+        previous_category = str(
+            getattr(self.specs_widget, "current_category", "") or ""
+        ).strip()
+        previous_subcategory = (
+            self.specs_widget.get_sub_category()
+            if self.specs_widget.cb_sub is not None else ""
+        )
         # The widget invokes this callback after category-specific built-in controls
         # have been rebuilt; a parent currentIndexChanged slot can run too early.
         self.specs_widget.set_custom_field_callback(
@@ -7325,10 +7333,30 @@ class MainWindow(QMainWindow):
         )
         self.specs_widget.set_subcategory_label(custom_caption)
         if hasattr(self, "catalog_config"):
-            self.specs_widget.apply_custom_catalog(
-                self.catalog_config.get("subcategories", {}).get(category),
-                [],
-            )
+            subcategories = self.catalog_config.get("subcategories", {}).get(category)
+            self.specs_widget.apply_custom_catalog(subcategories, [])
+
+            combo = self.specs_widget.cb_sub
+            if combo is not None and combo.count():
+                target_index = -1
+                if (
+                    normalize_catalog_label(previous_category)
+                    == normalize_catalog_label(category)
+                    and normalize_catalog_label(previous_subcategory)
+                ):
+                    previous_key = normalize_catalog_label(previous_subcategory)
+                    target_index = next(
+                        (
+                            index for index in range(combo.count())
+                            if normalize_catalog_label(combo.itemText(index)) == previous_key
+                        ),
+                        -1,
+                    )
+                if target_index < 0:
+                    target_index = 0
+                if combo.currentIndex() != target_index:
+                    combo.setCurrentIndex(target_index)
+
             self._apply_custom_specs_for_subcategory()
 
     def _apply_custom_specs_for_subcategory(self, *_):
