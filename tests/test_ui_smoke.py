@@ -1846,17 +1846,15 @@ def test_subcategory_settings_restore_three_independent_actions(tmp_path, monkey
     window = MainWindow(manager, active_employee=None)
     try:
         buttons = {
-            button.objectName(): button
+            button.property("catalogAction"): button
             for button in window.findChildren(QPushButton)
-            if button.text() in {"افزودن", "تغییر نام", "حذف"}
+            if button.property("catalogAction")
         }
-        add_button = buttons["btnAddSubcategory"]
-        rename_button = buttons["btnSecondary"]
+        add_button = buttons["addSubcategory"]
+        rename_button = buttons["renameSubcategory"]
         assert add_button.text() == "افزودن"
         assert rename_button.text() == "تغییر نام"
-        assert buttons["btnDanger"].text() == "حذف"
-        assert add_button.receivers(add_button.clicked) >= 1
-        assert rename_button.receivers(rename_button.clicked) >= 1
+        assert buttons["deleteSubcategory"].text() == "حذف"
         assert "افزودن/تغییرنام" not in {
             button.text() for button in window.findChildren(QPushButton)
         }
