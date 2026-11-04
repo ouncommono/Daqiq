@@ -3824,10 +3824,23 @@ class MainWindow(QMainWindow):
         self.selected_upgrade_id = int(self.tbl_upgrades.item(row_index, 0).text())
         with self.db.get_connection() as conn:
             upgrade = conn.execute(
-                "SELECT * FROM upgrades WHERE id=?", (self.selected_upgrade_id,)
+                "SELECT id, target_batch_id, part_batch_id, technician_id, target_qty, part_qty_used, "
+                "stock_deducted_qty, part_unit_cost, labor_cost_unit, added_cost_unit, "
+                "upgrade_date, serial_number, manual_part_description, old_specs, new_specs, "
+                "notes, created_at, updated_at FROM upgrades WHERE id=?",
+                (self.selected_upgrade_id,)
             ).fetchone()
             related_batches = conn.execute(
-                """SELECT b.*, p.category, p.sub_category, p.brand, p.model
+                """SELECT b.id, b.batch_code, b.product_id, b.supplier_id, b.buyer_employee_id,
+                          b.invoice_number, b.purchase_date, b.initial_qty, b.sold_qty,
+                          b.returned_qty, b.remaining_qty, b.unit_purchase_price,
+                          b.extra_cost_total, b.upgrade_cost_unit, b.unit_cost_price,
+                          b.suggested_sell_price, b.profit_pct, b.paid_amount,
+                          b.settlement_status, b.serial_numbers, b.colors_json,
+                          b.initial_specs, b.final_specs, b.supplier_name_snapshot,
+                          b.notes, b.created_at, b.updated_at,
+                          p.code, p.name AS product_name, p.category, p.sub_category,
+                          p.brand, p.model, p.specs_json
                    FROM batches b JOIN products p ON p.id=b.product_id
                    WHERE b.id=? OR (? IS NOT NULL AND b.id=?)""",
                 (upgrade["target_batch_id"], upgrade["part_batch_id"], upgrade["part_batch_id"]),
