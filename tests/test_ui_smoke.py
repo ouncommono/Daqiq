@@ -1741,7 +1741,9 @@ def test_settings_catalog_synchronizes_builtin_and_saved_product_features(
         assert window.cb_cfg_attribute_subcategory.currentData() == ""
 
         button_labels = {button.text() for button in window.findChildren(QPushButton)}
-        assert "افزودن/تغییرنام" in button_labels
+        # The subcategory list now exposes separate Add/Rename/Delete actions;
+        # the caption helper remains callable but is not a merged action button.
+        assert "افزودن/تغییرنام" not in button_labels
         assert "ذخیره عنوان" not in button_labels
 
         window.ed_subcategory_caption.setText("نوع دستگاه آزمایشی")
@@ -1768,11 +1770,18 @@ def test_cold_start_first_shipment_quantity_10_edit_1_to_10_to_2_and_delete(
     monkeypatch.setattr(main_module.QMessageBox, "information", lambda *_args: None)
     window = MainWindow(manager, active_employee=None)
     try:
-        # No shipment exists: create the product from an empty database first.
-        manager.add_product(
-            "P-COLD-START-01", "", "قطعات", "لوازم جانبی",
-            "ColdStart", "FirstShipment", {}, "", 2, 20,
-        )
+        # Cold-start the complete UI flow: create the product with no prior
+        # product or shipment rows, then register its first shipment.
+        window.ed_prod_code.setText("P-COLD-START-01")
+        window.cb_prod_cat.setCurrentText("قطعات")
+        window.specs_widget.set_sub_category("لوازم جانبی")
+        window.ed_prod_brand.setText("ColdStart")
+        window.ed_prod_model.setText("FirstShipment")
+        window._save_new_product()
+        with manager.get_connection() as conn:
+            assert conn.execute(
+                "SELECT COUNT(*) FROM products WHERE code='P-COLD-START-01'"
+            ).fetchone()[0] == 1
         window.refresh_all_data()
         product_index = next(
             index for index in range(window.cb_batch_prod.count())
@@ -1788,20 +1797,38 @@ def test_cold_start_first_shipment_quantity_10_edit_1_to_10_to_2_and_delete(
         # changes must recalculate the aggregate paid amount without breaking
         # the first shipment insert.
         window.cb_batch_status.setCurrentText("تسویه‌شده")
+        window.ed_batch_serial.setText("RAM: 16GB")
 
         window._save_new_batch()
         assert not errors, errors
         with manager.get_connection() as conn:
             batch = conn.execute(
-                "SELECT id, initial_qty, remaining_qty, settlement_status "
+                "SELECT id, initial_qty, remaining_qty, settlement_status, paid_amount, "
+                "serial_numbers, initial_specs, notes "
                 "FROM batches WHERE batch_code='C-COLD-START-01'"
             ).fetchone()
         assert batch is not None
         batch_id = int(batch["id"])
         assert (batch["initial_qty"], batch["remaining_qty"]) == (10, 10)
+        assert batch["settlement_status"] == "تسویه‌شده"
+        assert batch["paid_amount"] == 1000
+        assert batch["serial_numbers"] == ""
+        assert batch["initial_specs"] == "RAM: 16GB"
+        assert batch["notes"] == "RAM: 16GB"
 
-        # Exercise the UI edit handler for both directions, not only the DB API.
-        window.selected_batch_id = batch_id
+        def select_batch_from_table():
+            row_index = next(
+                row for row in range(window.tbl_batches.rowCount())
+                if window.tbl_batches.item(row, 1)
+                and window.tbl_batches.item(row, 1).text() == "C-COLD-START-01"
+            )
+            window.tbl_batches.selectRow(row_index)
+            qapp.processEvents()
+            window._on_batch_row_selected()
+            assert window.selected_batch_id == batch_id
+
+        # Exercise the actual row-selection and edit path for both directions.
+        select_batch_from_table()
         window.cb_batch_qty.setCurrentText("1")
         window._update_selected_batch()
         with manager.get_connection() as conn:
@@ -1810,7 +1837,7 @@ def test_cold_start_first_shipment_quantity_10_edit_1_to_10_to_2_and_delete(
             ).fetchone()
         assert (one["initial_qty"], one["remaining_qty"]) == (1, 1)
 
-        window.selected_batch_id = batch_id
+        select_batch_from_table()
         window.cb_batch_qty.setCurrentText("10")
         window._update_selected_batch()
         with manager.get_connection() as conn:
@@ -1819,7 +1846,7 @@ def test_cold_start_first_shipment_quantity_10_edit_1_to_10_to_2_and_delete(
             ).fetchone()
         assert (ten["initial_qty"], ten["remaining_qty"]) == (10, 10)
 
-        window.selected_batch_id = batch_id
+        select_batch_from_table()
         window.cb_batch_qty.setCurrentText("2")
         window._update_selected_batch()
         with manager.get_connection() as conn:
@@ -1829,7 +1856,7 @@ def test_cold_start_first_shipment_quantity_10_edit_1_to_10_to_2_and_delete(
         assert (two["initial_qty"], two["remaining_qty"]) == (2, 2)
 
         monkeypatch.setattr(main_module, "_ask_yes_no", lambda *_args: True)
-        window.selected_batch_id = batch_id
+        select_batch_from_table()
         window._delete_selected_batch()
         with manager.get_connection() as conn:
             assert conn.execute(
