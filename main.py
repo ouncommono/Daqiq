@@ -76,7 +76,7 @@ from exporter import (
     get_next_excel_filename,
 )
 
-APP_VERSION = "1.2.0"
+APP_VERSION = "2.0.0"
 
 DEFAULT_ACCESS_LEVELS = [
     {"name": "دسترسی کامل (مدیر کل)", "policy": "دسترسی کامل (مدیر کل)"},
@@ -339,6 +339,93 @@ def _report_sort_key(rows_data, headers, mode):
         index = find_column(("کاربر ثبت‌کننده", "فروشنده", "مسئول خدمت", "مسئول خرید", "نام کاربر"))
         return lambda row: str(row[index] or "") if index is not None else ""
     return lambda row: str(row[0] or "")
+
+
+def _smart_table_sort_key(value):
+    """Build a locale-aware sort key for dates, numbers, codes and text."""
+    raw = strip_bidi_controls(str(value or "")).strip()
+    if not raw:
+        return (3, "")
+
+    clean = normalize_digits(raw).replace("٬", ",").replace("٫", ".")
+    clean = clean.replace("\\u200e", "").replace("\\u200f", "").strip()
+
+    date_match = re.match(
+        r"^(\\d{4})[-/](\\d{1,2})[-/](\\d{1,2})(.*)$", clean
+    )
+    if date_match:
+        year, month, day, tail = date_match.groups()
+        return (0, int(year), int(month), int(day), tail.strip())
+
+    date_match = re.match(
+        r"^(\\d{1,2})[-/](\\d{1,2})[-/](\\d{4})(.*)$", clean
+    )
+    if date_match:
+        day, month, year, tail = date_match.groups()
+        return (0, int(year), int(month), int(day), tail.strip())
+
+    numeric = clean.replace(",", "").replace("تومان", "").replace("ریال", "")
+    numeric = numeric.replace("%", "").replace(" ", "")
+    if re.fullmatch(r"[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)", numeric):
+        try:
+            return (1, float(numeric))
+        except (TypeError, ValueError, OverflowError):
+            pass
+
+    parts = re.split(r"(\\d+)", clean.casefold())
+    natural = tuple(
+        (0, int(part)) if part.isdigit() else (1, part)
+        for part in parts if part
+    )
+    return (2, natural)
+
+
+def _financial_number(value):
+    """Parse a formatted Persian/English financial value without guessing text."""
+    clean = normalize_digits(strip_bidi_controls(str(value or ""))).strip()
+    if not clean:
+        return None
+    negative_parentheses = clean.startswith("(") and clean.endswith(")")
+    clean = clean.strip("()").replace(",", "").replace("٬", "").replace("٫", ".")
+    for token in ("تومان", "ریال", "%", " ", "\\u200e", "\\u200f"):
+        clean = clean.replace(token, "")
+    if not re.fullmatch(r"[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)", clean):
+        return None
+    try:
+        number = float(clean)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return -abs(number) if negative_parentheses else number
+
+
+class _SmartSortTableItem(QTableWidgetItem):
+    """QTableWidgetItem that compares parsed values rather than rendered strings."""
+
+    def __lt__(self, other):
+        left = self.data(Qt.UserRole)
+        right = other.data(Qt.UserRole)
+        if left is None:
+            left = _smart_table_sort_key(self.text())
+        if right is None:
+            right = _smart_table_sort_key(other.text())
+        return left < right
+
+
+class SelectAllSpinBox(QSpinBox):
+    """Select the existing numeric contents on focus/click for quick replacement."""
+
+    def _select_all_contents(self):
+        editor = self.lineEdit()
+        if editor is not None:
+            editor.selectAll()
+
+    def focusInEvent(self, event):
+        super().focusInEvent(event)
+        QTimer.singleShot(0, self._select_all_contents)
+
+    def mouseReleaseEvent(self, event):
+        super().mouseReleaseEvent(event)
+        QTimer.singleShot(0, self._select_all_contents)
 
 
 class LoginDialog(QDialog):
@@ -664,8 +751,12 @@ class MainWindow(QMainWindow):
         for label in self.findChildren(QLabel):
             if label.text().strip() == "/" or label.objectName() == "appVersion":
                 continue
-            label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            label.setLayoutDirection(Qt.RightToLeft)
+            if label.objectName() == "activeDbPath":
+                label.setLayoutDirection(Qt.LeftToRight)
+                label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            else:
+                label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                label.setLayoutDirection(Qt.RightToLeft)
             if label.objectName() not in {
                 "reportSummary", "saleSummary", "settingsHint", "activeDbPath",
                 "activeUser",
@@ -1053,6 +1144,13 @@ class MainWindow(QMainWindow):
         for index, module in enumerate(tab_modules):
             allowed = f"{module}.view" in grants
             self.tabs.setTabEnabled(index, allowed)
+
+        for permission_key, widget in getattr(
+            self, "_dashboard_permission_widgets", {}
+        ).items():
+            widget.setVisible(
+                "dashboard.view" in grants and permission_key in grants
+            )
 
         for button in self.findChildren(QPushButton):
             page_index = -1
@@ -1490,6 +1588,12 @@ class MainWindow(QMainWindow):
         tbl.setSelectionBehavior(QTableWidget.SelectRows)
         tbl.setEditTriggers(QTableWidget.NoEditTriggers)
         tbl.setSortingEnabled(False)
+        tbl.horizontalHeader().setSectionsClickable(True)
+        tbl.horizontalHeader().setSortIndicatorShown(True)
+        tbl._column_sort_directions = {}
+        tbl.horizontalHeader().sectionClicked.connect(
+            lambda column, table=tbl: self._sort_table_by_header(table, column)
+        )
         tbl.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         tbl.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)
         tbl.verticalScrollBar().setSingleStep(18)
@@ -1497,6 +1601,21 @@ class MainWindow(QMainWindow):
         tbl.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         tbl.horizontalHeader().setStretchLastSection(True)
         return tbl
+
+    def _sort_table_by_header(self, table: QTableWidget, column: int):
+        """Toggle ascending/descending sorting for the clicked table column."""
+        if table is None or column < 0 or column >= table.columnCount():
+            return
+        directions = getattr(table, "_column_sort_directions", {})
+        next_order = (
+            Qt.DescendingOrder
+            if directions.get(column) == Qt.AscendingOrder
+            else Qt.AscendingOrder
+        )
+        directions[column] = next_order
+        table._column_sort_directions = directions
+        table.horizontalHeader().setSortIndicator(column, next_order)
+        table.sortItems(column, next_order)
 
     def _add_scrollable_tab(self, tab: QWidget, title: str):
         """Wrap each page in a scroll area so compact windows never crush form controls."""
@@ -1630,12 +1749,23 @@ class MainWindow(QMainWindow):
                 )
                 if signed_value:
                     display_text = "\u200e" + display_text
-                item = QTableWidgetItem(display_text)
+                item = _SmartSortTableItem(display_text)
+                item.setData(Qt.UserRole, _smart_table_sort_key(text_val))
                 item.setToolTip(strip_bidi_controls(text_val))
                 if signed_value:
                     item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-                if highlight_col is not None and c_idx == highlight_col:
-                    if text_val in ("ناموجود", "کم‌موجود", "تسویه‌نشده") or text_val.startswith("-"):
+
+                financial_value = _financial_number(text_val)
+                debt_column = "بدهی" in header_text
+                receivable_column = "طلب" in header_text or "مطالبات" in header_text
+                if debt_column:
+                    item.setForeground(QColor("#dc2626"))
+                elif receivable_column:
+                    item.setForeground(QColor("#059669"))
+                elif financial_value is not None and financial_value < 0:
+                    item.setForeground(QColor("#dc2626"))
+                elif highlight_col is not None and c_idx == highlight_col:
+                    if text_val in ("ناموجود", "کم‌موجود", "تسویه‌نشده"):
                         item.setForeground(QColor("#dc2626"))
                     elif text_val.startswith("+"):
                         item.setForeground(QColor("#059669"))
@@ -2680,15 +2810,13 @@ class MainWindow(QMainWindow):
             variant = variant_labels.get(int(batch["id"]), "")
             product_title = self._format_product_picker_label(batch)
             label_parts = [
-                str(batch["batch_code"]), product_title,
+                str(batch["batch_code"]),
                 f"موجودی: {int(batch['remaining_qty'])}",
+                f"قیمت پیشنهادی: {int(batch['suggested_sell_price']):,} تومان",
+                product_title,
             ]
             if variant and variant != "بدون تفاوت ثبت‌شده":
                 label_parts.append(f"تفاوت: {variant}")
-            else:
-                label_parts.append(
-                    f"قیمت پیشنهادی: {int(batch['suggested_sell_price']):,} تومان"
-                )
             label = " | ".join(label_parts)
             try:
                 product_specs = json.loads(batch.get("product_specs_json") or "{}")
@@ -2703,17 +2831,28 @@ class MainWindow(QMainWindow):
                 f"{search_text} {batch.get('product_description') or ''} "
                 f"{' '.join(str(value) for value in product_specs.values())}"
             ).strip()
-            detail_text = (
-                f"تفاوت مشخصات نهایی:\n{variant.replace('، ', chr(10))}"
-                if variant and variant != "بدون تفاوت ثبت‌شده"
-                else f"قیمت پیشنهادی: {int(batch['suggested_sell_price']):,} تومان"
+            raw_batch_specs = (
+                batch.get("final_specs") or batch.get("initial_specs") or ""
+            ).strip()
+            parsed_batch_specs = self._parse_batch_specifications(raw_batch_specs)
+            complete_specs = dict(product_specs)
+            if parsed_batch_specs:
+                complete_specs.update(parsed_batch_specs)
+            formatted_specs = self._format_specs_for_tooltip(
+                complete_specs, batch.get("category") or ""
             )
+            if raw_batch_specs and not parsed_batch_specs:
+                formatted_specs = "\\n".join(
+                    part for part in (formatted_specs, raw_batch_specs) if part
+                )
             color_text = "، ".join(self._decode_colors(batch.get("colors_json"))) or "-"
             full_tooltip = (
-                f"کد محموله: {batch['batch_code']}\n"
-                f"کالا: {product_title}\n"
-                f"موجودی: {batch['remaining_qty']}\n"
-                f"رنگ‌ها: {color_text}\n{detail_text}"
+                f"کد محموله: {batch['batch_code']}\\n"
+                f"کالا: {product_title}\\n"
+                f"موجودی: {batch['remaining_qty']}\\n"
+                f"قیمت پیشنهادی: {int(batch['suggested_sell_price']):,} تومان\\n"
+                f"رنگ‌ها: {color_text}\\n"
+                f"مشخصات فنی کامل:\\n{formatted_specs or 'ثبت نشده'}"
             )
             index = self.cb_sale_batch.count()
             self.cb_sale_batch.addItem(bidi_isolate_text(label), batch)
@@ -3406,6 +3545,13 @@ class MainWindow(QMainWindow):
             "افزودن هزینه قطعه مصرفی به بهای تمام‌شده و قیمت پیشنهادی کالای ارتقایافته"
         )
         self.chk_upg_add_cost.setChecked(False)
+        self.chk_upg_consume_stock = QCheckBox(
+            "کسر تعداد قطعه مصرفی از موجودی انبار"
+        )
+        self.chk_upg_consume_stock.setChecked(True)
+        self.chk_upg_consume_stock.setToolTip(
+            "در صورت غیرفعال بودن، مشخصات و هزینه ارتقا ثبت می‌شود اما موجودی فیزیکی قطعه تغییر نمی‌کند."
+        )
 
         grid.addWidget(QLabel("محموله کالای هدف *:"), 0, 0)
         grid.addWidget(self.cb_upg_target, 0, 1)
@@ -3428,6 +3574,7 @@ class MainWindow(QMainWindow):
         grid.addWidget(self.cb_upg_tech, 3, 3)
 
         grid.addWidget(self.chk_upg_add_cost, 4, 0, 1, 4)
+        grid.addWidget(self.chk_upg_consume_stock, 5, 0, 1, 4)
 
         upg_btn_row = QHBoxLayout()
         btn_clear_upg = QPushButton("پاک کردن فرم")
@@ -3446,7 +3593,7 @@ class MainWindow(QMainWindow):
         upg_btn_row.addWidget(btn_edit_upg)
         upg_btn_row.addWidget(btn_revert_upg)
         upg_btn_row.addStretch()
-        grid.addLayout(upg_btn_row, 5, 0, 1, 4)
+        grid.addLayout(upg_btn_row, 6, 0, 1, 4)
 
         layout.addWidget(gb)
 
@@ -3513,6 +3660,14 @@ class MainWindow(QMainWindow):
         # quantity-picker restriction: permit the requested quantity even at zero stock.
         self.cb_upg_part_qty.set_max_qty(300)
         self.cb_upg_part_qty.setEnabled(True)
+        if hasattr(self, "chk_upg_consume_stock"):
+            is_batch = (
+                self.cb_upg_part.currentIndex() >= 0
+                and self.cb_upg_part.currentData() is not None
+            )
+            self.chk_upg_consume_stock.setEnabled(is_batch)
+            if not is_batch:
+                self.chk_upg_consume_stock.setChecked(False)
 
     def _save_upgrade(self):
         t_id = self.cb_upg_target.currentData()
@@ -3536,43 +3691,39 @@ class MainWindow(QMainWindow):
             return
         try:
             was_edit = self.selected_upgrade_id is not None
-            consume_stock = False
+            consume_stock = bool(self.chk_upg_consume_stock.isChecked())
             warning_messages = []
-            with self.db.get_connection() as conn:
-                target_row = conn.execute(
-                    "SELECT remaining_qty, batch_code FROM batches WHERE id=?", (t_id,)
-                ).fetchone()
-                part_row = conn.execute(
-                    "SELECT remaining_qty, batch_code FROM batches WHERE id=?", (p_id,)
-                ).fetchone() if p_id is not None else None
-            requested_targets = self.cb_upg_target_qty.get_qty()
-            if target_row and int(target_row["remaining_qty"]) < requested_targets:
-                warning_messages.append(
-                    f"موجودی کالای هدف «{target_row['batch_code']}» کافی نیست "
-                    f"(موجودی: {target_row['remaining_qty']})."
+            part_row = None
+            if p_id is not None:
+                with self.db.get_connection() as conn:
+                    part_row = conn.execute(
+                        "SELECT remaining_qty, batch_code FROM batches WHERE id=?",
+                        (p_id,),
+                    ).fetchone()
+                requested_parts = (
+                    self.cb_upg_target_qty.get_qty()
+                    * self.cb_upg_part_qty.get_qty()
                 )
-            target_has_stock = bool(target_row) and (
-                int(target_row["remaining_qty"]) >= requested_targets
-            )
-            requested_parts = requested_targets * self.cb_upg_part_qty.get_qty()
-            if p_id is not None and part_row:
-                if target_has_stock and int(part_row["remaining_qty"]) >= requested_parts:
-                    consume_stock = True
-                else:
+                if consume_stock and (
+                    not part_row or int(part_row["remaining_qty"]) < requested_parts
+                ):
                     warning_messages.append(
-                        f"موجودی قطعه «{part_row['batch_code']}» یا کالای هدف برای این عملیات کافی نیست "
-                        f"(موجودی قطعه: {part_row['remaining_qty']}، مقدار قطعه درخواستی: {requested_parts}). "
-                        "با تأیید شما ارتقا بدون کسر موجودی انجام می‌شود."
+                        f"موجودی قطعه «{part_row['batch_code'] if part_row else part_text}» "
+                        f"کافی نیست (موجودی: "
+                        f"{int(part_row['remaining_qty']) if part_row else 0}، "
+                        f"مقدار درخواستی: {requested_parts})."
                     )
-            else:
-                warning_messages.append(
-                    "قطعه به‌صورت دستی ثبت می‌شود و موجودی انبار تغییر نخواهد کرد."
-                )
+            elif consume_stock:
+                consume_stock = False
+
             if warning_messages and not _ask_yes_no(
-                self, "هشدار موجودی و تأیید ارتقا",
-                "\n".join(warning_messages) + "\n\nآیا با ثبت ارتقا بدون کسر موجودی ادامه می‌دهید؟"
+                self, "موجودی قطعه مصرفی",
+                "\\n".join(warning_messages)
+                + "\\n\\nآیا می‌خواهید مشخصات را اعمال کنید و بدون کسر موجودی ادامه دهید؟"
             ):
                 return
+            if warning_messages:
+                consume_stock = False
             self.db.upgrade_batch_product(
                 t_id,
                 self.cb_upg_target_qty.get_qty(),
@@ -3612,6 +3763,8 @@ class MainWindow(QMainWindow):
         self.ed_upg_new_specs.clear()
         self.ed_upg_serial.clear()
         self.chk_upg_add_cost.setChecked(False)
+        self.chk_upg_consume_stock.setChecked(True)
+        self.chk_upg_consume_stock.setEnabled(False)
         self.dt_upg_date.set_date(jdatetime.date.today().strftime("%Y/%m/%d"))
         self._on_upg_target_changed()
 
@@ -3678,6 +3831,10 @@ class MainWindow(QMainWindow):
         self.chk_upg_add_cost.setChecked(
             int(upgrade["added_cost_unit"] or 0) > int(upgrade["labor_cost_unit"] or 0)
         )
+        self.chk_upg_consume_stock.setChecked(
+            int(upgrade["stock_deducted_qty"] or 0) > 0
+        )
+        self.chk_upg_consume_stock.setEnabled(upgrade["part_batch_id"] is not None)
 
 
     def _revert_selected_upgrade(self):
@@ -3760,7 +3917,7 @@ class MainWindow(QMainWindow):
         self.tbl_suppliers.itemSelectionChanged.connect(self._on_supplier_selected)
         self._add_table_search(btn_sup_row, self.tbl_suppliers, "suppliers", "🔍 جست‌وجو در تأمین‌کنندگان...")
         layout.addWidget(self.tbl_suppliers)
-        self._add_scrollable_tab(tab, "💳 تأمین‌کنندگان و بدهی‌ها")
+        self._add_scrollable_tab(tab, "💳 تأمین‌کنندگان")
 
     def _add_supplier(self):
         name = self.ed_sup_name.text().strip()
@@ -3939,6 +4096,7 @@ class MainWindow(QMainWindow):
         )
         self.cb_rep_sort = QComboBox()
         self.cb_rep_sort.addItem("آخرین ویرایش / ایجاد (پیش‌فرض)", "activity_desc")
+        self.cb_rep_sort.addItem("اولین ویرایش / ایجاد", "activity_asc")
         self.cb_rep_sort.addItem("تاریخ تراکنش: جدیدترین", "transaction_desc")
         self.cb_rep_sort.addItem("تاریخ تراکنش: قدیمی‌ترین", "transaction_asc")
         self.cb_rep_sort.addItem("مبلغ / قیمت: بیشترین", "amount_desc")
@@ -4101,13 +4259,14 @@ class MainWindow(QMainWindow):
                 srv_rows = conn.execute("""
                     SELECT 'خدمات' as t_type, sr.invoice_number as ref, sr.service_datetime as dt,
                            COALESCE(sr.updated_at, sr.created_at) AS _activity_at,
-                           'SRV' as code, 'خدمات' as category, sr.service_type as sub_category,
+                           sc.code as code, 'خدمات' as category, sr.service_type as sub_category,
                            sr.service_name as title, '' as specs, e.id as emp_id, e.name as emp_name,
                            sr.customer_name as party, 1 as qty, sr.service_fee as u_price,
                            sr.service_fee as sug_price, sr.side_cost as cost_total,
                            sr.service_fee as amt, sr.paid_amount as paid,
                            sr.net_profit as prof, sr.settlement_status as st
                     FROM service_records sr
+                    JOIN service_catalog sc ON sc.id=sr.service_id
                     LEFT JOIN employees e ON sr.seller_employee_id=e.id
                 """).fetchall()
 
@@ -5442,7 +5601,9 @@ class MainWindow(QMainWindow):
 
         self.lbl_active_db_path = QLabel()
         self.lbl_active_db_path.setObjectName("activeDbPath")
-        self.lbl_active_db_path.setWordWrap(True)
+        self.lbl_active_db_path.setWordWrap(False)
+        self.lbl_active_db_path.setLayoutDirection(Qt.LeftToRight)
+        self.lbl_active_db_path.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.lbl_active_db_path.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.lbl_active_db_path.setFrameShape(QLabel.StyledPanel)
         self.lbl_active_db_path.setFrameShadow(QLabel.Sunken)
@@ -5469,13 +5630,13 @@ class MainWindow(QMainWindow):
         db_btn_row.addWidget(btn_open_db_dir)
 
         self.chk_auto_bk = QCheckBox("پشتیبان‌گیری خودکار دوره‌ای فعال باشد")
-        self.sp_bk_interval = QSpinBox()
+        self.sp_bk_interval = SelectAllSpinBox()
         self.sp_bk_interval.setRange(1, 1440)
         self.sp_bk_interval.setSuffix(" دقیقه")
         self.sp_bk_interval.setKeyboardTracking(False)
         self.sp_bk_interval.setButtonSymbols(QSpinBox.NoButtons)
 
-        self.sp_bk_retention = QSpinBox()
+        self.sp_bk_retention = SelectAllSpinBox()
         self.sp_bk_retention.setRange(1, 100)
         self.sp_bk_retention.setSuffix(" نسخه")
         self.sp_bk_retention.setKeyboardTracking(False)
