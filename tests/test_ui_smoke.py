@@ -78,8 +78,14 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
         assert window.lbl_active_user.sizePolicy().horizontalPolicy() == QSizePolicy.Preferred
         assert window.lbl_active_db_path.layoutDirection() == Qt.LeftToRight
         assert window.lbl_active_db_path.alignment() & Qt.AlignLeft
-        assert window.lst_cfg_attributes.minimumHeight() >= 92
+        assert window.lst_cfg_attributes.minimumHeight() >= 140
+        attribute_section = window.lst_cfg_attributes.parentWidget()
+        assert attribute_section.header.objectName() == "collapsibleSectionHeader"
+        assert window.lst_cfg_attributes.isHidden()
+        attribute_section.header.click()
         assert not window.lst_cfg_attributes.isHidden()
+        attribute_section.header.click()
+        assert window.lst_cfg_attributes.isHidden()
         assert window.btn_theme.isEnabled()
         assert window.btn_table_width.isEnabled()
         assert window.tbl_batches.columnCount() >= 22
