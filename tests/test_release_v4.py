@@ -13,6 +13,7 @@ from database import (
     EXPECTED_SCHEMA_COLUMNS,
     DatabaseManager,
     app_config_exists,
+    app_config_has_database_selection,
     round_integer_division,
     round_percentage_amount,
 )
@@ -181,9 +182,17 @@ class ReleaseV4Tests(unittest.TestCase):
             config_path = os.path.join(tmp, "app_config.json")
             with patch.object(database, "CONFIG_FILE", config_path):
                 self.assertFalse(app_config_exists())
+                self.assertFalse(app_config_has_database_selection())
                 with open(config_path, "w", encoding="utf-8") as handle:
                     handle.write("{}")
                 self.assertTrue(app_config_exists())
+                self.assertFalse(app_config_has_database_selection())
+                with open(config_path, "w", encoding="utf-8") as handle:
+                    handle.write('{"db_path": "active-store.db"}')
+                self.assertTrue(app_config_has_database_selection())
+                with open(config_path, "w", encoding="utf-8") as handle:
+                    handle.write("{invalid json")
+                self.assertFalse(app_config_has_database_selection())
 
     def test_startup_shows_dialog_without_config_even_when_database_exists(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -196,7 +205,7 @@ class ReleaseV4Tests(unittest.TestCase):
             dialog.rb_existing = Mock()
             config = {"db_path": db_path, "recent_databases": [db_path]}
             with (
-                patch.object(main_module, "app_config_exists", return_value=False),
+                patch.object(main_module, "app_config_has_database_selection", return_value=False),
                 patch.object(main_module, "load_app_config", return_value=config),
                 patch.object(main_module, "get_default_database_path", return_value=db_path),
                 patch.object(main_module, "DatabaseBootstrapDialog", return_value=dialog) as dialog_factory,
