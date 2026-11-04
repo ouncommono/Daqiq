@@ -11,8 +11,7 @@
 
 ## QA status
 
-- Latest confirmed full test run before release metadata updates: 92 passed.
-- A new CI run is required on the final PR head.
+- Final PR head `4222518380747d15775f614a14f64f63782acdbd`: Python compilation succeeded; `pytest -q` reported **93 passed, 176 warnings** (29.48s) in GitHub Actions run [41875547287](https://github.com/ouncommono/Daqiq/actions/runs/41875547287).
 - Manual packaged-Windows smoke testing, RTL visual acceptance, and store-operator end-to-end acceptance remain release gates.
 
 ---
