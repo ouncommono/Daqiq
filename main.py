@@ -7383,12 +7383,13 @@ class MainWindow(QMainWindow):
             if isinstance(labels, dict) else "زیرمجموعه"
         )
 
-    def _save_subcategory_caption(self):
+    def _save_subcategory_caption(self, show_warning=True):
         category = self.cb_cfg_category.currentText().strip()
         caption = self.ed_subcategory_caption.text().strip()
         if not category or not caption:
-            QMessageBox.warning(self, "عنوان فیلد", "دسته‌بندی و عنوان فیلد را وارد کنید.")
-            return
+            if show_warning:
+                QMessageBox.warning(self, "عنوان فیلد", "دسته‌بندی و عنوان فیلد را وارد کنید.")
+            return False
         raw = self.db.get_setting("subcategory_field_labels", "{}")
         try:
             labels = json.loads(raw or "{}")
@@ -7402,6 +7403,7 @@ class MainWindow(QMainWindow):
         )
         if self.cb_prod_cat.currentText().strip() == category:
             self._configure_product_specs(category)
+        return True
 
     def _configure_product_specs(self, category):
         if not hasattr(self, "specs_widget"):
