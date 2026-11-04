@@ -6,6 +6,7 @@ import sqlite3
 import jdatetime
 import time
 import hashlib
+from decimal import Decimal, ROUND_HALF_EVEN
 
 APP_VERSION = "4.0.0"
 SCHEMA_VERSION = 400
@@ -44,6 +45,29 @@ def validate_schema_column_order(conn):
             raise RuntimeError(
                 f"ساختار ستون‌های جدول {table_name} با قرارداد نسخه 4.0.0 سازگار نیست."
             )
+
+
+def round_integer_division(numerator, denominator):
+    """Round an integer ratio using exact round-half-to-even arithmetic."""
+    numerator = int(numerator)
+    denominator = int(denominator)
+    if denominator <= 0:
+        raise ValueError("مقسوم‌علیه باید بزرگ‌تر از صفر باشد.")
+    sign = -1 if numerator < 0 else 1
+    quotient, remainder = divmod(abs(numerator), denominator)
+    doubled_remainder = remainder * 2
+    if doubled_remainder > denominator or (
+        doubled_remainder == denominator and quotient % 2
+    ):
+        quotient += 1
+    return sign * quotient
+
+
+def round_percentage_amount(amount, percentage):
+    """Apply a percentage to an integer amount without binary-float precision loss."""
+    multiplier = Decimal(100) + Decimal(str(percentage))
+    result = Decimal(int(amount)) * multiplier / Decimal(100)
+    return int(result.quantize(Decimal("1"), rounding=ROUND_HALF_EVEN))
 
 
 def get_app_data_dir():
@@ -983,7 +1007,7 @@ class DatabaseManager:
                 ).fetchone()
                 if target:
                     added = int(upgrade["added_cost_unit"] or 0)
-                    deducted = round(added * (1 + float(target["profit_pct"] or 0) / 100.0))
+                    deducted = round_percentage_amount(added, target["profit_pct"] or 0)
                     conn.execute(
                         """UPDATE batches SET upgrade_cost_unit=MAX(0,upgrade_cost_unit-?),
                            unit_cost_price=MAX(0,unit_cost_price-?),
@@ -1279,7 +1303,7 @@ class DatabaseManager:
         notes = str(notes or "").strip()
         batch_code = str(batch_code or "").strip()
 
-        extra_per_unit = round(extra_cost_total / initial_qty)
+        extra_per_unit = round_integer_division(extra_cost_total, initial_qty)
         unit_cost_price = self._batch_integer(
             unit_purchase_price + extra_per_unit, "بهای تمام‌شده واحد"
         )
@@ -1443,7 +1467,7 @@ class DatabaseManager:
                 supplier_row["name"] if supplier_row else old["supplier_name_snapshot"]
             )
 
-            extra_per_unit = round(extra_cost_total / new_initial_qty)
+            extra_per_unit = round_integer_division(extra_cost_total, new_initial_qty)
             unit_cost_price = self._batch_integer(
                 unit_purchase_price + extra_per_unit + int(old["upgrade_cost_unit"] or 0),
                 "بهای تمام‌شده واحد",
@@ -1546,8 +1570,8 @@ class DatabaseManager:
         ).fetchone()
         if target:
             added_cost = int(upgrade["added_cost_unit"] or 0)
-            deducted_suggested = round(
-                added_cost * (1 + float(target["profit_pct"] or 0) / 100.0)
+            deducted_suggested = round_percentage_amount(
+                added_cost, target["profit_pct"] or 0
             )
             conn.execute(
                 """UPDATE batches SET
@@ -1672,8 +1696,8 @@ class DatabaseManager:
             new_unit_cost = self._batch_integer(
                 int(target_b["unit_cost_price"]) + added_cost_per_unit, "بهای تمام‌شده جدید"
             )
-            suggested_increase = round(
-                added_cost_per_unit * (1 + float(target_b["profit_pct"] or 0) / 100.0)
+            suggested_increase = round_percentage_amount(
+                added_cost_per_unit, target_b["profit_pct"] or 0
             )
             new_suggested = self._batch_integer(
                 int(target_b["suggested_sell_price"]) + suggested_increase,
