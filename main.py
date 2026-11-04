@@ -2798,10 +2798,16 @@ class MainWindow(QMainWindow):
                     supplier_name=supplier_name or None,
                 )
             else:
+                # add_batch has an additional initial_specs argument compared
+                # with update_batch. Keep this explicit mapping rather than
+                # forwarding the edit payload with a different function arity.
                 self.db.add_batch(
                     batch_code,
                     product["id"],
-                    *batch_values,
+                    *batch_values[:10],
+                    specifications,
+                    specifications,
+                    batch_values[11],
                     colors=self._checked_colors(self.btn_batch_colors),
                     supplier_name=supplier_name or None,
                 )
