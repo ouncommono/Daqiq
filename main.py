@@ -1189,18 +1189,25 @@ class MainWindow(QMainWindow):
         if allowed_ids is None:
             return rows
         allowed = set(allowed_ids)
-        if not allowed:
-            return []
         visible = []
         for row in rows:
+            has_owner = False
+            is_allowed = False
             for field in owner_fields:
                 try:
                     value = row[field]
                 except (KeyError, IndexError, TypeError):
                     value = None
-                if value is not None and int(value) in allowed:
-                    visible.append(row)
+                if value is None:
+                    continue
+                has_owner = True
+                if int(value) in allowed:
+                    is_allowed = True
                     break
+            # Unassigned records have no other user's ownership and remain
+            # shared, preserving visibility of records created without a login.
+            if is_allowed or not has_owner:
+                visible.append(row)
         return visible
 
     def _is_scoped_access(self):
@@ -3041,15 +3048,14 @@ class MainWindow(QMainWindow):
             params = (int(product["id"]),)
         allowed_owners = self._data_scope_employee_ids()
         if allowed_owners is not None:
-            if not allowed_owners:
-                self.cb_sale_batch.setCurrentIndex(-1)
-                self._on_sale_batch_changed()
-                return
-            query += (
-                " AND b.buyer_employee_id IN ("
-                + ", ".join("?" for _ in allowed_owners) + ")"
-            )
-            params = tuple(params) + tuple(allowed_owners)
+            if allowed_owners:
+                query += (
+                    " AND (b.buyer_employee_id IS NULL OR b.buyer_employee_id IN ("
+                    + ", ".join("?" for _ in allowed_owners) + "))"
+                )
+                params = tuple(params) + tuple(allowed_owners)
+            else:
+                query += " AND b.buyer_employee_id IS NULL"
         query += " ORDER BY b.updated_at DESC, b.id DESC"
         with self.db.get_connection() as conn:
             batch_rows = conn.execute(query, params).fetchall()
@@ -7560,12 +7566,19 @@ class MainWindow(QMainWindow):
                         f"""SELECT DISTINCT s.id, s.name, s.phone, s.address, s.notes,
                                     s.created_at, s.updated_at
                              FROM suppliers s JOIN batches b ON b.supplier_id=s.id
-                             WHERE b.buyer_employee_id IN ({owner_placeholders})
+                             WHERE b.buyer_employee_id IS NULL
+                                OR b.buyer_employee_id IN ({owner_placeholders})
                              ORDER BY s.updated_at DESC, s.id DESC""",
                         allowed_owners,
                     ).fetchall()
                 else:
-                    sups = []
+                    sups = conn.execute(
+                        """SELECT DISTINCT s.id, s.name, s.phone, s.address, s.notes,
+                                  s.created_at, s.updated_at
+                           FROM suppliers s JOIN batches b ON b.supplier_id=s.id
+                           WHERE b.buyer_employee_id IS NULL
+                           ORDER BY s.updated_at DESC, s.id DESC"""
+                    ).fetchall()
             else:
                 sups = conn.execute(
                     "SELECT id, name, phone, address, notes, created_at, updated_at FROM suppliers ORDER BY updated_at DESC, id DESC"
@@ -7592,8 +7605,8 @@ class MainWindow(QMainWindow):
                 owner_set = set(allowed_owners)
                 batches = [
                     batch for batch in batches
-                    if batch["buyer_employee_id"] is not None
-                    and int(batch["buyer_employee_id"]) in owner_set
+                    if batch["buyer_employee_id"] is None
+                    or int(batch["buyer_employee_id"]) in owner_set
                 ]
             # Product masters are shared catalogue data; shipment availability
             # is independently restricted to the active data-scope owners.
@@ -8082,10 +8095,13 @@ class MainWindow(QMainWindow):
         if allowed_owners is not None:
             if allowed_owners:
                 placeholders = ", ".join("?" for _ in allowed_owners)
-                owner_join_filter = f" AND b.buyer_employee_id IN ({placeholders})"
+                owner_join_filter = (
+                    " AND (b.buyer_employee_id IS NULL OR "
+                    f"b.buyer_employee_id IN ({placeholders}))"
+                )
                 owner_params = tuple(allowed_owners)
             else:
-                owner_join_filter = " AND 1=0"
+                owner_join_filter = " AND b.buyer_employee_id IS NULL"
         with self.db.get_connection() as conn:
             rows = conn.execute(f"""
                 SELECT s.id, s.name, s.phone, s.address, s.notes, s.created_at, s.updated_at,
