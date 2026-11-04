@@ -5654,7 +5654,10 @@ class MainWindow(QMainWindow):
         self.lst_recent_databases = SmoothScrollListWidget()
         self.lst_recent_databases.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.lst_recent_databases.verticalScrollBar().setSingleStep(18)
-        self.lst_recent_databases.setMaximumHeight(190)
+        self.lst_recent_databases.setMinimumHeight(120)
+        self.lst_recent_databases.setMaximumHeight(220)
+        self.lst_recent_databases.setSpacing(4)
+        self.lst_recent_databases.setUniformItemSizes(True)
         self.lst_recent_databases.setToolTip(
             "برای اتصال از دکمهٔ «اتصال» استفاده کنید؛ علامت × فقط مسیر را از فهرست حذف می‌کند و فایل را پاک نمی‌کند."
         )
@@ -6612,32 +6615,50 @@ class MainWindow(QMainWindow):
             row_item = QListWidgetItem()
             row_widget = QWidget()
             row_layout = QHBoxLayout(row_widget)
-            row_layout.setContentsMargins(5, 3, 5, 3)
-            row_layout.setSpacing(6)
+            row_widget.setMinimumHeight(48)
+            row_layout.setContentsMargins(8, 7, 8, 7)
+            row_layout.setSpacing(10)
 
             is_active = os.path.normcase(database_path) == os.path.normcase(active_path)
             database_label = QLabel(os.path.basename(database_path))
             database_label.setToolTip(database_path)
             database_label.setMinimumWidth(100)
+            database_label.setMinimumHeight(32)
+            database_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            database_label.setLayoutDirection(Qt.LeftToRight)
             database_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
             if is_active:
                 database_label.setStyleSheet("font-weight: bold; color: #059669;")
 
-            btn_connect = QPushButton("فعال" if is_active else "اتصال")
-            btn_connect.setEnabled(not is_active)
-            btn_connect.setMaximumWidth(72)
-            btn_connect.clicked.connect(
-                lambda checked=False, target=database_path: self._switch_to_database_path(target)
-            )
+            if is_active:
+                active_badge = QLabel("فعال / متصل")
+                active_badge.setObjectName("databaseActiveBadge")
+                active_badge.setAlignment(Qt.AlignCenter)
+                active_badge.setFixedSize(96, 32)
+                active_badge.setStyleSheet(
+                    "QLabel { color: #047857; background: rgba(16,185,129,0.12); "
+                    "border: 1px solid #10b981; border-radius: 6px; "
+                    "padding: 4px 8px; font-size: 11px; font-weight: bold; }"
+                )
+                row_layout.addWidget(active_badge)
+            else:
+                btn_connect = QPushButton("اتصال")
+                btn_connect.setMinimumSize(84, 32)
+                btn_connect.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+                btn_connect.clicked.connect(
+                    lambda checked=False, target=database_path: self._switch_to_database_path(target)
+                )
+                row_layout.addWidget(btn_connect)
 
             btn_remove = QToolButton()
             btn_remove.setText("×")
             btn_remove.setToolTip("حذف مسیر از فهرست؛ فایل پایگاه داده پاک نمی‌شود")
-            btn_remove.setFixedSize(28, 28)
+            btn_remove.setFixedSize(32, 32)
             btn_remove.setEnabled(not is_active)
             btn_remove.setStyleSheet(
-                "QToolButton { color: #dc2626; font-size: 18px; font-weight: bold; "
-                "border: 1px solid #cbd5e1; border-radius: 5px; background: palette(base); }"
+                "QToolButton { color: #dc2626; font-size: 16px; font-weight: bold; "
+                "padding: 0px; margin: 0px; border: 1px solid #cbd5e1; "
+                "border-radius: 5px; background: palette(base); }"
                 "QToolButton:hover { background: rgba(220,38,38,0.12); border-color: #dc2626; }"
             )
             btn_remove.clicked.connect(
@@ -6645,9 +6666,10 @@ class MainWindow(QMainWindow):
             )
 
             row_layout.addWidget(database_label, 1)
-            row_layout.addWidget(btn_connect)
-            row_layout.addWidget(btn_remove)
-            row_item.setSizeHint(row_widget.sizeHint())
+            row_layout.addWidget(btn_remove, 0, Qt.AlignVCenter)
+            row_item.setSizeHint(row_widget.sizeHint().expandedTo(
+                row_widget.minimumSizeHint()
+            ))
             self.lst_recent_databases.addItem(row_item)
             self.lst_recent_databases.setItemWidget(row_item, row_widget)
 
