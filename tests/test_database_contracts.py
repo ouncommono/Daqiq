@@ -189,7 +189,7 @@ def test_upgrade_on_empty_target_with_manual_component_never_changes_stock(manag
     assert upgrade["stock_deducted_qty"] == 0
 
 
-def test_v2_schema_initialization_is_idempotent_and_keeps_upgrade_column_order(manager):
+def test_v3_schema_initialization_is_idempotent_and_keeps_upgrade_column_order(manager):
     with manager.get_connection() as conn:
         before = [
             row["name"]
@@ -212,7 +212,7 @@ def test_v2_schema_initialization_is_idempotent_and_keeps_upgrade_column_order(m
         "added_cost_unit", "upgrade_date", "serial_number", "manual_part_description",
         "old_specs", "new_specs", "notes", "created_at", "updated_at",
     ]
-    assert version == 200
+    assert version == 300
 
 
 def test_upgrade_backend_rejects_unconfirmed_insufficient_inventory(manager):
@@ -492,7 +492,7 @@ def test_automatic_backup_folder_tracks_each_database_path(tmp_path, monkeypatch
     assert second_backup.startswith(str(tmp_path / "second" / "Backups"))
 
 
-def test_v2_application_config_records_release_and_preserves_current_preferences(manager):
+def test_v3_application_config_records_release_and_preserves_current_preferences(manager):
     manager.cfg["default_profit_pct"] = 35
     manager.cfg["zero_append_count"] = 4
     manager.cfg["default_window_maximized"] = False
@@ -503,12 +503,12 @@ def test_v2_application_config_records_release_and_preserves_current_preferences
     assert manager.cfg["zero_append_count"] == 4
     assert manager.cfg["default_window_maximized"] is False
     assert manager.cfg["require_login_password"] is True
-    assert manager.cfg["app_version"] == "2.0.0"
-    assert manager.cfg["schema_version"] == 200
+    assert manager.cfg["app_version"] == "3.0.0"
+    assert manager.cfg["schema_version"] == 300
     assert manager.cfg["config_schema_version"] == 2
 
 
-def test_v2_config_normalization_preserves_zero_extra_price_count(manager):
+def test_v3_config_normalization_preserves_zero_extra_price_count(manager):
     manager.cfg["zero_append_count"] = 0
     manager._normalize_application_config()
     assert manager.cfg["zero_append_count"] == 0
@@ -535,7 +535,7 @@ def test_service_code_is_the_tariff_identity(manager):
     ]
 
 
-def test_v2_schema_initialization_does_not_delete_employee_records(manager):
+def test_v3_schema_initialization_does_not_delete_employee_records(manager):
     expected = {
         "فروشنده اول", "فروشنده دوم", "کاربر واقعی", "مدیر واقعی",
     }
@@ -681,7 +681,7 @@ def test_product_catalog_configuration_is_persisted_per_database(manager, tmp_pa
 
 
 
-def test_v2_reinitialization_preserves_user_suppliers_and_linked_purchases(manager, tmp_path):
+def test_v3_reinitialization_preserves_user_suppliers_and_linked_purchases(manager, tmp_path):
     product_id = create_product(manager, "P-V2-SUPPLIER")
     with manager.get_connection() as conn:
         cursor = conn.execute(
@@ -877,7 +877,7 @@ def test_service_update_recalculates_net_profit_from_received_amount(manager):
         record["service_fee"], record["paid_amount"], record["settlement_status"]
     ) == (-100, 0)
 
-def test_fresh_schema_has_v2_physical_column_order_and_metadata(manager):
+def test_fresh_schema_has_v3_physical_column_order_and_metadata(manager):
     expected_columns = {
         "employees": [
             "id", "name", "role", "phone", "is_active", "permissions",
@@ -923,13 +923,34 @@ def test_fresh_schema_has_v2_physical_column_order_and_metadata(manager):
                 for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
             ]
             assert columns == expected, table_name
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 200
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 300
         metadata = dict(conn.execute("SELECT key, value FROM settings").fetchall())
-        assert metadata["app_version"] == "2.0.0"
-        assert metadata["schema_version"] == "200"
+        assert metadata["app_version"] == "3.0.0"
+        assert metadata["schema_version"] == "300"
 
 
-def test_v2_rejects_pre_v2_database_without_attempting_migration(tmp_path, monkeypatch):
+def test_v3_schema_creates_normalized_access_scope_tables(manager):
+    with manager.get_connection() as conn:
+        tables = {
+            row["name"] for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        assert {
+            "access_level_data_scopes",
+            "access_level_scope_levels",
+            "access_level_scope_users",
+        }.issubset(tables)
+        scope_columns = [
+            row["name"] for row in conn.execute(
+                "PRAGMA table_info(access_level_data_scopes)"
+            ).fetchall()
+        ]
+        assert scope_columns == ["access_level_name", "mode"]
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 300
+
+
+def test_v3_rejects_pre_v3_database_without_attempting_migration(tmp_path, monkeypatch):
     monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
     monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
     legacy_path = tmp_path / "legacy.db"
@@ -937,8 +958,37 @@ def test_v2_rejects_pre_v2_database_without_attempting_migration(tmp_path, monke
         conn.execute("CREATE TABLE legacy_records (id INTEGER PRIMARY KEY, value TEXT)")
         conn.commit()
 
-    with pytest.raises(RuntimeError, match="نسخه 2.0.0"):
+    with pytest.raises(RuntimeError, match="نسخه 3.0.0"):
         DatabaseManager(str(legacy_path))
+
+
+def test_first_upgrade_rollback_restores_product_base_specifications(manager):
+    product_id = create_product(manager, "P-BASE-SPECS")
+    target_id = create_batch(manager, product_id, code="C-BASE-SPECS")
+    base_specs = "CPU: Core i5 | RAM: 8GB"
+    with manager.get_connection() as conn:
+        conn.execute(
+            "UPDATE batches SET initial_specs=?, final_specs='' WHERE id=?",
+            (base_specs, target_id),
+        )
+        conn.commit()
+
+    manager.upgrade_batch_product(
+        target_id, 1, None, 1, 0, "CPU: Core i7 | RAM: 16GB",
+        "1405/01/10", None, consume_stock=False,
+        manual_part_description="قطعه دستی",
+    )
+    with manager.get_connection() as conn:
+        upgrade_id = conn.execute(
+            "SELECT id FROM upgrades WHERE target_batch_id=?", (target_id,)
+        ).fetchone()["id"]
+
+    manager.revert_upgrade(int(upgrade_id))
+    with manager.get_connection() as conn:
+        restored = conn.execute(
+            "SELECT final_specs FROM batches WHERE id=?", (target_id,)
+        ).fetchone()["final_specs"]
+    assert restored == base_specs
 
 
 def test_upgrade_can_apply_specs_without_consuming_available_part_stock(manager):

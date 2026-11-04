@@ -383,18 +383,11 @@ def export_table_to_excel(
     for r_vals in data_rows:
         ws.append([_clean_excel_value(value) for value in r_vals])
 
-    signed_columns = {
-        index for index, header in enumerate(headers, start=1)
-        if "تخفیف" in str(header) or "تشدید" in str(header)
-    }
     for row in ws.iter_rows(min_row=start_data_row, max_row=ws.max_row, max_col=col_count):
         for cell in row:
             cell.font = Font(name="Tahoma", size=10)
-            if cell.column in signed_columns and str(cell.value or "").startswith(("+", "-")):
-                # Keep the sign to the left of the digits in mixed RTL worksheets.
-                cell.alignment = Alignment(horizontal="left", vertical="center", readingOrder=1)
-            else:
-                cell.alignment = Alignment(horizontal="center", vertical="center", readingOrder=0)
+            # Signed values remain centered like every other comprehensive-report cell.
+            cell.alignment = Alignment(horizontal="center", vertical="center", readingOrder=0)
             cell.border = thin_border
 
     for col in range(1, col_count + 1):

@@ -1,4 +1,10 @@
-# Changelog
+# Daqiq 3.0.0
+
+- Established the greenfield v3.0.0 database baseline and normalized per-role data visibility scopes.
+- Removed the obsolete settings migration call that prevented database connection and creation.
+- Corrected upgrade rollback to restore product base technical specifications and fixed purchase/sales color resets.
+- Centered signed adjustments in comprehensive Excel reports, corrected RTL tooltips, and refreshed branding.
+
 
 ## 1.0.2
 

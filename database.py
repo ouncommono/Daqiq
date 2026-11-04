@@ -7,13 +7,13 @@ import jdatetime
 import time
 import hashlib
 
-APP_VERSION = "2.0.0"
-SCHEMA_VERSION = 200
+APP_VERSION = "3.0.0"
+SCHEMA_VERSION = 300
 
 
 def get_app_data_dir():
     base = os.environ.get("APPDATA") or os.path.expanduser("~")
-    path = os.path.join(base, "ComputerShopERP")
+    path = os.path.join(base, "Daqiq")
     os.makedirs(path, exist_ok=True)
     return path
 
@@ -38,7 +38,7 @@ CONFIG_FILE = get_config_file_path()
 
 
 def load_app_config():
-    default_db = os.path.join(get_app_data_dir(), "shop_database.db")
+    default_db = os.path.join(get_app_data_dir(), "Daqiq.db")
     default_cfg = {
         "db_path": default_db,
         "recent_databases": [default_db],
@@ -142,8 +142,8 @@ class DatabaseManager:
             }
             if existing_tables and current_version != SCHEMA_VERSION:
                 raise RuntimeError(
-                    "این پایگاه داده برای نسخه 2.0.0 ساخته نشده است. "
-                    "نسخه 2.0.0 به پایگاه داده تازه نیاز دارد و مهاجرت خودکار "
+                    "این پایگاه داده برای نسخه 3.0.0 ساخته نشده است. "
+                    "نسخه 3.0.0 به پایگاه داده تازه نیاز دارد و مهاجرت خودکار "
                     "از نسخه‌های قبلی پشتیبانی نمی‌شود."
                 )
             cur = conn.cursor()
@@ -166,6 +166,37 @@ class DatabaseManager:
                     password TEXT DEFAULT '',
                     created_at TEXT NOT NULL DEFAULT '',
                     updated_at TEXT NOT NULL DEFAULT ''
+                )
+            """)
+
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS access_level_data_scopes (
+                    access_level_name TEXT PRIMARY KEY,
+                    mode TEXT NOT NULL DEFAULT 'self'
+                        CHECK (mode IN ('all', 'self', 'access_levels', 'users'))
+                )
+            """)
+
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS access_level_scope_levels (
+                    access_level_name TEXT NOT NULL,
+                    selected_access_level_name TEXT NOT NULL,
+                    PRIMARY KEY (access_level_name, selected_access_level_name),
+                    FOREIGN KEY (access_level_name)
+                        REFERENCES access_level_data_scopes(access_level_name)
+                        ON DELETE CASCADE
+                )
+            """)
+
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS access_level_scope_users (
+                    access_level_name TEXT NOT NULL,
+                    employee_id INTEGER NOT NULL,
+                    PRIMARY KEY (access_level_name, employee_id),
+                    FOREIGN KEY (access_level_name)
+                        REFERENCES access_level_data_scopes(access_level_name)
+                        ON DELETE CASCADE,
+                    FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE
                 )
             """)
 
@@ -477,6 +508,8 @@ class DatabaseManager:
                 "CREATE INDEX IF NOT EXISTS idx_services_technician_activity ON service_records(technician_employee_id, updated_at DESC, id DESC)",
                 "CREATE INDEX IF NOT EXISTS idx_service_history_service_date ON service_price_history(service_id, change_date DESC, id DESC)",
                 "CREATE INDEX IF NOT EXISTS idx_payments_reference ON payments(ref_type, ref_id, payment_date DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_employees_permission_activity ON employees(permissions, updated_at DESC, id DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_access_scope_users_employee ON access_level_scope_users(employee_id, access_level_name)",
             ):
                 conn.execute(index_sql)
 
@@ -1282,7 +1315,7 @@ class DatabaseManager:
                     added_cost,
                     added_cost,
                     deducted_suggested,
-                    upgrade["old_specs"],
+                    (upgrade["old_specs"] or target["initial_specs"] or ""),
                     upgrade["target_batch_id"],
                 ),
             )
@@ -1405,7 +1438,7 @@ class DatabaseManager:
                 part_unit_cost,
                 labor_cost_unit,
                 added_cost_per_unit,
-                target_b["final_specs"],
+                target_b["final_specs"] or target_b["initial_specs"] or "",
                 new_specs,
                 upgrade_date,
                 technician_id,
@@ -2106,7 +2139,7 @@ class DatabaseManager:
             target_dir = custom_dir or self.cfg.get("backup_dir") or os.path.dirname(database_path)
             os.makedirs(target_dir, exist_ok=True)
             stamp = jdatetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            backup_file = os.path.join(target_dir, f"ShopBackup_{stamp}.db")
+            backup_file = os.path.join(target_dir, f"DaqiqBackup_{stamp}.db")
             suffix = 1
             base_file = backup_file
             while os.path.exists(backup_file):
