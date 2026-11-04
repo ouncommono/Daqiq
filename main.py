@@ -346,7 +346,7 @@ def _report_sort_key(rows_data, headers, mode):
         except (TypeError, ValueError):
             return 0.0
 
-    if mode == "activity_desc":
+    if mode in ("activity_desc", "activity_asc"):
         return lambda row: str(row[0] or "")
     if mode.startswith("transaction_"):
         index = find_column((
@@ -2884,17 +2884,17 @@ class MainWindow(QMainWindow):
                 complete_specs, batch.get("category") or ""
             )
             if raw_batch_specs and not parsed_batch_specs:
-                formatted_specs = "\\n".join(
+                formatted_specs = "\n".join(
                     part for part in (formatted_specs, raw_batch_specs) if part
                 )
             color_text = "، ".join(self._decode_colors(batch.get("colors_json"))) or "-"
             full_tooltip = (
-                f"کد محموله: {batch['batch_code']}\\n"
-                f"کالا: {product_title}\\n"
-                f"موجودی: {batch['remaining_qty']}\\n"
-                f"قیمت پیشنهادی: {int(batch['suggested_sell_price']):,} تومان\\n"
-                f"رنگ‌ها: {color_text}\\n"
-                f"مشخصات فنی کامل:\\n{formatted_specs or 'ثبت نشده'}"
+                f"کد محموله: {batch['batch_code']}\n"
+                f"کالا: {product_title}\n"
+                f"موجودی: {batch['remaining_qty']}\n"
+                f"قیمت پیشنهادی: {int(batch['suggested_sell_price']):,} تومان\n"
+                f"رنگ‌ها: {color_text}\n"
+                f"مشخصات فنی کامل:\n{formatted_specs or 'ثبت نشده'}"
             )
             index = self.cb_sale_batch.count()
             self.cb_sale_batch.addItem(bidi_isolate_text(label), batch)
@@ -3760,8 +3760,8 @@ class MainWindow(QMainWindow):
 
             if warning_messages and not _ask_yes_no(
                 self, "موجودی قطعه مصرفی",
-                "\\n".join(warning_messages)
-                + "\\n\\nآیا می‌خواهید مشخصات را اعمال کنید و بدون کسر موجودی ادامه دهید؟"
+                "\n".join(warning_messages)
+                + "\n\nآیا می‌خواهید مشخصات را اعمال کنید و بدون کسر موجودی ادامه دهید؟"
             ):
                 return
             if warning_messages:
@@ -7649,8 +7649,18 @@ class MainWindow(QMainWindow):
                     "SELECT COALESCE(SUM(remaining_qty),0) FROM batches"
                 ).fetchone()[0]
                 supplier_debt = conn.execute(
-                    """SELECT COALESCE(SUM((unit_purchase_price*initial_qty+extra_cost_total)-paid_amount),0)
-                       FROM batches"""
+                    """SELECT COALESCE(SUM(
+                           CASE
+                               WHEN settlement_status IN ('تسویه جزئی', 'تسویه‌نشده')
+                               THEN MAX(
+                                   0,
+                                   unit_purchase_price*initial_qty
+                                   + COALESCE(extra_cost_total, 0)
+                                   - COALESCE(paid_amount, 0)
+                               )
+                               ELSE 0
+                           END
+                       ), 0) FROM batches"""
                 ).fetchone()[0]
                 low_products = conn.execute(
                     """SELECT p.code,p.category,p.sub_category,p.brand,p.model,p.specs_json,p.reorder_point,
