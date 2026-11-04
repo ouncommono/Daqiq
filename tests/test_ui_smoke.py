@@ -1765,6 +1765,7 @@ def test_cold_start_first_shipment_quantity_10_edit_1_to_10_to_2_and_delete(
         main_module.QMessageBox, "critical",
         lambda _parent, title, message: errors.append((title, message)),
     )
+    monkeypatch.setattr(main_module.QMessageBox, "information", lambda *_args: None)
     window = MainWindow(manager, active_employee=None)
     try:
         # No shipment exists: create the product from an empty database first.
