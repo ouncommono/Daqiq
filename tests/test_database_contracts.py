@@ -1246,7 +1246,7 @@ def test_upgrade_can_apply_specs_without_consuming_available_part_stock(manager)
 
 
 
-def test_v330_greenfield_schema_contracts_and_stock_balance_constraints(manager):
+def test_v340_greenfield_schema_contracts_and_stock_balance_constraints(manager):
     """Lock down every fresh-install column layout and the core stock invariants."""
     expected_columns = {
         "settings": ["key", "value"],
