@@ -197,14 +197,16 @@ class ReleaseV4Tests(unittest.TestCase):
     def test_startup_shows_dialog_without_config_even_when_database_exists(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = os.path.join(tmp, "Daqiq.db")
-            with sqlite3.connect(db_path) as connection:
-                connection.execute("CREATE TABLE probe (id INTEGER PRIMARY KEY)")
+            config_path = os.path.join(tmp, "app_config.json")
+            with patch.object(database, "CONFIG_FILE", config_path):
+                DatabaseManager(db_path)
 
             dialog = Mock()
             dialog.exec.return_value = main_module.QDialog.Rejected
             dialog.rb_existing = Mock()
             config = {"db_path": db_path, "recent_databases": [db_path]}
             with (
+                patch.object(database, "CONFIG_FILE", config_path),
                 patch.object(main_module, "app_config_has_database_selection", return_value=False),
                 patch.object(main_module, "load_app_config", return_value=config),
                 patch.object(main_module, "get_default_database_path", return_value=db_path),
@@ -214,6 +216,15 @@ class ReleaseV4Tests(unittest.TestCase):
 
             dialog_factory.assert_called_once_with(db_path, None)
             dialog.rb_existing.setChecked.assert_called_once_with(True)
+
+    def test_existing_pre_v4_database_is_not_a_valid_startup_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = os.path.join(tmp, "legacy.db")
+            with sqlite3.connect(db_path) as connection:
+                for table in ("settings", "employees", "suppliers", "products", "batches", "sales"):
+                    connection.execute(f"CREATE TABLE {table} (id INTEGER PRIMARY KEY)")
+                connection.execute("PRAGMA user_version = 330")
+            self.assertFalse(main_module._is_valid_sqlite_database_file(db_path))
 
     def test_empty_jalali_date_remains_empty(self):
         widget = JalaliDateEdit(default_today=False)
