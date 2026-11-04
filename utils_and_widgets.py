@@ -266,7 +266,7 @@ DEFAULT_ATTRIBUTES = {
     "لپ‌تاپ": [
         {"name": "پردازنده", "label": "CPU", "values": CPU_LIST[1:]},
         {"name": "ظرفیت رم", "label": "RAM", "values": RAM_CAPACITIES[1:]},
-        {"name": "نسل رم", "label": "RAM Type", "values": ["DDR3 / DDR3L", "DDR4", "DDR5", "LPDDR4 / LPDDR5"]},
+        {"name": "نسل رم", "label": "Memory Type", "values": ["DDR3 / DDR3L", "DDR4", "DDR5", "LPDDR4 / LPDDR5"]},
         {"name": "حافظه داخلی", "label": "Storage", "values": STORAGE_LIST[1:]},
         {"name": "پردازنده گرافیکی", "label": "GPU", "values": GPU_LIST[1:]},
         {"name": "صفحه‌نمایش", "label": "Display", "values": [
