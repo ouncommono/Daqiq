@@ -339,7 +339,7 @@ def test_v3_schema_initialization_is_idempotent_and_keeps_upgrade_column_order(m
         "added_cost_unit", "upgrade_date", "serial_number", "manual_part_description",
         "old_specs", "new_specs", "notes", "created_at", "updated_at",
     ]
-    assert version == 330
+    assert version == 340
 
 
 def test_upgrade_backend_rejects_unconfirmed_insufficient_inventory(manager):
@@ -630,8 +630,8 @@ def test_v3_application_config_records_release_and_preserves_current_preferences
     assert manager.cfg["zero_append_count"] == 4
     assert manager.cfg["default_window_maximized"] is False
     assert manager.cfg["require_login_password"] is True
-    assert manager.cfg["app_version"] == "3.3.0"
-    assert manager.cfg["schema_version"] == 330
+    assert manager.cfg["app_version"] == "3.4.0"
+    assert manager.cfg["schema_version"] == 340
     assert manager.cfg["config_schema_version"] == 2
 
 
@@ -1055,14 +1055,14 @@ def test_fresh_schema_has_v3_physical_column_order_and_metadata(manager):
                 for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
             ]
             assert columns == expected, table_name
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 330
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 340
         product_indexes = {
             row["name"] for row in conn.execute("PRAGMA index_list(products)")
         }
         assert "idx_products_taxonomy" in product_indexes
         metadata = dict(conn.execute("SELECT key, value FROM settings").fetchall())
-        assert metadata["app_version"] == "3.3.0"
-        assert metadata["schema_version"] == "330"
+        assert metadata["app_version"] == "3.4.0"
+        assert metadata["schema_version"] == "340"
 
 
 def test_v3_schema_creates_normalized_access_scope_tables(manager):
@@ -1094,7 +1094,7 @@ def test_v3_rejects_pre_v3_database_without_attempting_migration(tmp_path, monke
         conn.execute("CREATE TABLE legacy_records (id INTEGER PRIMARY KEY, value TEXT)")
         conn.commit()
 
-    with pytest.raises(RuntimeError, match="نسخه 3.3.0"):
+    with pytest.raises(RuntimeError, match="نسخه 3.4.0"):
         DatabaseManager(str(legacy_path))
 
 
@@ -1368,3 +1368,31 @@ def test_v330_greenfield_schema_contracts_and_stock_balance_constraints(manager)
             (batch_id,),
         ).fetchone()
     assert tuple(row) == (2, 0, 0, 2)
+
+
+def test_v340_batch_crud_supports_quantities_above_300(manager):
+    product_id = create_product(manager, "P-LARGE-QUANTITY")
+    batch_id = create_batch(
+        manager, product_id, code="C-LARGE-QUANTITY", quantity=1250
+    )
+    with manager.get_connection() as conn:
+        row = conn.execute(
+            "SELECT initial_qty, remaining_qty FROM batches WHERE id=?", (batch_id,)
+        ).fetchone()
+    assert (row["initial_qty"], row["remaining_qty"]) == (1250, 1250)
+
+    manager.update_batch(
+        batch_id, None, None, "PO-LARGE", "1405/01/02", 1600,
+        100, 0, 150, 0, "", "", "تسویه‌نشده",
+    )
+    with manager.get_connection() as conn:
+        row = conn.execute(
+            "SELECT initial_qty, remaining_qty FROM batches WHERE id=?", (batch_id,)
+        ).fetchone()
+    assert (row["initial_qty"], row["remaining_qty"]) == (1600, 1600)
+
+    manager.delete_batch(batch_id)
+    with manager.get_connection() as conn:
+        assert conn.execute(
+            "SELECT COUNT(*) FROM batches WHERE id=?", (batch_id,)
+        ).fetchone()[0] == 0
