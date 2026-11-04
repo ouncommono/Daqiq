@@ -48,7 +48,7 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
         assert window.tabs.count() == 10
         assert window.chk_upg_consume_stock.isChecked()
         assert window.tabs.tabText(9).endswith("تنظیمات")
-        assert window.lbl_app_version.text() == "دقیق | نسخه برنامه: 3.2.0"
+        assert window.lbl_app_version.text() == "دقیق | نسخه برنامه: 3.3.0"
         assert [window.catalog_tabs.tabText(i) for i in range(window.catalog_tabs.count())] == [
             "مدیریت کالاها",
             "مدیریت خدمات",
@@ -1748,6 +1748,131 @@ def test_settings_catalog_synchronizes_builtin_and_saved_product_features(
         window._add_or_rename_catalog_subcategory()
         saved_labels = json.loads(manager.get_setting("subcategory_field_labels", "{}"))
         assert saved_labels["مانیتور"] == "نوع دستگاه آزمایشی"
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
+
+def test_cold_start_first_shipment_quantity_10_edit_1_to_10_to_2_and_delete(
+    tmp_path, monkeypatch, qapp
+):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "cold-start-shop.db"))
+    errors = []
+    monkeypatch.setattr(
+        main_module.QMessageBox, "critical",
+        lambda _parent, title, message: errors.append((title, message)),
+    )
+    window = MainWindow(manager, active_employee=None)
+    try:
+        # No shipment exists: create the product from an empty database first.
+        manager.add_product(
+            "P-COLD-START-01", "", "قطعات", "لوازم جانبی",
+            "ColdStart", "FirstShipment", {}, "", 2, 20,
+        )
+        window.refresh_all_data()
+        product_index = next(
+            index for index in range(window.cb_batch_prod.count())
+            if (window.cb_batch_prod.itemData(index) or {}).get("code") == "P-COLD-START-01"
+        )
+        window.cb_batch_prod.setCurrentIndex(product_index)
+        window.ed_batch_code.setText("C-COLD-START-01")
+        window.ed_batch_inv.setText("PO-COLD-START-01")
+        window.cb_batch_qty.setCurrentText("10")
+        window.pr_batch_buy.set_value(100)
+        window.pr_batch_extra.set_value(0)
+        window.cb_batch_status.setCurrentText("تسویه‌نشده")
+        window.pr_batch_paid.set_value(0)
+
+        window._save_new_batch()
+        assert not errors, errors
+        with manager.get_connection() as conn:
+            batch = conn.execute(
+                "SELECT id, initial_qty, remaining_qty, settlement_status "
+                "FROM batches WHERE batch_code='C-COLD-START-01'"
+            ).fetchone()
+        assert batch is not None
+        batch_id = int(batch["id"])
+        assert (batch["initial_qty"], batch["remaining_qty"]) == (10, 10)
+
+        # Exercise the UI edit handler for both directions, not only the DB API.
+        window.selected_batch_id = batch_id
+        window.cb_batch_qty.setCurrentText("1")
+        window._update_selected_batch()
+        with manager.get_connection() as conn:
+            one = conn.execute(
+                "SELECT initial_qty, remaining_qty FROM batches WHERE id=?", (batch_id,)
+            ).fetchone()
+        assert (one["initial_qty"], one["remaining_qty"]) == (1, 1)
+
+        window.selected_batch_id = batch_id
+        window.cb_batch_qty.setCurrentText("10")
+        window._update_selected_batch()
+        with manager.get_connection() as conn:
+            ten = conn.execute(
+                "SELECT initial_qty, remaining_qty FROM batches WHERE id=?", (batch_id,)
+            ).fetchone()
+        assert (ten["initial_qty"], ten["remaining_qty"]) == (10, 10)
+
+        window.selected_batch_id = batch_id
+        window.cb_batch_qty.setCurrentText("2")
+        window._update_selected_batch()
+        with manager.get_connection() as conn:
+            two = conn.execute(
+                "SELECT initial_qty, remaining_qty FROM batches WHERE id=?", (batch_id,)
+            ).fetchone()
+        assert (two["initial_qty"], two["remaining_qty"]) == (2, 2)
+
+        monkeypatch.setattr(main_module, "_ask_yes_no", lambda *_args: True)
+        window.selected_batch_id = batch_id
+        window._delete_selected_batch()
+        with manager.get_connection() as conn:
+            assert conn.execute(
+                "SELECT COUNT(*) FROM batches WHERE id=?", (batch_id,)
+            ).fetchone()[0] == 0
+            assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+        assert not errors, errors
+    finally:
+        window.close()
+        qapp.processEvents()
+
+
+def test_subcategory_settings_restore_three_independent_actions(tmp_path, monkeypatch, qapp):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    manager = DatabaseManager(str(tmp_path / "three-buttons.db"))
+    window = MainWindow(manager, active_employee=None)
+    try:
+        buttons = {
+            button.objectName(): button
+            for button in window.findChildren(QPushButton)
+            if button.text() in {"افزودن", "تغییر نام", "حذف"}
+        }
+        add_button = buttons["btnAddSubcategory"]
+        rename_button = buttons["btnSecondary"]
+        assert add_button.text() == "افزودن"
+        assert rename_button.text() == "تغییر نام"
+        assert buttons["btnDanger"].text() == "حذف"
+        assert add_button.receivers(add_button.clicked) >= 1
+        assert rename_button.receivers(rename_button.clicked) >= 1
+        assert "افزودن/تغییرنام" not in {
+            button.text() for button in window.findChildren(QPushButton)
+        }
+
+        window.cb_cfg_category.setCurrentText("مانیتور")
+        before = list(window._taxonomy_draft["subcategories"]["مانیتور"])
+        window.ed_cfg_subcategory.setText("زیرمجموعه آزمایش")
+        add_button.click()
+        assert "زیرمجموعه آزمایش" in window._taxonomy_draft["subcategories"]["مانیتور"]
+        window.lst_cfg_subcategories.setCurrentRow(
+            window._taxonomy_draft["subcategories"]["مانیتور"].index("زیرمجموعه آزمایش")
+        )
+        window.ed_cfg_subcategory.setText("زیرمجموعه تغییرنام‌یافته")
+        rename_button.click()
+        assert "زیرمجموعه تغییرنام‌یافته" in window._taxonomy_draft["subcategories"]["مانیتور"]
+        assert "زیرمجموعه آزمایش" not in window._taxonomy_draft["subcategories"]["مانیتور"]
     finally:
         window.close()
         qapp.processEvents()
