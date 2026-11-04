@@ -381,14 +381,14 @@ def _smart_table_sort_key(value):
     clean = clean.replace("\\u200e", "").replace("\\u200f", "").strip()
 
     date_match = re.match(
-        r"^(\\d{4})[-/](\\d{1,2})[-/](\\d{1,2})(.*)$", clean
+        r"^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(.*)$", clean
     )
     if date_match:
         year, month, day, tail = date_match.groups()
         return (0, int(year), int(month), int(day), tail.strip())
 
     date_match = re.match(
-        r"^(\\d{1,2})[-/](\\d{1,2})[-/](\\d{4})(.*)$", clean
+        r"^(\d{1,2})[-/](\d{1,2})[-/](\d{4})(.*)$", clean
     )
     if date_match:
         day, month, year, tail = date_match.groups()
@@ -396,13 +396,13 @@ def _smart_table_sort_key(value):
 
     numeric = clean.replace(",", "").replace("تومان", "").replace("ریال", "")
     numeric = numeric.replace("%", "").replace(" ", "")
-    if re.fullmatch(r"[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)", numeric):
+    if re.fullmatch(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)", numeric):
         try:
             return (1, float(numeric))
         except (TypeError, ValueError, OverflowError):
             pass
 
-    parts = re.split(r"(\\d+)", clean.casefold())
+    parts = re.split(r"(\d+)", clean.casefold())
     natural = tuple(
         (0, int(part)) if part.isdigit() else (1, part)
         for part in parts if part
@@ -419,7 +419,7 @@ def _financial_number(value):
     clean = clean.strip("()").replace(",", "").replace("٬", "").replace("٫", ".")
     for token in ("تومان", "ریال", "%", " ", "\\u200e", "\\u200f"):
         clean = clean.replace(token, "")
-    if not re.fullmatch(r"[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)", clean):
+    if not re.fullmatch(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)", clean):
         return None
     try:
         number = float(clean)
@@ -442,12 +442,24 @@ class _SmartSortTableItem(QTableWidgetItem):
 
 
 class SelectAllSpinBox(QSpinBox):
-    """Select the existing numeric contents on focus/click for quick replacement."""
+    """Select the numeric editor contents whenever a user focuses or clicks it."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.lineEdit().installEventFilter(self)
 
     def _select_all_contents(self):
         editor = self.lineEdit()
         if editor is not None:
             editor.selectAll()
+
+    def eventFilter(self, watched, event):
+        editor = self.lineEdit()
+        if watched is editor and event.type() in (
+            QEvent.FocusIn, QEvent.MouseButtonRelease,
+        ):
+            QTimer.singleShot(0, editor.selectAll)
+        return super().eventFilter(watched, event)
 
     def focusInEvent(self, event):
         super().focusInEvent(event)
@@ -2897,16 +2909,20 @@ class MainWindow(QMainWindow):
             raw_batch_specs = (
                 batch.get("final_specs") or batch.get("initial_specs") or ""
             ).strip()
-            parsed_batch_specs = self._parse_batch_specifications(raw_batch_specs)
+            parsed_batch_specs, plain_batch_specs = self._parse_batch_specifications(
+                raw_batch_specs
+            )
             complete_specs = dict(product_specs)
             if parsed_batch_specs:
                 complete_specs.update(parsed_batch_specs)
             formatted_specs = self._format_specs_for_tooltip(
                 complete_specs, batch.get("category") or ""
             )
-            if raw_batch_specs and not parsed_batch_specs:
+            if plain_batch_specs:
                 formatted_specs = "\n".join(
-                    part for part in (formatted_specs, raw_batch_specs) if part
+                    part for part in (
+                        formatted_specs, "، ".join(plain_batch_specs)
+                    ) if part
                 )
             color_text = "، ".join(self._decode_colors(batch.get("colors_json"))) or "-"
             full_tooltip = (
