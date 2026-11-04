@@ -450,8 +450,12 @@ class SelectAllSpinBox(QSpinBox):
 
     def _select_all_contents(self):
         editor = self.lineEdit()
-        if editor is not None:
-            editor.selectAll()
+        if editor is None:
+            return
+        text = editor.text()
+        start = len(self.prefix())
+        end = max(start, len(text) - len(self.suffix()))
+        editor.setSelection(start, end - start)
 
     def eventFilter(self, watched, event):
         editor = self.lineEdit()
