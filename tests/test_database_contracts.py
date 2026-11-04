@@ -938,4 +938,4 @@ def test_fresh_schema_places_audit_columns_last_and_sets_version(manager):
                 for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
             ]
             assert columns[-2:] == ["created_at", "updated_at"], table_name
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 120
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 200
