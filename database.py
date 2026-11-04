@@ -52,7 +52,9 @@ def load_app_config():
         "zero_append_count": 3,
         "default_window_maximized": True,
         "require_login_password": False,
-        "config_schema_version": 1,
+        "config_schema_version": 2,
+        "app_version": APP_VERSION,
+        "schema_version": SCHEMA_VERSION,
         "theme": "light",
     }
     if os.path.exists(CONFIG_FILE):
@@ -1085,7 +1087,10 @@ class DatabaseManager:
         if not clauses:
             return
         rows = conn.execute(
-            "SELECT * FROM upgrades WHERE " + " OR ".join(clauses) + " ORDER BY updated_at DESC, id DESC",
+            "SELECT id, target_batch_id, part_batch_id, technician_id, target_qty,
+            part_qty_used, stock_deducted_qty, part_unit_cost, labor_cost_unit,
+            added_cost_unit, upgrade_date, serial_number, manual_part_description,
+            old_specs, new_specs, notes, created_at, updated_at FROM upgrades WHERE " + " OR ".join(clauses) + " ORDER BY updated_at DESC, id DESC",
             params,
         ).fetchall()
         removed_ids = set(batch_ids)
@@ -1102,7 +1107,12 @@ class DatabaseManager:
                 )
             if upgrade["target_batch_id"] not in removed_ids:
                 target = conn.execute(
-                    "SELECT * FROM batches WHERE id=?", (upgrade["target_batch_id"],)
+                    "SELECT id, batch_code, product_id, supplier_id, buyer_employee_id, invoice_number,
+            purchase_date, initial_qty, sold_qty, returned_qty, remaining_qty,
+            unit_purchase_price, extra_cost_total, upgrade_cost_unit, unit_cost_price,
+            suggested_sell_price, profit_pct, paid_amount, settlement_status,
+            serial_numbers, colors_json, initial_specs, final_specs,
+            supplier_name_snapshot, notes, created_at, updated_at FROM batches WHERE id=?", (upgrade["target_batch_id"],)
                 ).fetchone()
                 if target:
                     added = int(upgrade["added_cost_unit"] or 0)
@@ -1421,7 +1431,12 @@ class DatabaseManager:
         colors=None,
     ):
         with self.get_connection() as conn:
-            old = conn.execute("SELECT * FROM batches WHERE id=?", (batch_id,)).fetchone()
+            old = conn.execute("SELECT id, batch_code, product_id, supplier_id, buyer_employee_id, invoice_number,
+            purchase_date, initial_qty, sold_qty, returned_qty, remaining_qty,
+            unit_purchase_price, extra_cost_total, upgrade_cost_unit, unit_cost_price,
+            suggested_sell_price, profit_pct, paid_amount, settlement_status,
+            serial_numbers, colors_json, initial_specs, final_specs,
+            supplier_name_snapshot, notes, created_at, updated_at FROM batches WHERE id=?", (batch_id,)).fetchone()
             if not old:
                 raise ValueError("محموله یافت نشد.")
             new_product_id = int(product_id) if product_id is not None else int(old["product_id"])
@@ -1531,7 +1546,12 @@ class DatabaseManager:
             )
 
         target = conn.execute(
-            "SELECT * FROM batches WHERE id=?", (upgrade["target_batch_id"],)
+            "SELECT id, batch_code, product_id, supplier_id, buyer_employee_id, invoice_number,
+            purchase_date, initial_qty, sold_qty, returned_qty, remaining_qty,
+            unit_purchase_price, extra_cost_total, upgrade_cost_unit, unit_cost_price,
+            suggested_sell_price, profit_pct, paid_amount, settlement_status,
+            serial_numbers, colors_json, initial_specs, final_specs,
+            supplier_name_snapshot, notes, created_at, updated_at FROM batches WHERE id=?", (upgrade["target_batch_id"],)
         ).fetchone()
         if target:
             added_cost = int(upgrade["added_cost_unit"] or 0)
@@ -1589,7 +1609,10 @@ class DatabaseManager:
             previous_upgrade = None
             if upgrade_id is not None:
                 previous_upgrade = conn.execute(
-                    "SELECT * FROM upgrades WHERE id=?", (upgrade_id,)
+                    "SELECT id, target_batch_id, part_batch_id, technician_id, target_qty,
+            part_qty_used, stock_deducted_qty, part_unit_cost, labor_cost_unit,
+            added_cost_unit, upgrade_date, serial_number, manual_part_description,
+            old_specs, new_specs, notes, created_at, updated_at FROM upgrades WHERE id=?", (upgrade_id,)
                 ).fetchone()
                 if not previous_upgrade:
                     raise ValueError("رکورد ارتقای انتخاب‌شده یافت نشد.")
@@ -1604,10 +1627,20 @@ class DatabaseManager:
                 self._reverse_upgrade_effects(conn, previous_upgrade)
 
             target_b = conn.execute(
-                "SELECT * FROM batches WHERE id=?", (target_batch_id,)
+                "SELECT id, batch_code, product_id, supplier_id, buyer_employee_id, invoice_number,
+            purchase_date, initial_qty, sold_qty, returned_qty, remaining_qty,
+            unit_purchase_price, extra_cost_total, upgrade_cost_unit, unit_cost_price,
+            suggested_sell_price, profit_pct, paid_amount, settlement_status,
+            serial_numbers, colors_json, initial_specs, final_specs,
+            supplier_name_snapshot, notes, created_at, updated_at FROM batches WHERE id=?", (target_batch_id,)
             ).fetchone()
             part_b = (
-                conn.execute("SELECT * FROM batches WHERE id=?", (part_batch_id,)).fetchone()
+                conn.execute("SELECT id, batch_code, product_id, supplier_id, buyer_employee_id, invoice_number,
+            purchase_date, initial_qty, sold_qty, returned_qty, remaining_qty,
+            unit_purchase_price, extra_cost_total, upgrade_cost_unit, unit_cost_price,
+            suggested_sell_price, profit_pct, paid_amount, settlement_status,
+            serial_numbers, colors_json, initial_specs, final_specs,
+            supplier_name_snapshot, notes, created_at, updated_at FROM batches WHERE id=?", (part_batch_id,)).fetchone()
                 if part_batch_id is not None else None
             )
             if not target_b or (part_batch_id is not None and not part_b):
@@ -1708,7 +1741,10 @@ class DatabaseManager:
         """Delete an upgrade and reverse its stock and cost effects atomically."""
         with self.get_connection() as conn:
             upgrade = conn.execute(
-                "SELECT * FROM upgrades WHERE id=?", (upgrade_id,)
+                "SELECT id, target_batch_id, part_batch_id, technician_id, target_qty,
+            part_qty_used, stock_deducted_qty, part_unit_cost, labor_cost_unit,
+            added_cost_unit, upgrade_date, serial_number, manual_part_description,
+            old_specs, new_specs, notes, created_at, updated_at FROM upgrades WHERE id=?", (upgrade_id,)
             ).fetchone()
             if not upgrade:
                 raise ValueError("رکورد ارتقا یافت نشد.")
@@ -1754,7 +1790,12 @@ class DatabaseManager:
             raise ValueError("تعداد فروش باید حداقل ۱ عدد باشد.")
 
         with self.get_connection() as conn:
-            batch = conn.execute("SELECT * FROM batches WHERE id=?", (batch_id,)).fetchone()
+            batch = conn.execute("SELECT id, batch_code, product_id, supplier_id, buyer_employee_id, invoice_number,
+            purchase_date, initial_qty, sold_qty, returned_qty, remaining_qty,
+            unit_purchase_price, extra_cost_total, upgrade_cost_unit, unit_cost_price,
+            suggested_sell_price, profit_pct, paid_amount, settlement_status,
+            serial_numbers, colors_json, initial_specs, final_specs,
+            supplier_name_snapshot, notes, created_at, updated_at FROM batches WHERE id=?", (batch_id,)).fetchone()
             if not batch:
                 raise ValueError("محموله انتخاب شده وجود ندارد.")
             if batch["remaining_qty"] < qty:
@@ -1898,12 +1939,23 @@ class DatabaseManager:
             raise ValueError("تعداد فروش باید بیشتر از صفر باشد.")
 
         with self.get_connection() as conn:
-            old_sale = conn.execute("SELECT * FROM sales WHERE id=?", (sale_id,)).fetchone()
+            old_sale = conn.execute("SELECT id, invoice_number, product_id, batch_id, seller_employee_id,
+            customer_name, qty, returned_qty, suggested_unit_price, actual_unit_price,
+            unit_cost_price, unit_discount, total_discount, price_Markup_unit,
+            unit_profit, total_profit, total_amount, paid_amount, settlement_status,
+            sale_datetime, warranty_company, warranty_start, warranty_months,
+            warranty_days, warranty_end, serial_number, specifications, colors_json,
+            notes, created_at, updated_at FROM sales WHERE id=?", (sale_id,)).fetchone()
             if not old_sale:
                 raise ValueError("ردیف فروش یافت نشد.")
 
             batch = conn.execute(
-                "SELECT * FROM batches WHERE id=?", (old_sale["batch_id"],)
+                "SELECT id, batch_code, product_id, supplier_id, buyer_employee_id, invoice_number,
+            purchase_date, initial_qty, sold_qty, returned_qty, remaining_qty,
+            unit_purchase_price, extra_cost_total, upgrade_cost_unit, unit_cost_price,
+            suggested_sell_price, profit_pct, paid_amount, settlement_status,
+            serial_numbers, colors_json, initial_specs, final_specs,
+            supplier_name_snapshot, notes, created_at, updated_at FROM batches WHERE id=?", (old_sale["batch_id"],)
             ).fetchone()
             diff_qty = new_qty - old_sale["qty"]
             if diff_qty > batch["remaining_qty"]:
@@ -2010,7 +2062,13 @@ class DatabaseManager:
 
     def delete_sale(self, sale_id):
         with self.get_connection() as conn:
-            old_sale = conn.execute("SELECT * FROM sales WHERE id=?", (sale_id,)).fetchone()
+            old_sale = conn.execute("SELECT id, invoice_number, product_id, batch_id, seller_employee_id,
+            customer_name, qty, returned_qty, suggested_unit_price, actual_unit_price,
+            unit_cost_price, unit_discount, total_discount, price_Markup_unit,
+            unit_profit, total_profit, total_amount, paid_amount, settlement_status,
+            sale_datetime, warranty_company, warranty_start, warranty_months,
+            warranty_days, warranty_end, serial_number, specifications, colors_json,
+            notes, created_at, updated_at FROM sales WHERE id=?", (sale_id,)).fetchone()
             if not old_sale:
                 return
             conn.execute(
@@ -2123,7 +2181,8 @@ class DatabaseManager:
     ):
         with self.get_connection() as conn:
             srv = conn.execute(
-                "SELECT * FROM service_catalog WHERE id=?", (service_id,)
+                "SELECT id, code, service_type, name, default_fee, default_side_cost,
+            description, is_active, created_at, updated_at FROM service_catalog WHERE id=?", (service_id,)
             ).fetchone()
             if not srv:
                 raise ValueError("تعرفه خدمت یافت نشد.")
