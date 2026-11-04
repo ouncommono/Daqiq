@@ -47,8 +47,9 @@ from PySide6.QtGui import QFont, QColor, QFontMetrics
 
 from database import (
     DatabaseManager, load_app_config, save_app_config, hash_password,
-    receivable_balance, service_financial_breakdown, app_config_exists,
-    get_default_database_path, round_integer_division, round_percentage_amount,
+    receivable_balance, service_financial_breakdown,
+    app_config_has_database_selection, get_default_database_path,
+    round_integer_division, round_percentage_amount,
 )
 from utils_and_widgets import (
     MAIN_CATEGORIES,
@@ -677,7 +678,7 @@ class DatabaseBootstrapDialog(QDialog):
 
 def select_startup_database_path(parent=None):
     """Auto-connect only when an explicit app_config.json already exists."""
-    has_explicit_config = app_config_exists()
+    has_explicit_config = app_config_has_database_selection()
     config = load_app_config()
     configured_value = str(config.get("db_path") or "").strip()
     configured_path = (
