@@ -6665,7 +6665,7 @@ class MainWindow(QMainWindow):
             "Interface": ("رابط و فرم", "Interface"),
             "نوع رابط": ("رابط و فرم", "Interface"),
             "Connectivity": ("نوع اتصال / پورت", "Connectivity"),
-            "Specification": ("مشخصه", "Specification"),
+            "Specification": ("مشخصه", "Additional Details"),
             "Size": ("سایز", "Size"),
             "Voltage": ("ولتاژ", "Voltage"),
             "Current / Power": ("آمپر و توان", "Current / Power"),
