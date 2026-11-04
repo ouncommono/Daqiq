@@ -1652,13 +1652,13 @@ class DatabaseManager:
             raise ValueError("تعداد فروش باید بیشتر از صفر باشد.")
 
         with self.get_connection() as conn:
-            old_sale = conn.execute("SELECT id, invoice_number, product_id, batch_id, seller_employee_id,
+            old_sale = conn.execute("""SELECT id, invoice_number, product_id, batch_id, seller_employee_id,
             customer_name, qty, returned_qty, suggested_unit_price, actual_unit_price,
             unit_cost_price, unit_discount, total_discount, price_Markup_unit,
             unit_profit, total_profit, total_amount, paid_amount, settlement_status,
             sale_datetime, warranty_company, warranty_start, warranty_months,
             warranty_days, warranty_end, serial_number, specifications, colors_json,
-            notes, created_at, updated_at FROM sales WHERE id=?", (sale_id,)).fetchone()
+            notes, created_at, updated_at FROM sales WHERE id=?""", (sale_id,)).fetchone()
             if not old_sale:
                 raise ValueError("ردیف فروش یافت نشد.")
 
@@ -1775,13 +1775,13 @@ class DatabaseManager:
 
     def delete_sale(self, sale_id):
         with self.get_connection() as conn:
-            old_sale = conn.execute("SELECT id, invoice_number, product_id, batch_id, seller_employee_id,
+            old_sale = conn.execute("""SELECT id, invoice_number, product_id, batch_id, seller_employee_id,
             customer_name, qty, returned_qty, suggested_unit_price, actual_unit_price,
             unit_cost_price, unit_discount, total_discount, price_Markup_unit,
             unit_profit, total_profit, total_amount, paid_amount, settlement_status,
             sale_datetime, warranty_company, warranty_start, warranty_months,
             warranty_days, warranty_end, serial_number, specifications, colors_json,
-            notes, created_at, updated_at FROM sales WHERE id=?", (sale_id,)).fetchone()
+            notes, created_at, updated_at FROM sales WHERE id=?""", (sale_id,)).fetchone()
             if not old_sale:
                 return
             conn.execute(
