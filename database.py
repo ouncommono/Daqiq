@@ -7,8 +7,8 @@ import jdatetime
 import time
 import hashlib
 
-APP_VERSION = "3.2.0"
-SCHEMA_VERSION = 320
+APP_VERSION = "3.3.0"
+SCHEMA_VERSION = 330
 
 
 def get_app_data_dir():
@@ -151,8 +151,8 @@ class DatabaseManager:
             }
             if existing_tables and current_version != SCHEMA_VERSION:
                 raise RuntimeError(
-                    "این پایگاه داده برای نسخه 3.2.0 ساخته نشده است. "
-                    "نسخه 3.2.0 به پایگاه داده تازه نیاز دارد و مهاجرت خودکار "
+                    "این پایگاه داده برای نسخه 3.3.0 ساخته نشده است. "
+                    "نسخه 3.3.0 به پایگاه داده تازه نیاز دارد و مهاجرت خودکار "
                     "از نسخه‌های قبلی پشتیبانی نمی‌شود."
                 )
             cur = conn.cursor()
