@@ -48,7 +48,7 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
         assert window.tabs.count() == 10
         assert window.chk_upg_consume_stock.isChecked()
         assert window.tabs.tabText(9).endswith("تنظیمات")
-        assert window.lbl_app_version.text() == "دقیق | نسخه برنامه: 3.3.0"
+        assert window.lbl_app_version.text() == "دقیق | نسخه برنامه: 3.4.0"
         assert [window.catalog_tabs.tabText(i) for i in range(window.catalog_tabs.count())] == [
             "مدیریت کالاها",
             "مدیریت خدمات",
@@ -1902,3 +1902,20 @@ def test_subcategory_settings_restore_three_independent_actions(tmp_path, monkey
     finally:
         window.close()
         qapp.processEvents()
+
+
+def test_v340_quantity_selector_accepts_large_manual_values_and_ram_ddr_starts_blank(qapp):
+    from utils_and_widgets import DynamicSpecsWidget, QuantitySelector
+
+    selector = QuantitySelector(500)
+    selector.setCurrentText("1250")
+    assert selector.get_qty() == 1250
+
+    specs = DynamicSpecsWidget()
+    specs.set_category("قطعات")
+    for subcategory in ("رم کامپیوتر (RAM PC)", "رم لپ‌تاپ (RAM Laptop)"):
+        specs.set_sub_category(subcategory)
+        assert specs.fields["نسخه DDR"].currentText() == ""
+    selector.deleteLater()
+    specs.deleteLater()
+    qapp.processEvents()
