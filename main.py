@@ -5927,7 +5927,6 @@ class MainWindow(QMainWindow):
         self.ed_cfg_subcategory.setPlaceholderText("نام زیرمجموعه را وارد کنید؛ مثلاً صفحه‌نمایش یا پردازنده...")
         sub_btn_row = QHBoxLayout()
         btn_add_sub = QPushButton("افزودن")
-        btn_add_sub.setObjectName("btnAddSubcategory")
         btn_add_sub.setProperty("catalogAction", "addSubcategory")
         btn_add_sub.clicked.connect(self._add_catalog_subcategory)
         btn_rename_sub = QPushButton("تغییر نام")
