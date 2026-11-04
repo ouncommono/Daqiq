@@ -6502,6 +6502,118 @@ class MainWindow(QMainWindow):
             ):
                 values.append(raw_subcategory)
 
+    def _merge_builtin_product_features_into_draft(self):
+        """Mirror DynamicSpecsWidget's built-in fields into the configurable catalogue."""
+        attributes = self._taxonomy_draft.setdefault("attributes", {})
+        subcategories = self._taxonomy_draft.setdefault("subcategories", {})
+        for category in list(self._taxonomy_draft.get("categories", [])):
+            widget = DynamicSpecsWidget()
+            try:
+                widget.set_category(category)
+                scopes = (
+                    list(subcategories.get(category, []))
+                    if category == "قطعات" else [""]
+                )
+                for scope in scopes:
+                    if category == "قطعات" and widget.cb_sub is not None:
+                        if widget.cb_sub.findText(scope) < 0:
+                            widget.cb_sub.addItem(scope)
+                        widget.cb_sub.setCurrentText(scope)
+                    definitions = attributes.setdefault(category, [])
+                    for field_name, field_widget in widget.fields.items():
+                        name = str(field_name or "").strip()
+                        name_key = normalize_catalog_label(name)
+                        if not name_key:
+                            continue
+                        values = []
+                        if isinstance(field_widget, QComboBox):
+                            values = [
+                                field_widget.itemText(index).strip()
+                                for index in range(field_widget.count())
+                                if field_widget.itemText(index).strip()
+                            ]
+                        existing = next(
+                            (
+                                item for item in definitions
+                                if normalize_catalog_label(item.get("name")) == name_key
+                                and normalize_catalog_label(item.get("subcategory") or "")
+                                == normalize_catalog_label(scope)
+                            ),
+                            None,
+                        )
+                        if existing is None:
+                            definitions.append({
+                                "name": name,
+                                "label": "",
+                                "values": list(dict.fromkeys(values)),
+                                "subcategory": scope,
+                            })
+                        else:
+                            merged_values = list(existing.get("values") or []) + values
+                            existing["values"] = list(dict.fromkeys(
+                                str(value).strip() for value in merged_values
+                                if value is not None and str(value).strip()
+                            ))
+            finally:
+                widget.deleteLater()
+
+    def _merge_persisted_product_spec_fields_into_draft(self):
+        """Recover feature keys saved on products but missing from the settings catalogue."""
+        with self.db.get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT category, sub_category, specs_json
+                FROM products
+                WHERE TRIM(COALESCE(category, '')) <> ''
+                ORDER BY category COLLATE NOCASE, sub_category COLLATE NOCASE, id
+                """
+            ).fetchall()
+
+        attributes = self._taxonomy_draft.setdefault("attributes", {})
+        for row in rows:
+            category = str(row["category"] or "").strip()
+            scope = str(row["sub_category"] or "").strip()
+            if not category:
+                continue
+            try:
+                specs = json.loads(row["specs_json"] or "{}")
+            except (TypeError, ValueError, json.JSONDecodeError):
+                continue
+            if not isinstance(specs, dict):
+                continue
+            definitions = attributes.setdefault(category, [])
+            for raw_name in specs:
+                name = str(raw_name or "").strip()
+                name_key = normalize_catalog_label(name)
+                if not name_key:
+                    continue
+                if any(
+                    normalize_catalog_label(item.get("name")) == name_key
+                    and (
+                        not str(item.get("subcategory") or "").strip()
+                        or normalize_catalog_label(item.get("subcategory"))
+                        == normalize_catalog_label(scope)
+                    )
+                    for item in definitions
+                ):
+                    continue
+                definitions.append({
+                    "name": name,
+                    "label": "",
+                    "values": [],
+                    "subcategory": scope,
+                })
+
+    def _add_or_rename_catalog_subcategory(self):
+        """Apply subcategory create/rename and field-caption changes from one action."""
+        selected = self.lst_cfg_subcategories.currentItem()
+        new_name = self.ed_cfg_subcategory.text().strip()
+        if selected is None and new_name:
+            self._add_catalog_subcategory()
+        elif selected is not None and new_name and new_name != selected.text():
+            self._rename_catalog_subcategory()
+        self._save_subcategory_caption(show_warning=False)
+
     def _load_catalog_customization_form(self):
         stored = self.db.get_product_catalog_config()
         defaults = {
@@ -6536,12 +6648,18 @@ class MainWindow(QMainWindow):
             "GPU": ("پردازنده گرافیکی", "GPU"),
             "Graphic Card": ("پردازنده گرافیکی", "GPU"),
             "Display": ("صفحه‌نمایش", "Display"),
-            "Panel": ("نوع پنل", "Panel"),
-            "Refresh Rate": ("نرخ نوسازی", "Refresh Rate"),
-            "Ports": ("درگاه‌ها", "Ports"),
+            "Panel": ("پنل", "Panel"),
+            "نوع پنل": ("پنل", "Panel"),
+            "Refresh Rate": ("نرخ بروزرسانی", "Refresh Rate"),
+            "نرخ نوسازی": ("نرخ بروزرسانی", "Refresh Rate"),
+            "Ports": ("پورت‌ها", "Ports"),
+            "درگاه‌ها": ("پورت‌ها", "Ports"),
             "Capacity": ("ظرفیت", "Capacity"),
             "Interface": ("نوع رابط", "Interface"),
-            "Socket": ("نوع سوکت", "Socket"),
+            "Socket": ("سوکت", "Socket"),
+            "نوع سوکت": ("سوکت", "Socket"),
+            "Interface": ("رابط و فرم", "Interface"),
+            "نوع رابط": ("رابط و فرم", "Interface"),
             "Connectivity": ("نوع اتصال / پورت", "Connectivity"),
             "Specification": ("مشخصه", "Specification"),
             "Size": ("سایز", "Size"),
@@ -6551,7 +6669,8 @@ class MainWindow(QMainWindow):
             "Print Technology": ("فناوری چاپ", "Print Technology"),
             "Print Color": ("نوع چاپ", "Print Color"),
             "TDP": ("توان طراحی حرارتی", "TDP"),
-            "VRAM": ("حافظه گرافیکی", "VRAM"),
+            "VRAM": ("حافظه VRAM", "VRAM"),
+            "حافظه گرافیکی": ("حافظه VRAM", "VRAM"),
         }
         default_display_titles = {
             "پردازنده": "CPU", "ظرفیت رم": "RAM", "نسل رم": "RAM Type",
@@ -6590,6 +6709,8 @@ class MainWindow(QMainWindow):
                     definition["label"] = (
                         default_display_titles.get(current_name, "Specification")
                     )
+        self._merge_builtin_product_features_into_draft()
+        self._merge_persisted_product_spec_fields_into_draft()
         self._deduplicate_catalog_draft()
 
         # Use the normalized draft immediately in product forms; persistence and
