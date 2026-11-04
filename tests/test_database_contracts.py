@@ -206,7 +206,8 @@ def test_purchase_batch_crud_is_atomic_and_foreign_key_safe(manager):
     create_sale(manager, product_id, batch_id)
     with manager.get_connection() as conn:
         conn.execute(
-            "UPDATE batches SET returned_qty=1 WHERE id=?", (batch_id,)
+            "UPDATE batches SET returned_qty=1, remaining_qty=2 WHERE id=?",
+            (batch_id,),
         )
         conn.commit()
     with pytest.raises(ValueError, match="مجموع تعداد فروخته‌شده و مرجوعی"):
