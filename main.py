@@ -76,7 +76,7 @@ from exporter import (
     get_next_excel_filename,
 )
 
-APP_VERSION = "3.2.0"
+APP_VERSION = "3.3.0"
 
 DEFAULT_ACCESS_LEVELS = [
     {"name": "دسترسی کامل (مدیر کل)", "policy": "دسترسی کامل (مدیر کل)"},
@@ -2798,6 +2798,9 @@ class MainWindow(QMainWindow):
                     supplier_name=supplier_name or None,
                 )
             else:
+                # add_batch has an additional initial_specs argument compared
+                # with update_batch. Keep this explicit mapping rather than
+                # forwarding the edit payload with a different function arity.
                 self.db.add_batch(
                     batch_code,
                     product["id"],
@@ -5923,12 +5926,19 @@ class MainWindow(QMainWindow):
         self.ed_cfg_subcategory = QLineEdit()
         self.ed_cfg_subcategory.setPlaceholderText("نام زیرمجموعه را وارد کنید؛ مثلاً صفحه‌نمایش یا پردازنده...")
         sub_btn_row = QHBoxLayout()
-        btn_add_or_rename_sub = QPushButton("افزودن/تغییرنام")
-        btn_add_or_rename_sub.clicked.connect(self._add_or_rename_catalog_subcategory)
+        btn_add_sub = QPushButton("افزودن")
+        btn_add_sub.setProperty("catalogAction", "addSubcategory")
+        btn_add_sub.clicked.connect(self._add_catalog_subcategory)
+        btn_rename_sub = QPushButton("تغییر نام")
+        btn_rename_sub.setObjectName("btnSecondary")
+        btn_rename_sub.setProperty("catalogAction", "renameSubcategory")
+        btn_rename_sub.clicked.connect(self._rename_catalog_subcategory)
         btn_delete_sub = QPushButton("حذف")
         btn_delete_sub.setObjectName("btnDanger")
+        btn_delete_sub.setProperty("catalogAction", "deleteSubcategory")
         btn_delete_sub.clicked.connect(self._delete_catalog_subcategory)
-        sub_btn_row.addWidget(btn_add_or_rename_sub)
+        sub_btn_row.addWidget(btn_add_sub)
+        sub_btn_row.addWidget(btn_rename_sub)
         sub_btn_row.addWidget(btn_delete_sub)
         sub_layout.addWidget(CollapsibleSection("فهرست زیرمجموعه‌ها", self.lst_cfg_subcategories))
         sub_layout.addWidget(labeled_field("نام زیرمجموعه:", self.ed_cfg_subcategory))

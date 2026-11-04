@@ -7,8 +7,8 @@ import jdatetime
 import time
 import hashlib
 
-APP_VERSION = "3.2.0"
-SCHEMA_VERSION = 320
+APP_VERSION = "3.3.0"
+SCHEMA_VERSION = 330
 
 
 def get_app_data_dir():
@@ -151,8 +151,8 @@ class DatabaseManager:
             }
             if existing_tables and current_version != SCHEMA_VERSION:
                 raise RuntimeError(
-                    "این پایگاه داده برای نسخه 3.2.0 ساخته نشده است. "
-                    "نسخه 3.2.0 به پایگاه داده تازه نیاز دارد و مهاجرت خودکار "
+                    "این پایگاه داده برای نسخه 3.3.0 ساخته نشده است. "
+                    "نسخه 3.3.0 به پایگاه داده تازه نیاز دارد و مهاجرت خودکار "
                     "از نسخه‌های قبلی پشتیبانی نمی‌شود."
                 )
             cur = conn.cursor()
@@ -160,14 +160,14 @@ class DatabaseManager:
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS settings (
                     key TEXT PRIMARY KEY,
-                    value TEXT
-                )
+                    value TEXT NOT NULL DEFAULT ''
+                ) WITHOUT ROWID
             """)
 
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS employees (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL UNIQUE,
+                    name TEXT NOT NULL UNIQUE CHECK (length(trim(name)) > 0),
                     role TEXT NOT NULL DEFAULT 'فروشنده',
                     phone TEXT DEFAULT '',
                     is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
@@ -183,7 +183,7 @@ class DatabaseManager:
                     access_level_name TEXT PRIMARY KEY,
                     mode TEXT NOT NULL DEFAULT 'self'
                         CHECK (mode IN ('all', 'self', 'access_levels', 'users'))
-                )
+                ) WITHOUT ROWID
             """)
 
             cur.execute("""
@@ -194,7 +194,7 @@ class DatabaseManager:
                     FOREIGN KEY (access_level_name)
                         REFERENCES access_level_data_scopes(access_level_name)
                         ON DELETE CASCADE
-                )
+                ) WITHOUT ROWID
             """)
 
             cur.execute("""
@@ -206,13 +206,14 @@ class DatabaseManager:
                         REFERENCES access_level_data_scopes(access_level_name)
                         ON DELETE CASCADE,
                     FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE
-                )
+                ) WITHOUT ROWID
             """)
 
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS suppliers (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+                    name TEXT NOT NULL COLLATE NOCASE UNIQUE
+                        CHECK (length(trim(name)) > 0),
                     phone TEXT DEFAULT '',
                     address TEXT DEFAULT '',
                     notes TEXT DEFAULT '',
@@ -235,17 +236,17 @@ class DatabaseManager:
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS products (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    code TEXT NOT NULL UNIQUE,
-                    name TEXT NOT NULL,
-                    category TEXT NOT NULL,
+                    code TEXT NOT NULL UNIQUE CHECK (length(trim(code)) > 0),
+                    name TEXT NOT NULL CHECK (length(trim(name)) > 0),
+                    category TEXT NOT NULL CHECK (length(trim(category)) > 0),
                     sub_category TEXT DEFAULT 'سایر موارد',
                     brand TEXT DEFAULT '',
                     model TEXT DEFAULT '',
                     specs_json TEXT DEFAULT '{}',
                     description TEXT DEFAULT '',
-                    reorder_point INTEGER DEFAULT 2,
-                    default_profit_pct REAL DEFAULT 20.0,
-                    is_active INTEGER DEFAULT 1,
+                    reorder_point INTEGER NOT NULL DEFAULT 2 CHECK (reorder_point >= 0),
+                    default_profit_pct REAL NOT NULL DEFAULT 20.0,
+                    is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
                     created_at TEXT NOT NULL DEFAULT '',
                     updated_at TEXT NOT NULL DEFAULT ''
                 )
@@ -280,6 +281,10 @@ class DatabaseManager:
                     notes TEXT DEFAULT '',
                     created_at TEXT NOT NULL DEFAULT '',
                     updated_at TEXT NOT NULL DEFAULT '',
+                    CONSTRAINT ck_batches_stock_balance CHECK (
+                        sold_qty + returned_qty <= initial_qty
+                        AND remaining_qty = initial_qty - sold_qty - returned_qty
+                    ),
                     FOREIGN KEY(product_id) REFERENCES products(id),
                     FOREIGN KEY(supplier_id) REFERENCES suppliers(id),
                     FOREIGN KEY(buyer_employee_id) REFERENCES employees(id)
@@ -306,6 +311,9 @@ class DatabaseManager:
                     notes TEXT DEFAULT '',
                     created_at TEXT NOT NULL DEFAULT '',
                     updated_at TEXT NOT NULL DEFAULT '',
+                    CONSTRAINT ck_upgrades_distinct_batches CHECK (
+                        part_batch_id IS NULL OR part_batch_id <> target_batch_id
+                    ),
                     FOREIGN KEY(target_batch_id) REFERENCES batches(id),
                     FOREIGN KEY(part_batch_id) REFERENCES batches(id),
                     FOREIGN KEY(technician_id) REFERENCES employees(id)
@@ -321,7 +329,7 @@ class DatabaseManager:
                     seller_employee_id INTEGER,
                     customer_name TEXT DEFAULT '',
                     qty INTEGER NOT NULL CHECK (qty > 0),
-                    returned_qty INTEGER NOT NULL DEFAULT 0 CHECK (returned_qty >= 0),
+                    returned_qty INTEGER NOT NULL DEFAULT 0 CHECK (returned_qty >= 0 AND returned_qty <= qty),
                     suggested_unit_price INTEGER NOT NULL CHECK (suggested_unit_price >= 0),
                     actual_unit_price INTEGER NOT NULL CHECK (actual_unit_price >= 0),
                     unit_cost_price INTEGER NOT NULL CHECK (unit_cost_price >= 0),
@@ -357,10 +365,10 @@ class DatabaseManager:
                     code TEXT NOT NULL UNIQUE,
                     service_type TEXT NOT NULL,
                     name TEXT NOT NULL,
-                    default_fee INTEGER NOT NULL,
-                    default_side_cost INTEGER DEFAULT 0,
+                    default_fee INTEGER NOT NULL CHECK (default_fee >= 0),
+                    default_side_cost INTEGER NOT NULL DEFAULT 0 CHECK (default_side_cost >= 0),
                     description TEXT DEFAULT '',
-                    is_active INTEGER DEFAULT 1,
+                    is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
                     created_at TEXT NOT NULL DEFAULT '',
                     updated_at TEXT NOT NULL DEFAULT ''
                 )

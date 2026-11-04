@@ -206,7 +206,8 @@ def test_purchase_batch_crud_is_atomic_and_foreign_key_safe(manager):
     create_sale(manager, product_id, batch_id)
     with manager.get_connection() as conn:
         conn.execute(
-            "UPDATE batches SET returned_qty=1 WHERE id=?", (batch_id,)
+            "UPDATE batches SET returned_qty=1, remaining_qty=2 WHERE id=?",
+            (batch_id,),
         )
         conn.commit()
     with pytest.raises(ValueError, match="مجموع تعداد فروخته‌شده و مرجوعی"):
@@ -338,7 +339,7 @@ def test_v3_schema_initialization_is_idempotent_and_keeps_upgrade_column_order(m
         "added_cost_unit", "upgrade_date", "serial_number", "manual_part_description",
         "old_specs", "new_specs", "notes", "created_at", "updated_at",
     ]
-    assert version == 320
+    assert version == 330
 
 
 def test_upgrade_backend_rejects_unconfirmed_insufficient_inventory(manager):
@@ -629,8 +630,8 @@ def test_v3_application_config_records_release_and_preserves_current_preferences
     assert manager.cfg["zero_append_count"] == 4
     assert manager.cfg["default_window_maximized"] is False
     assert manager.cfg["require_login_password"] is True
-    assert manager.cfg["app_version"] == "3.2.0"
-    assert manager.cfg["schema_version"] == 320
+    assert manager.cfg["app_version"] == "3.3.0"
+    assert manager.cfg["schema_version"] == 330
     assert manager.cfg["config_schema_version"] == 2
 
 
@@ -1054,14 +1055,14 @@ def test_fresh_schema_has_v3_physical_column_order_and_metadata(manager):
                 for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
             ]
             assert columns == expected, table_name
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 320
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 330
         product_indexes = {
             row["name"] for row in conn.execute("PRAGMA index_list(products)")
         }
         assert "idx_products_taxonomy" in product_indexes
         metadata = dict(conn.execute("SELECT key, value FROM settings").fetchall())
-        assert metadata["app_version"] == "3.2.0"
-        assert metadata["schema_version"] == "320"
+        assert metadata["app_version"] == "3.3.0"
+        assert metadata["schema_version"] == "330"
 
 
 def test_v3_schema_creates_normalized_access_scope_tables(manager):
@@ -1082,7 +1083,7 @@ def test_v3_schema_creates_normalized_access_scope_tables(manager):
             ).fetchall()
         ]
         assert scope_columns == ["access_level_name", "mode"]
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 320
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 330
 
 
 def test_v3_rejects_pre_v3_database_without_attempting_migration(tmp_path, monkeypatch):
@@ -1093,7 +1094,7 @@ def test_v3_rejects_pre_v3_database_without_attempting_migration(tmp_path, monke
         conn.execute("CREATE TABLE legacy_records (id INTEGER PRIMARY KEY, value TEXT)")
         conn.commit()
 
-    with pytest.raises(RuntimeError, match="نسخه 3.2.0"):
+    with pytest.raises(RuntimeError, match="نسخه 3.3.0"):
         DatabaseManager(str(legacy_path))
 
 
@@ -1242,3 +1243,128 @@ def test_upgrade_can_apply_specs_without_consuming_available_part_stock(manager)
         ).fetchone()
     assert part_reverted["remaining_qty"] == part_before["remaining_qty"]
     assert part_reverted["sold_qty"] == part_before["sold_qty"]
+
+
+
+def test_v330_greenfield_schema_contracts_and_stock_balance_constraints(manager):
+    """Lock down every fresh-install column layout and the core stock invariants."""
+    expected_columns = {
+        "settings": ["key", "value"],
+        "employees": [
+            "id", "name", "role", "phone", "is_active", "permissions",
+            "password", "created_at", "updated_at",
+        ],
+        "access_level_data_scopes": ["access_level_name", "mode"],
+        "access_level_scope_levels": [
+            "access_level_name", "selected_access_level_name",
+        ],
+        "access_level_scope_users": ["access_level_name", "employee_id"],
+        "suppliers": [
+            "id", "name", "phone", "address", "notes", "created_at", "updated_at",
+        ],
+        "customers": [
+            "id", "name", "phone", "notes", "created_at", "updated_at",
+        ],
+        "products": [
+            "id", "code", "name", "category", "sub_category", "brand", "model",
+            "specs_json", "description", "reorder_point", "default_profit_pct",
+            "is_active", "created_at", "updated_at",
+        ],
+        "batches": [
+            "id", "batch_code", "product_id", "supplier_id", "buyer_employee_id",
+            "invoice_number", "purchase_date", "initial_qty", "sold_qty",
+            "returned_qty", "remaining_qty", "unit_purchase_price", "extra_cost_total",
+            "upgrade_cost_unit", "unit_cost_price", "suggested_sell_price", "profit_pct",
+            "paid_amount", "settlement_status", "serial_numbers", "colors_json",
+            "initial_specs", "final_specs", "supplier_name_snapshot", "notes",
+            "created_at", "updated_at",
+        ],
+        "upgrades": [
+            "id", "target_batch_id", "part_batch_id", "technician_id", "target_qty",
+            "part_qty_used", "stock_deducted_qty", "part_unit_cost", "labor_cost_unit",
+            "added_cost_unit", "upgrade_date", "serial_number", "manual_part_description",
+            "old_specs", "new_specs", "notes", "created_at", "updated_at",
+        ],
+        "sales": [
+            "id", "invoice_number", "product_id", "batch_id", "seller_employee_id",
+            "customer_name", "qty", "returned_qty", "suggested_unit_price",
+            "actual_unit_price", "unit_cost_price", "unit_discount", "total_discount",
+            "price_Markup_unit", "unit_profit", "total_profit", "total_amount",
+            "paid_amount", "settlement_status", "sale_datetime", "warranty_company",
+            "warranty_start", "warranty_months", "warranty_days", "warranty_end",
+            "serial_number", "specifications", "colors_json", "notes",
+            "created_at", "updated_at",
+        ],
+        "service_catalog": [
+            "id", "code", "service_type", "name", "default_fee", "default_side_cost",
+            "description", "is_active", "created_at", "updated_at",
+        ],
+        "service_price_history": [
+            "id", "service_id", "change_date", "old_fee", "new_fee",
+            "created_at", "updated_at",
+        ],
+        "service_records": [
+            "id", "invoice_number", "service_id", "seller_employee_id",
+            "technician_employee_id", "service_type", "service_name", "customer_name",
+            "historical_tariff", "service_fee", "side_cost", "paid_amount", "net_profit",
+            "settlement_status", "service_datetime", "description", "created_at",
+            "updated_at",
+        ],
+        "payments": [
+            "id", "ref_type", "ref_id", "amount", "payment_date", "payment_method",
+            "notes", "created_at", "updated_at",
+        ],
+        "audit_logs": [
+            "id", "action_time", "action_type", "details", "created_at", "updated_at",
+        ],
+    }
+
+    product_id = create_product(manager, "P-SCHEMA-CONTRACT")
+    batch_id = create_batch(
+        manager, product_id, code="C-SCHEMA-CONTRACT", quantity=10
+    )
+    with manager.get_connection() as conn:
+        for table_name, expected in expected_columns.items():
+            actual = [
+                row["name"]
+                for row in conn.execute(
+                    f"PRAGMA table_info({table_name})"
+                ).fetchall()
+            ]
+            assert actual == expected, table_name
+
+        # Natural/composite-key lookup tables do not need a duplicate rowid B-tree.
+        for table_name in (
+            "settings", "access_level_data_scopes",
+            "access_level_scope_levels", "access_level_scope_users",
+        ):
+            ddl = conn.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
+                (table_name,),
+            ).fetchone()["sql"]
+            assert "WITHOUT ROWID" in ddl.upper(), table_name
+
+        assert conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 330
+
+        # A stock row cannot represent a quantity that disagrees with its
+        # initial, sold and supplier-returned aggregates.
+        with pytest.raises(sqlite3.IntegrityError):
+            conn.execute(
+                "UPDATE batches SET remaining_qty=remaining_qty-1 WHERE id=?",
+                (batch_id,),
+            )
+
+    # Supported application writes remain valid for direct multi-unit edits.
+    manager.update_batch(
+        batch_id, None, None, "PO-SCHEMA", "1405/01/01",
+        2, 100, 0, 150, 0, "", "schema quantity edit",
+    )
+    with manager.get_connection() as conn:
+        row = conn.execute(
+            "SELECT initial_qty, sold_qty, returned_qty, remaining_qty "
+            "FROM batches WHERE id=?",
+            (batch_id,),
+        ).fetchone()
+    assert tuple(row) == (2, 0, 0, 2)
