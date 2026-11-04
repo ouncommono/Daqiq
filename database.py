@@ -69,6 +69,29 @@ def hash_password(raw_password: str) -> str:
         return ""
     return hashlib.sha256(raw_password.encode("utf-8")).hexdigest()
 
+
+def receivable_balance(total_amount, paid_amount, settlement_status):
+    """Only partially-settled or unsettled transactions can have a receivable."""
+    status = str(settlement_status or "").strip().replace(" ", "")
+    if status not in ("تسویهجزئی", "تسویه‌نشده", "تسویهنشده"):
+        return 0
+    return max(0, int(total_amount or 0) - int(paid_amount or 0))
+
+
+def service_financial_breakdown(service_fee, paid_amount, settlement_status):
+    """Return service discount/markup and receivable using the settlement state.
+
+    Settled services classify the full difference as discount/markup and never
+    create a receivable. Only explicitly partial or unsettled services may carry
+    a receivable balance.
+    """
+    fee = int(service_fee or 0)
+    paid = int(paid_amount or 0)
+    status = str(settlement_status or "").strip().replace(" ", "")
+    if status in ("تسویه‌شده", "تسویهشده"):
+        return paid - fee, 0
+    return 0, receivable_balance(fee, paid, settlement_status)
+
 def save_app_config(cfg):
     """Write config atomically; preserve the last valid settings file."""
     temp_path = CONFIG_FILE + ".tmp"
@@ -121,7 +144,9 @@ class DatabaseManager:
                     phone TEXT DEFAULT '',
                     password TEXT DEFAULT '',
                     permissions TEXT DEFAULT 'دسترسی کامل',
-                    is_active INTEGER DEFAULT 1
+                    is_active INTEGER DEFAULT 1,
+                    created_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT ''
                 )
             """)
 
@@ -131,7 +156,9 @@ class DatabaseManager:
                     name TEXT NOT NULL UNIQUE,
                     phone TEXT DEFAULT '',
                     address TEXT DEFAULT '',
-                    notes TEXT DEFAULT ''
+                    notes TEXT DEFAULT '',
+                    created_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT ''
                 )
             """)
 
@@ -140,7 +167,9 @@ class DatabaseManager:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL,
                     phone TEXT DEFAULT '',
-                    notes TEXT DEFAULT ''
+                    notes TEXT DEFAULT '',
+                    created_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT ''
                 )
             """)
 
@@ -157,7 +186,9 @@ class DatabaseManager:
                     description TEXT DEFAULT '',
                     reorder_point INTEGER DEFAULT 2,
                     default_profit_pct REAL DEFAULT 20.0,
-                    is_active INTEGER DEFAULT 1
+                    is_active INTEGER DEFAULT 1,
+                    created_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT ''
                 )
             """)
 
@@ -188,6 +219,8 @@ class DatabaseManager:
                     notes TEXT DEFAULT '',
                     supplier_name_snapshot TEXT DEFAULT '',
                     colors_json TEXT DEFAULT '[]',
+                    created_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT '',
                     FOREIGN KEY(product_id) REFERENCES products(id),
                     FOREIGN KEY(supplier_id) REFERENCES suppliers(id),
                     FOREIGN KEY(buyer_employee_id) REFERENCES employees(id)
@@ -212,6 +245,8 @@ class DatabaseManager:
                     technician_id INTEGER,
                     serial_number TEXT DEFAULT '',
                     notes TEXT DEFAULT '',
+                    created_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT '',
                     FOREIGN KEY(target_batch_id) REFERENCES batches(id),
                     FOREIGN KEY(part_batch_id) REFERENCES batches(id),
                     FOREIGN KEY(technician_id) REFERENCES employees(id)
@@ -249,6 +284,8 @@ class DatabaseManager:
                     notes TEXT DEFAULT '',
                     specifications TEXT DEFAULT '',
                     colors_json TEXT DEFAULT '[]',
+                    created_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT '',
                     FOREIGN KEY(product_id) REFERENCES products(id),
                     FOREIGN KEY(batch_id) REFERENCES batches(id),
                     FOREIGN KEY(seller_employee_id) REFERENCES employees(id)
@@ -264,7 +301,9 @@ class DatabaseManager:
                     default_fee INTEGER NOT NULL,
                     default_side_cost INTEGER DEFAULT 0,
                     description TEXT DEFAULT '',
-                    is_active INTEGER DEFAULT 1
+                    is_active INTEGER DEFAULT 1,
+                    created_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT ''
                 )
             """)
 
@@ -275,6 +314,8 @@ class DatabaseManager:
                     old_fee INTEGER,
                     new_fee INTEGER,
                     change_date TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT '',
                     FOREIGN KEY(service_id) REFERENCES service_catalog(id)
                 )
             """)
@@ -297,8 +338,11 @@ class DatabaseManager:
                     settlement_status TEXT DEFAULT 'تسویه‌شده',
                     service_datetime TEXT NOT NULL,
                     description TEXT DEFAULT '',
+                    created_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT '',
                     FOREIGN KEY(service_id) REFERENCES service_catalog(id),
-                    FOREIGN KEY(seller_employee_id) REFERENCES employees(id)
+                    FOREIGN KEY(seller_employee_id) REFERENCES employees(id),
+                    FOREIGN KEY(technician_employee_id) REFERENCES employees(id)
                 )
             """)
 
@@ -310,7 +354,9 @@ class DatabaseManager:
                     amount INTEGER NOT NULL,
                     payment_date TEXT NOT NULL,
                     payment_method TEXT DEFAULT 'کارت‌خوان',
-                    notes TEXT DEFAULT ''
+                    notes TEXT DEFAULT '',
+                    created_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT ''
                 )
             """)
 
@@ -319,7 +365,9 @@ class DatabaseManager:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     action_time TEXT NOT NULL,
                     action_type TEXT NOT NULL,
-                    details TEXT NOT NULL
+                    details TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT ''
                 )
             """)
 
@@ -526,23 +574,16 @@ class DatabaseManager:
                 "WHERE stock_deducted_qty IS NULL OR stock_deducted_qty < 0"
             )
 
-            # Add a last-modified timestamp to operational records. Triggers update it
-            # on both inserts and edits, allowing every screen to sort by recent activity
-            # without changing primary keys or breaking historical foreign-key links.
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS activity_clock (
-                    id INTEGER PRIMARY KEY CHECK (id=1),
-                    tick INTEGER NOT NULL DEFAULT 0
-                )
-            """)
-            conn.execute(
-                "INSERT OR IGNORE INTO activity_clock (id, tick) VALUES (1, 0)"
-            )
-            for table_name in (
+            # Activity timestamps are ISO-like local datetimes with millisecond precision.
+            # The audit columns are appended in one stable order on every operational table:
+            # created_at, updated_at. Business dates (sale_datetime, purchase_date, etc.)
+            # remain separate and are never changed by these triggers.
+            activity_tables = (
                 "products", "batches", "sales", "upgrades", "service_catalog",
                 "service_records", "suppliers", "employees", "customers", "payments",
                 "service_price_history", "audit_logs",
-            ):
+            )
+            for table_name in activity_tables:
                 columns = {
                     row["name"]
                     for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
@@ -555,52 +596,84 @@ class DatabaseManager:
                     conn.execute(
                         f"ALTER TABLE {table_name} ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''"
                     )
+
+                # Populate empty audit fields on pre-existing rows without rewriting
+                # non-empty historic audit values.
                 conn.execute(
-                    f"UPDATE {table_name} SET created_at=updated_at "
-                    "WHERE created_at IS NULL OR created_at=''"
+                    f"""
+                    UPDATE {table_name}
+                    SET created_at = CASE
+                            WHEN created_at IS NULL OR created_at=''
+                            THEN strftime('%Y-%m-%d %H:%M:%f', 'now', 'localtime')
+                            ELSE created_at END,
+                        updated_at = CASE
+                            WHEN updated_at IS NULL OR updated_at=''
+                            THEN strftime('%Y-%m-%d %H:%M:%f', 'now', 'localtime')
+                            ELSE updated_at END
+                    WHERE created_at IS NULL OR created_at=''
+                       OR updated_at IS NULL OR updated_at=''
+                    """
                 )
+
                 conn.execute(f"DROP TRIGGER IF EXISTS trg_{table_name}_updated_at_insert")
+                conn.execute(f"DROP TRIGGER IF EXISTS trg_{table_name}_updated_at_update")
                 conn.execute(f"""
                     CREATE TRIGGER trg_{table_name}_updated_at_insert
                     AFTER INSERT ON {table_name}
                     FOR EACH ROW
                     BEGIN
-                        UPDATE activity_clock SET tick = tick + 1 WHERE id = 1;
                         UPDATE {table_name}
                         SET created_at = CASE
-                                WHEN created_at IS NULL OR created_at=''
-                                THEN printf('%020d', (SELECT tick FROM activity_clock WHERE id=1))
-                                ELSE created_at END,
-                            updated_at = printf('%020d', (SELECT tick FROM activity_clock WHERE id=1))
+                                WHEN NEW.created_at IS NULL OR NEW.created_at=''
+                                THEN strftime('%Y-%m-%d %H:%M:%f', 'now', 'localtime')
+                                ELSE NEW.created_at END,
+                            updated_at = CASE
+                                WHEN NEW.updated_at IS NULL OR NEW.updated_at=''
+                                THEN strftime('%Y-%m-%d %H:%M:%f', 'now', 'localtime')
+                                ELSE NEW.updated_at END
                         WHERE id = NEW.id;
                     END
                 """)
                 conn.execute(f"""
-                    CREATE TRIGGER IF NOT EXISTS trg_{table_name}_updated_at_update
+                    CREATE TRIGGER trg_{table_name}_updated_at_update
                     AFTER UPDATE ON {table_name}
                     FOR EACH ROW
                     WHEN NEW.updated_at IS OLD.updated_at
                     BEGIN
-                        UPDATE activity_clock SET tick = tick + 1 WHERE id = 1;
                         UPDATE {table_name}
-                        SET updated_at = printf('%020d', (SELECT tick FROM activity_clock WHERE id=1))
+                        SET updated_at = CASE
+                            WHEN julianday(OLD.updated_at) IS NOT NULL
+                             AND strftime('%Y-%m-%d %H:%M:%f', 'now', 'localtime') <= OLD.updated_at
+                            THEN strftime(
+                                '%Y-%m-%d %H:%M:%f',
+                                julianday(OLD.updated_at) + (2.0 / 86400000.0)
+                            )
+                            ELSE strftime('%Y-%m-%d %H:%M:%f', 'now', 'localtime')
+                        END
                         WHERE id = NEW.id;
                     END
                 """)
 
-            # Index common activity sorts and parent/foreign-key lookups.
+            # Index the same COALESCE expression used by the default activity sort,
+            # followed by the stable primary-key tie-breaker.
+            for table_name in (
+                "products", "batches", "sales", "upgrades", "service_catalog",
+                "service_records", "suppliers", "employees", "customers", "payments",
+            ):
+                conn.execute(f"DROP INDEX IF EXISTS idx_{table_name}_activity")
+                conn.execute(
+                    f"CREATE INDEX idx_{table_name}_activity "
+                    f"ON {table_name}(COALESCE(updated_at, created_at) DESC, id DESC)"
+                )
             for index_sql in (
-                "CREATE INDEX IF NOT EXISTS idx_products_activity ON products(updated_at DESC, id DESC)",
-                "CREATE INDEX IF NOT EXISTS idx_batches_activity ON batches(updated_at DESC, id DESC)",
-                "CREATE INDEX IF NOT EXISTS idx_sales_activity ON sales(updated_at DESC, id DESC)",
-                "CREATE INDEX IF NOT EXISTS idx_service_records_activity ON service_records(updated_at DESC, id DESC)",
-                "CREATE INDEX IF NOT EXISTS idx_employees_activity ON employees(updated_at DESC, id DESC)",
                 "CREATE INDEX IF NOT EXISTS idx_batches_product_activity ON batches(product_id, updated_at DESC, id DESC)",
                 "CREATE INDEX IF NOT EXISTS idx_sales_batch_activity ON sales(batch_id, updated_at DESC, id DESC)",
                 "CREATE INDEX IF NOT EXISTS idx_sales_seller_activity ON sales(seller_employee_id, updated_at DESC, id DESC)",
                 "CREATE INDEX IF NOT EXISTS idx_services_seller_activity ON service_records(seller_employee_id, updated_at DESC, id DESC)",
             ):
                 conn.execute(index_sql)
+
+            conn.execute("PRAGMA user_version = 120")
 
             # Remove the exact legacy generic supplier from the selector on upgraded
             # databases too, but retain its historical name on linked purchase rows.
@@ -2035,8 +2108,8 @@ class DatabaseManager:
             historical_tariff = int(srv["default_fee"])
             service_fee = int(service_fee)      # هزینه ثابت ثبت شده در فهرست خدمات
             side_cost = int(side_cost)
-            net_profit = paid_amount - side_cost
             paid_amount = int(paid_amount)      # مبلغ دریافتی واقعی از مشتری
+            net_profit = paid_amount - side_cost
 
             if settlement_status in ("تسویه‌شده", "تسویه‌نشده", "تسویه جزئی"):
                 status = settlement_status
@@ -2095,8 +2168,8 @@ class DatabaseManager:
     ):
         service_fee = int(service_fee)
         side_cost = int(side_cost)
-        net_profit = service_fee - side_cost
         paid_amount = int(paid_amount)
+        net_profit = paid_amount - side_cost
         if settlement_status in ("تسویه‌شده", "تسویه‌نشده", "تسویه جزئی"):
             status = settlement_status
         else:

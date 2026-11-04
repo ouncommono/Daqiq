@@ -164,50 +164,28 @@ CPU_LIST = [
     "Intel Celeron 4xxxU / 5xxxU",
     "Intel Pentium N5xxx / N6xxx",
     "Intel Pentium 6xxxU / 7xxxU",
-    "Intel Core i3 6xxxU / 6xxxH",
-    "Intel Core i3 7xxxU / 7xxxH",
-    "Intel Core i3 8xxxU / 8xxxH",
-    "Intel Core i3 9xxxU / 9xxxH",
-    "Intel Core i3 10xxxU / 10xxxH",
-    "Intel Core i3 11xxxU / 11xxxH",
-    "Intel Core i3 12xxxU / 12xxxH",
-    "Intel Core i3 13xxxU / 13xxxH",
-    "Intel Core i3 14xxxU / 14xxxH",
-    "Intel Core i5 6xxxU / 6xxxH / HQ",
-    "Intel Core i5 7xxxU / 7xxxH / HQ",
-    "Intel Core i5 8xxxU / 8xxxH / HQ",
-    "Intel Core i5 9xxxU / 9xxxH / HK",
-    "Intel Core i5 10xxxU / 10xxxH / 10xxxHK",
-    "Intel Core i5 11xxxU / 11xxxH",
-    "Intel Core i5 12xxxU / 12xxxH",
-    "Intel Core i5 13xxxU / 13xxxH",
-    "Intel Core i5 14xxxU / 14xxxH",
-    "Intel Core i7 6xxxU / 6xxxH / HQ",
-    "Intel Core i7 7xxxU / 7xxxH / HQ",
-    "Intel Core i7 8xxxU / 8xxxH / HQ",
-    "Intel Core i7 9xxxU / 9xxxH / HK",
-    "Intel Core i7 10xxxU / 10xxxH / 10xxxHK",
-    "Intel Core i7 11xxxU / 11xxxH",
-    "Intel Core i7 12xxxU / 12xxxH",
-    "Intel Core i7 13xxxU / 13xxxH",
-    "Intel Core i7 14xxxU / 14xxxH",
-    "Intel Core i9 9xxxH / 9xxxHK",
-    "Intel Core i9 10xxxH / 10xxxHK",
-    "Intel Core i9 11xxxH / 11xxxHK",
-    "Intel Core i9 12xxxH / 12xxxHX",
-    "Intel Core i9 13xxxH / 13xxxHX",
-    "Intel Core i9 14xxxH / 14xxxHX",
-    "Intel Core Ultra 5 / 7 / 9 (Series 1 / 2)",
-    "Intel Xeon E / W Series",
-    "AMD Ryzen 3 3xxxU / 4xxxU / 5xxxU",
-    "AMD Ryzen 5 3xxxU / 4xxxU / 5xxxU / 6xxxU / 7xxxU",
-    "AMD Ryzen 5 4xxxH / 5xxxH / 6xxxH / 7xxxH",
-    "AMD Ryzen 7 3xxxU / 4xxxU / 5xxxU / 6xxxU / 7xxxU",
-    "AMD Ryzen 7 4xxxH / 5xxxH / 6xxxH / 7xxxH",
-    "AMD Ryzen 9 4xxxH / 5xxxH / 6xxxH / 7xxxH",
-    "AMD Athlon / A-Series",
-    "AMD FX Series",
-    "Apple M1 / M2 / M3 / M4",
+    "Intel Processor N100 / N200 / N300",
+    "Intel Core i3 Xxxx U / H / HQ",
+    "Intel Core i5 Xxxx U / H / HQ / HK",
+    "Intel Core i7 Xxxx U / H / HQ / HK / HX",
+    "Intel Core i9 Xxxx H / HK / HX",
+    "Intel Core Ultra 5 XxxV / XxxU / XxxH",
+    "Intel Core Ultra 7 XxxV / XxxU / XxxH",
+    "Intel Core Ultra 9 XxxV / XxxU / XxxH",
+    "Intel Xeon E-Series",
+    "Intel Xeon W-Series",
+    "AMD Athlon 3xxxU / 3xxxG",
+    "AMD Ryzen 3 XxxxU / XxxxG",
+    "AMD Ryzen 5 XxxxU / XxxxH / XxxxHS / XxxxHX / XxxxG",
+    "AMD Ryzen 7 XxxxU / XxxxH / XxxxHS / XxxxHX / XxxxG",
+    "AMD Ryzen 9 XxxxHS / XxxxHX",
+    "AMD Ryzen AI 5 / 7 / 9",
+    "AMD Ryzen Threadripper Xxxx",
+    "Apple M1",
+    "Apple M2",
+    "Apple M3",
+    "Apple M4",
+
 ]
 
 RAM_CAPACITIES = [
@@ -784,23 +762,28 @@ class JalaliCalendarDialog(QDialog):
         layout.setSpacing(6)
         nav = QVBoxLayout()
         nav.setSpacing(3)
-        year_row = QHBoxLayout()
+        controls_grid = QGridLayout()
+        controls_grid.setContentsMargins(0, 0, 0, 0)
+        controls_grid.setHorizontalSpacing(10)
+        controls_grid.setVerticalSpacing(8)
+        controls_grid.setColumnStretch(0, 1)
+        controls_grid.setColumnStretch(1, 1)
 
         self.cb_year = QComboBox()
         self.cb_year.setEditable(True)
         self.cb_year.addItems([str(year) for year in range(1400, 1601)])
         self.cb_year.setInsertPolicy(QComboBox.NoInsert)
         self.cb_year.setCurrentText(str(self.cur_year))
-        self.cb_year.setMinimumWidth(115)
         self.cb_year.setMinimumHeight(38)
+        self.cb_year.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.cb_year.lineEdit().setAlignment(Qt.AlignCenter)
         self.cb_year.lineEdit().setValidator(QIntValidator(1400, 1600, self.cb_year))
         self.cb_year.setStyleSheet("font-size: 15px; font-weight: bold;")
         self.cb_year.currentTextChanged.connect(self._refresh_grid)
 
         self.cb_month = QComboBox()
-        self.cb_month.setMinimumWidth(165)
         self.cb_month.setMinimumHeight(38)
+        self.cb_month.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.cb_month.setStyleSheet("font-size: 15px; font-weight: bold;")
         months = [
             "فروردین",
@@ -822,8 +805,8 @@ class JalaliCalendarDialog(QDialog):
         self.cb_month.currentIndexChanged.connect(self._refresh_grid)
 
         self.cb_day = QComboBox()
-        self.cb_day.setMinimumWidth(74)
         self.cb_day.setMinimumHeight(38)
+        self.cb_day.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.cb_day.setStyleSheet("font-size: 15px; font-weight: bold;")
         self.cb_day.addItems([f"{day:02d}" for day in range(1, 32)])
         self.cb_day.setCurrentIndex(max(0, min(30, self.cur_day - 1)))
@@ -831,6 +814,7 @@ class JalaliCalendarDialog(QDialog):
 
         btn_today = QPushButton("برو به امروز")
         btn_today.setMinimumHeight(38)
+        btn_today.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         btn_today.clicked.connect(self._go_today)
 
         lbl_y = QLabel("سال:")
@@ -840,20 +824,32 @@ class JalaliCalendarDialog(QDialog):
         lbl_d = QLabel("روز:")
         lbl_d.setStyleSheet("font-weight: bold; font-size: 14px;")
 
-        year_row.addWidget(lbl_y)
-        year_row.addWidget(self.cb_year)
-        year_row.addStretch()
-        year_row.addWidget(btn_today)
-        nav.addLayout(year_row)
+        year_cell = QWidget()
+        year_cell_layout = QHBoxLayout(year_cell)
+        year_cell_layout.setContentsMargins(0, 0, 0, 0)
+        year_cell_layout.setSpacing(6)
+        year_cell_layout.addWidget(lbl_y)
+        year_cell_layout.addWidget(self.cb_year, 1)
 
-        month_row = QHBoxLayout()
-        month_row.addWidget(lbl_m)
-        month_row.addWidget(self.cb_month)
-        month_row.addSpacing(8)
-        month_row.addWidget(lbl_d)
-        month_row.addWidget(self.cb_day)
-        month_row.addStretch()
-        nav.addLayout(month_row)
+        month_cell = QWidget()
+        month_cell_layout = QHBoxLayout(month_cell)
+        month_cell_layout.setContentsMargins(0, 0, 0, 0)
+        month_cell_layout.setSpacing(6)
+        month_cell_layout.addWidget(lbl_m)
+        month_cell_layout.addWidget(self.cb_month, 1)
+
+        day_cell = QWidget()
+        day_cell_layout = QHBoxLayout(day_cell)
+        day_cell_layout.setContentsMargins(0, 0, 0, 0)
+        day_cell_layout.setSpacing(6)
+        day_cell_layout.addWidget(lbl_d)
+        day_cell_layout.addWidget(self.cb_day, 1)
+
+        controls_grid.addWidget(year_cell, 0, 0)
+        controls_grid.addWidget(btn_today, 0, 1)
+        controls_grid.addWidget(month_cell, 1, 0)
+        controls_grid.addWidget(day_cell, 1, 1)
+        nav.addLayout(controls_grid)
         layout.addLayout(nav)
 
         self.grid = QGridLayout()
@@ -1110,7 +1106,12 @@ class DynamicSpecsWidget(QGroupBox):
         self.main_layout = QVBoxLayout(self)
         self.form_widget = QWidget()
         self.form_layout = QFormLayout(self.form_widget)
-        self.main_layout.addWidget(self.form_widget)
+        self.form_scroll = SmoothScrollArea(self)
+        self.form_scroll.setWidget(self.form_widget)
+        self.form_scroll.setWidgetResizable(True)
+        self.form_scroll.setMinimumHeight(150)
+        self.form_scroll.setMaximumHeight(285)
+        self.main_layout.addWidget(self.form_scroll)
         self.current_category = "لپ‌تاپ"
         self.fields = {}
         self._custom_field_widgets = {}

@@ -45,7 +45,8 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QTimer, QObject, QEvent
 from PySide6.QtGui import QFont, QColor, QFontMetrics
 
-from database import DatabaseManager, load_app_config, save_app_config, hash_password
+from database import (DatabaseManager, load_app_config, save_app_config, hash_password,
+                      receivable_balance, service_financial_breakdown)
 from utils_and_widgets import (
     MAIN_CATEGORIES,
     DEFAULT_SUBCATEGORIES,
@@ -75,7 +76,7 @@ from exporter import (
     get_next_excel_filename,
 )
 
-APP_VERSION = "1.0.2"
+APP_VERSION = "1.2.0"
 
 DEFAULT_ACCESS_LEVELS = [
     {"name": "دسترسی کامل (مدیر کل)", "policy": "دسترسی کامل (مدیر کل)"},
@@ -84,6 +85,65 @@ DEFAULT_ACCESS_LEVELS = [
     {"name": "فروش و خدمات (گزارش محدود به عملکرد خود)", "policy": "فروش و خدمات (گزارش محدود به عملکرد خود)"},
     {"name": "ثبت خرید و انبارداری (گزارش محدود به خریدهای خود)", "policy": "ثبت خرید و انبارداری (گزارش محدود به خریدهای خود)"},
 ]
+
+PERMISSION_GROUPS = [
+    ("داشبورد", "dashboard", [("view", "مشاهده")]),
+    ("مدیریت کالاها", "products", [
+        ("view", "مشاهده"), ("create", "ثبت"), ("edit", "ویرایش"), ("delete", "حذف"),
+    ]),
+    ("ثبت خرید و محموله‌ها", "batches", [
+        ("view", "مشاهده"), ("create", "ثبت"), ("edit", "ویرایش"), ("delete", "حذف"),
+    ]),
+    ("ثبت فروش", "sales", [
+        ("view", "مشاهده"), ("create", "ثبت"), ("edit", "ویرایش"), ("delete", "حذف"),
+    ]),
+    ("میز خدمت", "services", [
+        ("view", "مشاهده"), ("create", "ثبت"), ("edit", "ویرایش"), ("delete", "حذف"),
+    ]),
+    ("ارتقای کالا", "upgrades", [
+        ("view", "مشاهده"), ("create", "ثبت"), ("edit", "ویرایش"), ("delete", "حذف"),
+    ]),
+    ("تأمین‌کنندگان و پرداخت‌ها", "suppliers", [
+        ("view", "مشاهده"), ("create", "ثبت"), ("edit", "ویرایش"), ("delete", "حذف"),
+    ]),
+    ("گزارش‌های جامع", "reports", [
+        ("view", "مشاهده"), ("export", "خروجی اکسل"),
+    ]),
+    ("مدیریت کاربران", "employees", [
+        ("view", "مشاهده"), ("create", "افزودن"), ("edit", "ویرایش"),
+        ("delete", "حذف"), ("manage_access", "مدیریت سطوح دسترسی"),
+    ]),
+    ("تنظیمات", "settings", [
+        ("view", "مشاهده"), ("edit", "ویرایش تنظیمات"),
+        ("manage_database", "مدیریت پایگاه داده و پشتیبان"),
+        ("manage_access", "مدیریت مجوزها"),
+    ]),
+    ("خروجی موجودی همکار", "inventory_export", [("export", "تهیه خروجی")]),
+]
+ALL_PERMISSION_KEYS = tuple(
+    f"{module}.{action}"
+    for _title, module, actions in PERMISSION_GROUPS
+    for action, _label in actions
+)
+ROLE_PERMISSION_PRESETS = {
+    "دسترسی کامل (مدیر کل)": list(ALL_PERMISSION_KEYS),
+    "مدیر ارشد (بدون مدیریت کارکنان)": [
+        key for key in ALL_PERMISSION_KEYS
+        if not key.startswith("employees.")
+    ],
+    "سرپرست عملیات (گزارش‌های محدود به عملکرد خود)": [
+        "dashboard.view", "products.view", "batches.view", "sales.view",
+        "services.view", "upgrades.view", "reports.view",
+    ],
+    "فروش و خدمات (گزارش محدود به عملکرد خود)": [
+        "dashboard.view", "sales.view", "sales.create", "sales.edit",
+        "services.view", "services.create", "services.edit", "reports.view",
+    ],
+    "ثبت خرید و انبارداری (گزارش محدود به خریدهای خود)": [
+        "dashboard.view", "products.view", "batches.view", "batches.create",
+        "batches.edit", "suppliers.view", "reports.view",
+    ],
+}
 
 PERSIAN_WEEKDAYS = {
     0: "شنبه",
@@ -231,15 +291,54 @@ def _ask_yes_no(parent, title: str, message: str) -> bool:
 
 
 def format_Signed_diff(actual_unit: int, suggested_unit: int, qty: int) -> str:
-    """
-    بند ۱۳: نمایش تخفیف با علامت (-) و فروش بالاتر از پیشنهادی (تشدید) با علامت (+) در یک ستون واحد
-    """
+    """Format a signed price difference as discount (-) or surcharge (+)."""
     diff = (int(actual_unit) - int(suggested_unit)) * int(qty)
     if diff < 0:
         return f"-{abs(diff):,}"
-    elif diff > 0:
+    if diff > 0:
         return f"+{diff:,}"
     return "0"
+
+
+def _report_sort_key(rows_data, headers, mode):
+    """Build a stable sort key from report metadata and visible column names."""
+    def find_column(candidates):
+        for candidate in candidates:
+            if candidate in headers:
+                return headers.index(candidate) + 1  # index 0 is hidden activity time
+        return None
+
+    def numeric(value):
+        clean = normalize_digits(str(value or "")).replace(",", "").replace("٬", "")
+        clean = clean.replace("تومان", "").strip()
+        try:
+            return float(clean)
+        except (TypeError, ValueError):
+            return 0.0
+
+    if mode == "activity_desc":
+        return lambda row: str(row[0] or "")
+    if mode.startswith("transaction_"):
+        index = find_column((
+            "تاریخ و ساعت", "تاریخ و ساعت فروش", "تاریخ خرید", "تاریخ",
+        ))
+        return lambda row: str(row[index] or "") if index is not None else str(row[0] or "")
+    if mode.startswith("amount_"):
+        index = find_column((
+            "مبلغ کل (تومان)", "مبلغ کل فاکتور", "مبلغ دریافتی (تومان)",
+            "هزینه خدمت (تومان)", "مجموع مبلغ فروش کالا", "قیمت فروش واحد",
+        ))
+        return lambda row: numeric(row[index]) if index is not None else 0.0
+    if mode == "settlement_asc":
+        index = find_column(("وضعیت تسویه",))
+        return lambda row: str(row[index] or "") if index is not None else ""
+    if mode == "category_asc":
+        index = find_column(("دسته‌بندی",))
+        return lambda row: str(row[index] or "") if index is not None else ""
+    if mode == "user_asc":
+        index = find_column(("کاربر ثبت‌کننده", "فروشنده", "مسئول خدمت", "مسئول خرید", "نام کاربر"))
+        return lambda row: str(row[index] or "") if index is not None else ""
+    return lambda row: str(row[0] or "")
 
 
 class LoginDialog(QDialog):
@@ -559,13 +658,19 @@ class MainWindow(QMainWindow):
         self._apply_employee_permissions()
 
     def _apply_global_rtl_alignment(self):
-        """Right-align section headings and field captions consistently across tabs."""
+        """Use compact right-anchored captions throughout the RTL interface."""
         for group_box in self.findChildren(QGroupBox):
             group_box.setAlignment(Qt.AlignRight)
         for label in self.findChildren(QLabel):
             if label.text().strip() == "/" or label.objectName() == "appVersion":
                 continue
             label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            label.setLayoutDirection(Qt.RightToLeft)
+            if label.objectName() not in {
+                "reportSummary", "saleSummary", "settingsHint", "activeDbPath",
+                "activeUser",
+            }:
+                label.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
 
     def _switch_active_employee(self):
         with self.db.get_connection() as conn:
@@ -591,7 +696,7 @@ class MainWindow(QMainWindow):
         except (TypeError, ValueError, json.JSONDecodeError):
             saved = None
         if not isinstance(saved, list):
-            return copy.deepcopy(DEFAULT_ACCESS_LEVELS)
+            saved = copy.deepcopy(DEFAULT_ACCESS_LEVELS)
         allowed_policies = {item["policy"] for item in DEFAULT_ACCESS_LEVELS}
         result, seen = [], set()
         for item in saved:
@@ -600,16 +705,52 @@ class MainWindow(QMainWindow):
             name = str(item.get("name") or "").strip()
             policy = str(item.get("policy") or "").strip()
             key = normalize_catalog_label(name)
-            if name and policy in allowed_policies and key and key not in seen:
-                result.append({"name": name, "policy": policy})
-                seen.add(key)
-        return result or copy.deepcopy(DEFAULT_ACCESS_LEVELS)
+            if not name or policy not in allowed_policies or not key or key in seen:
+                continue
+            raw_permissions = item.get("permissions")
+            if isinstance(raw_permissions, list):
+                permissions = [
+                    permission for permission in raw_permissions
+                    if permission in ALL_PERMISSION_KEYS
+                ]
+            else:
+                permissions = list(ROLE_PERMISSION_PRESETS.get(policy, []))
+            result.append({
+                "name": name,
+                "policy": policy,
+                "permissions": list(dict.fromkeys(permissions)),
+            })
+            seen.add(key)
+        if result:
+            return result
+        return [
+            {
+                **copy.deepcopy(level),
+                "permissions": list(ROLE_PERMISSION_PRESETS.get(level["policy"], [])),
+            }
+            for level in DEFAULT_ACCESS_LEVELS
+        ]
 
     def _permission_policy(self, permission_name):
         for level in self._get_access_levels():
             if level["name"] == permission_name:
                 return level["policy"]
         return permission_name or ""
+
+    def _permission_grants(self, permission_name=None):
+        """Return the explicitly assigned capability keys for an access level."""
+        target = permission_name
+        if target is None and self.active_employee:
+            target = self.active_employee.get("permissions")
+        for level in self._get_access_levels():
+            if level["name"] == target:
+                return set(level.get("permissions") or [])
+        for level in self._get_access_levels():
+            if level["policy"] == target:
+                return set(level.get("permissions") or [])
+        if str(target or "").strip() in ("all", "دسترسی کامل"):
+            return set(ALL_PERMISSION_KEYS)
+        return set()
 
     def _refresh_employee_permission_combo(self):
         if not hasattr(self, "cb_emp_perm"):
@@ -652,8 +793,27 @@ class MainWindow(QMainWindow):
         name = self.cb_cfg_access_level.currentData()
         level = next((item for item in self._get_access_levels() if item["name"] == name), None)
         self.ed_cfg_access_level.setText(level["name"] if level else "")
-        index = self.cb_cfg_access_policy.findData(level["policy"]) if level else -1
+        if not level:
+            return
+        index = self.cb_cfg_access_policy.findData(level["policy"])
+        self.cb_cfg_access_policy.blockSignals(True)
         self.cb_cfg_access_policy.setCurrentIndex(index if index >= 0 else 0)
+        self.cb_cfg_access_policy.blockSignals(False)
+        grants = set(level.get("permissions") or [])
+        for key, checkbox in self.access_permission_checks.items():
+            checkbox.setChecked(key in grants)
+
+    def _on_permission_preset_changed(self, *_):
+        policy = self.cb_cfg_access_policy.currentData()
+        grants = set(ROLE_PERMISSION_PRESETS.get(policy, []))
+        for key, checkbox in self.access_permission_checks.items():
+            checkbox.setChecked(key in grants)
+
+    def _collect_access_permissions(self):
+        return [
+            key for key, checkbox in self.access_permission_checks.items()
+            if checkbox.isChecked()
+        ]
 
     def _add_access_level(self):
         name = self.ed_cfg_access_level.text().strip()
@@ -665,7 +825,11 @@ class MainWindow(QMainWindow):
         if any(normalize_catalog_label(item["name"]) == normalize_catalog_label(name) for item in levels):
             QMessageBox.warning(self, "نام تکراری", "این سطح دسترسی از قبل ثبت شده است.")
             return
-        levels.append({"name": name, "policy": policy})
+        levels.append({
+            "name": name,
+            "policy": policy,
+            "permissions": self._collect_access_permissions(),
+        })
         self._persist_access_levels(levels)
         self.ed_cfg_access_level.clear()
 
@@ -694,7 +858,11 @@ class MainWindow(QMainWindow):
             return
         for item in levels:
             if item["name"] == old_name:
-                item.update({"name": new_name, "policy": new_policy})
+                item.update({
+                    "name": new_name,
+                    "policy": new_policy,
+                    "permissions": self._collect_access_permissions(),
+                })
                 break
         if assigned:
             with self.db.get_connection() as conn:
@@ -872,35 +1040,53 @@ class MainWindow(QMainWindow):
         self._refresh_visual_layout()
 
     def _apply_employee_permissions(self):
-        """Role-based tab access and data-scope setup."""
-        permission = self._permission_policy((
-            self.active_employee.get("permissions")
-            if self.active_employee else "دسترسی کامل"
-        ) or "")
-        is_full = "دسترسی کامل" in permission or permission == "all"
-        is_senior = "مدیر ارشد" in permission
-        is_sales = "فروش و خدمات" in permission
-        is_warehouse = "ثبت خرید و انبارداری" in permission
-        is_scoped = self._is_scoped_access()
+        """Enforce per-module view and per-action grants selected in the RBAC editor."""
+        grants = self._permission_grants()
+        if not self.active_employee:
+            grants = set(ALL_PERMISSION_KEYS)
 
-        for index in range(self.tabs.count()):
-            self.tabs.setTabEnabled(index, True)
-        if not is_full:
-            self.tabs.setTabEnabled(8, False)
-        if is_sales:
-            for index in (2, 6, 9):
-                self.tabs.setTabEnabled(index, False)
-        elif is_warehouse:
-            for index in (3, 4, 9):
-                self.tabs.setTabEnabled(index, False)
-        elif is_scoped:
-            # Operations supervisor: own transactions only, without supplier-wide and system settings.
-            self.tabs.setTabEnabled(6, False)
-            self.tabs.setTabEnabled(9, False)
+        tab_modules = (
+            "dashboard", "products", "batches", "sales", "services",
+            "upgrades", "suppliers", "reports", "employees", "settings",
+        )
+        is_scoped = self._is_scoped_access()
+        for index, module in enumerate(tab_modules):
+            allowed = f"{module}.view" in grants
+            self.tabs.setTabEnabled(index, allowed)
 
         for button in self.findChildren(QPushButton):
-            if button.objectName() == "btnDanger":
-                button.setEnabled(is_full)
+            page_index = -1
+            for index in range(self.tabs.count()):
+                page = self.tabs.widget(index)
+                if page is not None and page.isAncestorOf(button):
+                    page_index = index
+                    break
+            if page_index < 0:
+                continue
+            module = tab_modules[page_index]
+            label = button.text().strip()
+            if button.objectName() == "btnDanger" or any(
+                token in label for token in ("حذف", "🗑")
+            ):
+                action = "delete"
+            elif any(token in label for token in ("افزودن", "ثبت", "➕", "✅")):
+                action = "create"
+            elif any(token in label for token in ("ویرایش", "ذخیره تغییرات", "ذخیره ویرایش")):
+                action = "edit"
+            elif any(token in label for token in ("خروجی", "📥", "📤")):
+                action = "export"
+            else:
+                action = None
+            if module == "settings":
+                if hasattr(self, "gb_access_levels") and self.gb_access_levels.isAncestorOf(button):
+                    required_permission = "settings.manage_access"
+                elif hasattr(self, "gb_db") and self.gb_db.isAncestorOf(button):
+                    required_permission = "settings.manage_database"
+                else:
+                    required_permission = "settings.edit"
+                button.setEnabled(required_permission in grants)
+            elif action:
+                button.setEnabled(f"{module}.{action}" in grants)
 
         if hasattr(self, "cb_rep_emp"):
             self.cb_rep_emp.setEnabled(not is_scoped)
@@ -909,10 +1095,37 @@ class MainWindow(QMainWindow):
                 if own_index >= 0:
                     self.cb_rep_emp.setCurrentIndex(own_index)
         if hasattr(self, "btn_safe_export"):
-            self.btn_safe_export.setEnabled(not is_scoped)
+            self.btn_safe_export.setEnabled(
+                not is_scoped and "inventory_export.export" in grants
+            )
+        if hasattr(self, "cb_rep_sort"):
+            self.cb_rep_sort.setEnabled("reports.view" in grants)
+        if hasattr(self, "cb_cfg_access_level"):
+            access_enabled = (
+                "settings.manage_access" in grants
+                and "settings.view" in grants
+            )
+            for widget in (
+                self.cb_cfg_access_level, self.ed_cfg_access_level,
+                self.cb_cfg_access_policy,
+            ):
+                widget.setEnabled(access_enabled)
+            for checkbox in self.access_permission_checks.values():
+                checkbox.setEnabled(access_enabled)
+        if hasattr(self, "gb_access_levels"):
+            self.gb_access_levels.setEnabled(
+                "settings.manage_access" in grants and "settings.view" in grants
+            )
+        if hasattr(self, "gb_db"):
+            self.gb_db.setEnabled(
+                "settings.manage_database" in grants and "settings.view" in grants
+            )
+        if hasattr(self, "gb_inventory_export"):
+            self.gb_inventory_export.setEnabled(
+                "settings.edit" in grants and "settings.view" in grants
+            )
         if hasattr(self, "btn_switch_user"):
-            # تغییر کاربر بخشی از جریان دسترسی است و برای همه نقش‌ها در دسترس می‌ماند.
-            self.btn_switch_user.setEnabled(1)
+            self.btn_switch_user.setEnabled(True)
 
 
     def _apply_styles(self):
@@ -1085,6 +1298,7 @@ class MainWindow(QMainWindow):
         btn_safe_export.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
 
         self.lbl_active_user = QLabel()
+        self.lbl_active_user.setObjectName("activeUser")
         self.lbl_active_user.setStyleSheet(
             "color: #fde047; font-size: 12px; font-weight: bold; background: rgba(255,255,255,0.12); padding: 4px 8px; border-radius: 6px;"
         )
@@ -1333,7 +1547,9 @@ class MainWindow(QMainWindow):
             if not key or not value:
                 continue
             definition = definitions_by_name.get(key, {})
-            title = str(definition.get("label") or "").strip()
+            title = str(
+                definition.get("display_name") or definition.get("label") or ""
+            ).strip()
             if title.startswith("@"):
                 reference = title[1:].strip()
                 if reference:
@@ -1789,7 +2005,9 @@ class MainWindow(QMainWindow):
         self.cb_batch_prod.setToolTip("نام دسته‌بندی، زیرگروه (مثلاً کیبورد)، برند، مدل یا کد کالا را تایپ کنید")
         self.cb_batch_prod.currentIndexChanged.connect(self._on_batch_prod_changed)
         self.cb_batch_supplier = SearchableComboBox()
+        self.cb_batch_supplier.setEditable(False)
         self.cb_batch_buyer = SearchableComboBox()
+        self.cb_batch_buyer.setEditable(False)
         self.ed_batch_inv = SmartLineEdit("شماره فاکتور خرید")
         self.dt_batch_date = JalaliDateEdit(default_today=True)
         self.cb_batch_qty = QuantitySelector(500)
@@ -2187,6 +2405,7 @@ class MainWindow(QMainWindow):
         self.cb_sale_batch = SearchableComboBox()
         self.cb_sale_batch.currentIndexChanged.connect(self._on_sale_batch_changed)
         self.cb_sale_seller = SearchableComboBox()
+        self.cb_sale_seller.setEditable(False)
         self.ed_sale_customer = SmartLineEdit("نام مشتری (اختیاری)")
         self.btn_sale_colors = ColorSelectionButton()
         self.ed_sale_specs = SmartLineEdit("مشخصات دقیق کالای فروخته‌شده؛ قابل ویرایش...")
@@ -2218,6 +2437,12 @@ class MainWindow(QMainWindow):
         self.ed_war_company = SmartLineEdit("شرکت گارانتی‌کننده")
         self.dt_war_start = JalaliDateEdit(default_today=True)
         self.cb_war_months = QComboBox()
+        self.cb_war_months.setEditable(True)
+        self.cb_war_months.setInsertPolicy(QComboBox.NoInsert)
+        self.cb_war_months.setCurrentText("بدون گارانتی")
+        self.cb_war_months.setToolTip(
+            "مدت را از فهرست انتخاب کنید یا تعداد روز/ماه را دستی وارد کنید."
+        )
         warranty_options = [
             ("بدون گارانتی", 0), ("۲ روز", 2), ("۱ هفته", 7), ("۲ هفته", 14),
             ("۱ ماه", 30), ("۲ ماه", 60), ("۳ ماه", 90), ("۶ ماه", 180),
@@ -2230,6 +2455,7 @@ class MainWindow(QMainWindow):
 
         self.dt_war_start.dateChanged.connect(self._recalc_warranty_end)
         self.cb_war_months.currentIndexChanged.connect(self._recalc_warranty_end)
+        self.cb_war_months.currentTextChanged.connect(self._recalc_warranty_end)
 
         grid.addWidget(QLabel("شماره فاکتور:"), 0, 0)
         grid.addWidget(self.ed_sale_inv, 0, 1)
@@ -2582,12 +2808,30 @@ class MainWindow(QMainWindow):
             f"color: {discount_color}; font-weight: bold;"
         )
 
-    def _recalc_warranty_end(self):
-        m = self.cb_war_months.currentData() or 0
-        if m > 0:
-            self.dt_war_end.set_date(add_jalali_days(self.dt_war_start.get_date(), m))
-        else:
-            self.dt_war_end.set_date(self.dt_war_start.get_date())
+    def _get_warranty_days(self):
+        """Return warranty duration in days for preset or manually typed values."""
+        selected_days = self.cb_war_months.currentData()
+        if selected_days is not None:
+            return max(0, int(selected_days))
+        raw = normalize_digits(self.cb_war_months.currentText()).strip()
+        match = re.search(r"\d+", raw)
+        if not match:
+            return 0
+        amount = max(0, int(match.group(0)))
+        if "سال" in raw:
+            return amount * 365
+        if "ماه" in raw:
+            return amount * 30
+        if "هفته" in raw:
+            return amount * 7
+        return amount
+
+    def _recalc_warranty_end(self, *_):
+        days = self._get_warranty_days()
+        self.dt_war_end.set_date(
+            add_jalali_days(self.dt_war_start.get_date(), days)
+            if days else self.dt_war_start.get_date()
+        )
 
     def _save_new_sale(self):
         prod = self.cb_sale_prod.currentData()
@@ -2635,7 +2879,7 @@ class MainWindow(QMainWindow):
                 self.ed_sale_serial.text().strip(),
                 "",
                 self.cb_sale_status.currentText(),
-                warranty_days=self.cb_war_months.currentData() or 0,
+                warranty_days=self._get_warranty_days(),
                 specifications=self.ed_sale_specs.text().strip(),
                 colors=self._checked_colors(self.btn_sale_colors),
             )
@@ -2750,7 +2994,7 @@ class MainWindow(QMainWindow):
                 self.ed_sale_serial.text().strip(),
                 "",
                 self.cb_sale_status.currentText(),
-                warranty_days=self.cb_war_months.currentData() or 0,
+                warranty_days=self._get_warranty_days(),
                 specifications=self.ed_sale_specs.text().strip(),
                 colors=selected_colors,
             )
@@ -2836,6 +3080,7 @@ class MainWindow(QMainWindow):
         self.cb_srv_select = SearchableComboBox()
         self.cb_srv_select.currentIndexChanged.connect(self._on_srv_catalog_picked)
         self.cb_srv_seller = SearchableComboBox()
+        self.cb_srv_seller.setEditable(False)
         self.ed_srv_cust = SmartLineEdit("نام مشتری (اختیاری)")
         self.pr_srv_fee = PriceInput(self.db)
         self.pr_srv_fee.setReadOnly(True)
@@ -2938,11 +3183,20 @@ class MainWindow(QMainWindow):
         base_fee = self.pr_srv_fee.get_value()
         paid_val = self.pr_srv_paid.get_value()
         side = self.pr_srv_side.get_value()
-        diff_str = format_Signed_diff(paid_val, base_fee, 1)
+        status = self.cb_srv_status.currentText()
+        adjustment, receivable = service_financial_breakdown(
+            base_fee, paid_val, status
+        )
+        diff_str = f"{adjustment:+,}" if adjustment else "0"
         diff_display = "\u200e" + diff_str if diff_str.startswith(("+", "-")) else diff_str
         net = paid_val - side
         self.lbl_srv_diff_summary.setText(
-            f"تخفیف (-) / تشدید (+): {diff_display} تومان   |   سود خالص خدمت: {net:,} تومان"
+            f"تخفیف (-) / تشدید (+): {diff_display} تومان   |   "
+            f"طلب/بدهی: {receivable:,} تومان   |   سود خالص خدمت: {net:,} تومان"
+        )
+        color = "#dc2626" if paid_val < base_fee else "#16a34a"
+        self.lbl_srv_diff_summary.setStyleSheet(
+            f"color: {color}; font-weight: bold;"
         )
 
     def _on_srv_status_changed(self, st):
@@ -2950,6 +3204,7 @@ class MainWindow(QMainWindow):
             self.pr_srv_paid.set_value(self.pr_srv_fee.get_value())
         elif st.startswith("تسویه‌نشده"):
             self.pr_srv_paid.set_value(0)
+        self._recalc_srv_live_summary()
 
     def _add_new_service_tariff(self):
         """Register a new tariff, explicitly handling duplicate codes and surfacing failures."""
@@ -3143,6 +3398,7 @@ class MainWindow(QMainWindow):
         self.ed_upg_new_specs = SmartLineEdit("مشخصات فنی کالا پس از ارتقا...")
         self.dt_upg_date = JalaliDateEdit(default_today=True)
         self.cb_upg_tech = SearchableComboBox()
+        self.cb_upg_tech.setEditable(False)
         self.ed_upg_serial = SmartLineEdit("شماره سریال کالا")
 
         # مورد ۶: پیش‌فرض اضافه نشدن هزینه قطعه به قیمت کل محصول ارتقا یافته، مگر با فعال کردن تیک
@@ -3608,23 +3864,29 @@ class MainWindow(QMainWindow):
         grid = QGridLayout(gb_flt)
 
         self.cb_rep_type = QComboBox()
-        self.cb_rep_type.addItems(
-            [
-                "همه (گزارش جامع خرید، فروش و خدمات)",
-                "۱. گزارش کامل تمام فروش‌ها",
-                "۲. گزارش کامل تمام خریدها (محموله‌ها)",
-                "۳. گزارش موجودی فعلی کالاها",
-                "۴. گزارش موجودی و سود به تفکیک محموله",
-                "۵. گزارش سود تجمعی هر کالا",
-                "۶. گزارش سود و عملکرد هر محموله",
-                "۷. گزارش جامع عملکرد هر کاربر / فروشنده",
-                "۸. گزارش کالاهای کم‌موجود (نیازمند خرید)",
-                "۹. گزارش بدهی به تأمین‌کنندگان",
-                "۱۰. گزارش فاکتورهای تسویه‌نشده (طلب و بدهی)",
-                "۱۱. گزارش تخفیف‌ها و تشدیدهای فروش",
-                "۱۲. گزارش کامل خدمات انجام‌شده",
-            ]
-        )
+        self.cb_rep_type.addItem("همه (گزارش جامع خرید، فروش و خدمات)")
+        self.cb_rep_type.insertSeparator(self.cb_rep_type.count())
+        self.cb_rep_type.addItems([
+            "۱. گزارش کامل تمام فروش‌ها",
+            "۱۱. گزارش تخفیف‌ها و تشدیدهای فروش",
+            "۱۲. گزارش کامل خدمات انجام‌شده",
+        ])
+        self.cb_rep_type.insertSeparator(self.cb_rep_type.count())
+        self.cb_rep_type.addItems([
+            "۲. گزارش کامل تمام خریدها (محموله‌ها)",
+            "۹. گزارش بدهی به تأمین‌کنندگان",
+        ])
+        self.cb_rep_type.insertSeparator(self.cb_rep_type.count())
+        self.cb_rep_type.addItems([
+            "۳. گزارش موجودی فعلی کالاها",
+            "۴. گزارش موجودی و سود به تفکیک محموله",
+            "۵. گزارش سود تجمعی هر کالا",
+            "۶. گزارش سود و عملکرد هر محموله",
+            "۸. گزارش کالاهای کم‌موجود (نیازمند خرید)",
+        ])
+        self.cb_rep_type.insertSeparator(self.cb_rep_type.count())
+        self.cb_rep_type.addItem("۷. گزارش جامع عملکرد هر کاربر / فروشنده")
+        self.cb_rep_type.addItem("۱۰. گزارش فاکتورهای تسویه‌نشده (طلب و بدهی)")
         if self._is_scoped_access():
             permission = self._permission_policy(self.active_employee.get("permissions") or "")
             if "ثبت خرید و انبارداری" in permission:
@@ -3665,7 +3927,9 @@ class MainWindow(QMainWindow):
         self.dt_rep_to = JalaliDateEdit(default_today=True)
 
         self.cb_rep_emp = SearchableComboBox()
+        self.cb_rep_emp.setEditable(False)
         self.cb_rep_cat = SearchableComboBox()
+        self.cb_rep_cat.setEditable(False)
         report_categories = (
             self.catalog_config.get("categories") or list(MAIN_CATEGORIES)
         )
@@ -3674,8 +3938,14 @@ class MainWindow(QMainWindow):
             "جست‌وجوی کد کالا، دسته‌بندی، زیرگروه (مثلاً کیبورد)، برند، مدل، فاکتور..."
         )
         self.cb_rep_sort = QComboBox()
-        self.cb_rep_sort.addItem("جدیدترین به قدیمی‌ترین", "desc")
-        self.cb_rep_sort.addItem("قدیمی‌ترین به جدیدترین", "asc")
+        self.cb_rep_sort.addItem("آخرین ویرایش / ایجاد (پیش‌فرض)", "activity_desc")
+        self.cb_rep_sort.addItem("تاریخ تراکنش: جدیدترین", "transaction_desc")
+        self.cb_rep_sort.addItem("تاریخ تراکنش: قدیمی‌ترین", "transaction_asc")
+        self.cb_rep_sort.addItem("مبلغ / قیمت: بیشترین", "amount_desc")
+        self.cb_rep_sort.addItem("مبلغ / قیمت: کمترین", "amount_asc")
+        self.cb_rep_sort.addItem("وضعیت تسویه", "settlement_asc")
+        self.cb_rep_sort.addItem("دسته‌بندی", "category_asc")
+        self.cb_rep_sort.addItem("کاربر / مسئول", "user_asc")
 
         btn_exp_excel = QPushButton("📥 خروجی اکسل از این گزارش")
         btn_exp_excel.setObjectName("btnSuccess")
@@ -3799,7 +4069,7 @@ class MainWindow(QMainWindow):
                 ]
                 s_rows = conn.execute("""
                     SELECT 'فروش کالا' as t_type, s.invoice_number as ref, s.sale_datetime as dt,
-                           s.updated_at AS _activity_at,
+                           COALESCE(s.updated_at, s.created_at) AS _activity_at,
                            p.code, p.category, p.sub_category, (p.brand || ' ' || p.model) as title,
                            COALESCE(NULLIF(s.specifications,''), NULLIF(b.final_specs,''), NULLIF(b.initial_specs,''), '') as specs,
                            e.id as emp_id, e.name as emp_name, s.customer_name as party,
@@ -3814,7 +4084,7 @@ class MainWindow(QMainWindow):
 
                 b_rows = conn.execute("""
                     SELECT 'خرید محموله' as t_type, b.batch_code as ref, b.purchase_date as dt,
-                           b.updated_at AS _activity_at,
+                           COALESCE(b.updated_at, b.created_at) AS _activity_at,
                            p.code, p.category, p.sub_category, (p.brand || ' ' || p.model) as title,
                            COALESCE(NULLIF(b.final_specs,''), NULLIF(b.initial_specs,''), '') as specs,
                            e.id as emp_id, e.name as emp_name, COALESCE(sup.name,b.supplier_name_snapshot) as party,
@@ -3830,7 +4100,7 @@ class MainWindow(QMainWindow):
 
                 srv_rows = conn.execute("""
                     SELECT 'خدمات' as t_type, sr.invoice_number as ref, sr.service_datetime as dt,
-                           sr.updated_at AS _activity_at,
+                           COALESCE(sr.updated_at, sr.created_at) AS _activity_at,
                            'SRV' as code, 'خدمات' as category, sr.service_type as sub_category,
                            sr.service_name as title, '' as specs, e.id as emp_id, e.name as emp_name,
                            sr.customer_name as party, 1 as qty, sr.service_fee as u_price,
@@ -3858,13 +4128,17 @@ class MainWindow(QMainWindow):
 
                     amt = int(r["amt"])
                     paid = int(r["paid"])
-                    rem_balance = max(0, amt - paid)
+                    rem_balance = receivable_balance(amt, paid, r["st"])
                     prof = int(r["prof"])
-                    diff_str = (
-                        format_Signed_diff(r["u_price"], r["sug_price"], r["qty"])
-                        if r["t_type"] == "فروش کالا"
-                        else "0"
-                    )
+                    if r["t_type"] == "فروش کالا":
+                        diff_str = format_Signed_diff(r["u_price"], r["sug_price"], r["qty"])
+                    elif r["t_type"] == "خدمات":
+                        adjustment, rem_balance = service_financial_breakdown(
+                            amt, paid, r["st"]
+                        )
+                        diff_str = f"{adjustment:+,}" if adjustment else "0"
+                    else:
+                        diff_str = "0"
 
                     if r["t_type"] == "خرید محموله":
                         total_buy += amt
@@ -3958,7 +4232,9 @@ class MainWindow(QMainWindow):
                     sum_sale += int(r["total_amount"])
                     sum_prof += int(r["total_profit"])
                     sum_disc += int(r["total_discount"])
-                    rem_pay = max(0, int(r["total_amount"]) - int(r["paid_amount"]))
+                    rem_pay = receivable_balance(
+                        r["total_amount"], r["paid_amount"], r["settlement_status"]
+                    )
                     signed_str = format_Signed_diff(
                         r["actual_unit_price"], r["suggested_unit_price"], r["qty"]
                     )
@@ -4054,7 +4330,9 @@ class MainWindow(QMainWindow):
                         continue
 
                     total_buy = (r["unit_purchase_price"] * r["initial_qty"]) + r["extra_cost_total"]
-                    debt = max(0, total_buy - r["paid_amount"])
+                    debt = receivable_balance(
+                        total_buy, r["paid_amount"], r["settlement_status"]
+                    )
                     if rep_type.startswith("۹.") and debt == 0:
                         continue
                     sum_buy += total_buy
@@ -4255,7 +4533,11 @@ class MainWindow(QMainWindow):
                     FROM sales s JOIN products p ON s.product_id=p.id LEFT JOIN employees e ON s.seller_employee_id=e.id
                     WHERE s.settlement_status != 'تسویه‌شده'
                 """).fetchall():
-                    rem_amt = max(0, r["total_amount"] - r["paid_amount"])
+                    rem_amt = receivable_balance(
+                        r["total_amount"], r["paid_amount"], r["settlement_status"]
+                    )
+                    if rem_amt <= 0:
+                        continue
                     sum_receivable += rem_amt
                     rows_data.append(
                         [
@@ -4279,7 +4561,11 @@ class MainWindow(QMainWindow):
                     WHERE b.settlement_status != 'تسویه‌شده'
                 """).fetchall():
                     tot = (r["unit_purchase_price"] * r["initial_qty"]) + r["extra_cost_total"]
-                    rem_amt = max(0, tot - r["paid_amount"])
+                    rem_amt = receivable_balance(
+                        tot, r["paid_amount"], r["settlement_status"]
+                    )
+                    if rem_amt <= 0:
+                        continue
                     sum_payable += rem_amt
                     rows_data.append(
                         [
@@ -4301,7 +4587,11 @@ class MainWindow(QMainWindow):
                     LEFT JOIN employees e ON sr.seller_employee_id=e.id
                     WHERE sr.settlement_status != 'تسویه‌شده'
                 """).fetchall():
-                    rem_amt = max(0, r["service_fee"] - r["paid_amount"])
+                    rem_amt = receivable_balance(
+                        r["service_fee"], r["paid_amount"], r["settlement_status"]
+                    )
+                    if rem_amt <= 0:
+                        continue
                     sum_receivable += rem_amt
                     rows_data.append(
                         [
@@ -4333,6 +4623,7 @@ class MainWindow(QMainWindow):
                     "مسئول خدمت",
                     "نام مشتری",
                     "هزینه خدمت (تومان)",
+                    "تخفیف (-) / تشدید (+)",
                     "هزینه‌های جانبی (تومان)",
                     "سود خالص خدمت (تومان)",
                     "مبلغ دریافتی (تومان)",
@@ -4345,7 +4636,7 @@ class MainWindow(QMainWindow):
                     LEFT JOIN employees e ON sr.seller_employee_id=e.id
                     ORDER BY sr.updated_at DESC, sr.id DESC
                 """).fetchall()
-                sum_fee, sum_side, sum_net = 0, 0, 0
+                sum_fee, sum_side, sum_net, sum_adjustment, sum_receivable = 0, 0, 0, 0, 0
                 for r in q:
                     dt = r["service_datetime"][:10]
                     if not (d_from <= dt <= d_to):
@@ -4357,7 +4648,11 @@ class MainWindow(QMainWindow):
                     sum_fee += int(r["service_fee"])
                     sum_side += int(r["side_cost"])
                     sum_net += int(r["net_profit"])
-                    rem_srv = max(0, int(r["service_fee"]) - int(r["paid_amount"]))
+                    adjustment, rem_srv = service_financial_breakdown(
+                        r["service_fee"], r["paid_amount"], r["settlement_status"]
+                    )
+                    sum_adjustment += adjustment
+                    sum_receivable += rem_srv
                     rows_data.append(
                         [
                             r["updated_at"] or r["service_datetime"] or "",
@@ -4368,6 +4663,7 @@ class MainWindow(QMainWindow):
                             r["emp_name"],
                             r["customer_name"] or "-",
                             f"{r['service_fee']:,}",
+                            f"{adjustment:+,}" if adjustment else "0",
                             f"{r['side_cost']:,}",
                             f"{r['net_profit']:,}",
                             f"{r['paid_amount']:,}",
@@ -4378,14 +4674,17 @@ class MainWindow(QMainWindow):
                     )
                 summary_text = (
                     f"کل هزینه خدمات: {sum_fee:,} تومان   |   "
-                    f"کل هزینه‌های جانبی: {sum_side:,} تومان   |   "
+                    f"تخفیف/تشدید: {sum_adjustment:+,} تومان   |   "
+                    f"طلب خدمات: {sum_receivable:,} تومان   |   "
+                    f"هزینه‌های جانبی: {sum_side:,} تومان   |   "
                     f"سود خالص خدمات: {sum_net:,} تومان"
                 )
 
         if rows_data:
+            sort_mode = self.cb_rep_sort.currentData() or "activity_desc"
             rows_data.sort(
-                key=lambda row: str(row[0] or ""),
-                reverse=self.cb_rep_sort.currentData() != "asc",
+                key=_report_sort_key(rows_data, headers, sort_mode),
+                reverse=sort_mode.endswith("_desc") or sort_mode == "activity_desc",
             )
             rows_data = [row[1:] for row in rows_data]
         self.tbl_report.setSortingEnabled(False)
@@ -4756,6 +5055,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(CollapsibleSection("امنیت و ورود کاربران", gb_security))
 
         gb_access_levels = QGroupBox("مدیریت سطوح دسترسی")
+        self.gb_access_levels = gb_access_levels
         access_layout = QGridLayout(gb_access_levels)
         self.cb_cfg_access_level = QComboBox()
         self.ed_cfg_access_level = QLineEdit()
@@ -4765,12 +5065,33 @@ class MainWindow(QMainWindow):
             self.cb_cfg_access_policy.addItem(
                 access_level["name"], access_level["policy"]
             )
-        access_layout.addWidget(QLabel("سطح موجود:"), 0, 0)
+        access_layout.addWidget(QLabel("سطح:"), 0, 0)
         access_layout.addWidget(self.cb_cfg_access_level, 0, 1)
         access_layout.addWidget(QLabel("نام سطح دسترسی:"), 1, 0)
         access_layout.addWidget(self.ed_cfg_access_level, 1, 1)
-        access_layout.addWidget(QLabel("الگوی مجوز:"), 2, 0)
+        access_layout.addWidget(QLabel("مجوزها:"), 2, 0)
         access_layout.addWidget(self.cb_cfg_access_policy, 2, 1)
+
+        permissions_scroll = SmoothScrollArea()
+        permissions_scroll.setMaximumHeight(360)
+        permissions_container = QWidget()
+        permissions_grid = QGridLayout(permissions_container)
+        self.access_permission_checks = {}
+        for group_index, (group_title, module, actions) in enumerate(PERMISSION_GROUPS):
+            group = QGroupBox(group_title)
+            group_layout = QGridLayout(group)
+            for action_index, (action, label_text) in enumerate(actions):
+                key = f"{module}.{action}"
+                checkbox = QCheckBox(label_text)
+                self.access_permission_checks[key] = checkbox
+                group_layout.addWidget(checkbox, action_index // 3, action_index % 3)
+            permissions_grid.addWidget(group, group_index // 2, group_index % 2)
+        permissions_scroll.setWidget(permissions_container)
+        permissions_scroll.setWidgetResizable(True)
+        access_layout.addWidget(permissions_scroll, 4, 0, 1, 2)
+        self.cb_cfg_access_policy.currentIndexChanged.connect(
+            self._on_permission_preset_changed
+        )
         access_buttons = QHBoxLayout()
         btn_add_access = QPushButton("افزودن سطح")
         btn_add_access.clicked.connect(self._add_access_level)
@@ -4783,7 +5104,7 @@ class MainWindow(QMainWindow):
         access_buttons.addWidget(btn_add_access)
         access_buttons.addWidget(btn_edit_access)
         access_buttons.addWidget(btn_delete_access)
-        access_layout.addLayout(access_buttons, 3, 0, 1, 2)
+        access_layout.addLayout(access_buttons, 5, 0, 1, 2)
         self.cb_cfg_access_level.currentIndexChanged.connect(
             self._on_access_level_selected
         )
@@ -4803,10 +5124,10 @@ class MainWindow(QMainWindow):
         self.cb_zero_count.addItem("افزودن ۲ صفر (×۱۰۰)", "2")
         self.cb_zero_count.addItem("افزودن ۳ صفر (×۱٬۰۰۰)", "3")
         self.cb_zero_count.addItem("افزودن ۴ صفر (×۱۰٬۰۰۰)", "4")
+        persian_digits = str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹")
         for zeros in (5, 6, 7, 8, 9, 10, 11, 12):
-            self.cb_zero_count.addItem(
-                f"افزودن {zeros} صفر (×{10 ** zeros:,})", str(zeros)
-            )
+            label = f"افزودن {zeros} صفر (×{10 ** zeros:,})".translate(persian_digits)
+            self.cb_zero_count.addItem(label, str(zeros))
 
         self.cb_win_mode = QComboBox()
         self.cb_win_mode.addItem("تمام‌صفحه", "1")
@@ -4981,28 +5302,36 @@ class MainWindow(QMainWindow):
         colors_layout.addWidget(self.ed_cfg_color)
         colors_layout.addLayout(color_btn_row)
 
-        gb_subcategory_caption = QGroupBox("عنوان فیلد زیرمجموعه برای هر دسته")
-        subcaption_layout = QFormLayout(gb_subcategory_caption)
+        # Configure the per-category subcategory caption inline with the main categories.
         self.cb_subcategory_caption_category = QComboBox()
         self.cb_subcategory_caption_category.addItems(
             self.catalog_config.get("categories") or list(MAIN_CATEGORIES)
+        )
+        self.cb_subcategory_caption_category.setCurrentText(
+            self.cb_cfg_category.currentText()
         )
         self.ed_subcategory_caption = QLineEdit()
         self.ed_subcategory_caption.setPlaceholderText("عنوان دلخواه؛ مانند نوع دستگاه")
         self.cb_subcategory_caption_category.currentTextChanged.connect(
             self._load_subcategory_caption
         )
-        btn_save_subcaption = QPushButton("ذخیره عنوان فیلد")
+        subcaption_row = QHBoxLayout()
+        subcaption_row.addWidget(QLabel("عنوان فیلد زیرمجموعه:"))
+        subcaption_row.addWidget(self.ed_subcategory_caption, 1)
+        btn_save_subcaption = QPushButton("ذخیره")
         btn_save_subcaption.clicked.connect(self._save_subcategory_caption)
-        subcaption_layout.addRow("دسته‌بندی:", self.cb_subcategory_caption_category)
-        subcaption_layout.addRow("عنوان فیلد:", self.ed_subcategory_caption)
-        subcaption_layout.addRow(btn_save_subcaption)
+        subcaption_row.addWidget(btn_save_subcaption)
+        categories_layout.addLayout(subcaption_row)
+        categories_layout.addWidget(self.cb_subcategory_caption_category)
+
+        for frame in (gb_categories, gb_subcategories, gb_attributes, gb_colors):
+            frame.setFixedHeight(360)
+            frame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
         catalog_grid.addWidget(gb_categories, 0, 0)
         catalog_grid.addWidget(gb_subcategories, 0, 1)
         catalog_grid.addWidget(gb_attributes, 1, 0)
         catalog_grid.addWidget(gb_colors, 1, 1)
-        catalog_grid.addWidget(gb_subcategory_caption, 2, 0, 1, 2)
         self.cb_cfg_category.currentTextChanged.connect(
             self._refresh_catalog_management_lists
         )
@@ -5056,38 +5385,56 @@ class MainWindow(QMainWindow):
         catalog_layout.addWidget(self.catalog_tabs)
 
         gb_inventory_export = QGroupBox("تنظیم ستون‌های خروجی موجودی همکار")
+        self.gb_inventory_export = gb_inventory_export
         inventory_export_layout = QGridLayout(gb_inventory_export)
         inventory_export_options = [
-            ("code", "کد کالا"),
-            ("category", "دسته‌بندی"),
-            ("subcategory", "زیرمجموعه"),
-            ("brand_model", "برند و مدل"),
-            ("specs", "مشخصات فنی"),
-            ("suggested_price", "قیمت فروش (پیشنهادی)"),
-            ("stock", "موجودی"),
+            ("code", "کد کالا"), ("batch_code", "کد محموله"),
+            ("product_name", "نام کالا"), ("category", "دسته‌بندی"),
+            ("subcategory", "زیرمجموعه"), ("brand_model", "برند و مدل"),
+            ("description", "توضیحات کالا"), ("reorder_point", "حد سفارش مجدد"),
+            ("specs", "مشخصات فنی کالا"), ("shipment_specs", "مشخصات فنی محموله"),
+            ("supplier", "تأمین‌کننده"), ("buyer", "مسئول خرید"),
+            ("purchase_date", "تاریخ خرید"), ("purchase_invoice", "شماره فاکتور خرید"),
+            ("purchase_status", "وضعیت تسویه خرید"), ("purchase_paid_amount", "مبلغ پرداخت‌شده به تأمین‌کننده"),
+            ("serial_numbers", "شماره سریال"), ("colors", "رنگ‌ها"),
+            ("initial_qty", "تعداد اولیه"), ("sold_qty", "تعداد فروخته‌شده"),
+            ("returned_qty", "تعداد مرجوعی"), ("stock", "موجودی فعلی"),
+            ("shipment_notes", "یادداشت محموله"), ("warranty_history", "سوابق گارانتی فروش"),
+            ("batch_created_at", "زمان ثبت محموله"), ("batch_updated_at", "آخرین ویرایش محموله"),
+            ("suggested_price", "قیمت فروش پیشنهادی"),
+            ("purchase_unit_price", "قیمت خرید واحد"), ("unit_cost_price", "بهای تمام‌شده واحد"),
+            ("extra_cost_total", "هزینه‌های اضافی محموله"),
+            ("upgrade_cost_unit", "هزینه ارتقای واحد"),
+            ("profit_pct", "درصد سود"),
         ]
         self.inventory_export_column_checks = {}
         for index, (key, label_text) in enumerate(inventory_export_options):
             checkbox = QCheckBox(label_text)
-            checkbox.setChecked(True)
+            checkbox.setChecked(
+                key in {"code", "batch_code", "category", "subcategory", "brand_model", "specs"}
+            )
+            checkbox.setLayoutDirection(Qt.RightToLeft)
+            checkbox.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
             self.inventory_export_column_checks[key] = checkbox
-            inventory_export_layout.addWidget(checkbox, index // 4, index % 4)
-        inventory_export_hint = QLabel(
-            "با فعال یا غیرفعال کردن هر گزینه، ستون مربوطه به‌ترتیب در فایل اکسل درج یا حذف می‌شود."
-        )
-        inventory_export_hint.setWordWrap(True)
-        inventory_export_layout.addWidget(inventory_export_hint, 2, 0, 1, 4)
-        catalog_layout.addWidget(CollapsibleSection(
-            "تنظیمات خروجی موجودی همکار", gb_inventory_export
-        ))
-        catalog_layout.addWidget(CollapsibleSection(
-            "مدیریت سطوح دسترسی", gb_access_levels
-        ))
+            inventory_export_layout.addWidget(checkbox, 1 + index // 3, index % 3)
+        inventory_export_page = QWidget()
+        inventory_export_page_layout = QVBoxLayout(inventory_export_page)
+        inventory_export_page_layout.addWidget(gb_inventory_export)
+        inventory_export_page_layout.addStretch(1)
+
+        access_management_page = QWidget()
+        access_management_page_layout = QVBoxLayout(access_management_page)
+        access_management_page_layout.addWidget(gb_access_levels)
+        access_management_page_layout.addStretch(1)
+
+        self.catalog_tabs.addTab(inventory_export_page, "تنظیمات خروجی موجودی همکار")
+        self.catalog_tabs.addTab(access_management_page, "مدیریت سطوح دسترسی")
         layout.addWidget(CollapsibleSection(
             "مدیریت ساختار کالاها، خدمات، خروجی‌ها و دسترسی‌ها", gb_catalog
         ))
 
         gb_db = QGroupBox("پایگاه دادهٔ فعال و پشتیبان‌گیری خودکار")
+        self.gb_db = gb_db
         f_db = QFormLayout(gb_db)
         f_db.setContentsMargins(12, 12, 12, 10)
         f_db.setHorizontalSpacing(14)
@@ -5197,7 +5544,9 @@ class MainWindow(QMainWindow):
         except (TypeError, ValueError, json.JSONDecodeError):
             selected_export_columns = []
         if not selected_export_columns:
-            selected_export_columns = list(self.inventory_export_column_checks)
+            selected_export_columns = [
+                "code", "batch_code", "category", "subcategory", "brand_model", "specs",
+            ]
         for key, checkbox in self.inventory_export_column_checks.items():
             checkbox.setChecked(key in selected_export_columns)
         self._load_subcategory_caption(
@@ -6581,6 +6930,9 @@ class MainWindow(QMainWindow):
                 )
         self.cb_batch_prod.blockSignals(False)
         self.cb_sale_prod.blockSignals(False)
+        if self.cb_batch_prod.count():
+            self.cb_batch_prod.setCurrentIndex(0)
+            self._on_batch_prod_changed()
         self.cb_sale_prod.setCurrentIndex(0)
         self._on_sale_prod_changed()
 
@@ -6748,7 +7100,9 @@ class MainWindow(QMainWindow):
         data = []
         for r in rows:
             tot_bill = (r["unit_purchase_price"] * r["initial_qty"]) + r["extra_cost_total"]
-            debt = max(0, tot_bill - r["paid_amount"])
+            debt = receivable_balance(
+                tot_bill, r["paid_amount"], r["settlement_status"]
+            )
             prod_title = self._format_product_picker_label(dict(r))
             data.append(
                 [
@@ -6923,7 +7277,12 @@ class MainWindow(QMainWindow):
                 r["emp_name"],
                 r["customer_name"] or "-",
                 f"{r['service_fee']:,}",
-                format_Signed_diff(r["paid_amount"], r["service_fee"], 1),
+                (
+                    f"{service_financial_breakdown(r['service_fee'], r['paid_amount'], r['settlement_status'])[0]:+,}"
+                    if service_financial_breakdown(
+                        r["service_fee"], r["paid_amount"], r["settlement_status"]
+                    )[0] else "0"
+                ),
                 f"{r['side_cost']:,}",
                 f"{r['net_profit']:,}",
                 f"{r['paid_amount']:,}",
@@ -6940,7 +7299,19 @@ class MainWindow(QMainWindow):
                 SELECT s.*,
                        COUNT(b.id) as b_cnt,
                        COALESCE(SUM(b.unit_purchase_price*b.initial_qty + b.extra_cost_total), 0) as tot_buy,
-                       COALESCE(SUM(b.paid_amount), 0) as tot_paid
+                       COALESCE(SUM(b.paid_amount), 0) as tot_paid,
+                       COALESCE(SUM(
+                           CASE
+                               WHEN b.settlement_status IN ('تسویه جزئی', 'تسویه‌نشده')
+                               THEN MAX(
+                                   0,
+                                   b.unit_purchase_price * b.initial_qty
+                                   + COALESCE(b.extra_cost_total, 0)
+                                   - COALESCE(b.paid_amount, 0)
+                               )
+                               ELSE 0
+                           END
+                       ), 0) AS tot_debt
                 FROM suppliers s
                 LEFT JOIN batches b ON s.id = b.supplier_id
                 GROUP BY s.id
@@ -6948,7 +7319,7 @@ class MainWindow(QMainWindow):
             """).fetchall()
         data = []
         for r in rows:
-            debt = max(0, int(r["tot_buy"]) - int(r["tot_paid"]))
+            debt = int(r["tot_debt"] or 0)
             data.append(
                 [
                     r["id"],
