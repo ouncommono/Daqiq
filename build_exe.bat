@@ -1,6 +1,6 @@
 @echo off
 chcp 65001 >nul
-set "APP_VERSION=3.0.0"
+set "APP_VERSION=3.1.0"
 echo Building Daqiq %APP_VERSION%...
 echo Installing required libraries...
 pip install -r requirements.txt

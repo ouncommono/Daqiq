@@ -1,4 +1,10 @@
-# Daqiq 3.0.0
+# Daqiq 3.1.0
+
+- Serialized purchase shipment create/update/delete operations with SQLite write locks, bounded busy handling, and atomic supplier/batch/payment/audit writes.
+- Recovered product-referenced subcategories, preserved removable-default metadata, standardized legacy technical feature labels, and wired feature-scope filtering.
+- Corrected zero-debt styling, Persian RTL shipment tooltips and shipment list labels, subcategory caption placement, database-list hover design, and expanded custom-spec layout.
+- Set the new database dialog default to `NewDaqiq.db`.
+
 
 - Established the greenfield v3.0.0 database baseline and normalized per-role data visibility scopes.
 - Removed the obsolete settings migration call that prevented database connection and creation.

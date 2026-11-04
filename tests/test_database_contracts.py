@@ -1,6 +1,7 @@
 import json
 import os
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
@@ -75,6 +76,7 @@ def test_new_database_has_no_seeded_employees_and_codes_are_sequenced(manager):
     assert count == 0
     assert manager.generate_next_code("products", "code", "P-", 1001) == "P-1001"
     assert manager.generate_next_code("batches", "batch_code", "C-", 1001) == "C-1001"
+    assert manager.generate_next_code("sales", "invoice_number", "INV-", 1001) == "INV-1001"
     assert manager.generate_next_code("service_catalog", "code", "S-", 1001) == "S-1001"
 
 
@@ -124,6 +126,130 @@ def test_colleague_inventory_export_honors_selected_columns(manager, tmp_path):
     ]
     assert [cell.value for cell in worksheet[3]] == ["P-EXPORT", 175]
     workbook.close()
+
+
+def test_purchase_batch_crud_is_atomic_and_foreign_key_safe(manager):
+    product_id = create_product(manager, "P-PURCHASE-ATOMIC")
+
+    with pytest.raises(sqlite3.IntegrityError):
+        manager.add_batch(
+            "C-FAILED-ATOMIC", 999999, None, None, "PO-FAIL", "1405/01/01",
+            2, 100, 20, 150, 20, supplier_name="تأمین‌کننده تراکنش ناموفق",
+        )
+
+    with manager.get_connection() as conn:
+        assert conn.execute(
+            "SELECT COUNT(*) FROM suppliers WHERE name=?",
+            ("تأمین‌کننده تراکنش ناموفق",),
+        ).fetchone()[0] == 0
+        assert conn.execute(
+            "SELECT COUNT(*) FROM batches WHERE batch_code='C-FAILED-ATOMIC'"
+        ).fetchone()[0] == 0
+
+    batch_code = manager.add_batch(
+        None, product_id, None, None, "PO-ATOMIC", "1405/01/02",
+        2, 100, 20, 150, 50, initial_specs="RAM: 8GB",
+        notes="خرید آزمایشی", colors=["مشکی"],
+        supplier_name="شرکت خرید اتمی",
+    )
+    with manager.get_connection() as conn:
+        batch = conn.execute(
+            "SELECT id, supplier_id, supplier_name_snapshot, remaining_qty, paid_amount "
+            "FROM batches WHERE batch_code=?",
+            (batch_code,),
+        ).fetchone()
+        batch_id = int(batch["id"])
+        payment = conn.execute(
+            "SELECT amount, ref_type, ref_id FROM payments "
+            "WHERE ref_type='batch' AND ref_id=?",
+            (batch_id,),
+        ).fetchone()
+    assert batch["supplier_id"] is not None
+    assert batch["supplier_name_snapshot"] == "شرکت خرید اتمی"
+    assert batch["remaining_qty"] == 2
+    assert batch["paid_amount"] == 50
+    assert payment["amount"] == 50
+    assert payment["ref_type"] == "batch"
+
+    manager.update_batch(
+        batch_id, None, None, "PO-EDITED", "1405/01/03",
+        4, 120, 40, 180, 80, "SERIAL-EDITED", "یادداشت اصلاح‌شده",
+        product_id=product_id, initial_specs="RAM: 16GB",
+        colors=["سفید"], supplier_name="تأمین‌کننده به‌روزشده",
+    )
+    with manager.get_connection() as conn:
+        updated = conn.execute(
+            "SELECT supplier_id, supplier_name_snapshot, initial_qty, remaining_qty, "
+            "unit_purchase_price, extra_cost_total, paid_amount, settlement_status, colors_json "
+            "FROM batches WHERE id=?",
+            (batch_id,),
+        ).fetchone()
+        supplier = conn.execute(
+            "SELECT name FROM suppliers WHERE id=?", (updated["supplier_id"],)
+        ).fetchone()
+    assert supplier["name"] == "تأمین‌کننده به‌روزشده"
+    assert updated["supplier_name_snapshot"] == "تأمین‌کننده به‌روزشده"
+    assert updated["initial_qty"] == 4
+    assert updated["remaining_qty"] == 4
+    assert updated["unit_purchase_price"] == 120
+    assert updated["extra_cost_total"] == 40
+    assert updated["paid_amount"] == 80
+    assert updated["settlement_status"] == "تسویه جزئی"
+    assert json.loads(updated["colors_json"]) == ["سفید"]
+    with manager.get_connection() as conn:
+        payment_amount = conn.execute(
+            "SELECT SUM(amount) FROM payments WHERE ref_type='batch' AND ref_id=?",
+            (batch_id,),
+        ).fetchone()[0]
+    assert payment_amount == 80
+
+    create_sale(manager, product_id, batch_id)
+    with manager.get_connection() as conn:
+        conn.execute(
+            "UPDATE batches SET returned_qty=1 WHERE id=?", (batch_id,)
+        )
+        conn.commit()
+    with pytest.raises(ValueError, match="مجموع تعداد فروخته‌شده و مرجوعی"):
+        manager.update_batch(
+            batch_id, None, None, "PO-EDITED", "1405/01/03",
+            1, 120, 40, 180, 80, "SERIAL", "note",
+        )
+
+    manager.delete_batch(batch_id)
+    with manager.get_connection() as conn:
+        assert conn.execute(
+            "SELECT COUNT(*) FROM batches WHERE id=?", (batch_id,)
+        ).fetchone()[0] == 0
+        assert conn.execute(
+            "SELECT COUNT(*) FROM sales WHERE batch_id=?", (batch_id,)
+        ).fetchone()[0] == 0
+        assert conn.execute(
+            "SELECT COUNT(*) FROM payments WHERE ref_type='batch' AND ref_id=?",
+            (batch_id,),
+        ).fetchone()[0] == 0
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+
+
+def test_concurrent_automatic_purchase_codes_are_serialized(manager):
+    product_id = create_product(manager, "P-PURCHASE-CONCURRENT")
+
+    def register_purchase(index):
+        return manager.add_batch(
+            None, product_id, None, None, f"PO-{index}", "1405/01/04",
+            1, 100, 0, 150, 0,
+        )
+
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        codes = list(executor.map(register_purchase, range(12)))
+
+    assert len(codes) == 12
+    assert len(set(codes)) == 12
+    with manager.get_connection() as conn:
+        persisted = conn.execute(
+            "SELECT COUNT(*) FROM batches WHERE product_id=?", (product_id,)
+        ).fetchone()[0]
+        assert persisted == 12
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
 
 
 def test_add_batch_and_sale_persist_warranty_days(manager):
@@ -212,7 +338,7 @@ def test_v3_schema_initialization_is_idempotent_and_keeps_upgrade_column_order(m
         "added_cost_unit", "upgrade_date", "serial_number", "manual_part_description",
         "old_specs", "new_specs", "notes", "created_at", "updated_at",
     ]
-    assert version == 300
+    assert version == 310
 
 
 def test_upgrade_backend_rejects_unconfirmed_insufficient_inventory(manager):
@@ -503,8 +629,8 @@ def test_v3_application_config_records_release_and_preserves_current_preferences
     assert manager.cfg["zero_append_count"] == 4
     assert manager.cfg["default_window_maximized"] is False
     assert manager.cfg["require_login_password"] is True
-    assert manager.cfg["app_version"] == "3.0.0"
-    assert manager.cfg["schema_version"] == 300
+    assert manager.cfg["app_version"] == "3.1.0"
+    assert manager.cfg["schema_version"] == 310
     assert manager.cfg["config_schema_version"] == 2
 
 
@@ -923,10 +1049,10 @@ def test_fresh_schema_has_v3_physical_column_order_and_metadata(manager):
                 for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
             ]
             assert columns == expected, table_name
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 300
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 310
         metadata = dict(conn.execute("SELECT key, value FROM settings").fetchall())
-        assert metadata["app_version"] == "3.0.0"
-        assert metadata["schema_version"] == "300"
+        assert metadata["app_version"] == "3.1.0"
+        assert metadata["schema_version"] == "310"
 
 
 def test_v3_schema_creates_normalized_access_scope_tables(manager):
@@ -947,7 +1073,7 @@ def test_v3_schema_creates_normalized_access_scope_tables(manager):
             ).fetchall()
         ]
         assert scope_columns == ["access_level_name", "mode"]
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 300
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 310
 
 
 def test_v3_rejects_pre_v3_database_without_attempting_migration(tmp_path, monkeypatch):
@@ -958,7 +1084,7 @@ def test_v3_rejects_pre_v3_database_without_attempting_migration(tmp_path, monke
         conn.execute("CREATE TABLE legacy_records (id INTEGER PRIMARY KEY, value TEXT)")
         conn.commit()
 
-    with pytest.raises(RuntimeError, match="نسخه 3.0.0"):
+    with pytest.raises(RuntimeError, match="نسخه 3.1.0"):
         DatabaseManager(str(legacy_path))
 
 

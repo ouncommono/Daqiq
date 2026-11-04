@@ -7,8 +7,8 @@ import jdatetime
 import time
 import hashlib
 
-APP_VERSION = "3.0.0"
-SCHEMA_VERSION = 300
+APP_VERSION = "3.1.0"
+SCHEMA_VERSION = 310
 
 
 def get_app_data_dir():
@@ -119,9 +119,15 @@ class DatabaseManager:
         save_app_config(self.cfg)
 
     def get_connection(self):
-        conn = sqlite3.connect(self.db_path)
+        """Create a bounded-wait connection with referential integrity enabled."""
+        conn = sqlite3.connect(
+            self.db_path,
+            timeout=30.0,
+            isolation_level="DEFERRED",
+        )
         conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON;")
+        conn.execute("PRAGMA busy_timeout = 30000")
+        conn.execute("PRAGMA foreign_keys = ON")
         return conn
 
     def sync_database(self):
@@ -132,6 +138,9 @@ class DatabaseManager:
 
     def init_db(self):
         with self.get_connection() as conn:
+            # WAL keeps readers available while serialized writers commit.  The
+            # setting is persistent for this file and is applied before schema DDL.
+            conn.execute("PRAGMA journal_mode = WAL")
             current_version = int(conn.execute("PRAGMA user_version").fetchone()[0])
             existing_tables = {
                 row["name"]
@@ -142,8 +151,8 @@ class DatabaseManager:
             }
             if existing_tables and current_version != SCHEMA_VERSION:
                 raise RuntimeError(
-                    "این پایگاه داده برای نسخه 3.0.0 ساخته نشده است. "
-                    "نسخه 3.0.0 به پایگاه داده تازه نیاز دارد و مهاجرت خودکار "
+                    "این پایگاه داده برای نسخه 3.1.0 ساخته نشده است. "
+                    "نسخه 3.1.0 به پایگاه داده تازه نیاز دارد و مهاجرت خودکار "
                     "از نسخه‌های قبلی پشتیبانی نمی‌شود."
                 )
             cur = conn.cursor()
@@ -203,7 +212,7 @@ class DatabaseManager:
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS suppliers (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL UNIQUE,
+                    name TEXT NOT NULL COLLATE NOCASE UNIQUE,
                     phone TEXT DEFAULT '',
                     address TEXT DEFAULT '',
                     notes TEXT DEFAULT '',
@@ -245,13 +254,13 @@ class DatabaseManager:
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS batches (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    batch_code TEXT NOT NULL UNIQUE,
+                    batch_code TEXT NOT NULL UNIQUE CHECK (length(trim(batch_code)) > 0),
                     product_id INTEGER NOT NULL,
                     supplier_id INTEGER,
                     buyer_employee_id INTEGER,
                     invoice_number TEXT DEFAULT '',
-                    purchase_date TEXT NOT NULL,
-                    initial_qty INTEGER NOT NULL CHECK (initial_qty >= 0),
+                    purchase_date TEXT NOT NULL CHECK (length(trim(purchase_date)) > 0),
+                    initial_qty INTEGER NOT NULL CHECK (initial_qty > 0),
                     sold_qty INTEGER NOT NULL DEFAULT 0 CHECK (sold_qty >= 0),
                     returned_qty INTEGER NOT NULL DEFAULT 0 CHECK (returned_qty >= 0),
                     remaining_qty INTEGER NOT NULL CHECK (remaining_qty >= 0),
@@ -561,6 +570,17 @@ class DatabaseManager:
         raw_attributes = config.get("attributes")
         raw_colors = config.get("colors")
         raw_service_types = config.get("service_types")
+        raw_removed_defaults = config.get("removed_default_subcategories")
+
+        removed_default_subcategories = {}
+        if isinstance(raw_removed_defaults, dict):
+            for category, values in raw_removed_defaults.items():
+                if not isinstance(values, list):
+                    continue
+                removed_default_subcategories[str(category)] = list(dict.fromkeys(
+                    str(value).strip() for value in values
+                    if value is not None and str(value).strip()
+                ))
 
         subcategories = {}
         if isinstance(raw_subcategories, dict):
@@ -607,6 +627,7 @@ class DatabaseManager:
                 if value is not None and str(value).strip()
             )),
             "subcategories": subcategories,
+            "removed_default_subcategories": removed_default_subcategories,
             "attributes": attributes,
             "colors": list(dict.fromkeys(
                 str(value).strip() for value in colors
@@ -631,12 +652,15 @@ class DatabaseManager:
         attributes = config.get("attributes", {})
         colors = config.get("colors", [])
         service_types = config.get("service_types", ["نرم‌افزاری", "سخت‌افزاری"])
+        removed_default_subcategories = config.get("removed_default_subcategories", {})
         if not isinstance(categories, list) or not isinstance(subcategories, dict):
             raise ValueError("ساختار دسته‌بندی یا زیرمجموعه‌ها معتبر نیست.")
         if not isinstance(attributes, dict) or not isinstance(colors, list):
             raise ValueError("ساختار مشخصات فنی یا رنگ‌ها معتبر نیست.")
         if not isinstance(service_types, list):
             raise ValueError("فهرست نوع خدمات معتبر نیست.")
+        if not isinstance(removed_default_subcategories, dict):
+            raise ValueError("فهرست زیرمجموعه‌های غیرفعال معتبر نیست.")
 
         clean_categories = list(dict.fromkeys(
             str(value).strip() for value in categories
@@ -647,6 +671,15 @@ class DatabaseManager:
             if not isinstance(values, list):
                 raise ValueError(f"فهرست زیرمجموعه‌های «{category}» معتبر نیست.")
             clean_subcategories[str(category)] = list(dict.fromkeys(
+                str(value).strip() for value in values
+                if value is not None and str(value).strip()
+            ))
+
+        clean_removed_defaults = {}
+        for category, values in removed_default_subcategories.items():
+            if not isinstance(values, list):
+                raise ValueError(f"فهرست زیرمجموعه‌های غیرفعال «{category}» معتبر نیست.")
+            clean_removed_defaults[str(category)] = list(dict.fromkeys(
                 str(value).strip() for value in values
                 if value is not None and str(value).strip()
             ))
@@ -682,6 +715,7 @@ class DatabaseManager:
         clean = {
             "categories": clean_categories,
             "subcategories": clean_subcategories,
+            "removed_default_subcategories": clean_removed_defaults,
             "attributes": clean_attributes,
             "colors": list(dict.fromkeys(
                 str(value).strip() for value in colors
@@ -709,17 +743,35 @@ class DatabaseManager:
             (now_str, action_type, details),
         )
 
-    def generate_next_code(self, table, column, prefix, start_num=1001):
-        with self.get_connection() as conn:
-            rows = conn.execute(
-                f"SELECT {column} FROM {table} WHERE {column} LIKE '{prefix}%'"
+    def generate_next_code(
+        self, table, column, prefix, start_num=1001, *, conn=None
+    ):
+        """Generate a code, optionally inside the caller's serialized write transaction."""
+        allowed_columns = {
+            "products": {"code"},
+            "batches": {"batch_code"},
+            "sales": {"invoice_number"},
+            "service_catalog": {"code"},
+        }
+        if column not in allowed_columns.get(table, set()):
+            raise ValueError("جدول یا ستون تولید کد معتبر نیست.")
+
+        def query_next(connection):
+            rows = connection.execute(
+                f"SELECT {column} FROM {table} WHERE {column} LIKE ?",
+                (f"{prefix}%",),
             ).fetchall()
-            max_num = start_num - 1
-            for r in rows:
-                val = str(r[0])[len(prefix) :]
-                if val.isdigit():
-                    max_num = max(max_num, int(val))
+            max_num = int(start_num) - 1
+            for row in rows:
+                value = str(row[0] or "")[len(prefix):]
+                if value.isdigit():
+                    max_num = max(max_num, int(value))
             return f"{prefix}{max_num + 1}"
+
+        if conn is not None:
+            return query_next(conn)
+        with self.get_connection() as connection:
+            return query_next(connection)
 
     @staticmethod
     def build_product_title(category, sub_category, brand, model):
@@ -1019,23 +1071,33 @@ class DatabaseManager:
             conn.commit()
 
 
-    def get_or_create_supplier(self, supplier_name: str):
-        """اگر نام تأمین‌کننده جدیدی تایپ شده بود، آن را خودکار در جدول تأمین‌کنندگان ثبت کن"""
-        name = (supplier_name or "").strip().upper()
+    def get_or_create_supplier(self, supplier_name: str, *, conn=None):
+        """Resolve a supplier, optionally participating in the caller's transaction."""
+        name = str(supplier_name or "").strip()
         if not name:
             return None
-        with self.get_connection() as conn:
-            row = conn.execute(
-                "SELECT id FROM suppliers WHERE UPPER(name) = ?", (name,)
-            ).fetchone()
-            if row:
-                return row["id"]
-            cur = conn.execute(
-                "INSERT INTO suppliers (name, phone, address, notes) VALUES (?, '', '', 'ثبت خودکار از فرم خرید')",
+
+        def resolve(connection):
+            connection.execute(
+                "INSERT OR IGNORE INTO suppliers (name, phone, address, notes) "
+                "VALUES (?, '', '', 'ثبت خودکار از فرم خرید')",
                 (name,),
             )
-            conn.commit()
-            return cur.lastrowid
+            row = connection.execute(
+                "SELECT id FROM suppliers WHERE name=? COLLATE NOCASE",
+                (name,),
+            ).fetchone()
+            if row is None:
+                raise RuntimeError("تأمین‌کننده پس از ثبت قابل بازیابی نیست.")
+            return int(row["id"])
+
+        if conn is not None:
+            return resolve(conn)
+        with self.get_connection() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            supplier_id = resolve(connection)
+            connection.commit()
+            return supplier_id
 
     # --- مدیریت محموله‌های خرید (Batches) ---
     @staticmethod
@@ -1050,6 +1112,45 @@ class DatabaseManager:
             str(value).strip() for value in colors
             if value is not None and str(value).strip()
         ))
+
+    @staticmethod
+    def _batch_integer(value, field_name, *, minimum=0):
+        """Convert UI/database values without leaking TypeError or truncating floats."""
+        if isinstance(value, bool):
+            number = int(value)
+        elif isinstance(value, float):
+            if not value.is_integer():
+                raise ValueError(f"مقدار «{field_name}» باید عدد صحیح باشد.")
+            number = int(value)
+        else:
+            raw = str(value).strip().replace(",", "").replace("٬", "")
+            if not raw:
+                raise ValueError(f"مقدار «{field_name}» وارد نشده است.")
+            try:
+                number = int(raw)
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise ValueError(f"مقدار «{field_name}» معتبر نیست.") from exc
+        if number < minimum:
+            operator = "بزرگ‌تر از صفر" if minimum == 1 else "صفر یا بیشتر"
+            raise ValueError(f"مقدار «{field_name}» باید {operator} باشد.")
+        return number
+
+    @staticmethod
+    def _batch_optional_id(value, field_name):
+        if value is None or str(value).strip() == "":
+            return None
+        return DatabaseManager._batch_integer(value, field_name, minimum=1)
+
+    @staticmethod
+    def _purchase_settlement(total_bill, paid_amount):
+        paid = DatabaseManager._batch_integer(paid_amount, "مبلغ پرداخت‌شده")
+        if paid > total_bill:
+            raise ValueError("مبلغ پرداخت‌شده نمی‌تواند از مبلغ کل محموله بیشتر باشد.")
+        if paid >= total_bill:
+            return paid, "تسویه‌شده"
+        if paid == 0:
+            return paid, "تسویه‌نشده"
+        return paid, "تسویه جزئی"
 
     def add_batch(
         self,
@@ -1069,46 +1170,62 @@ class DatabaseManager:
         notes="",
         settlement_status=None,
         colors=None,
+        supplier_name=None,
     ):
-        if not batch_code:
-            batch_code = self.generate_next_code("batches", "batch_code", "C-", 1001)
-        initial_qty = int(initial_qty)
-        if initial_qty <= 0:
-            raise ValueError("تعداد خرید باید بیشتر از صفر باشد.")
+        """Create a purchase shipment and all linked records atomically."""
+        product_id = self._batch_integer(product_id, "کالا", minimum=1)
+        supplier_id = self._batch_optional_id(supplier_id, "تأمین‌کننده")
+        buyer_employee_id = self._batch_optional_id(
+            buyer_employee_id, "مسئول خرید"
+        )
+        initial_qty = self._batch_integer(initial_qty, "تعداد خرید", minimum=1)
+        unit_purchase_price = self._batch_integer(
+            unit_purchase_price, "قیمت خرید واحد"
+        )
+        extra_cost_total = self._batch_integer(
+            extra_cost_total, "هزینه جانبی کل"
+        )
+        suggested_sell_price = self._batch_integer(
+            suggested_sell_price, "قیمت فروش پیشنهادی"
+        )
+        purchase_date = str(purchase_date or "").strip()
+        if not purchase_date:
+            raise ValueError("تاریخ خرید وارد نشده است.")
+        invoice_number = str(invoice_number or "").strip()
+        serial_numbers = str(serial_numbers or "").strip()
+        initial_specs = str(initial_specs or "").strip()
+        notes = str(notes or "").strip()
+        batch_code = str(batch_code or "").strip()
 
-        unit_purchase_price = int(unit_purchase_price)
-        extra_cost_total = int(extra_cost_total)
         extra_per_unit = round(extra_cost_total / initial_qty)
         unit_cost_price = unit_purchase_price + extra_per_unit
-        suggested_sell_price = int(suggested_sell_price)
-
-        profit_pct = 0.0
-        if unit_cost_price > 0:
-            profit_pct = round(
-                ((suggested_sell_price - unit_cost_price) / unit_cost_price) * 100, 2
-            )
-
-        total_bill = (unit_purchase_price * initial_qty) + extra_cost_total
-        paid_amount = int(paid_amount)
-
-        if settlement_status in ("تسویه‌شده", "تسویه‌نشده", "تسویه جزئی"):
-            status = settlement_status
-        else:
-            if paid_amount >= total_bill:
-                status = "تسویه‌شده"
-                paid_amount = total_bill
-            elif paid_amount == 0:
-                status = "تسویه‌نشده"
-            else:
-                status = "تسویه جزئی"
+        profit_pct = (
+            round(((suggested_sell_price - unit_cost_price) / unit_cost_price) * 100, 2)
+            if unit_cost_price > 0 else 0.0
+        )
+        total_bill = unit_purchase_price * initial_qty + extra_cost_total
+        paid_amount, status = self._purchase_settlement(total_bill, paid_amount)
+        color_json = json.dumps(
+            self._normalize_color_list(colors) or [], ensure_ascii=False
+        )
 
         with self.get_connection() as conn:
+            # Reserve the writer before generating codes or creating suppliers;
+            # every side effect then commits or rolls back as one unit.
+            conn.execute("BEGIN IMMEDIATE")
+            if not batch_code:
+                batch_code = self.generate_next_code(
+                    "batches", "batch_code", "C-", 1001, conn=conn
+                )
+            if supplier_id is None and str(supplier_name or "").strip():
+                supplier_id = self.get_or_create_supplier(supplier_name, conn=conn)
+
             supplier_row = conn.execute(
                 "SELECT name FROM suppliers WHERE id=?", (supplier_id,)
-            ).fetchone() if supplier_id else None
+            ).fetchone() if supplier_id is not None else None
             supplier_snapshot = supplier_row["name"] if supplier_row else ""
-            cur = conn.cursor()
-            cur.execute(
+
+            cursor = conn.execute(
                 """
                 INSERT INTO batches (
                     batch_code, product_id, supplier_id, buyer_employee_id, invoice_number,
@@ -1118,41 +1235,30 @@ class DatabaseManager:
                     serial_numbers, initial_specs, final_specs, notes, supplier_name_snapshot,
                     colors_json
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
+                """,
                 (
-                    batch_code,
-                    product_id,
-                    supplier_id,
-                    buyer_employee_id,
-                    invoice_number,
-                    purchase_date,
-                    initial_qty,
-                    initial_qty,
-                    unit_purchase_price,
-                    extra_cost_total,
-                    unit_cost_price,
-                    suggested_sell_price,
-                    profit_pct,
-                    status,
-                    paid_amount,
-                    serial_numbers,
-                    initial_specs,
-                    initial_specs,
-                    notes,
-                    supplier_snapshot,
-                    json.dumps(self._normalize_color_list(colors) or [], ensure_ascii=False),
+                    batch_code, product_id, supplier_id, buyer_employee_id, invoice_number,
+                    purchase_date, initial_qty, initial_qty, unit_purchase_price,
+                    extra_cost_total, unit_cost_price, suggested_sell_price, profit_pct,
+                    status, paid_amount, serial_numbers, initial_specs, initial_specs,
+                    notes, supplier_snapshot, color_json,
                 ),
             )
-            batch_id = cur.lastrowid
+            batch_id = int(cursor.lastrowid)
             if paid_amount > 0:
-                cur.execute(
+                conn.execute(
                     """
-                    INSERT INTO payments (ref_type, ref_id, amount, payment_date, payment_method, notes)
-                    VALUES ('batch', ?, ?, ?, 'حواله/کارت', 'پرداخت اولیه هنگام ثبت خرید')
-                """,
+                    INSERT INTO payments
+                        (ref_type, ref_id, amount, payment_date, payment_method, notes)
+                    VALUES ('batch', ?, ?, ?, 'حواله/کارت',
+                            'پرداخت اولیه هنگام ثبت خرید')
+                    """,
                     (batch_id, paid_amount, purchase_date),
                 )
-            self.log_audit(conn, "ثبت خرید", f"کد محموله: {batch_code} - تعداد: {initial_qty}")
+            self.log_audit(
+                conn, "ثبت خرید",
+                f"کد محموله: {batch_code} - تعداد: {initial_qty}",
+            )
             conn.commit()
             return batch_code
 
@@ -1175,55 +1281,93 @@ class DatabaseManager:
         initial_specs=None,
         batch_code=None,
         colors=None,
+        supplier_name=None,
     ):
-        with self.get_connection() as conn:
-            old = conn.execute("""SELECT id, batch_code, product_id, supplier_id, buyer_employee_id, invoice_number,
-            purchase_date, initial_qty, sold_qty, returned_qty, remaining_qty,
-            unit_purchase_price, extra_cost_total, upgrade_cost_unit, unit_cost_price,
-            suggested_sell_price, profit_pct, paid_amount, settlement_status,
-            serial_numbers, colors_json, initial_specs, final_specs,
-            supplier_name_snapshot, notes, created_at, updated_at FROM batches WHERE id=?""", (batch_id,)).fetchone()
-            if not old:
-                raise ValueError("محموله یافت نشد.")
-            new_product_id = int(product_id) if product_id is not None else int(old["product_id"])
-            if int(old["sold_qty"] or 0) > 0 and new_product_id != int(old["product_id"]):
-                raise ValueError("کالای محموله‌ای که فروش یا مصرف در ارتقا داشته است قابل تعویض نیست.")
-            new_initial_qty = int(new_initial_qty)
-            if new_initial_qty <= 0:
-                raise ValueError("تعداد اولیه محموله باید بیشتر از صفر باشد.")
-            if new_initial_qty < old["sold_qty"]:
-                raise ValueError(
-                    f"تعداد اولیه نمی‌تواند کمتر از تعداد فروخته‌شده ({old['sold_qty']} عدد) باشد."
-                )
+        """Update a shipment under a write lock while preserving sold/returned stock."""
+        batch_id = self._batch_integer(batch_id, "شناسه محموله", minimum=1)
+        supplier_id = self._batch_optional_id(supplier_id, "تأمین‌کننده")
+        buyer_employee_id = self._batch_optional_id(
+            buyer_employee_id, "مسئول خرید"
+        )
+        new_initial_qty = self._batch_integer(
+            new_initial_qty, "تعداد اولیه محموله", minimum=1
+        )
+        unit_purchase_price = self._batch_integer(
+            unit_purchase_price, "قیمت خرید واحد"
+        )
+        extra_cost_total = self._batch_integer(
+            extra_cost_total, "هزینه جانبی کل"
+        )
+        suggested_sell_price = self._batch_integer(
+            suggested_sell_price, "قیمت فروش پیشنهادی"
+        )
+        purchase_date = str(purchase_date or "").strip()
+        if not purchase_date:
+            raise ValueError("تاریخ خرید وارد نشده است.")
+        invoice_number = str(invoice_number or "").strip()
+        serial_numbers = str(serial_numbers or "").strip()
+        notes = str(notes or "").strip()
+        batch_code = str(batch_code or "").strip()
+        initial_specs = (
+            str(initial_specs or "").strip() if initial_specs is not None else None
+        )
 
-            new_remaining = new_initial_qty - old["sold_qty"]
+        with self.get_connection() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            old = conn.execute(
+                """
+                SELECT id, batch_code, product_id, supplier_id, buyer_employee_id,
+                       invoice_number, purchase_date, initial_qty, sold_qty,
+                       returned_qty, remaining_qty, unit_purchase_price,
+                       extra_cost_total, upgrade_cost_unit, unit_cost_price,
+                       suggested_sell_price, profit_pct, paid_amount,
+                       settlement_status, serial_numbers, colors_json, initial_specs,
+                       final_specs, supplier_name_snapshot, notes, created_at, updated_at
+                FROM batches WHERE id=?
+                """,
+                (batch_id,),
+            ).fetchone()
+            if old is None:
+                raise ValueError("محموله یافت نشد.")
+
+            new_product_id = (
+                self._batch_integer(product_id, "کالا", minimum=1)
+                if product_id is not None else int(old["product_id"])
+            )
+            sold_qty = int(old["sold_qty"] or 0)
+            returned_qty = int(old["returned_qty"] or 0)
+            if (sold_qty > 0 or returned_qty > 0) and new_product_id != int(old["product_id"]):
+                raise ValueError(
+                    "کالای محموله‌ای که فروش، مرجوعی یا مصرف در ارتقا داشته است قابل تعویض نیست."
+                )
+            unavailable_qty = sold_qty + returned_qty
+            if new_initial_qty < unavailable_qty:
+                raise ValueError(
+                    "تعداد اولیه نمی‌تواند کمتر از مجموع تعداد فروخته‌شده و مرجوعی باشد "
+                    f"({unavailable_qty} عدد)."
+                )
+            new_remaining = new_initial_qty - unavailable_qty
+
+            if supplier_id is None and str(supplier_name or "").strip():
+                supplier_id = self.get_or_create_supplier(supplier_name, conn=conn)
             supplier_row = conn.execute(
                 "SELECT name FROM suppliers WHERE id=?", (supplier_id,)
-            ).fetchone() if supplier_id else None
-            supplier_snapshot = supplier_row["name"] if supplier_row else old["supplier_name_snapshot"]
-            unit_purchase_price = int(unit_purchase_price)
-            extra_cost_total = int(extra_cost_total)
+            ).fetchone() if supplier_id is not None else None
+            supplier_snapshot = (
+                supplier_row["name"] if supplier_row else old["supplier_name_snapshot"]
+            )
+
             extra_per_unit = round(extra_cost_total / new_initial_qty)
             unit_cost_price = (
-                unit_purchase_price + extra_per_unit + old["upgrade_cost_unit"]
+                unit_purchase_price + extra_per_unit + int(old["upgrade_cost_unit"] or 0)
             )
             suggested_sell_price = int(suggested_sell_price)
             profit_pct = (
                 round(((suggested_sell_price - unit_cost_price) / unit_cost_price) * 100, 2)
-                if unit_cost_price > 0
-                else 0
+                if unit_cost_price > 0 else 0.0
             )
-
-            total_bill = (unit_purchase_price * new_initial_qty) + extra_cost_total
-            paid_amount = int(paid_amount)
-            if settlement_status in ("تسویه‌شده", "تسویه‌نشده", "تسویه جزئی"):
-                status = settlement_status
-            else:
-                status = (
-                    "تسویه‌شده"
-                    if paid_amount >= total_bill
-                    else ("تسویه‌نشده" if paid_amount == 0 else "تسویه جزئی")
-                )
+            total_bill = unit_purchase_price * new_initial_qty + extra_cost_total
+            paid_amount, status = self._purchase_settlement(total_bill, paid_amount)
 
             new_colors_json = (
                 json.dumps(self._normalize_color_list(colors), ensure_ascii=False)
@@ -1231,50 +1375,62 @@ class DatabaseManager:
             )
             conn.execute(
                 """
-                UPDATE batches SET batch_code=?, product_id=?, supplier_id=?, buyer_employee_id=?, invoice_number=?, purchase_date=?,
-                initial_qty=?, remaining_qty=?, unit_purchase_price=?, extra_cost_total=?,
-                unit_cost_price=?, suggested_sell_price=?, profit_pct=?, settlement_status=?,
-                paid_amount=?, serial_numbers=?, initial_specs=?, notes=?, supplier_name_snapshot=?,
-                colors_json=?
+                UPDATE batches SET
+                    batch_code=?, product_id=?, supplier_id=?, buyer_employee_id=?,
+                    invoice_number=?, purchase_date=?, initial_qty=?, remaining_qty=?,
+                    unit_purchase_price=?, extra_cost_total=?, unit_cost_price=?,
+                    suggested_sell_price=?, profit_pct=?, settlement_status=?, paid_amount=?,
+                    serial_numbers=?, initial_specs=?, notes=?, supplier_name_snapshot=?,
+                    colors_json=?
                 WHERE id=?
-            """,
+                """,
                 (
                     (batch_code or old["batch_code"]).strip(),
-                    new_product_id,
-                    supplier_id,
-                    buyer_employee_id,
-                    invoice_number,
-                    purchase_date,
-                    new_initial_qty,
-                    new_remaining,
-                    unit_purchase_price,
-                    extra_cost_total,
-                    unit_cost_price,
-                    suggested_sell_price,
-                    profit_pct,
-                    status,
-                    paid_amount,
-                    serial_numbers,
+                    new_product_id, supplier_id, buyer_employee_id, invoice_number,
+                    purchase_date, new_initial_qty, new_remaining, unit_purchase_price,
+                    extra_cost_total, unit_cost_price, suggested_sell_price, profit_pct,
+                    status, paid_amount, serial_numbers,
                     initial_specs if initial_specs is not None else old["initial_specs"],
-                    notes,
-                    supplier_snapshot,
-                    new_colors_json,
-                    batch_id,
+                    notes, supplier_snapshot, new_colors_json, batch_id,
                 ),
             )
-            self.log_audit(conn, "ویرایش محموله", f"کد محموله: {old['batch_code']}")
+            # The purchase form stores one current paid-amount snapshot. Replace
+            # its linked payment row in this same transaction so cash-flow totals
+            # cannot diverge from batches.paid_amount after an edit.
+            conn.execute(
+                "DELETE FROM payments WHERE ref_type='batch' AND ref_id=?",
+                (batch_id,),
+            )
+            if paid_amount > 0:
+                conn.execute(
+                    """
+                    INSERT INTO payments
+                        (ref_type, ref_id, amount, payment_date, payment_method, notes)
+                    VALUES ('batch', ?, ?, ?, 'حواله/کارت',
+                            'پرداخت اصلاح‌شده هنگام ویرایش محموله')
+                    """,
+                    (batch_id, paid_amount, purchase_date),
+                )
+
+            self.log_audit(
+                conn, "ویرایش محموله", f"کد محموله: {old['batch_code']}"
+            )
             conn.commit()
 
     def delete_batch(self, batch_id):
-        """Hard-delete a purchase batch, its sales, payments and linked upgrades."""
+        """Hard-delete a purchase batch and its dependent records atomically."""
+        batch_id = self._batch_integer(batch_id, "شناسه محموله", minimum=1)
         with self.get_connection() as conn:
+            conn.execute("BEGIN IMMEDIATE")
             row = conn.execute(
                 "SELECT batch_code FROM batches WHERE id=?", (batch_id,)
             ).fetchone()
-            if not row:
+            if row is None:
                 return
             self._hard_delete_batches(conn, [batch_id])
-            self.log_audit(conn, "حذف کامل محموله", f"کد محموله: {row['batch_code']}")
+            self.log_audit(
+                conn, "حذف کامل محموله", f"کد محموله: {row['batch_code']}"
+            )
             conn.commit()
 
 
