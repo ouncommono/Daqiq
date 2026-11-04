@@ -1818,27 +1818,35 @@ def test_cold_start_first_shipment_quantity_10_edit_1_to_10_to_2_and_delete(
 
         # Exercise the UI edit handler directly with the selected shipment.
         # The numeric selector is edited as a whole value, never incremented.
+        edit_button = next(
+            button for button in window.findChildren(QPushButton)
+            if button.text().startswith("✏️ ذخیره ویرایش محموله")
+        )
+        delete_button = next(
+            button for button in window.findChildren(QPushButton)
+            if button.text().startswith("🗑️ حذف محموله انتخابی")
+        )
         window.selected_batch_id = batch_id
         window.cb_batch_qty.setCurrentText("1")
-        window._update_selected_batch()
+        edit_button.click()
         with manager.get_connection() as conn:
             one = conn.execute(
                 "SELECT initial_qty, remaining_qty FROM batches WHERE id=?", (batch_id,)
             ).fetchone()
         assert (one["initial_qty"], one["remaining_qty"]) == (1, 1)
 
-        select_batch_from_table()
+        window.selected_batch_id = batch_id
         window.cb_batch_qty.setCurrentText("10")
-        window._update_selected_batch()
+        edit_button.click()
         with manager.get_connection() as conn:
             ten = conn.execute(
                 "SELECT initial_qty, remaining_qty FROM batches WHERE id=?", (batch_id,)
             ).fetchone()
         assert (ten["initial_qty"], ten["remaining_qty"]) == (10, 10)
 
-        select_batch_from_table()
+        window.selected_batch_id = batch_id
         window.cb_batch_qty.setCurrentText("2")
-        window._update_selected_batch()
+        edit_button.click()
         with manager.get_connection() as conn:
             two = conn.execute(
                 "SELECT initial_qty, remaining_qty FROM batches WHERE id=?", (batch_id,)
@@ -1846,8 +1854,8 @@ def test_cold_start_first_shipment_quantity_10_edit_1_to_10_to_2_and_delete(
         assert (two["initial_qty"], two["remaining_qty"]) == (2, 2)
 
         monkeypatch.setattr(main_module, "_ask_yes_no", lambda *_args: True)
-        select_batch_from_table()
-        window._delete_selected_batch()
+        window.selected_batch_id = batch_id
+        delete_button.click()
         with manager.get_connection() as conn:
             assert conn.execute(
                 "SELECT COUNT(*) FROM batches WHERE id=?", (batch_id,)
