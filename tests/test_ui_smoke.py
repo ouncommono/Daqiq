@@ -1784,8 +1784,10 @@ def test_cold_start_first_shipment_quantity_10_edit_1_to_10_to_2_and_delete(
         window.cb_batch_qty.setCurrentText("10")
         window.pr_batch_buy.set_value(100)
         window.pr_batch_extra.set_value(0)
-        window.cb_batch_status.setCurrentText("تسویه‌نشده")
-        window.pr_batch_paid.set_value(0)
+        # Keep the cold-start default settlement mode (fully paid); quantity
+        # changes must recalculate the aggregate paid amount without breaking
+        # the first shipment insert.
+        window.cb_batch_status.setCurrentText("تسویه‌شده")
 
         window._save_new_batch()
         assert not errors, errors
