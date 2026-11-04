@@ -7,6 +7,9 @@ import jdatetime
 import time
 import hashlib
 
+APP_VERSION = "2.0.0"
+SCHEMA_VERSION = 200
+
 
 def get_app_data_dir():
     base = os.environ.get("APPDATA") or os.path.expanduser("~")
@@ -127,6 +130,20 @@ class DatabaseManager:
 
     def init_db(self):
         with self.get_connection() as conn:
+            current_version = int(conn.execute("PRAGMA user_version").fetchone()[0])
+            existing_tables = {
+                row["name"]
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master "
+                    "WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+                ).fetchall()
+            }
+            if existing_tables and current_version != SCHEMA_VERSION:
+                raise RuntimeError(
+                    "این پایگاه داده برای نسخه 2.0.0 ساخته نشده است. "
+                    "نسخه 2.0.0 به پایگاه داده تازه نیاز دارد و مهاجرت خودکار "
+                    "از نسخه‌های قبلی پشتیبانی نمی‌شود."
+                )
             cur = conn.cursor()
 
             cur.execute("""
@@ -142,9 +159,9 @@ class DatabaseManager:
                     name TEXT NOT NULL UNIQUE,
                     role TEXT NOT NULL DEFAULT 'فروشنده',
                     phone TEXT DEFAULT '',
-                    password TEXT DEFAULT '',
+                    is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
                     permissions TEXT DEFAULT 'دسترسی کامل',
-                    is_active INTEGER DEFAULT 1,
+                    password TEXT DEFAULT '',
                     created_at TEXT NOT NULL DEFAULT '',
                     updated_at TEXT NOT NULL DEFAULT ''
                 )
@@ -201,24 +218,24 @@ class DatabaseManager:
                     buyer_employee_id INTEGER,
                     invoice_number TEXT DEFAULT '',
                     purchase_date TEXT NOT NULL,
-                    initial_qty INTEGER NOT NULL,
-                    sold_qty INTEGER DEFAULT 0,
-                    returned_qty INTEGER DEFAULT 0,
-                    remaining_qty INTEGER NOT NULL,
-                    unit_purchase_price INTEGER NOT NULL,
-                    extra_cost_total INTEGER DEFAULT 0,
-                    upgrade_cost_unit INTEGER DEFAULT 0,
-                    unit_cost_price INTEGER NOT NULL,
-                    suggested_sell_price INTEGER NOT NULL,
-                    profit_pct REAL NOT NULL,
-                    settlement_status TEXT DEFAULT 'تسویه‌شده',
-                    paid_amount INTEGER DEFAULT 0,
+                    initial_qty INTEGER NOT NULL CHECK (initial_qty >= 0),
+                    sold_qty INTEGER NOT NULL DEFAULT 0 CHECK (sold_qty >= 0),
+                    returned_qty INTEGER NOT NULL DEFAULT 0 CHECK (returned_qty >= 0),
+                    remaining_qty INTEGER NOT NULL CHECK (remaining_qty >= 0),
+                    unit_purchase_price INTEGER NOT NULL CHECK (unit_purchase_price >= 0),
+                    extra_cost_total INTEGER NOT NULL DEFAULT 0 CHECK (extra_cost_total >= 0),
+                    upgrade_cost_unit INTEGER NOT NULL DEFAULT 0 CHECK (upgrade_cost_unit >= 0),
+                    unit_cost_price INTEGER NOT NULL CHECK (unit_cost_price >= 0),
+                    suggested_sell_price INTEGER NOT NULL CHECK (suggested_sell_price >= 0),
+                    profit_pct REAL NOT NULL DEFAULT 0,
+                    paid_amount INTEGER NOT NULL DEFAULT 0 CHECK (paid_amount >= 0),
+                    settlement_status TEXT NOT NULL DEFAULT 'تسویه‌شده',
                     serial_numbers TEXT DEFAULT '',
+                    colors_json TEXT NOT NULL DEFAULT '[]',
                     initial_specs TEXT DEFAULT '',
                     final_specs TEXT DEFAULT '',
-                    notes TEXT DEFAULT '',
                     supplier_name_snapshot TEXT DEFAULT '',
-                    colors_json TEXT DEFAULT '[]',
+                    notes TEXT DEFAULT '',
                     created_at TEXT NOT NULL DEFAULT '',
                     updated_at TEXT NOT NULL DEFAULT '',
                     FOREIGN KEY(product_id) REFERENCES products(id),
@@ -231,19 +248,19 @@ class DatabaseManager:
                 CREATE TABLE IF NOT EXISTS upgrades (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     target_batch_id INTEGER NOT NULL,
-                    target_qty INTEGER NOT NULL DEFAULT 1,
                     part_batch_id INTEGER,
-                    part_qty_used INTEGER NOT NULL,
+                    technician_id INTEGER,
+                    target_qty INTEGER NOT NULL DEFAULT 1 CHECK (target_qty > 0),
+                    part_qty_used INTEGER NOT NULL CHECK (part_qty_used >= 0),
+                    stock_deducted_qty INTEGER NOT NULL DEFAULT 0 CHECK (stock_deducted_qty >= 0),
+                    part_unit_cost INTEGER NOT NULL DEFAULT 0 CHECK (part_unit_cost >= 0),
+                    labor_cost_unit INTEGER NOT NULL DEFAULT 0 CHECK (labor_cost_unit >= 0),
+                    added_cost_unit INTEGER NOT NULL DEFAULT 0 CHECK (added_cost_unit >= 0),
+                    upgrade_date TEXT NOT NULL,
+                    serial_number TEXT DEFAULT '',
                     manual_part_description TEXT DEFAULT '',
-                    stock_deducted_qty INTEGER DEFAULT 0,
-                    part_unit_cost INTEGER NOT NULL,
-                    labor_cost_unit INTEGER DEFAULT 0,
-                    added_cost_unit INTEGER DEFAULT 0,
                     old_specs TEXT DEFAULT '',
                     new_specs TEXT DEFAULT '',
-                    upgrade_date TEXT NOT NULL,
-                    technician_id INTEGER,
-                    serial_number TEXT DEFAULT '',
                     notes TEXT DEFAULT '',
                     created_at TEXT NOT NULL DEFAULT '',
                     updated_at TEXT NOT NULL DEFAULT '',
@@ -261,29 +278,29 @@ class DatabaseManager:
                     batch_id INTEGER NOT NULL,
                     seller_employee_id INTEGER,
                     customer_name TEXT DEFAULT '',
-                    qty INTEGER NOT NULL,
-                    returned_qty INTEGER DEFAULT 0,
-                    suggested_unit_price INTEGER NOT NULL,
-                    actual_unit_price INTEGER NOT NULL,
-                    unit_cost_price INTEGER NOT NULL,
-                    unit_discount INTEGER DEFAULT 0,
-                    total_discount INTEGER DEFAULT 0,
-                    price_Markup_unit INTEGER DEFAULT 0,
-                    unit_profit INTEGER NOT NULL,
-                    total_profit INTEGER NOT NULL,
-                    total_amount INTEGER NOT NULL,
-                    paid_amount INTEGER NOT NULL,
-                    settlement_status TEXT DEFAULT 'تسویه‌شده',
+                    qty INTEGER NOT NULL CHECK (qty > 0),
+                    returned_qty INTEGER NOT NULL DEFAULT 0 CHECK (returned_qty >= 0),
+                    suggested_unit_price INTEGER NOT NULL CHECK (suggested_unit_price >= 0),
+                    actual_unit_price INTEGER NOT NULL CHECK (actual_unit_price >= 0),
+                    unit_cost_price INTEGER NOT NULL CHECK (unit_cost_price >= 0),
+                    unit_discount INTEGER NOT NULL DEFAULT 0,
+                    total_discount INTEGER NOT NULL DEFAULT 0,
+                    price_Markup_unit INTEGER NOT NULL DEFAULT 0,
+                    unit_profit INTEGER NOT NULL DEFAULT 0,
+                    total_profit INTEGER NOT NULL DEFAULT 0,
+                    total_amount INTEGER NOT NULL CHECK (total_amount >= 0),
+                    paid_amount INTEGER NOT NULL CHECK (paid_amount >= 0),
+                    settlement_status TEXT NOT NULL DEFAULT 'تسویه‌شده',
                     sale_datetime TEXT NOT NULL,
                     warranty_company TEXT DEFAULT '',
                     warranty_start TEXT DEFAULT '',
-                    warranty_months INTEGER DEFAULT 0,
-                    warranty_days INTEGER DEFAULT 0,
+                    warranty_months INTEGER NOT NULL DEFAULT 0,
+                    warranty_days INTEGER NOT NULL DEFAULT 0,
                     warranty_end TEXT DEFAULT '',
                     serial_number TEXT DEFAULT '',
-                    notes TEXT DEFAULT '',
                     specifications TEXT DEFAULT '',
-                    colors_json TEXT DEFAULT '[]',
+                    colors_json TEXT NOT NULL DEFAULT '[]',
+                    notes TEXT DEFAULT '',
                     created_at TEXT NOT NULL DEFAULT '',
                     updated_at TEXT NOT NULL DEFAULT '',
                     FOREIGN KEY(product_id) REFERENCES products(id),
@@ -311,9 +328,9 @@ class DatabaseManager:
                 CREATE TABLE IF NOT EXISTS service_price_history (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     service_id INTEGER NOT NULL,
+                    change_date TEXT NOT NULL,
                     old_fee INTEGER,
                     new_fee INTEGER,
-                    change_date TEXT NOT NULL,
                     created_at TEXT NOT NULL DEFAULT '',
                     updated_at TEXT NOT NULL DEFAULT '',
                     FOREIGN KEY(service_id) REFERENCES service_catalog(id)
@@ -325,17 +342,17 @@ class DatabaseManager:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     invoice_number TEXT NOT NULL,
                     service_id INTEGER NOT NULL,
-                    service_type TEXT NOT NULL,
-                    service_name TEXT NOT NULL,
                     seller_employee_id INTEGER,
                     technician_employee_id INTEGER,
+                    service_type TEXT NOT NULL,
+                    service_name TEXT NOT NULL,
                     customer_name TEXT DEFAULT '',
-                    historical_tariff INTEGER NOT NULL,
-                    service_fee INTEGER NOT NULL,
-                    side_cost INTEGER DEFAULT 0,
-                    net_profit INTEGER NOT NULL,
-                    paid_amount INTEGER NOT NULL,
-                    settlement_status TEXT DEFAULT 'تسویه‌شده',
+                    historical_tariff INTEGER NOT NULL CHECK (historical_tariff >= 0),
+                    service_fee INTEGER NOT NULL CHECK (service_fee >= 0),
+                    side_cost INTEGER NOT NULL DEFAULT 0 CHECK (side_cost >= 0),
+                    paid_amount INTEGER NOT NULL CHECK (paid_amount >= 0),
+                    net_profit INTEGER NOT NULL DEFAULT 0,
+                    settlement_status TEXT NOT NULL DEFAULT 'تسویه‌شده',
                     service_datetime TEXT NOT NULL,
                     description TEXT DEFAULT '',
                     created_at TEXT NOT NULL DEFAULT '',
@@ -379,6 +396,8 @@ class DatabaseManager:
             # در app_config.json نگهداری می‌شوند.
             default_settings = {
                 "shop_name": str(self.cfg.get("shop_name") or "فروشگاه من"),
+                "app_version": APP_VERSION,
+                "schema_version": str(SCHEMA_VERSION),
             }
             for k, v in default_settings.items():
                 cur.execute(
@@ -667,13 +686,23 @@ class DatabaseManager:
                 )
             for index_sql in (
                 "CREATE INDEX IF NOT EXISTS idx_batches_product_activity ON batches(product_id, updated_at DESC, id DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_batches_supplier_activity ON batches(supplier_id, updated_at DESC, id DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_batches_buyer_activity ON batches(buyer_employee_id, updated_at DESC, id DESC)",
                 "CREATE INDEX IF NOT EXISTS idx_sales_batch_activity ON sales(batch_id, updated_at DESC, id DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_sales_product_activity ON sales(product_id, updated_at DESC, id DESC)",
                 "CREATE INDEX IF NOT EXISTS idx_sales_seller_activity ON sales(seller_employee_id, updated_at DESC, id DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_upgrades_target_activity ON upgrades(target_batch_id, updated_at DESC, id DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_upgrades_part_activity ON upgrades(part_batch_id, updated_at DESC, id DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_upgrades_technician_activity ON upgrades(technician_id, updated_at DESC, id DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_service_records_service_activity ON service_records(service_id, updated_at DESC, id DESC)",
                 "CREATE INDEX IF NOT EXISTS idx_services_seller_activity ON service_records(seller_employee_id, updated_at DESC, id DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_services_technician_activity ON service_records(technician_employee_id, updated_at DESC, id DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_service_history_service_date ON service_price_history(service_id, change_date DESC, id DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_payments_reference ON payments(ref_type, ref_id, payment_date DESC)",
             ):
                 conn.execute(index_sql)
 
-            conn.execute("PRAGMA user_version = 120")
+            conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
             # Remove the exact legacy generic supplier from the selector on upgraded
             # databases too, but retain its historical name on linked purchase rows.
@@ -1061,11 +1090,15 @@ class DatabaseManager:
         ).fetchall()
         removed_ids = set(batch_ids)
         for upgrade in rows:
-            if upgrade["part_batch_id"] not in removed_ids:
+            stock_deducted = int(upgrade["stock_deducted_qty"] or 0)
+            if (
+                upgrade["part_batch_id"] not in removed_ids
+                and stock_deducted > 0
+            ):
                 conn.execute(
                     """UPDATE batches SET sold_qty=MAX(0,sold_qty-?),
                        remaining_qty=remaining_qty+? WHERE id=?""",
-                    (upgrade["part_qty_used"], upgrade["part_qty_used"], upgrade["part_batch_id"]),
+                    (stock_deducted, stock_deducted, upgrade["part_batch_id"]),
                 )
             if upgrade["target_batch_id"] not in removed_ids:
                 target = conn.execute(
@@ -1489,11 +1522,7 @@ class DatabaseManager:
         part_batch = conn.execute(
             "SELECT id FROM batches WHERE id=?", (upgrade["part_batch_id"],)
         ).fetchone()
-        stock_deducted = int(
-            upgrade["stock_deducted_qty"]
-            if "stock_deducted_qty" in upgrade.keys() and upgrade["stock_deducted_qty"] is not None
-            else upgrade["part_qty_used"]
-        )
+        stock_deducted = int(upgrade["stock_deducted_qty"] or 0)
         if part_batch and stock_deducted > 0:
             conn.execute(
                 """UPDATE batches SET sold_qty=MAX(0,sold_qty-?),
@@ -1583,23 +1612,16 @@ class DatabaseManager:
             )
             if not target_b or (part_batch_id is not None and not part_b):
                 raise ValueError("محموله هدف یا محموله قطعه یافت نشد.")
-            # The target batch may be out of stock (for example, a customer-owned device).
-            # Upgrade never deducts target stock, so target availability is not a blocker.
-            target_has_stock = int(target_b["remaining_qty"]) >= target_qty
+            # Only the consumed component's availability controls stock deduction.
+            # The target device is not consumed by an upgrade.
             part_has_stock = bool(part_b) and int(part_b["remaining_qty"]) >= part_qty_total
-            if part_b and consume_stock and not target_has_stock:
-                raise ValueError(
-                    "موجودی کالای هدف کافی نیست؛ برای ادامه بدون کسر موجودی، تأیید کاربر لازم است."
-                )
             if part_b and consume_stock and not part_has_stock:
                 raise ValueError(
                     "موجودی قطعه کافی نیست؛ برای ادامه بدون کسر موجودی، تأیید کاربر لازم است."
                 )
             # UI passes consume_stock=False only after the user approves the warning.
             stock_deducted_qty = (
-                part_qty_total
-                if part_b and consume_stock and target_has_stock and part_has_stock
-                else 0
+                part_qty_total if part_b and consume_stock and part_has_stock else 0
             )
             if stock_deducted_qty:
                 conn.execute(
@@ -1673,7 +1695,12 @@ class DatabaseManager:
             self.log_audit(
                 conn,
                 "ویرایش ارتقای کالا" if upgrade_id is not None else "ثبت ارتقای کالا",
-                f"محموله هدف: {target_b['batch_code']} با قطعه {part_label}",
+                (
+                    f"محموله هدف: {target_b['batch_code']} با قطعه {part_label}؛ "
+                    f"کسر موجودی: {stock_deducted_qty} عدد"
+                    if stock_deducted_qty
+                    else f"محموله هدف: {target_b['batch_code']} با قطعه {part_label}؛ بدون کسر موجودی"
+                ),
             )
             conn.commit()
 
