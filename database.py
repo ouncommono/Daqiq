@@ -7,8 +7,43 @@ import jdatetime
 import time
 import hashlib
 
-APP_VERSION = "3.3.0"
-SCHEMA_VERSION = 330
+APP_VERSION = "4.0.0"
+SCHEMA_VERSION = 400
+
+SQLITE_INTEGER_MIN = -(1 << 63)
+SQLITE_INTEGER_MAX = (1 << 63) - 1
+
+# New v4 databases have a deliberate, testable physical column order. Application
+# SQL uses named columns; this contract protects all positional consumers.
+EXPECTED_SCHEMA_COLUMNS = {
+    "settings": ("key", "value"),
+    "employees": ("id", "name", "role", "phone", "is_active", "permissions", "password", "created_at", "updated_at"),
+    "access_level_data_scopes": ("access_level_name", "mode"),
+    "access_level_scope_levels": ("access_level_name", "selected_access_level_name"),
+    "access_level_scope_users": ("access_level_name", "employee_id"),
+    "suppliers": ("id", "name", "phone", "address", "notes", "created_at", "updated_at"),
+    "customers": ("id", "name", "phone", "notes", "created_at", "updated_at"),
+    "products": ("id", "code", "name", "category", "sub_category", "brand", "model", "specs_json", "description", "reorder_point", "default_profit_pct", "is_active", "created_at", "updated_at"),
+    "batches": ("id", "batch_code", "product_id", "supplier_id", "buyer_employee_id", "invoice_number", "purchase_date", "initial_qty", "sold_qty", "returned_qty", "remaining_qty", "unit_purchase_price", "extra_cost_total", "upgrade_cost_unit", "unit_cost_price", "suggested_sell_price", "profit_pct", "paid_amount", "settlement_status", "serial_numbers", "colors_json", "initial_specs", "final_specs", "supplier_name_snapshot", "notes", "created_at", "updated_at"),
+    "upgrades": ("id", "target_batch_id", "part_batch_id", "technician_id", "target_qty", "part_qty_used", "stock_deducted_qty", "part_unit_cost", "labor_cost_unit", "added_cost_unit", "upgrade_date", "serial_number", "manual_part_description", "old_specs", "new_specs", "notes", "created_at", "updated_at"),
+    "sales": ("id", "invoice_number", "product_id", "batch_id", "seller_employee_id", "customer_name", "qty", "returned_qty", "suggested_unit_price", "actual_unit_price", "unit_cost_price", "unit_discount", "total_discount", "price_Markup_unit", "unit_profit", "total_profit", "total_amount", "paid_amount", "settlement_status", "sale_datetime", "warranty_company", "warranty_start", "warranty_months", "warranty_days", "warranty_end", "serial_number", "specifications", "colors_json", "notes", "created_at", "updated_at"),
+    "service_catalog": ("id", "code", "service_type", "name", "default_fee", "default_side_cost", "description", "is_active", "created_at", "updated_at"),
+    "service_price_history": ("id", "service_id", "change_date", "old_fee", "new_fee", "created_at", "updated_at"),
+    "service_records": ("id", "invoice_number", "service_id", "seller_employee_id", "technician_employee_id", "service_type", "service_name", "customer_name", "historical_tariff", "service_fee", "side_cost", "paid_amount", "net_profit", "settlement_status", "service_datetime", "description", "created_at", "updated_at"),
+    "payments": ("id", "ref_type", "ref_id", "amount", "payment_date", "payment_method", "notes", "created_at", "updated_at"),
+    "audit_logs": ("id", "action_time", "action_type", "details", "created_at", "updated_at"),
+}
+
+def validate_schema_column_order(conn):
+    """Fail fast when a database does not match the exact v4 column contract."""
+    for table_name, expected_columns in EXPECTED_SCHEMA_COLUMNS.items():
+        actual_columns = tuple(
+            row["name"] for row in conn.execute(f"PRAGMA table_info({table_name})")
+        )
+        if actual_columns != expected_columns:
+            raise RuntimeError(
+                f"ساختار ستون‌های جدول {table_name} با قرارداد نسخه 4.0.0 سازگار نیست."
+            )
 
 
 def get_app_data_dir():
@@ -16,6 +51,18 @@ def get_app_data_dir():
     path = os.path.join(base, "Daqiq")
     os.makedirs(path, exist_ok=True)
     return path
+
+
+def get_default_database_dir():
+    """Return the user's Documents/Daqiq directory for the default store database."""
+    documents_dir = os.path.join(os.path.expanduser("~"), "Documents")
+    path = os.path.join(documents_dir, "Daqiq")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def get_default_database_path():
+    return os.path.join(get_default_database_dir(), "Daqiq.db")
 
 
 def get_config_file_path():
@@ -37,12 +84,17 @@ def get_config_file_path():
 CONFIG_FILE = get_config_file_path()
 
 
+def app_config_exists():
+    """Return whether an explicit database-selection/configuration file exists."""
+    return os.path.isfile(CONFIG_FILE)
+
+
 def load_app_config():
-    default_db = os.path.join(get_app_data_dir(), "Daqiq.db")
+    default_db = get_default_database_path()
     default_cfg = {
         "db_path": default_db,
         "recent_databases": [default_db],
-        "backup_dir": os.path.join(get_app_data_dir(), "backups"),
+        "backup_dir": os.path.join(get_default_database_dir(), "backups"),
         "auto_backup_enabled": True,
         "auto_backup_interval_min": 60,
         "auto_backup_retention_count": 10,
@@ -151,8 +203,8 @@ class DatabaseManager:
             }
             if existing_tables and current_version != SCHEMA_VERSION:
                 raise RuntimeError(
-                    "این پایگاه داده برای نسخه 3.3.0 ساخته نشده است. "
-                    "نسخه 3.3.0 به پایگاه داده تازه نیاز دارد و مهاجرت خودکار "
+                    "این پایگاه داده برای نسخه 4.0.0 ساخته نشده است. "
+                    "نسخه 4.0.0 به پایگاه داده تازه نیاز دارد و مهاجرت خودکار "
                     "از نسخه‌های قبلی پشتیبانی نمی‌شود."
                 )
             cur = conn.cursor()
@@ -437,6 +489,8 @@ class DatabaseManager:
                     updated_at TEXT NOT NULL DEFAULT ''
                 )
             """)
+
+            validate_schema_column_order(conn)
 
             # نام فروشگاه به هر پایگاه داده تعلق دارد؛ تنظیمات عمومی برنامه
             # در app_config.json نگهداری می‌شوند.
@@ -1130,8 +1184,8 @@ class DatabaseManager:
         ))
 
     @staticmethod
-    def _batch_integer(value, field_name, *, minimum=0):
-        """Convert UI/database values without leaking TypeError or truncating floats."""
+    def _sqlite_integer(value, field_name):
+        """Normalize an integer and enforce SQLite's signed 64-bit storage range."""
         if isinstance(value, bool):
             number = int(value)
         elif isinstance(value, float):
@@ -1139,13 +1193,25 @@ class DatabaseManager:
                 raise ValueError(f"مقدار «{field_name}» باید عدد صحیح باشد.")
             number = int(value)
         else:
-            raw = str(value).strip().replace(",", "").replace("٬", "")
+            raw = str(value).strip().translate(
+                str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
+            ).replace(",", "").replace("٬", "")
             if not raw:
                 raise ValueError(f"مقدار «{field_name}» وارد نشده است.")
             try:
                 number = int(raw)
             except (TypeError, ValueError, OverflowError) as exc:
                 raise ValueError(f"مقدار «{field_name}» معتبر نیست.") from exc
+        if number < SQLITE_INTEGER_MIN or number > SQLITE_INTEGER_MAX:
+            raise ValueError(
+                f"مقدار «{field_name}» از محدودهٔ عدد صحیح ۶۴ بیتی SQLite خارج است."
+            )
+        return number
+
+    @staticmethod
+    def _batch_integer(value, field_name, *, minimum=0):
+        """Convert UI/database values and enforce signed 64-bit integer bounds."""
+        number = DatabaseManager._sqlite_integer(value, field_name)
         if number < minimum:
             operator = "بزرگ‌تر از صفر" if minimum == 1 else "صفر یا بیشتر"
             raise ValueError(f"مقدار «{field_name}» باید {operator} باشد.")
@@ -1214,12 +1280,16 @@ class DatabaseManager:
         batch_code = str(batch_code or "").strip()
 
         extra_per_unit = round(extra_cost_total / initial_qty)
-        unit_cost_price = unit_purchase_price + extra_per_unit
+        unit_cost_price = self._batch_integer(
+            unit_purchase_price + extra_per_unit, "بهای تمام‌شده واحد"
+        )
         profit_pct = (
             round(((suggested_sell_price - unit_cost_price) / unit_cost_price) * 100, 2)
             if unit_cost_price > 0 else 0.0
         )
-        total_bill = unit_purchase_price * initial_qty + extra_cost_total
+        total_bill = self._sqlite_integer(
+            unit_purchase_price * initial_qty + extra_cost_total, "بهای کل محموله"
+        )
         paid_amount, status = self._purchase_settlement(total_bill, paid_amount)
         color_json = json.dumps(
             self._normalize_color_list(colors) or [], ensure_ascii=False
@@ -1374,15 +1444,18 @@ class DatabaseManager:
             )
 
             extra_per_unit = round(extra_cost_total / new_initial_qty)
-            unit_cost_price = (
-                unit_purchase_price + extra_per_unit + int(old["upgrade_cost_unit"] or 0)
+            unit_cost_price = self._batch_integer(
+                unit_purchase_price + extra_per_unit + int(old["upgrade_cost_unit"] or 0),
+                "بهای تمام‌شده واحد",
             )
             suggested_sell_price = int(suggested_sell_price)
             profit_pct = (
                 round(((suggested_sell_price - unit_cost_price) / unit_cost_price) * 100, 2)
                 if unit_cost_price > 0 else 0.0
             )
-            total_bill = unit_purchase_price * new_initial_qty + extra_cost_total
+            total_bill = self._sqlite_integer(
+                unit_purchase_price * new_initial_qty + extra_cost_total, "بهای کل محموله"
+            )
             paid_amount, status = self._purchase_settlement(total_bill, paid_amount)
 
             new_colors_json = (
@@ -1509,10 +1582,12 @@ class DatabaseManager:
         manual_part_description="",
         consume_stock=True,
     ):
-        target_qty = int(target_qty)
-        part_qty_per_unit = int(part_qty_per_unit)
-        part_qty_total = target_qty * part_qty_per_unit
-        labor_cost_unit = int(labor_cost_unit)
+        target_qty = self._batch_integer(target_qty, "تعداد کالای هدف", minimum=1)
+        part_qty_per_unit = self._batch_integer(part_qty_per_unit, "تعداد قطعه برای هر واحد", minimum=1)
+        part_qty_total = self._batch_integer(
+            target_qty * part_qty_per_unit, "تعداد قطعه مصرفی کل", minimum=1
+        )
+        labor_cost_unit = self._batch_integer(labor_cost_unit, "اجرت ارتقا")
         if target_qty <= 0 or part_qty_per_unit <= 0:
             raise ValueError("تعداد کالای هدف و تعداد قطعه مصرفی باید بیشتر از صفر باشند.")
         if labor_cost_unit < 0:
@@ -1584,17 +1659,26 @@ class DatabaseManager:
                     raise ValueError("موجودی قطعه در حین ثبت تغییر کرده است؛ دوباره تلاش کنید.")
 
             part_unit_cost = int(part_b["unit_cost_price"]) if part_b else 0
-            part_cost_share = (
-                part_unit_cost * part_qty_per_unit
-                if add_part_cost_to_product and part_b else 0
+            part_cost_share = self._sqlite_integer(
+                part_unit_cost * part_qty_per_unit if add_part_cost_to_product and part_b else 0,
+                "هزینه قطعات ارتقا",
             )
-            added_cost_per_unit = part_cost_share + labor_cost_unit
-            new_upgrade_cost = int(target_b["upgrade_cost_unit"]) + added_cost_per_unit
-            new_unit_cost = int(target_b["unit_cost_price"]) + added_cost_per_unit
+            added_cost_per_unit = self._batch_integer(
+                part_cost_share + labor_cost_unit, "هزینه ارتقا برای هر واحد"
+            )
+            new_upgrade_cost = self._batch_integer(
+                int(target_b["upgrade_cost_unit"]) + added_cost_per_unit, "هزینه کل ارتقا"
+            )
+            new_unit_cost = self._batch_integer(
+                int(target_b["unit_cost_price"]) + added_cost_per_unit, "بهای تمام‌شده جدید"
+            )
             suggested_increase = round(
                 added_cost_per_unit * (1 + float(target_b["profit_pct"] or 0) / 100.0)
             )
-            new_suggested = int(target_b["suggested_sell_price"]) + suggested_increase
+            new_suggested = self._batch_integer(
+                int(target_b["suggested_sell_price"]) + suggested_increase,
+                "قیمت پیشنهادی جدید",
+            )
 
             conn.execute(
                 """UPDATE batches SET upgrade_cost_unit=?, unit_cost_price=?,
@@ -1706,6 +1790,14 @@ class DatabaseManager:
         qty = self._batch_integer(qty, "تعداد فروش", minimum=1)
         product_id = self._batch_integer(product_id, "کالا", minimum=1)
         batch_id = self._batch_integer(batch_id, "محموله", minimum=1)
+        customer_name = str(customer_name or "").strip()
+        warranty_company = str(warranty_company or "").strip()
+        warranty_start = str(warranty_start or "").strip()
+        warranty_end = str(warranty_end or "").strip()
+        serial_number = str(serial_number or "").strip()
+        notes = str(notes or "").strip()
+        specifications = str(specifications or "").strip()
+        sale_datetime = str(sale_datetime or "").strip()
 
         with self.get_connection() as conn:
             conn.execute("BEGIN IMMEDIATE")
@@ -1736,9 +1828,12 @@ class DatabaseManager:
             if not invoice_number:
                 invoice_number = self.generate_next_code("sales", "invoice_number", "INV-", 1001, conn=conn)
 
-            suggested_unit_price = int(suggested_unit_price)
-            actual_unit_price = int(actual_unit_price)
-            unit_cost_price = int(batch["unit_cost_price"])
+            suggested_unit_price = self._batch_integer(
+                suggested_unit_price, "قیمت پیشنهادی واحد"
+            )
+            actual_unit_price = self._batch_integer(actual_unit_price, "قیمت فروش واحد")
+            paid_amount = self._batch_integer(paid_amount, "مبلغ دریافتی")
+            unit_cost_price = self._batch_integer(batch["unit_cost_price"], "بهای تمام‌شده واحد")
 
             if actual_unit_price < suggested_unit_price:
                 unit_discount = suggested_unit_price - actual_unit_price
@@ -1747,12 +1842,16 @@ class DatabaseManager:
                 unit_discount = 0
                 price_markup_unit = actual_unit_price - suggested_unit_price
 
-            total_discount = unit_discount * qty
-            unit_profit = actual_unit_price - unit_cost_price
-            total_profit = unit_profit * qty
-            total_amount = actual_unit_price * qty
-
-            paid_amount = int(paid_amount)
+            total_discount = self._batch_integer(
+                unit_discount * qty, "تخفیف کل فروش"
+            )
+            unit_profit = self._sqlite_integer(
+                actual_unit_price - unit_cost_price, "سود هر واحد"
+            )
+            total_profit = self._sqlite_integer(unit_profit * qty, "سود کل فروش")
+            total_amount = self._batch_integer(
+                actual_unit_price * qty, "مبلغ کل فاکتور"
+            )
             if settlement_status in ("تسویه‌شده", "تسویه‌نشده", "تسویه جزئی"):
                 status = settlement_status
             else:
@@ -1858,6 +1957,15 @@ class DatabaseManager:
     ):
         new_qty = self._batch_integer(new_qty, "تعداد فروش", minimum=1)
         sale_id = self._batch_integer(sale_id, "شناسه فروش", minimum=1)
+        customer_name = str(customer_name or "").strip()
+        warranty_company = str(warranty_company or "").strip()
+        warranty_start = str(warranty_start or "").strip()
+        warranty_end = str(warranty_end or "").strip()
+        serial_number = str(serial_number or "").strip()
+        notes = str(notes or "").strip()
+        specifications = (
+            str(specifications or "").strip() if specifications is not None else None
+        )
 
         with self.get_connection() as conn:
             conn.execute("BEGIN IMMEDIATE")
@@ -1905,9 +2013,14 @@ class DatabaseManager:
                 if unavailable:
                     raise ValueError("یکی از رنگ‌های انتخاب‌شده در این محموله ثبت نشده است.")
 
-            suggested_unit_price = int(suggested_unit_price)
-            actual_unit_price = int(actual_unit_price)
-            unit_cost_price = old_sale["unit_cost_price"]
+            suggested_unit_price = self._batch_integer(
+                suggested_unit_price, "قیمت پیشنهادی واحد"
+            )
+            actual_unit_price = self._batch_integer(actual_unit_price, "قیمت فروش واحد")
+            paid_amount = self._batch_integer(paid_amount, "مبلغ دریافتی")
+            unit_cost_price = self._batch_integer(
+                old_sale["unit_cost_price"], "بهای تمام‌شده واحد"
+            )
 
             if actual_unit_price < suggested_unit_price:
                 unit_discount = suggested_unit_price - actual_unit_price
@@ -1916,11 +2029,16 @@ class DatabaseManager:
                 unit_discount = 0
                 price_markup = actual_unit_price - suggested_unit_price
 
-            total_discount = unit_discount * new_qty
-            unit_profit = actual_unit_price - unit_cost_price
-            total_profit = unit_profit * new_qty
-            total_amount = actual_unit_price * new_qty
-            paid_amount = int(paid_amount)
+            total_discount = self._batch_integer(
+                unit_discount * new_qty, "تخفیف کل فروش"
+            )
+            unit_profit = self._sqlite_integer(
+                actual_unit_price - unit_cost_price, "سود هر واحد"
+            )
+            total_profit = self._sqlite_integer(unit_profit * new_qty, "سود کل فروش")
+            total_amount = self._batch_integer(
+                actual_unit_price * new_qty, "مبلغ کل فاکتور"
+            )
 
             if settlement_status in ("تسویه‌شده", "تسویه‌نشده", "تسویه جزئی"):
                 status = settlement_status
@@ -2042,8 +2160,8 @@ class DatabaseManager:
         بند ۴: اگر خدمت جدیدی ثبت شود، فقط در صورتی که خدمتی با همان عنوان و نوع وجود داشته باشد
         جایگزین می‌شود؛ در غیر این صورت به عنوان یک خدمت جدید به لیست اضافه می‌گردد.
         """
-        default_fee = int(default_fee)
-        default_side_cost = int(default_side_cost)
+        default_fee = self._batch_integer(default_fee, "تعرفه خدمت")
+        default_side_cost = self._batch_integer(default_side_cost, "هزینه جانبی پیش‌فرض")
         name_clean = name.strip()
         type_clean = service_type.strip()
         now_date = jdatetime.date.today().strftime("%Y/%m/%d")
@@ -2138,11 +2256,13 @@ class DatabaseManager:
                     "service_records", "invoice_number", "SINV-", 1001
                 )
 
-            historical_tariff = int(srv["default_fee"])
-            service_fee = int(service_fee)      # هزینه ثابت ثبت شده در فهرست خدمات
-            side_cost = int(side_cost)
-            paid_amount = int(paid_amount)      # مبلغ دریافتی واقعی از مشتری
-            net_profit = paid_amount - side_cost
+            historical_tariff = self._batch_integer(srv["default_fee"], "تعرفه تاریخی")
+            service_fee = self._batch_integer(service_fee, "هزینه خدمت")
+            side_cost = self._batch_integer(side_cost, "هزینه جانبی")
+            paid_amount = self._batch_integer(paid_amount, "مبلغ دریافتی")
+            net_profit = self._sqlite_integer(paid_amount - side_cost, "سود خالص خدمت")
+            customer_name = str(customer_name or "").strip()
+            description = str(description or "").strip()
 
             if settlement_status in ("تسویه‌شده", "تسویه‌نشده", "تسویه جزئی"):
                 status = settlement_status
@@ -2199,10 +2319,12 @@ class DatabaseManager:
         description,
         settlement_status=None,
     ):
-        service_fee = int(service_fee)
-        side_cost = int(side_cost)
-        paid_amount = int(paid_amount)
-        net_profit = paid_amount - side_cost
+        service_fee = self._batch_integer(service_fee, "هزینه خدمت")
+        side_cost = self._batch_integer(side_cost, "هزینه جانبی")
+        paid_amount = self._batch_integer(paid_amount, "مبلغ دریافتی")
+        net_profit = self._sqlite_integer(paid_amount - side_cost, "سود خالص خدمت")
+        customer_name = str(customer_name or "").strip()
+        description = str(description or "").strip()
         if settlement_status in ("تسویه‌شده", "تسویه‌نشده", "تسویه جزئی"):
             status = settlement_status
         else:
