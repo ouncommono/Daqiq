@@ -66,7 +66,8 @@ def mixed_bidi_tooltip(value) -> str:
             f'<div dir="{direction}" style="text-align:{alignment}; white-space:pre-wrap;">'
             f'{html.escape(line)}</div>'
         )
-    return "<html><body>" + "".join(rendered) + "</body></html>"
+    return ('<html><body dir="rtl" style="direction:rtl;text-align:right;">'
+            + "".join(rendered) + "</body></html>")
 
 
 def normalize_catalog_label(value) -> str:

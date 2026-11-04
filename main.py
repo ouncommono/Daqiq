@@ -76,7 +76,7 @@ from exporter import (
     get_next_excel_filename,
 )
 
-APP_VERSION = "2.0.0"
+APP_VERSION = "3.0.0"
 
 DEFAULT_ACCESS_LEVELS = [
     {"name": "دسترسی کامل (مدیر کل)", "policy": "دسترسی کامل (مدیر کل)"},
@@ -220,9 +220,9 @@ class _MessageBoxPolisher(QObject):
 
 
 def _window_title(shop_name: str) -> str:
-    """Keep mixed Persian/digit shop names in the intended Windows title-bar order."""
+    """Keep the Daqiq brand before the store name in the desktop title."""
     clean_name = (shop_name or "فروشگاه من").strip()
-    return f"\u202b{clean_name} | سامانه حسابداری و مدیریت فروشگاه\u202c"
+    return f"\u202bدقیق | {clean_name}\u202c"
 
 
 class ColorSelectionButton(QPushButton):
@@ -241,13 +241,12 @@ class ColorSelectionButton(QPushButton):
             str(value).strip() for value in (colors or [])
             if value is not None and str(value).strip()
         ))
+        available = set(self._colors)
         selected_values = list(dict.fromkeys(
             str(value).strip() for value in (previous or [])
             if value is not None and str(value).strip()
+            and str(value).strip() in available
         ))
-        for value in selected_values:
-            if value not in self._colors:
-                self._colors.append(value)
         self._selected = selected_values
         self._refresh_label()
 
@@ -705,7 +704,7 @@ def select_startup_database_path(parent=None):
         return existing_path
 
     default_path = configured_path or os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "shop_database.db"
+        os.path.dirname(os.path.abspath(__file__)), "Daqiq.db"
     )
     if os.path.exists(default_path):
         base_dir = os.path.dirname(default_path) or "."
@@ -826,6 +825,56 @@ class MainWindow(QMainWindow):
             self._apply_employee_permissions()
             self.refresh_all_data()
 
+    @staticmethod
+    def _default_access_scope(policy):
+        policy = str(policy or "")
+        mode = "all" if "دسترسی کامل" in policy or "مدیر ارشد" in policy else "self"
+        return {"mode": mode, "access_levels": [], "user_ids": []}
+
+    def _load_access_scope(self, name, policy="", fallback=None):
+        fallback = fallback if isinstance(fallback, dict) else {}
+        default_scope = self._default_access_scope(policy)
+        with self.db.get_connection() as conn:
+            row = conn.execute(
+                "SELECT mode FROM access_level_data_scopes WHERE access_level_name=?",
+                (name,),
+            ).fetchone()
+            if row:
+                mode = row["mode"]
+                role_names = [
+                    item["selected_access_level_name"]
+                    for item in conn.execute(
+                        "SELECT selected_access_level_name FROM access_level_scope_levels "
+                        "WHERE access_level_name=? ORDER BY selected_access_level_name",
+                        (name,),
+                    ).fetchall()
+                ]
+                user_ids = [
+                    int(item["employee_id"])
+                    for item in conn.execute(
+                        "SELECT employee_id FROM access_level_scope_users "
+                        "WHERE access_level_name=? ORDER BY employee_id",
+                        (name,),
+                    ).fetchall()
+                ]
+            else:
+                mode = fallback.get("mode", default_scope["mode"])
+                role_names = fallback.get("access_levels", [])
+                user_ids = fallback.get("user_ids", [])
+        if mode not in {"all", "self", "access_levels", "users"}:
+            mode = default_scope["mode"]
+        return {
+            "mode": mode,
+            "access_levels": list(dict.fromkeys(
+                str(value).strip() for value in role_names
+                if value is not None and str(value).strip()
+            )),
+            "user_ids": list(dict.fromkeys(
+                int(value) for value in user_ids
+                if str(value).strip().lstrip("-").isdigit() and int(value) > 0
+            )),
+        }
+
     def _get_access_levels(self):
         raw = self.db.get_setting("access_levels", "")
         try:
@@ -845,17 +894,18 @@ class MainWindow(QMainWindow):
             if not name or policy not in allowed_policies or not key or key in seen:
                 continue
             raw_permissions = item.get("permissions")
-            if isinstance(raw_permissions, list):
-                permissions = [
-                    permission for permission in raw_permissions
-                    if permission in ALL_PERMISSION_KEYS
-                ]
-            else:
-                permissions = list(ROLE_PERMISSION_PRESETS.get(policy, []))
+            permissions = (
+                [p for p in raw_permissions if p in ALL_PERMISSION_KEYS]
+                if isinstance(raw_permissions, list)
+                else list(ROLE_PERMISSION_PRESETS.get(policy, []))
+            )
             result.append({
                 "name": name,
                 "policy": policy,
                 "permissions": list(dict.fromkeys(permissions)),
+                "data_scope": self._load_access_scope(
+                    name, policy, item.get("data_scope")
+                ),
             })
             seen.add(key)
         if result:
@@ -864,9 +914,101 @@ class MainWindow(QMainWindow):
             {
                 **copy.deepcopy(level),
                 "permissions": list(ROLE_PERMISSION_PRESETS.get(level["policy"], [])),
+                "data_scope": self._load_access_scope(level["name"], level["policy"]),
             }
             for level in DEFAULT_ACCESS_LEVELS
         ]
+
+    def _visible_employee_ids(self):
+        if not self.active_employee:
+            return None
+        access_name = str(self.active_employee.get("permissions") or "").strip()
+        level = next(
+            (item for item in self._get_access_levels() if item["name"] == access_name),
+            None,
+        )
+        if level is None:
+            return None if self._is_full_admin() else {int(self.active_employee["id"])}
+        scope = level.get("data_scope") or self._default_access_scope(level["policy"])
+        mode = scope.get("mode", "self")
+        if mode == "all":
+            return None
+        if mode == "self":
+            return {int(self.active_employee["id"])}
+        if mode == "users":
+            return {int(value) for value in scope.get("user_ids", [])}
+        names = list(dict.fromkeys(scope.get("access_levels", [])))
+        if not names:
+            return set()
+        marks = ",".join("?" for _ in names)
+        with self.db.get_connection() as conn:
+            rows = conn.execute(
+                f"SELECT id FROM employees WHERE permissions IN ({marks})", tuple(names)
+            ).fetchall()
+        return {int(row["id"]) for row in rows}
+
+    def _employee_scope_filter(self, *columns):
+        employee_ids = self._visible_employee_ids()
+        if employee_ids is None:
+            return None, ()
+        if not employee_ids:
+            return "0=1", ()
+        ids = tuple(sorted(employee_ids))
+        marks = ",".join("?" for _ in ids)
+        return "(" + " OR ".join(f"{column} IN ({marks})" for column in columns) + ")", ids * len(columns)
+
+    def _execute_scoped_query(self, conn, query, *columns, parameters=()):
+        """Add an employee-visibility predicate to the outer SELECT statement."""
+        predicate, scope_params = self._employee_scope_filter(*columns)
+        if predicate is None:
+            return conn.execute(query, parameters)
+
+        upper = query.upper()
+        cuts = [
+            upper.find(marker)
+            for marker in (" GROUP BY ", " ORDER BY ", " LIMIT ")
+        ]
+        cuts = [position for position in cuts if position >= 0]
+        cut = min(cuts) if cuts else len(query)
+        head, tail = query[:cut], query[cut:]
+
+        # Ignore WHERE keywords in nested SELECT expressions.
+        depth = 0
+        quote = None
+        where_position = None
+        index = 0
+        while index < len(head):
+            char = head[index]
+            if quote:
+                if char == quote:
+                    if index + 1 < len(head) and head[index + 1] == quote:
+                        index += 1
+                    else:
+                        quote = None
+            elif char in ("'", '"', "`"):
+                quote = char
+            elif char == "(":
+                depth += 1
+            elif char == ")":
+                depth = max(0, depth - 1)
+            elif depth == 0 and head[index:index + 6].upper() == " WHERE":
+                where_position = index
+                break
+            index += 1
+
+        if where_position is None:
+            scoped_head = head.rstrip() + " WHERE " + predicate
+        else:
+            prefix = head[:where_position]
+            existing_conditions = head[where_position + 6:].strip()
+            scoped_head = (
+                prefix + " WHERE (" + existing_conditions + ") AND " + predicate
+            )
+
+        return conn.execute(
+            scoped_head + tail,
+            tuple(parameters) + tuple(scope_params),
+        )
 
     def _permission_policy(self, permission_name):
         for level in self._get_access_levels():
@@ -917,7 +1059,70 @@ class MainWindow(QMainWindow):
         self._on_access_level_selected()
 
     def _persist_access_levels(self, levels):
-        self.db.set_setting("access_levels", json.dumps(levels, ensure_ascii=False))
+        normalized = []
+        for source in levels:
+            level = dict(source)
+            level["data_scope"] = level.get("data_scope") or self._default_access_scope(
+                level.get("policy")
+            )
+            normalized.append(level)
+
+        with self.db.get_connection() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                ("access_levels", json.dumps(normalized, ensure_ascii=False)),
+            )
+            role_names = [level["name"] for level in normalized]
+            employee_ids = {
+                int(row["id"]) for row in conn.execute("SELECT id FROM employees").fetchall()
+            }
+            for level in normalized:
+                scope = level["data_scope"]
+                mode = scope.get("mode", "self")
+                if mode not in {"all", "self", "access_levels", "users"}:
+                    mode = self._default_access_scope(level.get("policy"))["mode"]
+                conn.execute(
+                    "INSERT OR REPLACE INTO access_level_data_scopes(access_level_name, mode) "
+                    "VALUES (?, ?)",
+                    (level["name"], mode),
+                )
+                conn.execute(
+                    "DELETE FROM access_level_scope_levels WHERE access_level_name=?",
+                    (level["name"],),
+                )
+                conn.execute(
+                    "DELETE FROM access_level_scope_users WHERE access_level_name=?",
+                    (level["name"],),
+                )
+                conn.executemany(
+                    "INSERT OR IGNORE INTO access_level_scope_levels "
+                    "(access_level_name, selected_access_level_name) VALUES (?, ?)",
+                    [
+                        (level["name"], name)
+                        for name in scope.get("access_levels", [])
+                        if name != level["name"]
+                    ],
+                )
+                conn.executemany(
+                    "INSERT OR IGNORE INTO access_level_scope_users "
+                    "(access_level_name, employee_id) VALUES (?, ?)",
+                    [
+                        (level["name"], int(user_id))
+                        for user_id in scope.get("user_ids", [])
+                        if int(user_id) in employee_ids
+                    ],
+                )
+            if role_names:
+                marks = ",".join("?" for _ in role_names)
+                conn.execute(
+                    f"DELETE FROM access_level_data_scopes "
+                    f"WHERE access_level_name NOT IN ({marks})",
+                    tuple(role_names),
+                )
+            else:
+                conn.execute("DELETE FROM access_level_data_scopes")
+            conn.commit()
+
         self._refresh_access_level_settings_combo()
         self._refresh_employee_permission_combo()
         if hasattr(self, "tbl_employees"):
@@ -939,12 +1144,68 @@ class MainWindow(QMainWindow):
         grants = set(level.get("permissions") or [])
         for key, checkbox in self.access_permission_checks.items():
             checkbox.setChecked(key in grants)
+        scope = level.get("data_scope") or self._default_access_scope(level["policy"])
+        index = self.cb_cfg_data_scope_mode.findData(scope["mode"])
+        self.cb_cfg_data_scope_mode.setCurrentIndex(index if index >= 0 else 0)
+        self._refresh_access_scope_choices(level["name"], scope)
 
     def _on_permission_preset_changed(self, *_):
         policy = self.cb_cfg_access_policy.currentData()
         grants = set(ROLE_PERMISSION_PRESETS.get(policy, []))
         for key, checkbox in self.access_permission_checks.items():
             checkbox.setChecked(key in grants)
+
+    def _refresh_access_scope_choices(self, current_level_name, scope):
+        checked_levels = set(scope.get("access_levels", []))
+        self.lst_cfg_scope_levels.clear()
+        for level in self._get_access_levels():
+            if level["name"] == current_level_name:
+                continue
+            item = QListWidgetItem(level["name"])
+            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+            item.setCheckState(
+                Qt.Checked if level["name"] in checked_levels else Qt.Unchecked
+            )
+            self.lst_cfg_scope_levels.addItem(item)
+
+        checked_users = {int(value) for value in scope.get("user_ids", [])}
+        self.lst_cfg_scope_users.clear()
+        with self.db.get_connection() as conn:
+            employees = conn.execute(
+                "SELECT id, name, role, permissions FROM employees ORDER BY name COLLATE NOCASE, id"
+            ).fetchall()
+        for employee in employees:
+            employee_id = int(employee["id"])
+            item = QListWidgetItem(
+                f"{employee['name']} — {employee['role']} ({employee['permissions']})"
+            )
+            item.setData(Qt.UserRole, employee_id)
+            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+            item.setCheckState(
+                Qt.Checked if employee_id in checked_users else Qt.Unchecked
+            )
+            self.lst_cfg_scope_users.addItem(item)
+        self._on_data_scope_mode_changed()
+
+    def _on_data_scope_mode_changed(self, *_):
+        mode = self.cb_cfg_data_scope_mode.currentData()
+        self.scope_levels_container.setVisible(mode == "access_levels")
+        self.scope_users_container.setVisible(mode == "users")
+
+    def _collect_access_scope(self):
+        return {
+            "mode": self.cb_cfg_data_scope_mode.currentData() or "self",
+            "access_levels": [
+                self.lst_cfg_scope_levels.item(i).text()
+                for i in range(self.lst_cfg_scope_levels.count())
+                if self.lst_cfg_scope_levels.item(i).checkState() == Qt.Checked
+            ],
+            "user_ids": [
+                int(self.lst_cfg_scope_users.item(i).data(Qt.UserRole))
+                for i in range(self.lst_cfg_scope_users.count())
+                if self.lst_cfg_scope_users.item(i).checkState() == Qt.Checked
+            ],
+        }
 
     def _collect_access_permissions(self):
         return [
@@ -966,6 +1227,7 @@ class MainWindow(QMainWindow):
             "name": name,
             "policy": policy,
             "permissions": self._collect_access_permissions(),
+            "data_scope": self._collect_access_scope(),
         })
         self._persist_access_levels(levels)
         self.ed_cfg_access_level.clear()
@@ -999,8 +1261,16 @@ class MainWindow(QMainWindow):
                     "name": new_name,
                     "policy": new_policy,
                     "permissions": self._collect_access_permissions(),
+                    "data_scope": self._collect_access_scope(),
                 })
                 break
+        for item in levels:
+            scope = item.get("data_scope") or {}
+            scope["access_levels"] = [
+                new_name if value == old_name else value
+                for value in scope.get("access_levels", [])
+            ]
+            item["data_scope"] = scope
         if assigned:
             with self.db.get_connection() as conn:
                 conn.execute(
@@ -1047,20 +1317,19 @@ class MainWindow(QMainWindow):
                 conn.commit()
         if self.active_employee and self.active_employee.get("permissions") == old_name:
             self.active_employee["permissions"] = fallback
-        self._persist_access_levels(
-            [item for item in levels if item["name"] != old_name]
-        )
+        remaining = [item for item in levels if item["name"] != old_name]
+        for item in remaining:
+            scope = item.get("data_scope") or {}
+            scope["access_levels"] = [
+                fallback if value == old_name else value
+                for value in scope.get("access_levels", [])
+            ]
+            item["data_scope"] = scope
+        self._persist_access_levels(remaining)
 
     def _is_scoped_access(self):
-        """Restricted roles may see only their own operational transactions."""
-        if not self.active_employee:
-            return False
-        permission = self._permission_policy(
-            self.active_employee.get("permissions") or ""
-        )
-        return any(role in permission for role in (
-            "سرپرست عملیات", "سرپرست", "فروش و خدمات", "ثبت خرید و انبارداری"
-        ))
+        """Whether the active user's record visibility is narrower than global."""
+        return self._visible_employee_ids() is not None
 
     def _is_full_admin(self):
         if not self.active_employee:
@@ -1234,10 +1503,8 @@ class MainWindow(QMainWindow):
 
         if hasattr(self, "cb_rep_emp"):
             self.cb_rep_emp.setEnabled(not is_scoped)
-            if is_scoped and self.active_employee:
-                own_index = self.cb_rep_emp.findData(int(self.active_employee["id"]))
-                if own_index >= 0:
-                    self.cb_rep_emp.setCurrentIndex(own_index)
+            if is_scoped:
+                self.cb_rep_emp.setCurrentIndex(0)
         if hasattr(self, "btn_safe_export"):
             self.btn_safe_export.setEnabled(
                 not is_scoped and "inventory_export.export" in grants
@@ -1251,7 +1518,8 @@ class MainWindow(QMainWindow):
             )
             for widget in (
                 self.cb_cfg_access_level, self.ed_cfg_access_level,
-                self.cb_cfg_access_policy,
+                self.cb_cfg_access_policy, self.cb_cfg_data_scope_mode,
+                self.lst_cfg_scope_levels, self.lst_cfg_scope_users,
             ):
                 widget.setEnabled(access_enabled)
             for checkbox in self.access_permission_checks.values():
@@ -1407,7 +1675,7 @@ class MainWindow(QMainWindow):
         top_layout.setSpacing(8)
 
         shop_name = (self.db.get_setting("shop_name", "فروشگاه من") or "فروشگاه من").strip()
-        title_lbl = QLabel(bidi_isolate_text(shop_name))
+        title_lbl = QLabel(bidi_isolate_text(f"دقیق | {shop_name}"))
         self.lbl_store_name = title_lbl
         title_lbl.setStyleSheet(
             "color: #ffffff; font-size: 15px; font-weight: bold; "
@@ -1754,7 +2022,15 @@ class MainWindow(QMainWindow):
             if isinstance(item, dict) and item.get("name")
         }
         rendered = self._format_specs_for_display(specs, category)
-        return rendered.replace(" | ", "\n")
+        unique_lines = []
+        seen = set()
+        for line in rendered.replace(" | ", "\n").splitlines():
+            clean_line = line.strip()
+            key = normalize_catalog_label(clean_line)
+            if clean_line and key and key not in seen:
+                seen.add(key)
+                unique_lines.append(clean_line)
+        return "\n".join(unique_lines)
 
     def _filter_table_rows(self, table, query):
         query = normalize_digits(str(query or "")).strip().casefold()
@@ -2232,6 +2508,7 @@ class MainWindow(QMainWindow):
         self._populate_color_checklist(
             self.btn_batch_colors,
             self.catalog_config.get("colors") or DEFAULT_COLORS,
+            selected=[],
         )
 
         self.pr_batch_buy.valueChanged.connect(self._recalc_batch_suggested)
@@ -2365,11 +2642,7 @@ class MainWindow(QMainWindow):
             if value is not None and str(value).strip()
         ))
         known = {normalize_catalog_label(value) for value in values}
-        for value in selected or []:
-            key = normalize_catalog_label(value)
-            if key and key not in known:
-                values.append(str(value).strip())
-                known.add(key)
+        selected_keys.intersection_update(known)
         widget.blockSignals(True)
         widget.clear()
         widget.setSelectionMode(QAbstractItemView.NoSelection)
@@ -2413,6 +2686,7 @@ class MainWindow(QMainWindow):
         self._populate_color_checklist(
             self.btn_batch_colors,
             self.catalog_config.get("colors") or DEFAULT_COLORS,
+            selected=[],
         )
         self.ed_batch_serial.clear()
         self.tbl_batches.clearSelection()
@@ -2878,7 +3152,9 @@ class MainWindow(QMainWindow):
             params = (int(product["id"]),)
         query += " ORDER BY b.updated_at DESC, b.id DESC"
         with self.db.get_connection() as conn:
-            batch_rows = conn.execute(query, params).fetchall()
+            batch_rows = self._execute_scoped_query(
+                conn, query, "b.buyer_employee_id", parameters=params
+            ).fetchall()
 
         batches = [dict(row) for row in batch_rows]
         variant_labels = self._batch_variant_labels(batches)
@@ -2925,11 +3201,22 @@ class MainWindow(QMainWindow):
                 complete_specs, batch.get("category") or ""
             )
             if plain_batch_specs:
-                formatted_specs = "\n".join(
-                    part for part in (
-                        formatted_specs, "، ".join(plain_batch_specs)
-                    ) if part
-                )
+                existing_spec_lines = {
+                    normalize_catalog_label(line)
+                    for line in formatted_specs.splitlines() if line.strip()
+                }
+                unique_plain_specs = []
+                for token in plain_batch_specs:
+                    token_key = normalize_catalog_label(token)
+                    if token_key and token_key not in existing_spec_lines:
+                        existing_spec_lines.add(token_key)
+                        unique_plain_specs.append(token)
+                if unique_plain_specs:
+                    formatted_specs = "\n".join(
+                        part for part in (
+                            formatted_specs, "، ".join(unique_plain_specs)
+                        ) if part
+                    )
             color_text = "، ".join(self._decode_colors(batch.get("colors_json"))) or "-"
             full_tooltip = (
                 f"کد محموله: {batch['batch_code']}\n"
@@ -2977,7 +3264,12 @@ class MainWindow(QMainWindow):
     def _clear_sale_form(self):
         self.selected_sale_id = None
         self._set_generated_code_placeholder(self.ed_sale_inv, "sales", "invoice_number", "INV-")
-        self.cb_sale_prod.setCurrentIndex(0)
+        self.cb_sale_prod.blockSignals(True)
+        self.cb_sale_prod.setCurrentIndex(0 if self.cb_sale_prod.count() else -1)
+        self.cb_sale_prod.blockSignals(False)
+        self.cb_sale_batch.blockSignals(True)
+        self.cb_sale_batch.clear()
+        self.cb_sale_batch.blockSignals(False)
         self.cb_sale_seller.setCurrentIndex(-1)
         self.cb_sale_seller.clearEditText()
         self.ed_sale_customer.clear()
@@ -2993,8 +3285,8 @@ class MainWindow(QMainWindow):
         self.ed_sale_serial.clear()
         self.tbl_sales.clearSelection()
         self.cb_sale_qty.setCurrentText("1")
-        self._on_sale_prod_changed()
         self._on_sale_batch_changed()
+        self._populate_color_checklist(self.btn_sale_colors, [], selected=[])
         self.pr_sale_actual.set_value(0)
         self.pr_sale_paid.set_value(0)
         self.ed_sale_specs.clear()
@@ -3751,8 +4043,8 @@ class MainWindow(QMainWindow):
                 and self.cb_upg_part.currentData() is not None
             )
             self.chk_upg_consume_stock.setEnabled(is_batch)
-            if not is_batch:
-                self.chk_upg_consume_stock.setChecked(False)
+            # Keep the default checked state even when manual parts disable stock deduction.
+            # Manual parts have no batch inventory to consume, so the disabled flag is ignored.
 
     def _save_upgrade(self):
         t_id = self.cb_upg_target.currentData()
@@ -4290,8 +4582,19 @@ class MainWindow(QMainWindow):
         d_from = self.dt_rep_from.get_date()
         d_to = self.dt_rep_to.get_date()
         emp_id = self.cb_rep_emp.currentData()
-        if self._is_scoped_access() and self.active_employee:
-            emp_id = int(self.active_employee["id"])
+        visible_employee_ids = self._visible_employee_ids()
+        if visible_employee_ids is not None:
+            emp_id = None
+
+        def employee_is_visible(employee_id):
+            return (
+                visible_employee_ids is None
+                or (employee_id is not None and int(employee_id) in visible_employee_ids)
+            )
+
+        def service_is_visible(seller_id, technician_id):
+            return employee_is_visible(seller_id) or employee_is_visible(technician_id)
+
         cat = self.cb_rep_cat.currentText().strip()
         q_txt = self.ed_rep_search.text().strip().lower()
 
@@ -4362,7 +4665,8 @@ class MainWindow(QMainWindow):
                            sr.customer_name as party, 1 as qty, sr.service_fee as u_price,
                            sr.service_fee as sug_price, sr.side_cost as cost_total,
                            sr.service_fee as amt, sr.paid_amount as paid,
-                           sr.net_profit as prof, sr.settlement_status as st
+                           sr.net_profit as prof, sr.settlement_status as st,
+                           sr.technician_employee_id as technician_id
                     FROM service_records sr
                     JOIN service_catalog sc ON sc.id=sr.service_id
                     LEFT JOIN employees e ON sr.seller_employee_id=e.id
@@ -4374,6 +4678,11 @@ class MainWindow(QMainWindow):
                 for r in list(s_rows) + list(b_rows) + list(srv_rows):
                     d_only = (r["dt"] or "")[:10]
                     if not (d_from <= d_only <= d_to):
+                        continue
+                    if r["t_type"] == "خدمات":
+                        if not service_is_visible(r["emp_id"], r["technician_id"]):
+                            continue
+                    elif not employee_is_visible(r["emp_id"]):
                         continue
                     if emp_id and r["emp_id"] != emp_id:
                         continue
@@ -4482,6 +4791,8 @@ class MainWindow(QMainWindow):
                 for r in q:
                     dt = r["sale_datetime"][:10]
                     if not (d_from <= dt <= d_to):
+                        continue
+                    if not employee_is_visible(r["seller_employee_id"]):
                         continue
                     if emp_id and r["seller_employee_id"] != emp_id:
                         continue
@@ -4592,6 +4903,8 @@ class MainWindow(QMainWindow):
                 for r in q:
                     if not (d_from <= r["purchase_date"] <= d_to):
                         continue
+                    if not employee_is_visible(r["buyer_employee_id"]):
+                        continue
                     if emp_id and r["buyer_employee_id"] != emp_id:
                         continue
                     if cat and cat != "همه دسته‌ها" and r["category"] != cat:
@@ -4665,18 +4978,32 @@ class MainWindow(QMainWindow):
                     "سود تجمعی کالا (تومان)",
                     "وضعیت موجودی",
                 ]
-                q = conn.execute("""
+                if visible_employee_ids is None:
+                    batch_owner_filter = ""
+                    sale_owner_filter = ""
+                    product_scope_params = ()
+                elif visible_employee_ids:
+                    scope_ids = tuple(sorted(visible_employee_ids))
+                    scope_marks = ",".join("?" for _ in scope_ids)
+                    batch_owner_filter = f" AND b.buyer_employee_id IN ({scope_marks})"
+                    sale_owner_filter = f" AND s.seller_employee_id IN ({scope_marks})"
+                    product_scope_params = (*scope_ids, *scope_ids, *scope_ids, *scope_ids, *scope_ids)
+                else:
+                    batch_owner_filter = " AND 0=1"
+                    sale_owner_filter = " AND 0=1"
+                    product_scope_params = ()
+                q = conn.execute(f"""
                     SELECT p.id, p.code, p.name, p.category, p.sub_category, p.brand, p.model,
                            p.specs_json, p.description, p.reorder_point, p.default_profit_pct,
                            p.is_active, p.created_at, p.updated_at,
-                           COALESCE((SELECT SUM(initial_qty) FROM batches b WHERE b.product_id=p.id), 0) as init_qty,
-                           COALESCE((SELECT SUM(remaining_qty) FROM batches b WHERE b.product_id=p.id), 0) as rem_qty,
-                           COALESCE((SELECT SUM(sold_qty) FROM batches b WHERE b.product_id=p.id), 0) as s_qty,
-                           COALESCE((SELECT SUM(total_amount) FROM sales s WHERE s.product_id=p.id), 0) as prod_rev,
-                           COALESCE((SELECT SUM(total_profit) FROM sales s WHERE s.product_id=p.id), 0) as prod_prof
+                           COALESCE((SELECT SUM(initial_qty) FROM batches b WHERE b.product_id=p.id{batch_owner_filter}), 0) as init_qty,
+                           COALESCE((SELECT SUM(remaining_qty) FROM batches b WHERE b.product_id=p.id{batch_owner_filter}), 0) as rem_qty,
+                           COALESCE((SELECT SUM(sold_qty) FROM batches b WHERE b.product_id=p.id{batch_owner_filter}), 0) as s_qty,
+                           COALESCE((SELECT SUM(total_amount) FROM sales s WHERE s.product_id=p.id{sale_owner_filter}), 0) as prod_rev,
+                           COALESCE((SELECT SUM(total_profit) FROM sales s WHERE s.product_id=p.id{sale_owner_filter}), 0) as prod_prof
                     FROM products p
                     ORDER BY p.updated_at DESC, p.id DESC
-                """).fetchall()
+                """, product_scope_params).fetchall()
                 sum_stock, sum_prof = 0, 0
                 for r in q:
                     if cat and cat != "همه دسته‌ها" and r["category"] != cat:
@@ -4737,7 +5064,12 @@ class MainWindow(QMainWindow):
                     "سود خالص خدمات",
                     "مجموع سود ایجادی کاربر",
                 ]
-                emps = conn.execute("SELECT id, name, role, phone, is_active, permissions, password, created_at, updated_at FROM employees").fetchall()
+                emps = self._execute_scoped_query(
+                    conn,
+                    "SELECT id, name, role, phone, is_active, permissions, password, created_at, updated_at "
+                    "FROM employees ORDER BY updated_at DESC, id DESC",
+                    "id",
+                ).fetchall()
                 for e in emps:
                     if emp_id and e["id"] != emp_id:
                         continue
@@ -4801,7 +5133,7 @@ class MainWindow(QMainWindow):
                     "وضعیت تسویه",
                 ]
                 sum_receivable, sum_payable = 0, 0
-                for r in conn.execute("""
+                for r in self._execute_scoped_query(conn, """
                     SELECT s.id, s.invoice_number, s.product_id, s.batch_id, s.seller_employee_id,
                            s.customer_name, s.qty, s.returned_qty, s.suggested_unit_price,
                            s.actual_unit_price, s.unit_cost_price, s.unit_discount, s.total_discount,
@@ -4813,7 +5145,7 @@ class MainWindow(QMainWindow):
                            e.name as emp_name
                     FROM sales s JOIN products p ON s.product_id=p.id LEFT JOIN employees e ON s.seller_employee_id=e.id
                     WHERE s.settlement_status != 'تسویه‌شده'
-                """).fetchall():
+                """, "s.seller_employee_id").fetchall():
                     rem_amt = receivable_balance(
                         r["total_amount"], r["paid_amount"], r["settlement_status"]
                     )
@@ -4835,7 +5167,7 @@ class MainWindow(QMainWindow):
                             r["settlement_status"],
                         ]
                     )
-                for r in conn.execute("""
+                for r in self._execute_scoped_query(conn, """
                     SELECT b.id, b.batch_code, b.product_id, b.supplier_id, b.buyer_employee_id,
                            b.invoice_number, b.purchase_date, b.initial_qty, b.sold_qty, b.returned_qty,
                            b.remaining_qty, b.unit_purchase_price, b.extra_cost_total, b.upgrade_cost_unit,
@@ -4847,7 +5179,7 @@ class MainWindow(QMainWindow):
                     FROM batches b JOIN products p ON b.product_id=p.id
                     LEFT JOIN suppliers sup ON b.supplier_id=sup.id LEFT JOIN employees e ON b.buyer_employee_id=e.id
                     WHERE b.settlement_status != 'تسویه‌شده'
-                """).fetchall():
+                """, "b.buyer_employee_id").fetchall():
                     tot = (r["unit_purchase_price"] * r["initial_qty"]) + r["extra_cost_total"]
                     rem_amt = receivable_balance(
                         tot, r["paid_amount"], r["settlement_status"]
@@ -4870,7 +5202,7 @@ class MainWindow(QMainWindow):
                             r["settlement_status"],
                         ]
                     )
-                for r in conn.execute("""
+                for r in self._execute_scoped_query(conn, """
                     SELECT sr.id, sr.invoice_number, sr.service_id, sr.seller_employee_id,
                            sr.technician_employee_id, sr.service_type, sr.service_name,
                            sr.customer_name, sr.historical_tariff, sr.service_fee, sr.side_cost,
@@ -4879,7 +5211,7 @@ class MainWindow(QMainWindow):
                     FROM service_records sr
                     LEFT JOIN employees e ON sr.seller_employee_id=e.id
                     WHERE sr.settlement_status != 'تسویه‌شده'
-                """).fetchall():
+                """, "sr.seller_employee_id", "sr.technician_employee_id").fetchall():
                     rem_amt = receivable_balance(
                         r["service_fee"], r["paid_amount"], r["settlement_status"]
                     )
@@ -4938,6 +5270,10 @@ class MainWindow(QMainWindow):
                 for r in q:
                     dt = r["service_datetime"][:10]
                     if not (d_from <= dt <= d_to):
+                        continue
+                    if not service_is_visible(
+                        r["seller_employee_id"], r["technician_employee_id"]
+                    ):
                         continue
                     if emp_id and r["seller_employee_id"] != emp_id:
                         continue
@@ -5322,13 +5658,26 @@ class MainWindow(QMainWindow):
     # ۱۰. تب تنظیمات و پشتیبان‌گیری
     # =========================================================================
     def _init_tab_settings(self):
+        def labeled_field(caption, field_widget):
+            wrapper = QWidget()
+            wrapper.setLayoutDirection(Qt.RightToLeft)
+            field_layout = QVBoxLayout(wrapper)
+            field_layout.setContentsMargins(0, 0, 0, 0)
+            field_layout.setSpacing(3)
+            caption_label = QLabel(caption)
+            caption_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            caption_label.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+            field_layout.addWidget(caption_label)
+            field_layout.addWidget(field_widget)
+            return wrapper
+
         tab = QWidget()
         layout = QVBoxLayout(tab)
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(10)
         layout.setAlignment(Qt.AlignTop)
 
-        self.lbl_app_version = QLabel(f"نسخه برنامه: {APP_VERSION}")
+        self.lbl_app_version = QLabel(f"دقیق | نسخه برنامه: {APP_VERSION}")
         self.lbl_app_version.setObjectName("appVersion")
         self.lbl_app_version.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.lbl_app_version)
@@ -5387,6 +5736,37 @@ class MainWindow(QMainWindow):
         permissions_scroll.setWidget(permissions_container)
         permissions_scroll.setWidgetResizable(True)
         access_layout.addWidget(permissions_scroll, 4, 0, 1, 2)
+
+        scope_group = QGroupBox("دامنه مشاهده اطلاعات کاربران")
+        scope_layout = QGridLayout(scope_group)
+        self.cb_cfg_data_scope_mode = QComboBox()
+        self.cb_cfg_data_scope_mode.addItem("همه کاربران (دسترسی نامحدود)", "all")
+        self.cb_cfg_data_scope_mode.addItem("فقط اطلاعات خود کاربر", "self")
+        self.cb_cfg_data_scope_mode.addItem("بر اساس سطوح دسترسی منتخب", "access_levels")
+        self.cb_cfg_data_scope_mode.addItem("بر اساس کاربران منتخب", "users")
+        self.lst_cfg_scope_levels = SmoothScrollListWidget()
+        self.lst_cfg_scope_levels.setMaximumHeight(120)
+        self.lst_cfg_scope_users = SmoothScrollListWidget()
+        self.lst_cfg_scope_users.setMaximumHeight(120)
+        self.scope_levels_container = QWidget()
+        scope_levels_layout = QVBoxLayout(self.scope_levels_container)
+        scope_levels_layout.setContentsMargins(0, 0, 0, 0)
+        scope_levels_layout.addWidget(QLabel("سطوح دسترسی مجاز:"))
+        scope_levels_layout.addWidget(self.lst_cfg_scope_levels)
+        self.scope_users_container = QWidget()
+        scope_users_layout = QVBoxLayout(self.scope_users_container)
+        scope_users_layout.setContentsMargins(0, 0, 0, 0)
+        scope_users_layout.addWidget(QLabel("کاربران مجاز:"))
+        scope_users_layout.addWidget(self.lst_cfg_scope_users)
+        scope_layout.addWidget(QLabel("نوع دامنه:"), 0, 0)
+        scope_layout.addWidget(self.cb_cfg_data_scope_mode, 0, 1)
+        scope_layout.addWidget(self.scope_levels_container, 1, 0, 1, 2)
+        scope_layout.addWidget(self.scope_users_container, 2, 0, 1, 2)
+        access_layout.addWidget(scope_group, 5, 0, 1, 2)
+        self.cb_cfg_data_scope_mode.currentIndexChanged.connect(
+            self._on_data_scope_mode_changed
+        )
+        self._on_data_scope_mode_changed()
         self.cb_cfg_access_policy.currentIndexChanged.connect(
             self._on_permission_preset_changed
         )
@@ -5402,7 +5782,7 @@ class MainWindow(QMainWindow):
         access_buttons.addWidget(btn_add_access)
         access_buttons.addWidget(btn_edit_access)
         access_buttons.addWidget(btn_delete_access)
-        access_layout.addLayout(access_buttons, 5, 0, 1, 2)
+        access_layout.addLayout(access_buttons, 6, 0, 1, 2)
         self.cb_cfg_access_level.currentIndexChanged.connect(
             self._on_access_level_selected
         )
@@ -5473,10 +5853,8 @@ class MainWindow(QMainWindow):
         lbl_category_current.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         lbl_category_new = QLabel("نام جدید یا نام جایگزین:")
         lbl_category_new.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        categories_layout.addWidget(lbl_category_current)
-        categories_layout.addWidget(self.cb_cfg_category)
-        categories_layout.addWidget(lbl_category_new)
-        categories_layout.addWidget(self.ed_cfg_category)
+        categories_layout.addWidget(labeled_field("دسته‌بندی اصلی:", self.cb_cfg_category))
+        categories_layout.addWidget(labeled_field("نام جدید یا نام جایگزین:", self.ed_cfg_category))
         categories_layout.addLayout(cat_btn_row)
 
         gb_subcategories = QGroupBox("زیرمجموعه‌های دستهٔ انتخاب‌شده")
@@ -5504,8 +5882,7 @@ class MainWindow(QMainWindow):
         lbl_subcategory = QLabel("نام زیرمجموعه:")
         lbl_subcategory.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         sub_layout.addWidget(CollapsibleSection("فهرست زیرمجموعه‌ها", self.lst_cfg_subcategories))
-        sub_layout.addWidget(lbl_subcategory)
-        sub_layout.addWidget(self.ed_cfg_subcategory)
+        sub_layout.addWidget(labeled_field("نام زیرمجموعه:", self.ed_cfg_subcategory))
         sub_layout.addLayout(sub_btn_row)
 
         gb_attributes = QGroupBox("مشخصات فنی سفارشی")
@@ -5516,8 +5893,8 @@ class MainWindow(QMainWindow):
         self.lst_cfg_attributes = SmoothScrollListWidget()
         self.lst_cfg_attributes.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.lst_cfg_attributes.verticalScrollBar().setSingleStep(18)
-        self.lst_cfg_attributes.setMinimumHeight(92)
-        self.lst_cfg_attributes.setMaximumHeight(100)
+        self.lst_cfg_attributes.setMinimumHeight(140)
+        self.lst_cfg_attributes.setMaximumHeight(175)
         self.lst_cfg_attributes.setSizePolicy(
             QSizePolicy.Expanding, QSizePolicy.Fixed
         )
@@ -5551,11 +5928,9 @@ class MainWindow(QMainWindow):
         lbl_scope = QLabel("دامنه زیرمجموعه:")
         lbl_scope.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         lbl_scope.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
-        scope_row = QHBoxLayout()
-        scope_row.setSpacing(10)
-        scope_row.addWidget(lbl_scope)
-        scope_row.addWidget(self.cb_cfg_attribute_subcategory, 1)
-        attr_layout.addLayout(scope_row)
+        attr_layout.addWidget(
+            labeled_field("دامنه زیرمجموعه:", self.cb_cfg_attribute_subcategory)
+        )
 
         self.lst_cfg_attributes.currentItemChanged.connect(
             self._on_catalog_attribute_selected
@@ -5577,8 +5952,9 @@ class MainWindow(QMainWindow):
         lbl_attribute_list = QLabel("فهرست ویژگی‌های تعریف‌شده:")
         lbl_attribute_list.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         lbl_attribute_list.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
-        attr_layout.addWidget(lbl_attribute_list)
-        attr_layout.addWidget(self.lst_cfg_attributes)
+        attr_layout.addWidget(
+            CollapsibleSection("فهرست ویژگی‌های تعریف‌شده", self.lst_cfg_attributes)
+        )
 
         lbl_attribute_name = QLabel("نام ویژگی (فارسی):")
         lbl_attribute_name.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
@@ -5597,12 +5973,16 @@ class MainWindow(QMainWindow):
         attribute_grid.setVerticalSpacing(8)
         attribute_grid.setColumnStretch(1, 1)
         attribute_grid.setColumnStretch(3, 1)
-        attribute_grid.addWidget(lbl_attribute_name, 0, 0)
-        attribute_grid.addWidget(self.ed_cfg_attribute_name, 0, 1)
-        attribute_grid.addWidget(lbl_attribute_title, 0, 2)
-        attribute_grid.addWidget(self.ed_cfg_attribute_label, 0, 3)
-        attribute_grid.addWidget(lbl_attribute_values, 1, 0)
-        attribute_grid.addWidget(self.ed_cfg_attribute_values, 1, 1, 1, 3)
+        attribute_grid.addWidget(
+            labeled_field("نام ویژگی (فارسی):", self.ed_cfg_attribute_name), 0, 0, 1, 2
+        )
+        attribute_grid.addWidget(
+            labeled_field("عنوان نمایشی (انگلیسی، اختیاری):", self.ed_cfg_attribute_label),
+            0, 2, 1, 2,
+        )
+        attribute_grid.addWidget(
+            labeled_field("مقادیر پیشنهادی:", self.ed_cfg_attribute_values), 1, 0, 1, 4
+        )
         attribute_grid.addWidget(self.lbl_cfg_attribute_help, 2, 0, 1, 4)
         attribute_grid.addLayout(attr_btn_row, 3, 0, 1, 4)
         attr_layout.addLayout(attribute_grid)
@@ -5632,8 +6012,7 @@ class MainWindow(QMainWindow):
         lbl_color_name = QLabel("نام رنگ:")
         lbl_color_name.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         colors_layout.addWidget(CollapsibleSection("فهرست رنگ‌های تعریف‌شده", self.lst_cfg_colors))
-        colors_layout.addWidget(lbl_color_name)
-        colors_layout.addWidget(self.ed_cfg_color)
+        colors_layout.addWidget(labeled_field("نام رنگ:", self.ed_cfg_color))
         colors_layout.addLayout(color_btn_row)
 
         # Configure the per-category subcategory caption inline with the main categories.
@@ -5649,13 +6028,16 @@ class MainWindow(QMainWindow):
         self.cb_subcategory_caption_category.currentTextChanged.connect(
             self._load_subcategory_caption
         )
-        subcaption_row = QHBoxLayout()
-        subcaption_row.addWidget(QLabel("عنوان فیلد زیرمجموعه:"))
+        subcaption_editor = QWidget()
+        subcaption_row = QHBoxLayout(subcaption_editor)
+        subcaption_row.setContentsMargins(0, 0, 0, 0)
         subcaption_row.addWidget(self.ed_subcategory_caption, 1)
         btn_save_subcaption = QPushButton("ذخیره")
         btn_save_subcaption.clicked.connect(self._save_subcategory_caption)
         subcaption_row.addWidget(btn_save_subcaption)
-        categories_layout.addLayout(subcaption_row)
+        categories_layout.addWidget(
+            labeled_field("عنوان فیلد زیرمجموعه:", subcaption_editor)
+        )
         categories_layout.addWidget(self.cb_subcategory_caption_category)
 
         catalog_grid.setContentsMargins(8, 8, 8, 8)
@@ -5669,6 +6051,8 @@ class MainWindow(QMainWindow):
             frame.setMinimumHeight(440)
             frame.setMaximumHeight(440)
             frame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        gb_attributes.setMinimumHeight(480)
+        gb_attributes.setMaximumHeight(480)
 
         catalog_grid.addWidget(gb_categories, 0, 0)
         catalog_grid.addWidget(gb_subcategories, 0, 1)
@@ -5716,9 +6100,12 @@ class MainWindow(QMainWindow):
         service_type_buttons.addWidget(btn_delete_service_type)
         lbl_service_type = QLabel("نام نوع خدمت:")
         lbl_service_type.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        service_types_layout.addWidget(self.lst_cfg_service_types)
-        service_types_layout.addWidget(lbl_service_type)
-        service_types_layout.addWidget(self.ed_cfg_service_type)
+        service_types_layout.addWidget(
+            CollapsibleSection("فهرست انواع خدمت", self.lst_cfg_service_types)
+        )
+        service_types_layout.addWidget(
+            labeled_field("نام نوع خدمت:", self.ed_cfg_service_type)
+        )
         service_types_layout.addLayout(service_type_buttons)
         service_page_layout.addWidget(gb_service_types)
         service_page_layout.addStretch()
@@ -6875,7 +7262,6 @@ class MainWindow(QMainWindow):
             ]
             self.db.cfg["recent_databases"] = [target_path] + recents
             self.db.init_db()
-            self.db._migrate_legacy_application_settings()
         except Exception as exc:
             self.db.db_path = previous_path
             self.db.cfg = previous_config
@@ -6896,7 +7282,7 @@ class MainWindow(QMainWindow):
         save_app_config(self.db.cfg)
         shop_name = (self.db.get_setting("shop_name", "فروشگاه من") or "فروشگاه من").strip()
         self.setWindowTitle(_window_title(shop_name))
-        self.lbl_store_name.setText(bidi_isolate_text(shop_name))
+        self.lbl_store_name.setText(bidi_isolate_text(f"دقیق | {shop_name}"))
         self.lbl_store_name.setToolTip(f"نام فروشگاه: {shop_name}")
 
         self.catalog_config = self._effective_product_catalog_config()
@@ -7127,7 +7513,7 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle(_window_title(shop_name))
         if hasattr(self, "lbl_store_name"):
-            self.lbl_store_name.setText(bidi_isolate_text(shop_name))
+            self.lbl_store_name.setText(bidi_isolate_text(f"دقیق | {shop_name}"))
             self.lbl_store_name.setToolTip(f"نام فروشگاه: {shop_name}")
 
         self._apply_product_catalog_config()
@@ -7214,19 +7600,28 @@ class MainWindow(QMainWindow):
             emps = conn.execute(
                 "SELECT id, name, role, phone, is_active, permissions, password, created_at, updated_at FROM employees WHERE is_active=1 ORDER BY updated_at DESC, id DESC"
             ).fetchall()
-            if self._is_scoped_access() and self.active_employee:
-                active_id = int(self.active_employee["id"])
-                emps = [employee for employee in emps if int(employee["id"]) == active_id]
-            if self._is_scoped_access() and self.active_employee:
-                sups = conn.execute(
-                    """SELECT DISTINCT s.id, s.name, s.phone, s.address, s.notes, s.created_at, s.updated_at FROM suppliers s
-                       JOIN batches b ON b.supplier_id=s.id
-                       WHERE b.buyer_employee_id=? ORDER BY s.updated_at DESC, s.id DESC""",
-                    (int(self.active_employee["id"]),),
-                ).fetchall()
+            visible_employee_ids = self._visible_employee_ids()
+            if visible_employee_ids is not None:
+                emps = [
+                    employee for employee in emps
+                    if int(employee["id"]) in visible_employee_ids
+                ]
+                if visible_employee_ids:
+                    allowed_ids = tuple(sorted(visible_employee_ids))
+                    marks = ",".join("?" for _ in allowed_ids)
+                    sups = conn.execute(
+                        f"""SELECT DISTINCT s.id, s.name, s.phone, s.address, s.notes, s.created_at, s.updated_at
+                            FROM suppliers s JOIN batches b ON b.supplier_id=s.id
+                            WHERE b.buyer_employee_id IN ({marks})
+                            ORDER BY s.updated_at DESC, s.id DESC""",
+                        allowed_ids,
+                    ).fetchall()
+                else:
+                    sups = []
             else:
                 sups = conn.execute(
-                    "SELECT id, name, phone, address, notes, created_at, updated_at FROM suppliers ORDER BY updated_at DESC, id DESC"
+                    "SELECT id, name, phone, address, notes, created_at, updated_at "
+                    "FROM suppliers ORDER BY updated_at DESC, id DESC"
                 ).fetchall()
             srvs = conn.execute(
                 """SELECT id, code, service_type, name, default_fee, default_side_cost, description,
@@ -7246,10 +7641,14 @@ class MainWindow(QMainWindow):
                 ORDER BY b.updated_at DESC, b.id DESC
             """
             ).fetchall()
+            if visible_employee_ids is not None:
+                batches = [
+                    batch for batch in batches
+                    if batch["buyer_employee_id"] is not None
+                    and int(batch["buyer_employee_id"]) in visible_employee_ids
+                ]
             sale_product_ids = {
-                row["product_id"] for row in conn.execute(
-                    "SELECT DISTINCT product_id FROM batches WHERE remaining_qty > 0"
-                ).fetchall()
+                row["product_id"] for row in batches if int(row["remaining_qty"] or 0) > 0
             }
 
         # بند ۳: قرار دادن دسته‌بندی و زیرگروه در متن آیتم‌های کمبوباکس کالا برای جست‌وجوی مستقیم (مثلاً تایپ «کیبورد»)
@@ -7419,16 +7818,20 @@ class MainWindow(QMainWindow):
     def _refresh_products_table(self):
         q = self.ed_prod_search.text().strip().lower()
         with self.db.get_connection() as conn:
-            rows = conn.execute("""
+            batch_scope, scope_params = self._employee_scope_filter("b.buyer_employee_id")
+            batch_join = "LEFT JOIN batches b ON p.id = b.product_id"
+            if batch_scope is not None:
+                batch_join += f" AND {batch_scope}"
+            rows = conn.execute(f"""
                 SELECT p.id, p.code, p.name, p.category, p.sub_category, p.brand, p.model,
                        p.specs_json, p.description, p.reorder_point, p.default_profit_pct,
                        p.is_active, p.created_at, p.updated_at,
                        COALESCE(SUM(b.remaining_qty), 0) as rem_qty,
                        COALESCE(SUM(b.sold_qty), 0) as sold_qty
                 FROM products p
-                LEFT JOIN batches b ON p.id = b.product_id
+                {batch_join}
                 GROUP BY p.id ORDER BY p.updated_at DESC, p.id DESC
-            """).fetchall()
+            """, scope_params).fetchall()
 
         data = []
         for r in rows:
@@ -7464,7 +7867,7 @@ class MainWindow(QMainWindow):
 
     def _refresh_batches_table(self):
         with self.db.get_connection() as conn:
-            rows = conn.execute("""
+            rows = self._execute_scoped_query(conn, """
                 SELECT b.id, b.batch_code, b.product_id, b.supplier_id, b.buyer_employee_id,
                        b.invoice_number, b.purchase_date, b.initial_qty, b.sold_qty, b.returned_qty,
                        b.remaining_qty, b.unit_purchase_price, b.extra_cost_total, b.upgrade_cost_unit,
@@ -7478,7 +7881,7 @@ class MainWindow(QMainWindow):
                 LEFT JOIN suppliers sup ON b.supplier_id=sup.id
                 LEFT JOIN employees e ON b.buyer_employee_id=e.id
                 ORDER BY b.updated_at DESC, b.id DESC
-            """).fetchall()
+            """, "b.buyer_employee_id").fetchall()
         data = []
         for r in rows:
             tot_bill = (r["unit_purchase_price"] * r["initial_qty"]) + r["extra_cost_total"]
@@ -7508,7 +7911,7 @@ class MainWindow(QMainWindow):
                     r["settlement_status"],
                     f"{r['paid_amount']:,}",
                     f"{debt:,}",
-                    f"{r['final_specs']} {r['serial_numbers']}".strip(),
+                    f"{r['initial_specs']} {r['serial_numbers']}".strip(),
                     f"{tot_bill:,}",
                     "، ".join(self._decode_colors(r["colors_json"])) or "-",
                 ]
@@ -7517,7 +7920,7 @@ class MainWindow(QMainWindow):
 
     def _refresh_sales_table(self):
         with self.db.get_connection() as conn:
-            rows = conn.execute("""
+            rows = self._execute_scoped_query(conn, """
                 SELECT s.id, s.invoice_number, s.product_id, s.batch_id, s.seller_employee_id,
                        s.customer_name, s.qty, s.returned_qty, s.suggested_unit_price,
                        s.actual_unit_price, s.unit_cost_price, s.unit_discount, s.total_discount,
@@ -7533,7 +7936,7 @@ class MainWindow(QMainWindow):
                 JOIN batches b ON s.batch_id=b.id
                 LEFT JOIN employees e ON s.seller_employee_id=e.id
                 ORDER BY s.updated_at DESC, s.id DESC
-            """).fetchall()
+            """, "s.seller_employee_id").fetchall()
         data = []
         for r in rows:
             war_str = (
@@ -7582,7 +7985,7 @@ class MainWindow(QMainWindow):
 
     def _refresh_upgrades_table(self):
         with self.db.get_connection() as conn:
-            rows = conn.execute("""
+            rows = self._execute_scoped_query(conn, """
                 SELECT u.id, u.target_batch_id, u.part_batch_id, u.technician_id, u.target_qty,
                        u.part_qty_used, u.stock_deducted_qty, u.part_unit_cost, u.labor_cost_unit,
                        u.added_cost_unit, u.upgrade_date, u.serial_number, u.manual_part_description,
@@ -7607,7 +8010,7 @@ class MainWindow(QMainWindow):
                 LEFT JOIN suppliers sup2 ON b2.supplier_id=sup2.id
                 LEFT JOIN employees e ON u.technician_id=e.id
                 ORDER BY u.updated_at DESC, u.id DESC
-            """).fetchall()
+            """, "u.technician_id", "b1.buyer_employee_id").fetchall()
         data = []
         for r in rows:
             data.append(
@@ -7642,7 +8045,7 @@ class MainWindow(QMainWindow):
                 """SELECT id, code, service_type, name, default_fee, default_side_cost, description,
                       is_active, created_at, updated_at FROM service_catalog WHERE is_active=1 ORDER BY updated_at DESC, id DESC"""
             ).fetchall()
-            rec_rows = conn.execute("""
+            rec_rows = self._execute_scoped_query(conn, """
                 SELECT sr.id, sr.invoice_number, sr.service_id, sr.seller_employee_id,
                        sr.technician_employee_id, sr.service_type, sr.service_name,
                        sr.customer_name, sr.historical_tariff, sr.service_fee, sr.side_cost,
@@ -7651,7 +8054,7 @@ class MainWindow(QMainWindow):
                 FROM service_records sr
                 LEFT JOIN employees e ON sr.seller_employee_id=e.id
                 ORDER BY sr.updated_at DESC, sr.id DESC
-            """).fetchall()
+            """, "sr.seller_employee_id", "sr.technician_employee_id").fetchall()
 
         cat_data = [
             [
@@ -7694,7 +8097,7 @@ class MainWindow(QMainWindow):
 
     def _refresh_suppliers_table(self):
         with self.db.get_connection() as conn:
-            rows = conn.execute("""
+            rows = self._execute_scoped_query(conn, """
                 SELECT s.id, s.name, s.phone, s.address, s.notes, s.created_at, s.updated_at,
                        COUNT(b.id) as b_cnt,
                        COALESCE(SUM(b.unit_purchase_price*b.initial_qty + b.extra_cost_total), 0) as tot_buy,
@@ -7715,7 +8118,7 @@ class MainWindow(QMainWindow):
                 LEFT JOIN batches b ON s.id = b.supplier_id
                 GROUP BY s.id
                 ORDER BY s.updated_at DESC, s.id DESC
-            """).fetchall()
+            """, "b.buyer_employee_id").fetchall()
         data = []
         for r in rows:
             debt = int(r["tot_debt"] or 0)
@@ -7735,8 +8138,11 @@ class MainWindow(QMainWindow):
 
     def _refresh_employees_table(self):
         with self.db.get_connection() as conn:
-            rows = conn.execute(
-                "SELECT id, name, role, phone, is_active, permissions, password, created_at, updated_at FROM employees ORDER BY updated_at DESC, id DESC"
+            rows = self._execute_scoped_query(
+                conn,
+                "SELECT id, name, role, phone, is_active, permissions, password, created_at, updated_at "
+                "FROM employees ORDER BY updated_at DESC, id DESC",
+                "id",
             ).fetchall()
         data = [
             [
@@ -7754,54 +8160,91 @@ class MainWindow(QMainWindow):
 
     def _refresh_dashboard(self):
         today = jdatetime.date.today().strftime("%Y/%m/%d")
-        scoped = self._is_scoped_access() and bool(self.active_employee)
-        permissions = self._permission_policy(self.active_employee.get("permissions") or "") if scoped else ""
-        own_id = int(self.active_employee["id"]) if scoped else None
+        visible_employee_ids = self._visible_employee_ids()
+        scoped = visible_employee_ids is not None
+        permissions = self._permission_policy(self.active_employee.get("permissions") or "") if scoped and self.active_employee else ""
         sales_role = "فروش و خدمات" in permissions
         warehouse_role = "ثبت خرید و انبارداری" in permissions
 
         with self.db.get_connection() as conn:
             if scoped:
-                # Restricted accounts receive aggregates for their own employee ID only.
-                if warehouse_role:
-                    sales_today = {"cnt": 0, "amt": 0, "prof": 0}
-                    service_profit_today = 0
-                else:
-                    sales_today = conn.execute(
-                        """SELECT COUNT(*) AS cnt, COALESCE(SUM(total_amount),0) AS amt,
-                           COALESCE(SUM(total_profit),0) AS prof
-                           FROM sales
-                           WHERE substr(sale_datetime,1,10)=? AND seller_employee_id=?""",
-                        (today, own_id),
-                    ).fetchone()
-                    service_profit_today = conn.execute(
-                        """SELECT COALESCE(SUM(net_profit),0)
-                           FROM service_records
-                           WHERE substr(service_datetime,1,10)=?
-                           AND (seller_employee_id=? OR technician_employee_id=?)""",
-                        (today, own_id, own_id),
+                ids = tuple(sorted(visible_employee_ids))
+                if ids:
+                    marks = ",".join("?" for _ in ids)
+                    sales_today = (
+                        {"cnt": 0, "amt": 0, "prof": 0}
+                        if warehouse_role else conn.execute(
+                            f"""SELECT COUNT(*) AS cnt,
+                                COALESCE(SUM(total_amount),0) AS amt,
+                                COALESCE(SUM(total_profit),0) AS prof
+                                FROM sales
+                                WHERE substr(sale_datetime,1,10)=?
+                                  AND seller_employee_id IN ({marks})""",
+                            (today, *ids),
+                        ).fetchone()
+                    )
+                    service_profit_today = (
+                        0 if warehouse_role else conn.execute(
+                            f"""SELECT COALESCE(SUM(net_profit),0)
+                                FROM service_records
+                                WHERE substr(service_datetime,1,10)=?
+                                  AND (seller_employee_id IN ({marks})
+                                       OR technician_employee_id IN ({marks}))""",
+                            (today, *ids, *ids),
+                        ).fetchone()[0]
+                    )
+                    purchase_today = (
+                        0 if sales_role else conn.execute(
+                            f"""SELECT COALESCE(SUM(unit_purchase_price*initial_qty+extra_cost_total),0)
+                                FROM batches WHERE purchase_date=? AND buyer_employee_id IN ({marks})""",
+                            (today, *ids),
+                        ).fetchone()[0]
+                    )
+                    employee_performance = conn.execute(
+                        f"""SELECT e.name, COUNT(s.id) AS cnt,
+                            COALESCE(SUM(s.total_amount),0) AS amt,
+                            COALESCE(SUM(s.total_discount),0) AS disc,
+                            COALESCE(SUM(s.total_profit),0) AS prof
+                            FROM employees e LEFT JOIN sales s ON e.id=s.seller_employee_id
+                            WHERE e.id IN ({marks}) GROUP BY e.id
+                            ORDER BY e.name COLLATE NOCASE""",
+                        ids,
+                    ).fetchall()
+                    total_stock = conn.execute(
+                        f"SELECT COALESCE(SUM(remaining_qty),0) FROM batches WHERE buyer_employee_id IN ({marks})",
+                        ids,
                     ).fetchone()[0]
-
-                purchase_today = 0 if sales_role else conn.execute(
-                    """SELECT COALESCE(SUM(unit_purchase_price*initial_qty+extra_cost_total),0)
-                       FROM batches WHERE purchase_date=? AND buyer_employee_id=?""",
-                    (today, own_id),
-                ).fetchone()[0]
-
-                employee_performance = conn.execute(
-                    """SELECT e.name, COUNT(s.id) AS cnt,
-                       COALESCE(SUM(s.total_amount),0) AS amt,
-                       COALESCE(SUM(s.total_discount),0) AS disc,
-                       COALESCE(SUM(s.total_profit),0) AS prof
-                       FROM employees e LEFT JOIN sales s ON e.id=s.seller_employee_id
-                       WHERE e.id=? GROUP BY e.id""",
-                    (own_id,),
-                ).fetchall()
-
-                # Do not even query global stock, low-stock, or supplier-debt figures.
-                low_products = []
-                total_stock = None
-                supplier_debt = None
+                    supplier_debt = conn.execute(
+                        f"""SELECT COALESCE(SUM(CASE
+                            WHEN settlement_status IN ('تسویه جزئی', 'تسویه‌نشده')
+                            THEN MAX(0, unit_purchase_price*initial_qty
+                                     + COALESCE(extra_cost_total,0)-COALESCE(paid_amount,0))
+                            ELSE 0 END),0)
+                            FROM batches WHERE buyer_employee_id IN ({marks})""",
+                        ids,
+                    ).fetchone()[0]
+                    low_products = conn.execute(
+                        f"""SELECT p.code,p.category,p.sub_category,p.brand,p.model,p.specs_json,p.reorder_point,
+                            COALESCE(SUM(b.remaining_qty),0) AS rem,
+                            COALESCE((
+                                SELECT GROUP_CONCAT(batch_code, ', ')
+                                FROM (
+                                    SELECT batch_code FROM batches b2
+                                    WHERE b2.product_id=p.id AND b2.buyer_employee_id IN ({marks})
+                                    ORDER BY b2.updated_at DESC, b2.id DESC
+                                )
+                            ), '') AS batch_codes
+                            FROM products p LEFT JOIN batches b
+                              ON b.product_id=p.id AND b.buyer_employee_id IN ({marks})
+                            GROUP BY p.id HAVING rem<=p.reorder_point
+                            ORDER BY p.updated_at DESC, p.id DESC""",
+                        (*ids, *ids),
+                    ).fetchall()
+                else:
+                    sales_today = {"cnt": 0, "amt": 0, "prof": 0}
+                    service_profit_today = purchase_today = total_stock = supplier_debt = 0
+                    employee_performance = []
+                    low_products = []
             else:
                 sales_today = conn.execute(
                     """SELECT COUNT(*) AS cnt, COALESCE(SUM(total_amount),0) AS amt,
@@ -7879,18 +8322,15 @@ class MainWindow(QMainWindow):
             )
         self.lbl_dash_count_today.setText(str(sales_today["cnt"]))
 
-        if scoped:
-            self.lbl_dash_total_stock.setText("—")
-            self.lbl_dash_low_stock.setText("—")
-            self.lbl_dash_unpaid_supplier.setText("—")
-        else:
-            self.lbl_dash_total_stock.setText(f"{int(total_stock):,}")
-            self.lbl_dash_low_stock.setText(str(len(low_products)))
-            self.lbl_dash_unpaid_supplier.setText(f"{max(0, int(supplier_debt)):,}")
-            self.lbl_dash_unpaid_supplier.setStyleSheet(
-                "color: #dc2626; background: transparent; "
-                "font-size: 18px; font-weight: bold;"
-            )
+        self.lbl_dash_total_stock.setText("—" if total_stock is None else f"{int(total_stock):,}")
+        self.lbl_dash_low_stock.setText("—" if low_products is None else str(len(low_products)))
+        self.lbl_dash_unpaid_supplier.setText(
+            "—" if supplier_debt is None else f"{max(0, int(supplier_debt)):,}"
+        )
+        self.lbl_dash_unpaid_supplier.setStyleSheet(
+            "color: #dc2626; background: transparent; "
+            "font-size: 18px; font-weight: bold;"
+        )
 
         low_data = []
         for row in low_products:

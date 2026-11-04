@@ -46,8 +46,9 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
     window = MainWindow(manager, active_employee=None)
     try:
         assert window.tabs.count() == 10
+        assert window.chk_upg_consume_stock.isChecked()
         assert window.tabs.tabText(9).endswith("تنظیمات")
-        assert window.lbl_app_version.text() == "نسخه برنامه: 2.0.0"
+        assert window.lbl_app_version.text() == "دقیق | نسخه برنامه: 3.0.0"
         assert [window.catalog_tabs.tabText(i) for i in range(window.catalog_tabs.count())] == [
             "مدیریت کالاها",
             "مدیریت خدمات",
@@ -62,7 +63,7 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
         assert not window.inventory_export_column_checks["purchase_unit_price"].isChecked()
         assert not window.inventory_export_column_checks["unit_cost_price"].isChecked()
         assert not window.inventory_export_column_checks["profit_pct"].isChecked()
-        assert window.lbl_store_name.text().strip("\u2067\u2069") == "فروشگاه من"
+        assert window.lbl_store_name.text().strip("\u2067\u2069") == "دقیق | فروشگاه من"
         assert "مدیریت فروش" not in window.lbl_store_name.text()
         assert window.lbl_active_user.text().startswith("👤 کاربر:")
         assert window.lbl_live_clock.minimumWidth() >= 170
@@ -77,8 +78,14 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
         assert window.lbl_active_user.sizePolicy().horizontalPolicy() == QSizePolicy.Preferred
         assert window.lbl_active_db_path.layoutDirection() == Qt.LeftToRight
         assert window.lbl_active_db_path.alignment() & Qt.AlignLeft
-        assert window.lst_cfg_attributes.minimumHeight() >= 92
+        assert window.lst_cfg_attributes.minimumHeight() >= 140
+        attribute_section = window.lst_cfg_attributes.parentWidget()
+        assert attribute_section.header.objectName() == "collapsibleSectionHeader"
+        assert window.lst_cfg_attributes.isHidden()
+        attribute_section.header.click()
         assert not window.lst_cfg_attributes.isHidden()
+        attribute_section.header.click()
+        assert window.lst_cfg_attributes.isHidden()
         assert window.btn_theme.isEnabled()
         assert window.btn_table_width.isEnabled()
         assert window.tbl_batches.columnCount() >= 22
@@ -306,8 +313,9 @@ def test_database_refresh_keeps_services_suppliers_and_password_status_visible(
                 reopened_manager, active_employee=login.logged_employee
             )
             try:
-                assert protected_window.cb_sale_prod.count() == 2
-                assert protected_window.cb_sale_batch.count() == 2
+                # A self-scoped user without owned shipments must not see global sale stock.
+                assert protected_window.cb_sale_prod.count() == 1
+                assert protected_window.cb_sale_batch.count() == 0
                 assert "کاربر بدون رمز" in protected_window.lbl_active_user.text()
                 protected_employee_row = next(
                     row for row in range(protected_window.tbl_employees.rowCount())
