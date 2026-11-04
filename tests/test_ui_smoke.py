@@ -1377,6 +1377,12 @@ def test_table_headers_toggle_smart_sort_and_financial_colors(tmp_path, monkeypa
         assert table.item(1, 1).text() == "100"
         assert table.item(2, 1).text() == "1,200"
 
+        # Switching back to a previously sorted column starts a fresh ascending sort.
+        table.horizontalHeader().sectionClicked.emit(0)
+        assert table.item(0, 0).text() == "S-1"
+        table.horizontalHeader().sectionClicked.emit(0)
+        assert table.item(0, 0).text() == "S-12"
+
         assert main_module._smart_table_sort_key("S-2") < main_module._smart_table_sort_key("S-12")
         assert main_module._smart_table_sort_key("۱۴۰۵/۰۱/۰۲") < main_module._smart_table_sort_key("۱۴۰۵/۰۱/۱۲")
         assert main_module._smart_table_sort_key("250 تومان") < main_module._smart_table_sort_key("1,200 تومان")
