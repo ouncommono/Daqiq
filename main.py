@@ -76,7 +76,7 @@ from exporter import (
     get_next_excel_filename,
 )
 
-APP_VERSION = "3.3.0"
+APP_VERSION = "3.4.0"
 
 DEFAULT_ACCESS_LEVELS = [
     {"name": "دسترسی کامل (مدیر کل)", "policy": "دسترسی کامل (مدیر کل)"},
@@ -6676,12 +6676,12 @@ class MainWindow(QMainWindow):
             "VRAM": ("حافظه گرافیکی", "VRAM"),
         }
         default_display_titles = {
-            "پردازنده": "CPU", "ظرفیت رم": "RAM", "نسل رم": "RAM Type",
+            "پردازنده": "CPU", "ظرفیت رم": "RAM", "نسل رم": "Memory Type",
             "حافظه داخلی": "Storage", "پردازنده گرافیکی": "GPU",
             "صفحه‌نمایش": "Display", "نوع پنل": "Panel",
             "نرخ نوسازی": "Refresh Rate", "درگاه‌ها": "Ports",
             "ظرفیت": "Capacity", "نوع رابط": "Interface", "نوع سوکت": "Socket",
-            "نوع اتصال / پورت": "Connectivity", "مشخصه": "Specification",
+            "نوع اتصال / پورت": "Connectivity", "مشخصه": "Additional Details",
             "سایز": "Size", "ولتاژ": "Voltage", "آمپر و توان": "Current / Power",
             "استاندارد شبکه": "Network Standard", "فناوری چاپ": "Print Technology",
             "نوع چاپ": "Print Color", "توان طراحی حرارتی": "TDP",
@@ -6704,13 +6704,14 @@ class MainWindow(QMainWindow):
                 current_label = str(definition.get("label") or "").strip()
                 if (
                     not current_label
+                    or current_label.casefold() == "specification"
                     or (
                         not re.search(r"[A-Za-z]", current_label)
                         and not current_label.startswith("@")
                     )
                 ):
                     definition["label"] = (
-                        default_display_titles.get(current_name, "Specification")
+                        default_display_titles.get(current_name, "Additional Details")
                     )
         self._merge_builtin_product_features_into_draft()
         self._merge_persisted_product_spec_fields_into_draft()
