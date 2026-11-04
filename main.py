@@ -474,7 +474,7 @@ class LoginDialog(QDialog):
         self.cb_emp = SearchableComboBox()
         with self.db.get_connection() as conn:
             emps = conn.execute(
-                "SELECT * FROM employees WHERE is_active=1 ORDER BY updated_at DESC, id DESC"
+                "SELECT id, name, role, phone, is_active, permissions, password, created_at, updated_at FROM employees WHERE is_active=1 ORDER BY updated_at DESC, id DESC"
             ).fetchall()
             for employee in emps:
                 self.cb_emp.addItem(
@@ -720,7 +720,7 @@ def _resolve_startup_employee(db, parent=None):
     """Select a user at startup whenever there are multiple accounts or any account requires a password."""
     with db.get_connection() as conn:
         employees = conn.execute(
-            "SELECT * FROM employees WHERE is_active=1 ORDER BY updated_at DESC, id DESC"
+            "SELECT id, name, role, phone, is_active, permissions, password, created_at, updated_at FROM employees WHERE is_active=1 ORDER BY updated_at DESC, id DESC"
         ).fetchall()
     if not employees:
         return None, True
@@ -2827,7 +2827,13 @@ class MainWindow(QMainWindow):
 
         all_products = bool(product.get("_all_products"))
         query = """
-            SELECT b.*, p.code AS p_code, p.category, p.sub_category, p.brand, p.model,
+            SELECT b.id, b.batch_code, b.product_id, b.supplier_id, b.buyer_employee_id,
+                       b.invoice_number, b.purchase_date, b.initial_qty, b.sold_qty, b.returned_qty,
+                       b.remaining_qty, b.unit_purchase_price, b.extra_cost_total, b.upgrade_cost_unit,
+                       b.unit_cost_price, b.suggested_sell_price, b.profit_pct, b.paid_amount,
+                       b.settlement_status, b.serial_numbers, b.colors_json, b.initial_specs,
+                       b.final_specs, b.supplier_name_snapshot, b.notes, b.created_at, b.updated_at,
+                       p.code AS p_code, p.category, p.sub_category, p.brand, p.model,
                    p.specs_json AS product_specs_json, p.description AS product_description
             FROM batches b
             JOIN products p ON p.id=b.product_id
@@ -4406,8 +4412,16 @@ class MainWindow(QMainWindow):
                     "مشخصات فنی",
                 ]
                 q = conn.execute("""
-                    SELECT s.*, p.code, p.category, p.sub_category, p.brand, p.model,
-                           b.batch_code, b.final_specs, b.initial_specs, e.name as emp_name
+                    SELECT s.id, s.invoice_number, s.product_id, s.batch_id, s.seller_employee_id,
+                           s.customer_name, s.qty, s.returned_qty, s.suggested_unit_price,
+                           s.actual_unit_price, s.unit_cost_price, s.unit_discount, s.total_discount,
+                           s.price_Markup_unit, s.unit_profit, s.total_profit, s.total_amount,
+                           s.paid_amount, s.settlement_status, s.sale_datetime, s.warranty_company,
+                           s.warranty_start, s.warranty_months, s.warranty_days, s.warranty_end,
+                           s.serial_number, s.specifications, s.colors_json, s.notes,
+                           s.created_at, s.updated_at, p.code, p.category, p.sub_category,
+                           p.brand, p.model, b.batch_code, b.final_specs, b.initial_specs,
+                           e.name as emp_name
                     FROM sales s
                     JOIN products p ON s.product_id=p.id
                     JOIN batches b ON s.batch_id=b.id
@@ -4509,7 +4523,13 @@ class MainWindow(QMainWindow):
                     "مشخصات / توضیحات",
                 ]
                 q = conn.execute("""
-                    SELECT b.*, p.code, p.category, p.sub_category, p.brand, p.model,
+                    SELECT b.id, b.batch_code, b.product_id, b.supplier_id, b.buyer_employee_id,
+                           b.invoice_number, b.purchase_date, b.initial_qty, b.sold_qty, b.returned_qty,
+                           b.remaining_qty, b.unit_purchase_price, b.extra_cost_total, b.upgrade_cost_unit,
+                           b.unit_cost_price, b.suggested_sell_price, b.profit_pct, b.paid_amount,
+                           b.settlement_status, b.serial_numbers, b.colors_json, b.initial_specs,
+                           b.final_specs, b.supplier_name_snapshot, b.notes, b.created_at, b.updated_at,
+                           p.code, p.category, p.sub_category, p.brand, p.model,
                            COALESCE(sup.name,b.supplier_name_snapshot) as sup_name, e.name as emp_name,
                            COALESCE((SELECT SUM(total_profit) FROM sales s WHERE s.batch_id=b.id), 0) as batch_profit
                     FROM batches b
@@ -4596,7 +4616,9 @@ class MainWindow(QMainWindow):
                     "وضعیت موجودی",
                 ]
                 q = conn.execute("""
-                    SELECT p.*,
+                    SELECT p.id, p.code, p.name, p.category, p.sub_category, p.brand, p.model,
+                           p.specs_json, p.description, p.reorder_point, p.default_profit_pct,
+                           p.is_active, p.created_at, p.updated_at,
                            COALESCE((SELECT SUM(initial_qty) FROM batches b WHERE b.product_id=p.id), 0) as init_qty,
                            COALESCE((SELECT SUM(remaining_qty) FROM batches b WHERE b.product_id=p.id), 0) as rem_qty,
                            COALESCE((SELECT SUM(sold_qty) FROM batches b WHERE b.product_id=p.id), 0) as s_qty,
@@ -4665,7 +4687,7 @@ class MainWindow(QMainWindow):
                     "سود خالص خدمات",
                     "مجموع سود ایجادی کاربر",
                 ]
-                emps = conn.execute("SELECT * FROM employees").fetchall()
+                emps = conn.execute("SELECT id, name, role, phone, is_active, permissions, password, created_at, updated_at FROM employees").fetchall()
                 for e in emps:
                     if emp_id and e["id"] != emp_id:
                         continue
@@ -4730,7 +4752,15 @@ class MainWindow(QMainWindow):
                 ]
                 sum_receivable, sum_payable = 0, 0
                 for r in conn.execute("""
-                    SELECT s.*, p.sub_category, p.brand, p.model, e.name as emp_name
+                    SELECT s.id, s.invoice_number, s.product_id, s.batch_id, s.seller_employee_id,
+                           s.customer_name, s.qty, s.returned_qty, s.suggested_unit_price,
+                           s.actual_unit_price, s.unit_cost_price, s.unit_discount, s.total_discount,
+                           s.price_Markup_unit, s.unit_profit, s.total_profit, s.total_amount,
+                           s.paid_amount, s.settlement_status, s.sale_datetime, s.warranty_company,
+                           s.warranty_start, s.warranty_months, s.warranty_days, s.warranty_end,
+                           s.serial_number, s.specifications, s.colors_json, s.notes,
+                           s.created_at, s.updated_at, p.sub_category, p.brand, p.model,
+                           e.name as emp_name
                     FROM sales s JOIN products p ON s.product_id=p.id LEFT JOIN employees e ON s.seller_employee_id=e.id
                     WHERE s.settlement_status != 'تسویه‌شده'
                 """).fetchall():
@@ -4756,7 +4786,14 @@ class MainWindow(QMainWindow):
                         ]
                     )
                 for r in conn.execute("""
-                    SELECT b.*, p.sub_category, p.brand, p.model, COALESCE(sup.name,b.supplier_name_snapshot) as sup_name, e.name as emp_name
+                    SELECT b.id, b.batch_code, b.product_id, b.supplier_id, b.buyer_employee_id,
+                           b.invoice_number, b.purchase_date, b.initial_qty, b.sold_qty, b.returned_qty,
+                           b.remaining_qty, b.unit_purchase_price, b.extra_cost_total, b.upgrade_cost_unit,
+                           b.unit_cost_price, b.suggested_sell_price, b.profit_pct, b.paid_amount,
+                           b.settlement_status, b.serial_numbers, b.colors_json, b.initial_specs,
+                           b.final_specs, b.supplier_name_snapshot, b.notes, b.created_at, b.updated_at,
+                           p.sub_category, p.brand, p.model,
+                           COALESCE(sup.name,b.supplier_name_snapshot) as sup_name, e.name as emp_name
                     FROM batches b JOIN products p ON b.product_id=p.id
                     LEFT JOIN suppliers sup ON b.supplier_id=sup.id LEFT JOIN employees e ON b.buyer_employee_id=e.id
                     WHERE b.settlement_status != 'تسویه‌شده'
@@ -4784,7 +4821,12 @@ class MainWindow(QMainWindow):
                         ]
                     )
                 for r in conn.execute("""
-                    SELECT sr.*, e.name as emp_name FROM service_records sr
+                    SELECT sr.id, sr.invoice_number, sr.service_id, sr.seller_employee_id,
+                           sr.technician_employee_id, sr.service_type, sr.service_name,
+                           sr.customer_name, sr.historical_tariff, sr.service_fee, sr.side_cost,
+                           sr.paid_amount, sr.net_profit, sr.settlement_status, sr.service_datetime,
+                           sr.description, sr.created_at, sr.updated_at, e.name as emp_name
+                    FROM service_records sr
                     LEFT JOIN employees e ON sr.seller_employee_id=e.id
                     WHERE sr.settlement_status != 'تسویه‌شده'
                 """).fetchall():
@@ -4833,7 +4875,12 @@ class MainWindow(QMainWindow):
                     "شرح خدمات",
                 ]
                 q = conn.execute("""
-                    SELECT sr.*, e.name as emp_name FROM service_records sr
+                    SELECT sr.id, sr.invoice_number, sr.service_id, sr.seller_employee_id,
+                           sr.technician_employee_id, sr.service_type, sr.service_name,
+                           sr.customer_name, sr.historical_tariff, sr.service_fee, sr.side_cost,
+                           sr.paid_amount, sr.net_profit, sr.settlement_status, sr.service_datetime,
+                           sr.description, sr.created_at, sr.updated_at, e.name as emp_name
+                    FROM service_records sr
                     LEFT JOIN employees e ON sr.seller_employee_id=e.id
                     ORDER BY sr.updated_at DESC, sr.id DESC
                 """).fetchall()
@@ -5063,7 +5110,7 @@ class MainWindow(QMainWindow):
         self.selected_emp_id = int(self.tbl_employees.item(r, 0).text())
         with self.db.get_connection() as conn:
             emp = conn.execute(
-                "SELECT * FROM employees WHERE id=?", (self.selected_emp_id,)
+                "SELECT id, name, role, phone, is_active, permissions, password, created_at, updated_at FROM employees WHERE id=?", (self.selected_emp_id,)
             ).fetchone()
             if emp:
                 self.ed_emp_name.setText(emp["name"])
@@ -7111,31 +7158,39 @@ class MainWindow(QMainWindow):
     def _refresh_combos(self):
         with self.db.get_connection() as conn:
             prods = conn.execute(
-                "SELECT * FROM products WHERE is_active=1 ORDER BY updated_at DESC, id DESC"
+                "SELECT id, code, name, category, sub_category, brand, model, specs_json, description,
+                      reorder_point, default_profit_pct, is_active, created_at, updated_at FROM products WHERE is_active=1 ORDER BY updated_at DESC, id DESC"
             ).fetchall()
             emps = conn.execute(
-                "SELECT * FROM employees WHERE is_active=1 ORDER BY updated_at DESC, id DESC"
+                "SELECT id, name, role, phone, is_active, permissions, password, created_at, updated_at FROM employees WHERE is_active=1 ORDER BY updated_at DESC, id DESC"
             ).fetchall()
             if self._is_scoped_access() and self.active_employee:
                 active_id = int(self.active_employee["id"])
                 emps = [employee for employee in emps if int(employee["id"]) == active_id]
             if self._is_scoped_access() and self.active_employee:
                 sups = conn.execute(
-                    """SELECT DISTINCT s.* FROM suppliers s
+                    """SELECT DISTINCT s.id, s.name, s.phone, s.address, s.notes, s.created_at, s.updated_at FROM suppliers s
                        JOIN batches b ON b.supplier_id=s.id
                        WHERE b.buyer_employee_id=? ORDER BY s.updated_at DESC, s.id DESC""",
                     (int(self.active_employee["id"]),),
                 ).fetchall()
             else:
                 sups = conn.execute(
-                    "SELECT * FROM suppliers ORDER BY updated_at DESC, id DESC"
+                    "SELECT id, name, phone, address, notes, created_at, updated_at FROM suppliers ORDER BY updated_at DESC, id DESC"
                 ).fetchall()
             srvs = conn.execute(
-                "SELECT * FROM service_catalog WHERE is_active=1 ORDER BY updated_at DESC, id DESC"
+                "SELECT id, code, service_type, name, default_fee, default_side_cost, description,
+                      is_active, created_at, updated_at FROM service_catalog WHERE is_active=1 ORDER BY updated_at DESC, id DESC"
             ).fetchall()
             batches = conn.execute(
                 """
-                SELECT b.*, p.code AS p_code, p.category, p.sub_category, p.brand, p.model
+                SELECT b.id, b.batch_code, b.product_id, b.supplier_id, b.buyer_employee_id,
+                       b.invoice_number, b.purchase_date, b.initial_qty, b.sold_qty, b.returned_qty,
+                       b.remaining_qty, b.unit_purchase_price, b.extra_cost_total, b.upgrade_cost_unit,
+                       b.unit_cost_price, b.suggested_sell_price, b.profit_pct, b.paid_amount,
+                       b.settlement_status, b.serial_numbers, b.colors_json, b.initial_specs,
+                       b.final_specs, b.supplier_name_snapshot, b.notes, b.created_at, b.updated_at,
+                       p.code AS p_code, p.category, p.sub_category, p.brand, p.model
                 FROM batches b
                 JOIN products p ON b.product_id=p.id
                 ORDER BY b.updated_at DESC, b.id DESC
@@ -7315,7 +7370,9 @@ class MainWindow(QMainWindow):
         q = self.ed_prod_search.text().strip().lower()
         with self.db.get_connection() as conn:
             rows = conn.execute("""
-                SELECT p.*,
+                SELECT p.id, p.code, p.name, p.category, p.sub_category, p.brand, p.model,
+                       p.specs_json, p.description, p.reorder_point, p.default_profit_pct,
+                       p.is_active, p.created_at, p.updated_at,
                        COALESCE(SUM(b.remaining_qty), 0) as rem_qty,
                        COALESCE(SUM(b.sold_qty), 0) as sold_qty
                 FROM products p
@@ -7358,7 +7415,13 @@ class MainWindow(QMainWindow):
     def _refresh_batches_table(self):
         with self.db.get_connection() as conn:
             rows = conn.execute("""
-                SELECT b.*, p.code as p_code, p.category, p.sub_category, p.brand, p.model,
+                SELECT b.id, b.batch_code, b.product_id, b.supplier_id, b.buyer_employee_id,
+                       b.invoice_number, b.purchase_date, b.initial_qty, b.sold_qty, b.returned_qty,
+                       b.remaining_qty, b.unit_purchase_price, b.extra_cost_total, b.upgrade_cost_unit,
+                       b.unit_cost_price, b.suggested_sell_price, b.profit_pct, b.paid_amount,
+                       b.settlement_status, b.serial_numbers, b.colors_json, b.initial_specs,
+                       b.final_specs, b.supplier_name_snapshot, b.notes, b.created_at, b.updated_at,
+                       p.code as p_code, p.category, p.sub_category, p.brand, p.model,
                        COALESCE(sup.name,b.supplier_name_snapshot) as sup_name, e.name as emp_name
                 FROM batches b
                 JOIN products p ON b.product_id=p.id
@@ -7405,8 +7468,16 @@ class MainWindow(QMainWindow):
     def _refresh_sales_table(self):
         with self.db.get_connection() as conn:
             rows = conn.execute("""
-                SELECT s.*, p.code as p_code, p.category, p.sub_category, p.brand, p.model,
-                       b.batch_code, b.final_specs, b.initial_specs, e.name as emp_name
+                SELECT s.id, s.invoice_number, s.product_id, s.batch_id, s.seller_employee_id,
+                       s.customer_name, s.qty, s.returned_qty, s.suggested_unit_price,
+                       s.actual_unit_price, s.unit_cost_price, s.unit_discount, s.total_discount,
+                       s.price_Markup_unit, s.unit_profit, s.total_profit, s.total_amount,
+                       s.paid_amount, s.settlement_status, s.sale_datetime, s.warranty_company,
+                       s.warranty_start, s.warranty_months, s.warranty_days, s.warranty_end,
+                       s.serial_number, s.specifications, s.colors_json, s.notes,
+                       s.created_at, s.updated_at, p.code as p_code, p.category,
+                       p.sub_category, p.brand, p.model, b.batch_code, b.final_specs,
+                       b.initial_specs, e.name as emp_name
                 FROM sales s
                 JOIN products p ON s.product_id=p.id
                 JOIN batches b ON s.batch_id=b.id
@@ -7462,7 +7533,10 @@ class MainWindow(QMainWindow):
     def _refresh_upgrades_table(self):
         with self.db.get_connection() as conn:
             rows = conn.execute("""
-                SELECT u.*,
+                SELECT u.id, u.target_batch_id, u.part_batch_id, u.technician_id, u.target_qty,
+                       u.part_qty_used, u.stock_deducted_qty, u.part_unit_cost, u.labor_cost_unit,
+                       u.added_cost_unit, u.upgrade_date, u.serial_number, u.manual_part_description,
+                       u.old_specs, u.new_specs, u.notes, u.created_at, u.updated_at,
                        b1.batch_code AS t_code,
                        b2.batch_code AS p_code,
                        p1.category AS target_category,
@@ -7515,10 +7589,16 @@ class MainWindow(QMainWindow):
     def _refresh_services_table(self):
         with self.db.get_connection() as conn:
             cat_rows = conn.execute(
-                "SELECT * FROM service_catalog WHERE is_active=1 ORDER BY updated_at DESC, id DESC"
+                "SELECT id, code, service_type, name, default_fee, default_side_cost, description,
+                      is_active, created_at, updated_at FROM service_catalog WHERE is_active=1 ORDER BY updated_at DESC, id DESC"
             ).fetchall()
             rec_rows = conn.execute("""
-                SELECT sr.*, e.name as emp_name FROM service_records sr
+                SELECT sr.id, sr.invoice_number, sr.service_id, sr.seller_employee_id,
+                       sr.technician_employee_id, sr.service_type, sr.service_name,
+                       sr.customer_name, sr.historical_tariff, sr.service_fee, sr.side_cost,
+                       sr.paid_amount, sr.net_profit, sr.settlement_status, sr.service_datetime,
+                       sr.description, sr.created_at, sr.updated_at, e.name as emp_name
+                FROM service_records sr
                 LEFT JOIN employees e ON sr.seller_employee_id=e.id
                 ORDER BY sr.updated_at DESC, sr.id DESC
             """).fetchall()
@@ -7565,7 +7645,7 @@ class MainWindow(QMainWindow):
     def _refresh_suppliers_table(self):
         with self.db.get_connection() as conn:
             rows = conn.execute("""
-                SELECT s.*,
+                SELECT s.id, s.name, s.phone, s.address, s.notes, s.created_at, s.updated_at,
                        COUNT(b.id) as b_cnt,
                        COALESCE(SUM(b.unit_purchase_price*b.initial_qty + b.extra_cost_total), 0) as tot_buy,
                        COALESCE(SUM(b.paid_amount), 0) as tot_paid,
@@ -7606,7 +7686,7 @@ class MainWindow(QMainWindow):
     def _refresh_employees_table(self):
         with self.db.get_connection() as conn:
             rows = conn.execute(
-                "SELECT * FROM employees ORDER BY updated_at DESC, id DESC"
+                "SELECT id, name, role, phone, is_active, permissions, password, created_at, updated_at FROM employees ORDER BY updated_at DESC, id DESC"
             ).fetchall()
         data = [
             [
