@@ -288,7 +288,7 @@ DEFAULT_ATTRIBUTES = {
             "Tri-mode (Wired / Wireless / Bluetooth)", "USB Type-C",
             "3.5mm Audio Jack", "HDMI / DisplayPort / VGA",
         ]},
-        {"name": "مشخصه", "label": "Specification", "values": []},
+        {"name": "مشخصه", "label": "Additional Details", "values": []},
     ],
     "مانیتور": [
         {"name": "سایز", "label": "Size", "values": ["19 inch", "20 inch", "22 inch", "24 inch", "27 inch", "32 inch", "34 inch"]},
@@ -690,7 +690,7 @@ class QuantitySelector(QComboBox):
         current = self.get_qty()
         self.blockSignals(True)
         self.clear()
-        limit = max(1, min(int(max_qty), 300))
+        limit = max(1, int(max_qty))
         for i in range(1, limit + 1):
             self.addItem(str(i), i)
         if 1 <= current <= max_qty:
@@ -1583,7 +1583,7 @@ class DynamicSpecsWidget(QGroupBox):
             cb_cap = SearchableComboBox()
             cb_cap.addItems(RAM_CAPACITIES)
             cb_ddr = SearchableComboBox()
-            cb_ddr.addItems(["DDR2", "DDR3 / DDR3L", "DDR4", "DDR5"])
+            cb_ddr.addItems(["", "DDR2", "DDR3 / DDR3L", "DDR4", "DDR5"])
             cb_bus = SearchableComboBox()
             cb_bus.addItems(["", "1333MHz", "1600MHz", "2400MHz", "2666MHz", "3200MHz", "3600MHz", "4800MHz", "5600MHz", "6000MHz"])
             self.fields = {"ظرفیت": cb_cap, "نسخه DDR": cb_ddr, "فرکانس": cb_bus}
