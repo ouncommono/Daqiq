@@ -115,7 +115,7 @@ class DatabaseManager:
         self.cfg["db_path"] = self.db_path
         self.cfg["backup_dir"] = os.path.dirname(self.db_path) or "."
         self.init_db()
-        self._migrate_legacy_application_settings()
+        self._normalize_application_config()
         save_app_config(self.cfg)
 
     def get_connection(self):
@@ -390,10 +390,6 @@ class DatabaseManager:
                 )
             """)
 
-            # مهاجرت خودکار دسته‌بندی‌های قدیمی
-            cur.execute("UPDATE products SET category='قطعات' WHERE category='قطعات کامپیوتر'")
-            cur.execute("UPDATE products SET category='سایر موارد' WHERE category='خدمات'")
-
             # نام فروشگاه به هر پایگاه داده تعلق دارد؛ تنظیمات عمومی برنامه
             # در app_config.json نگهداری می‌شوند.
             default_settings = {
@@ -407,194 +403,6 @@ class DatabaseManager:
                     (k, v),
                 )
 
-            # Never seed a generic supplier: suppliers are entered by the shop owner.
-            # Remove only the exact legacy placeholder when it has never been used;
-            # real suppliers and historical purchase references are preserved.
-            cur.execute(
-                """
-                DELETE FROM suppliers
-                WHERE name=? AND phone=? AND address=? AND notes=?
-                  AND NOT EXISTS (
-                      SELECT 1 FROM batches WHERE batches.supplier_id=suppliers.id
-                  )
-                """,
-                ("تأمین‌کننده عمومی بازار", "021-88990011", "تهران", "پیش‌فرض"),
-            )
-
-            # Remove only the two legacy sample employees created by older releases.
-            # Keep their historic transactions and detach the employee references.
-            legacy_employees = conn.execute(
-                """SELECT id FROM employees WHERE
-                   (name=? AND role=?) OR (name=? AND role=?)""",
-                ("فروشنده اول", "مدیر / فروشنده", "فروشنده دوم", "فروشنده"),
-            ).fetchall()
-            legacy_ids = [int(row["id"]) for row in legacy_employees]
-            if legacy_ids:
-                marks = ",".join("?" for _ in legacy_ids)
-                conn.execute(
-                    f"UPDATE batches SET buyer_employee_id=NULL WHERE buyer_employee_id IN ({marks})",
-                    legacy_ids,
-                )
-                conn.execute(
-                    f"UPDATE sales SET seller_employee_id=NULL WHERE seller_employee_id IN ({marks})",
-                    legacy_ids,
-                )
-                conn.execute(
-                    f"""UPDATE service_records
-                        SET seller_employee_id=NULL, technician_employee_id=NULL
-                        WHERE seller_employee_id IN ({marks}) OR technician_employee_id IN ({marks})""",
-                    legacy_ids + legacy_ids,
-                )
-                conn.execute(
-                    f"UPDATE upgrades SET technician_id=NULL WHERE technician_id IN ({marks})",
-                    legacy_ids,
-                )
-                conn.execute(
-                    f"DELETE FROM employees WHERE id IN ({marks})",
-                    legacy_ids,
-                )
-
-            # نقش مدیر از عنوان ترکیبی قدیمی به عنوان کوتاه و یکپارچه مهاجرت می‌کند.
-            conn.execute(
-                "UPDATE employees SET role='مدیر' WHERE TRIM(role)='مدیر / فروشنده'"
-            )
-
-            # Migrate existing databases without dropping any business records.
-            # Track first-time colour-column creation so legacy product colours can
-            # be transferred to each purchase batch exactly once.
-            batch_colors_added = "colors_json" not in {
-                row["name"] for row in conn.execute("PRAGMA table_info(batches)").fetchall()
-            }
-            sales_colors_added = "colors_json" not in {
-                row["name"] for row in conn.execute("PRAGMA table_info(sales)").fetchall()
-            }
-            migrations = (
-                ("upgrades", "added_cost_unit", "INTEGER DEFAULT 0"),
-                ("upgrades", "manual_part_description", "TEXT DEFAULT ''"),
-                ("upgrades", "stock_deducted_qty", "INTEGER DEFAULT -1"),
-                ("batches", "supplier_name_snapshot", "TEXT DEFAULT ''"),
-                ("batches", "colors_json", "TEXT DEFAULT '[]'"),
-                ("sales", "warranty_days", "INTEGER DEFAULT 0"),
-                ("sales", "specifications", "TEXT DEFAULT ''"),
-                ("sales", "colors_json", "TEXT DEFAULT '[]'"),
-            )
-            for table_name, column_name, column_type in migrations:
-                columns = {
-                    row["name"]
-                    for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
-                }
-                if column_name not in columns:
-                    cur.execute(
-                        f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}"
-                    )
-
-            # The current schema permits a manually described component with no batch.
-            # Rebuild only the upgrade table when an older schema marks part_batch_id NOT NULL.
-            upgrade_columns = {
-                row["name"]: row
-                for row in conn.execute("PRAGMA table_info(upgrades)").fetchall()
-            }
-            if upgrade_columns.get("part_batch_id") and upgrade_columns["part_batch_id"]["notnull"]:
-                has_updated_at = "updated_at" in upgrade_columns
-                conn.execute("""
-                    CREATE TABLE upgrades_rebuilt (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        target_batch_id INTEGER NOT NULL,
-                        target_qty INTEGER NOT NULL DEFAULT 1,
-                        part_batch_id INTEGER,
-                        part_qty_used INTEGER NOT NULL,
-                        part_unit_cost INTEGER NOT NULL,
-                        labor_cost_unit INTEGER DEFAULT 0,
-                        added_cost_unit INTEGER DEFAULT 0,
-                        old_specs TEXT DEFAULT '',
-                        new_specs TEXT DEFAULT '',
-                        upgrade_date TEXT NOT NULL,
-                        technician_id INTEGER,
-                        serial_number TEXT DEFAULT '',
-                        notes TEXT DEFAULT '',
-                        manual_part_description TEXT DEFAULT '',
-                        stock_deducted_qty INTEGER DEFAULT 0,
-                        updated_at TEXT,
-                        FOREIGN KEY(target_batch_id) REFERENCES batches(id),
-                        FOREIGN KEY(part_batch_id) REFERENCES batches(id),
-                        FOREIGN KEY(technician_id) REFERENCES employees(id)
-                    )
-                """)
-                copy_columns = [
-                    "id", "target_batch_id", "target_qty", "part_batch_id",
-                    "part_qty_used", "part_unit_cost", "labor_cost_unit",
-                    "added_cost_unit", "old_specs", "new_specs", "upgrade_date",
-                    "technician_id", "serial_number", "notes",
-                    "manual_part_description", "stock_deducted_qty",
-                ]
-                select_columns = list(copy_columns)
-                if has_updated_at:
-                    copy_columns.append("updated_at")
-                    select_columns.append("updated_at")
-                else:
-                    select_columns.append("NULL")
-                conn.execute(
-                    f"INSERT INTO upgrades_rebuilt ({', '.join(copy_columns)}) "
-                    f"SELECT {', '.join(select_columns)} FROM upgrades"
-                )
-                conn.execute("DROP TABLE upgrades")
-                conn.execute("ALTER TABLE upgrades_rebuilt RENAME TO upgrades")
-
-            # One-time transfer from the old product-level colour field to purchase
-            # batches. Each existing batch inherits its product's former colour.
-            if batch_colors_added:
-                product_rows = conn.execute(
-                    "SELECT id, specs_json FROM products"
-                ).fetchall()
-                for product_row in product_rows:
-                    try:
-                        specs = json.loads(product_row["specs_json"] or "{}")
-                    except (TypeError, ValueError, json.JSONDecodeError):
-                        continue
-                    if not isinstance(specs, dict):
-                        continue
-                    legacy_color = None
-                    for color_key in ("رنگ", "رنگ کالا", "Color", "Colour"):
-                        value = specs.pop(color_key, None)
-                        if value and not legacy_color:
-                            legacy_color = value
-                    if legacy_color:
-                        colors = (
-                            [str(value).strip() for value in legacy_color if str(value).strip()]
-                            if isinstance(legacy_color, list)
-                            else [str(legacy_color).strip()]
-                        )
-                        colors = list(dict.fromkeys(value for value in colors if value))
-                        if colors:
-                            conn.execute(
-                                """UPDATE batches SET colors_json=?
-                                   WHERE product_id=?
-                                     AND (colors_json IS NULL OR colors_json='' OR colors_json='[]')""",
-                                (json.dumps(colors, ensure_ascii=False), product_row["id"]),
-                            )
-                    if len(specs) != len(json.loads(product_row["specs_json"] or "{}")):
-                        conn.execute(
-                            "UPDATE products SET specs_json=? WHERE id=?",
-                            (json.dumps(specs, ensure_ascii=False), product_row["id"]),
-                        )
-
-            if sales_colors_added:
-                conn.execute(
-                    """UPDATE sales
-                       SET colors_json=COALESCE(
-                           (SELECT NULLIF(b.colors_json,'[]') FROM batches b WHERE b.id=sales.batch_id),
-                           '[]'
-                       )
-                       WHERE colors_json IS NULL OR colors_json='' OR colors_json='[]'"""
-                )
-
-            # Historic upgrades deducted their full recorded quantity. New records
-            # explicitly track the amount actually removed from inventory.
-            conn.execute(
-                "UPDATE upgrades SET stock_deducted_qty=part_qty_used "
-                "WHERE stock_deducted_qty IS NULL OR stock_deducted_qty < 0"
-            )
-
             # Activity timestamps are ISO-like local datetimes with millisecond precision.
             # The audit columns are appended in one stable order on every operational table:
             # created_at, updated_at. Business dates (sale_datetime, purchase_date, etc.)
@@ -605,37 +413,6 @@ class DatabaseManager:
                 "service_price_history", "audit_logs",
             )
             for table_name in activity_tables:
-                columns = {
-                    row["name"]
-                    for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
-                }
-                if "created_at" not in columns:
-                    conn.execute(
-                        f"ALTER TABLE {table_name} ADD COLUMN created_at TEXT NOT NULL DEFAULT ''"
-                    )
-                if "updated_at" not in columns:
-                    conn.execute(
-                        f"ALTER TABLE {table_name} ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''"
-                    )
-
-                # Populate empty audit fields on pre-existing rows without rewriting
-                # non-empty historic audit values.
-                conn.execute(
-                    f"""
-                    UPDATE {table_name}
-                    SET created_at = CASE
-                            WHEN created_at IS NULL OR created_at=''
-                            THEN strftime('%Y-%m-%d %H:%M:%f', 'now', 'localtime')
-                            ELSE created_at END,
-                        updated_at = CASE
-                            WHEN updated_at IS NULL OR updated_at=''
-                            THEN strftime('%Y-%m-%d %H:%M:%f', 'now', 'localtime')
-                            ELSE updated_at END
-                    WHERE created_at IS NULL OR created_at=''
-                       OR updated_at IS NULL OR updated_at=''
-                    """
-                )
-
                 conn.execute(f"DROP TRIGGER IF EXISTS trg_{table_name}_updated_at_insert")
                 conn.execute(f"DROP TRIGGER IF EXISTS trg_{table_name}_updated_at_update")
                 conn.execute(f"""
@@ -681,9 +458,8 @@ class DatabaseManager:
                 "products", "batches", "sales", "upgrades", "service_catalog",
                 "service_records", "suppliers", "employees", "customers", "payments",
             ):
-                conn.execute(f"DROP INDEX IF EXISTS idx_{table_name}_activity")
                 conn.execute(
-                    f"CREATE INDEX idx_{table_name}_activity "
+                    f"CREATE INDEX IF NOT EXISTS idx_{table_name}_activity "
                     f"ON {table_name}(COALESCE(updated_at, created_at) DESC, id DESC)"
                 )
             for index_sql in (
@@ -706,76 +482,13 @@ class DatabaseManager:
 
             conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
-            # Remove the exact legacy generic supplier from the selector on upgraded
-            # databases too, but retain its historical name on linked purchase rows.
-            legacy_supplier_rows = conn.execute(
-                """
-                SELECT id, name FROM suppliers
-                WHERE name=? AND phone=? AND address=? AND notes=?
-                """,
-                ("تأمین‌کننده عمومی بازار", "021-88990011", "تهران", "پیش‌فرض"),
-            ).fetchall()
-            for legacy_supplier in legacy_supplier_rows:
-                conn.execute(
-                    """
-                    UPDATE batches
-                    SET supplier_name_snapshot=CASE
-                        WHEN supplier_name_snapshot IS NULL OR TRIM(supplier_name_snapshot)=''
-                        THEN ? ELSE supplier_name_snapshot END,
-                        supplier_id=NULL
-                    WHERE supplier_id=?
-                    """,
-                    (legacy_supplier["name"], legacy_supplier["id"]),
-                )
-                conn.execute(
-                    "DELETE FROM suppliers WHERE id=?", (legacy_supplier["id"],)
-                )
-
             conn.commit()
 
-    def _migrate_legacy_application_settings(self):
-        """Move application-wide preferences out of each database, preserving legacy values once."""
-        version = int(self.cfg.get("config_schema_version", 1) or 1)
-        legacy_map = {
-            "default_profit_pct": ("default_profit_pct", lambda value: int(float(value))),
-            "zero_append_count": ("zero_append_count", lambda value: max(0, int(value))),
-            "default_window_maximized": (
-                "default_window_maximized",
-                lambda value: str(value).strip().lower() in ("1", "true", "yes", "on"),
-            ),
-            "require_login_password": (
-                "require_login_password",
-                lambda value: str(value).strip().lower() in ("1", "true", "yes", "on"),
-            ),
-        }
-
-        with self.get_connection() as conn:
-            if version < 2:
-                for database_key, (config_key, converter) in legacy_map.items():
-                    row = conn.execute(
-                        "SELECT value FROM settings WHERE key=?", (database_key,)
-                    ).fetchone()
-                    if row is not None:
-                        try:
-                            self.cfg[config_key] = converter(row["value"])
-                        except (TypeError, ValueError, OverflowError):
-                            pass
-
-                old_zero_toggle = conn.execute(
-                    "SELECT value FROM settings WHERE key='zero_append_enabled'"
-                ).fetchone()
-                if old_zero_toggle is not None and str(old_zero_toggle["value"]) == "0":
-                    self.cfg["zero_append_count"] = 0
-
-            # Remove obsolete per-database copies after their one-time migration.
-            conn.executemany(
-                "DELETE FROM settings WHERE key=?",
-                [(key,) for key in (*legacy_map.keys(), "zero_append_enabled")],
-            )
-            conn.commit()
-
+    def _normalize_application_config(self):
+        """Normalize current application settings without database migration."""
         self.cfg["config_schema_version"] = 2
-        self.cfg.pop("shop_name", None)
+        self.cfg["app_version"] = APP_VERSION
+        self.cfg["schema_version"] = SCHEMA_VERSION
         self.cfg["backup_dir"] = os.path.dirname(os.path.abspath(self.db_path)) or "."
         self.cfg["db_path"] = os.path.abspath(self.db_path)
         self.cfg["auto_backup_retention_count"] = max(
