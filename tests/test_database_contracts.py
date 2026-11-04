@@ -1346,7 +1346,7 @@ def test_v330_greenfield_schema_contracts_and_stock_balance_constraints(manager)
 
         assert conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 330
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 340
 
         # A stock row cannot represent a quantity that disagrees with its
         # initial, sold and supplier-returned aggregates.
