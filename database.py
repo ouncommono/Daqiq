@@ -7,8 +7,9 @@ import jdatetime
 import time
 import hashlib
 
-APP_VERSION = "2.0.0"
-SCHEMA_VERSION = 200
+APP_NAME = "Daqiq"
+APP_VERSION = "2.1.0"
+SCHEMA_VERSION = 210
 
 
 def get_app_data_dir():
@@ -53,6 +54,7 @@ def load_app_config():
         "default_window_maximized": True,
         "require_login_password": False,
         "config_schema_version": 2,
+        "app_name": APP_NAME,
         "app_version": APP_VERSION,
         "schema_version": SCHEMA_VERSION,
         "theme": "light",
@@ -142,8 +144,8 @@ class DatabaseManager:
             }
             if existing_tables and current_version != SCHEMA_VERSION:
                 raise RuntimeError(
-                    "این پایگاه داده برای نسخه 2.0.0 ساخته نشده است. "
-                    "نسخه 2.0.0 به پایگاه داده تازه نیاز دارد و مهاجرت خودکار "
+                    "این پایگاه داده برای نسخه 2.1.0 ساخته نشده است. "
+                    "نسخه 2.1.0 به پایگاه داده تازه نیاز دارد و مهاجرت خودکار "
                     "از نسخه‌های قبلی پشتیبانی نمی‌شود."
                 )
             cur = conn.cursor()
@@ -166,6 +168,42 @@ class DatabaseManager:
                     password TEXT DEFAULT '',
                     created_at TEXT NOT NULL DEFAULT '',
                     updated_at TEXT NOT NULL DEFAULT ''
+                )
+            """)
+
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS access_level_data_scopes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    access_level TEXT NOT NULL UNIQUE,
+                    scope_mode TEXT NOT NULL DEFAULT 'own'
+                        CHECK (scope_mode IN ('own', 'roles', 'users', 'all')),
+                    created_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT ''
+                )
+            """)
+
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS access_level_data_scope_roles (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    scope_id INTEGER NOT NULL,
+                    target_access_level TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT '',
+                    FOREIGN KEY(scope_id) REFERENCES access_level_data_scopes(id) ON DELETE CASCADE,
+                    UNIQUE(scope_id, target_access_level)
+                )
+            """)
+
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS access_level_data_scope_users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    scope_id INTEGER NOT NULL,
+                    employee_id INTEGER NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT '',
+                    FOREIGN KEY(scope_id) REFERENCES access_level_data_scopes(id) ON DELETE CASCADE,
+                    FOREIGN KEY(employee_id) REFERENCES employees(id) ON DELETE CASCADE,
+                    UNIQUE(scope_id, employee_id)
                 )
             """)
 
@@ -394,6 +432,7 @@ class DatabaseManager:
             # در app_config.json نگهداری می‌شوند.
             default_settings = {
                 "shop_name": str(self.cfg.get("shop_name") or "فروشگاه من"),
+                "app_name": APP_NAME,
                 "app_version": APP_VERSION,
                 "schema_version": str(SCHEMA_VERSION),
             }
@@ -410,7 +449,8 @@ class DatabaseManager:
             activity_tables = (
                 "products", "batches", "sales", "upgrades", "service_catalog",
                 "service_records", "suppliers", "employees", "customers", "payments",
-                "service_price_history", "audit_logs",
+                "service_price_history", "audit_logs", "access_level_data_scopes",
+                "access_level_data_scope_roles", "access_level_data_scope_users",
             )
             for table_name in activity_tables:
                 conn.execute(f"DROP TRIGGER IF EXISTS trg_{table_name}_updated_at_insert")
@@ -477,6 +517,10 @@ class DatabaseManager:
                 "CREATE INDEX IF NOT EXISTS idx_services_technician_activity ON service_records(technician_employee_id, updated_at DESC, id DESC)",
                 "CREATE INDEX IF NOT EXISTS idx_service_history_service_date ON service_price_history(service_id, change_date DESC, id DESC)",
                 "CREATE INDEX IF NOT EXISTS idx_payments_reference ON payments(ref_type, ref_id, payment_date DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_employees_permissions ON employees(permissions, id)",
+                "CREATE INDEX IF NOT EXISTS idx_access_scope_roles_scope ON access_level_data_scope_roles(scope_id, target_access_level)",
+                "CREATE INDEX IF NOT EXISTS idx_access_scope_users_scope_employee ON access_level_data_scope_users(scope_id, employee_id)",
+                "CREATE INDEX IF NOT EXISTS idx_access_scope_users_employee ON access_level_data_scope_users(employee_id, scope_id)",
             ):
                 conn.execute(index_sql)
 
@@ -487,6 +531,7 @@ class DatabaseManager:
     def _normalize_application_config(self):
         """Normalize current application settings without database migration."""
         self.cfg["config_schema_version"] = 2
+        self.cfg["app_name"] = APP_NAME
         self.cfg["app_version"] = APP_VERSION
         self.cfg["schema_version"] = SCHEMA_VERSION
         self.cfg["backup_dir"] = os.path.dirname(os.path.abspath(self.db_path)) or "."
@@ -503,6 +548,156 @@ class DatabaseManager:
                 "SELECT value FROM settings WHERE key = ?", (key,)
             ).fetchone()
             return row["value"] if row else default
+
+    def get_access_data_scope(self, access_level):
+        """Return persisted record-visibility rules for an access level.
+
+        Full-administrator and senior-manager levels retain the historical
+        all-record default. Other newly-created levels default to own records.
+        """
+        level_name = str(access_level or "").strip()
+        default_mode = (
+            "all"
+            if "دسترسی کامل" in level_name or "مدیر ارشد" in level_name
+            else "own"
+        )
+        if not level_name:
+            return {"mode": "own", "roles": [], "users": []}
+
+        with self.get_connection() as conn:
+            scope = conn.execute(
+                "SELECT id, scope_mode FROM access_level_data_scopes WHERE access_level=?",
+                (level_name,),
+            ).fetchone()
+            if not scope:
+                return {"mode": default_mode, "roles": [], "users": []}
+
+            scope_id = int(scope["id"])
+            roles = [
+                row["target_access_level"]
+                for row in conn.execute(
+                    "SELECT target_access_level FROM access_level_data_scope_roles "
+                    "WHERE scope_id=? ORDER BY target_access_level",
+                    (scope_id,),
+                ).fetchall()
+            ]
+            users = [
+                int(row["employee_id"])
+                for row in conn.execute(
+                    "SELECT employee_id FROM access_level_data_scope_users "
+                    "WHERE scope_id=? ORDER BY employee_id",
+                    (scope_id,),
+                ).fetchall()
+            ]
+        return {"mode": scope["scope_mode"], "roles": roles, "users": users}
+
+    def set_access_data_scope(
+        self, access_level, mode="own", role_names=None, employee_ids=None
+    ):
+        """Persist a role's owner-visibility mode and its selected principals."""
+        level_name = str(access_level or "").strip()
+        mode = str(mode or "own").strip().lower()
+        if not level_name:
+            raise ValueError("نام سطح دسترسی برای ذخیره دامنه داده الزامی است.")
+        if mode not in {"own", "roles", "users", "all"}:
+            raise ValueError("حالت دامنه دسترسی داده معتبر نیست.")
+
+        selected_roles = list(dict.fromkeys(
+            str(name).strip()
+            for name in (role_names or [])
+            if str(name or "").strip()
+        ))
+        selected_users = list(dict.fromkeys(
+            int(employee_id)
+            for employee_id in (employee_ids or [])
+            if employee_id is not None and int(employee_id) > 0
+        ))
+
+        with self.get_connection() as conn:
+            scope = conn.execute(
+                "SELECT id FROM access_level_data_scopes WHERE access_level=?",
+                (level_name,),
+            ).fetchone()
+            if scope:
+                scope_id = int(scope["id"])
+                conn.execute(
+                    "UPDATE access_level_data_scopes SET scope_mode=? WHERE id=?",
+                    (mode, scope_id),
+                )
+            else:
+                cursor = conn.execute(
+                    "INSERT INTO access_level_data_scopes (access_level, scope_mode) "
+                    "VALUES (?, ?)",
+                    (level_name, mode),
+                )
+                scope_id = int(cursor.lastrowid)
+
+            conn.execute(
+                "DELETE FROM access_level_data_scope_roles WHERE scope_id=?",
+                (scope_id,),
+            )
+            conn.execute(
+                "DELETE FROM access_level_data_scope_users WHERE scope_id=?",
+                (scope_id,),
+            )
+            if mode == "roles":
+                conn.executemany(
+                    "INSERT INTO access_level_data_scope_roles "
+                    "(scope_id, target_access_level) VALUES (?, ?)",
+                    [(scope_id, role) for role in selected_roles],
+                )
+            elif mode == "users":
+                conn.executemany(
+                    "INSERT INTO access_level_data_scope_users "
+                    "(scope_id, employee_id) VALUES (?, ?)",
+                    [(scope_id, employee_id) for employee_id in selected_users],
+                )
+            conn.commit()
+
+    def rename_access_data_scope(self, old_name, new_name):
+        """Keep scope ownership and role references consistent after a role rename."""
+        old_name = str(old_name or "").strip()
+        new_name = str(new_name or "").strip()
+        if not old_name or not new_name or old_name == new_name:
+            return
+        with self.get_connection() as conn:
+            # Merge duplicate role grants instead of violating the per-scope
+            # uniqueness constraint when both old and new names were selected.
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO access_level_data_scope_roles (
+                    scope_id, target_access_level, created_at, updated_at
+                )
+                SELECT scope_id, ?, created_at, updated_at
+                FROM access_level_data_scope_roles
+                WHERE target_access_level=?
+                """,
+                (new_name, old_name),
+            )
+            conn.execute(
+                "DELETE FROM access_level_data_scope_roles WHERE target_access_level=?",
+                (old_name,),
+            )
+            conn.execute(
+                "UPDATE access_level_data_scopes SET access_level=? WHERE access_level=?",
+                (new_name, old_name),
+            )
+            conn.commit()
+
+    def delete_access_data_scope(self, access_level):
+        """Delete a role's scope and remove it from other roles' allow-lists."""
+        name = str(access_level or "").strip()
+        if not name:
+            return
+        with self.get_connection() as conn:
+            conn.execute(
+                "DELETE FROM access_level_data_scopes WHERE access_level=?", (name,)
+            )
+            conn.execute(
+                "DELETE FROM access_level_data_scope_roles WHERE target_access_level=?",
+                (name,),
+            )
+            conn.commit()
 
     def set_setting(self, key, value):
         with self.get_connection() as conn:

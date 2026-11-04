@@ -69,6 +69,23 @@ def mixed_bidi_tooltip(value) -> str:
     return "<html><body>" + "".join(rendered) + "</body></html>"
 
 
+
+def rtl_tooltip(value) -> str:
+    """Render a tooltip as a strict RTL paragraph, including mixed Latin tokens."""
+    rendered = []
+    for line in str(value or "").splitlines():
+        rendered.append(
+            '<div dir="rtl" style="direction:rtl; text-align:right; '
+            'unicode-bidi:plaintext; white-space:pre-wrap;">'
+            f'{html.escape(line)}</div>'
+        )
+    return (
+        '<html><body dir="rtl" style="direction:rtl; text-align:right;">'
+        + "".join(rendered)
+        + "</body></html>"
+    )
+
+
 def normalize_catalog_label(value) -> str:
     """Canonical comparison key for Persian labels with optional spaces/ZWNJ."""
     text = "" if value is None else str(value)

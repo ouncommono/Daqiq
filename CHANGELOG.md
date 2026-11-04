@@ -1,5 +1,28 @@
 # Changelog
 
+## 2.1.0 — Daqiq (دقیق)
+
+### Database and data access
+- Bump the clean-slate SQLite schema contract to version 210 and record the Daqiq application name/version in database and application metadata.
+- Add normalized role-to-role and role-to-user data-scope tables with foreign keys, uniqueness constraints and indexes.
+- Remove the stale legacy-application-settings migration call from database switching.
+- Keep product master specifications separate from shipment-level upgrade specifications.
+
+### Accounting workflows and reports
+- Center all Comprehensive Reports Excel adjustment-column cells, including signed values, with RTL worksheet reading order.
+- Restore shipment stock and the exact pre-upgrade technical specifications when an upgrade is reverted.
+- Clear batch/sale color selections on form reset and shipment changes.
+- Keep new purchase shipment specifications sourced from the product's base specification set.
+
+### User interface
+- Apply strict RTL rendering and de-duplicated specification output to sales shipment hover tooltips.
+- Add role-based and explicit-user data visibility configuration.
+- Couple catalog field labels to their inputs and make the defined technical-attribute list collapsible and scrollable.
+- Apply the Daqiq product name and 2.1.0 version to application metadata and visible titles.
+
+### Validation
+- Automated regression tests are updated for the 2.1.0 schema and release metadata. Desktop acceptance on Windows should be completed before production deployment.
+
 ## 1.0.2
 
 ### Reports and exports

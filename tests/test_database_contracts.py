@@ -212,7 +212,7 @@ def test_v2_schema_initialization_is_idempotent_and_keeps_upgrade_column_order(m
         "added_cost_unit", "upgrade_date", "serial_number", "manual_part_description",
         "old_specs", "new_specs", "notes", "created_at", "updated_at",
     ]
-    assert version == 200
+    assert version == 210
 
 
 def test_upgrade_backend_rejects_unconfirmed_insufficient_inventory(manager):
@@ -447,6 +447,10 @@ def test_upgrade_reversal_restores_component_stock_and_target_cost(manager):
     assert target_after["unit_cost_price"] == target_before["unit_cost_price"]
     assert target_after["suggested_sell_price"] == target_before["suggested_sell_price"]
     assert target_after["final_specs"] == target_before["final_specs"]
+    with manager.get_connection() as conn:
+        assert conn.execute(
+            "SELECT COUNT(*) FROM upgrades WHERE id=?", (upgrade_id,)
+        ).fetchone()[0] == 0
 
 
 def test_automatic_backup_follows_the_active_database_path(manager, tmp_path):
@@ -503,8 +507,9 @@ def test_v2_application_config_records_release_and_preserves_current_preferences
     assert manager.cfg["zero_append_count"] == 4
     assert manager.cfg["default_window_maximized"] is False
     assert manager.cfg["require_login_password"] is True
-    assert manager.cfg["app_version"] == "2.0.0"
-    assert manager.cfg["schema_version"] == 200
+    assert manager.cfg["app_version"] == "2.1.0"
+    assert manager.cfg["app_name"] == "Daqiq"
+    assert manager.cfg["schema_version"] == 210
     assert manager.cfg["config_schema_version"] == 2
 
 
@@ -559,6 +564,94 @@ def test_v2_schema_initialization_does_not_delete_employee_records(manager):
             row["name"] for row in conn.execute("SELECT name FROM employees").fetchall()
         }
     assert names == expected
+
+
+def test_role_data_scope_persists_modes_and_selected_principals(manager):
+    user_id = create_employee(manager, "کاربر دامنه آزمون")
+
+    assert manager.get_access_data_scope("دسترسی کامل (مدیر کل)")["mode"] == "all"
+    assert manager.get_access_data_scope("فروش و خدمات")["mode"] == "own"
+
+    manager.set_access_data_scope(
+        "گزارشگر", "roles", role_names=["فروش و خدمات", "ثبت خرید و انبارداری"]
+    )
+    role_scope = manager.get_access_data_scope("گزارشگر")
+    assert role_scope == {
+        "mode": "roles",
+        "roles": ["ثبت خرید و انبارداری", "فروش و خدمات"],
+        "users": [],
+    }
+
+    manager.set_access_data_scope("گزارشگر", "users", employee_ids=[user_id])
+    user_scope = manager.get_access_data_scope("گزارشگر")
+    assert user_scope == {"mode": "users", "roles": [], "users": [user_id]}
+
+    manager.set_access_data_scope(
+        "نمایشگر", "roles", role_names=["گزارشگر", "گزارشگر جدید"]
+    )
+    manager.rename_access_data_scope("گزارشگر", "گزارشگر جدید")
+    assert manager.get_access_data_scope("نمایشگر")["roles"] == ["گزارشگر جدید"]
+
+    manager.rename_access_data_scope("گزارشگر جدید", "گزارشگر ارشد")
+    assert manager.get_access_data_scope("گزارشگر ارشد") == user_scope
+
+    manager.delete_access_data_scope("گزارشگر ارشد")
+    assert manager.get_access_data_scope("گزارشگر ارشد") == {
+        "mode": "own", "roles": [], "users": []
+    }
+
+
+def test_role_data_scope_schema_has_foreign_keys_and_lookup_indexes(manager):
+    with manager.get_connection() as conn:
+        scope_columns = [
+            row["name"]
+            for row in conn.execute(
+                "PRAGMA table_info(access_level_data_scopes)"
+            ).fetchall()
+        ]
+        assert scope_columns == [
+            "id", "access_level", "scope_mode", "created_at", "updated_at"
+        ]
+        role_indexes = {
+            row["name"]
+            for row in conn.execute(
+                "PRAGMA index_list(access_level_data_scope_roles)"
+            ).fetchall()
+        }
+        user_indexes = {
+            row["name"]
+            for row in conn.execute(
+                "PRAGMA index_list(access_level_data_scope_users)"
+            ).fetchall()
+        }
+        assert "idx_access_scope_roles_scope" in role_indexes
+        assert "idx_access_scope_users_scope_employee" in user_indexes
+        scope_foreign_keys = conn.execute(
+            "PRAGMA foreign_key_list(access_level_data_scope_users)"
+        ).fetchall()
+        assert {row["table"] for row in scope_foreign_keys} == {
+            "access_level_data_scopes", "employees"
+        }
+
+
+def test_excel_report_adjustment_cells_are_centered_for_signed_and_plain_values(tmp_path):
+    from exporter import export_table_to_excel
+
+    target = tmp_path / "signed_adjustments.xlsx"
+    export_table_to_excel(
+        "گزارش جامع",
+        ["تخفیف (-) / تشدید (+)"],
+        [["-1,200"], ["+450"], ["0"]],
+        str(target),
+    )
+
+    worksheet = load_workbook(target).active
+    assert worksheet.views.sheetView[0].rightToLeft is True
+    for row in (3, 4, 5):
+        cell = worksheet.cell(row=row, column=1)
+        assert cell.alignment.horizontal == "center"
+        assert cell.alignment.vertical == "center"
+        assert cell.alignment.readingOrder == 2
 
 
 def test_excel_report_title_is_right_to_left_for_digit_prefixed_shop_name(tmp_path):
@@ -923,10 +1016,11 @@ def test_fresh_schema_has_v2_physical_column_order_and_metadata(manager):
                 for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
             ]
             assert columns == expected, table_name
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 200
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 210
         metadata = dict(conn.execute("SELECT key, value FROM settings").fetchall())
-        assert metadata["app_version"] == "2.0.0"
-        assert metadata["schema_version"] == "200"
+        assert metadata["app_name"] == "Daqiq"
+        assert metadata["app_version"] == "2.1.0"
+        assert metadata["schema_version"] == "210"
 
 
 def test_v2_rejects_pre_v2_database_without_attempting_migration(tmp_path, monkeypatch):
@@ -937,7 +1031,7 @@ def test_v2_rejects_pre_v2_database_without_attempting_migration(tmp_path, monke
         conn.execute("CREATE TABLE legacy_records (id INTEGER PRIMARY KEY, value TEXT)")
         conn.commit()
 
-    with pytest.raises(RuntimeError, match="نسخه 2.0.0"):
+    with pytest.raises(RuntimeError, match="نسخه 2.1.0"):
         DatabaseManager(str(legacy_path))
 
 

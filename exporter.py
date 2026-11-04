@@ -390,9 +390,14 @@ def export_table_to_excel(
     for row in ws.iter_rows(min_row=start_data_row, max_row=ws.max_row, max_col=col_count):
         for cell in row:
             cell.font = Font(name="Tahoma", size=10)
-            if cell.column in signed_columns and str(cell.value or "").startswith(("+", "-")):
-                # Keep the sign to the left of the digits in mixed RTL worksheets.
-                cell.alignment = Alignment(horizontal="left", vertical="center", readingOrder=1)
+            if cell.column in signed_columns:
+                # Excel applies horizontal alignment to every adjustment cell,
+                # independently of whether this particular value is signed.
+                cell.alignment = Alignment(
+                    horizontal="center", vertical="center", readingOrder=2
+                )
+                if isinstance(cell.value, str):
+                    cell.number_format = "@"
             else:
                 cell.alignment = Alignment(horizontal="center", vertical="center", readingOrder=0)
             cell.border = thin_border

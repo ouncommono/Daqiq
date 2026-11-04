@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - feature/accounting-security-ux-upgrade
+      - release/v2.1.0
   pull_request:
     branches:
       - main

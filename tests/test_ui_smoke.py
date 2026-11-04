@@ -47,7 +47,9 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
     try:
         assert window.tabs.count() == 10
         assert window.tabs.tabText(9).endswith("تنظیمات")
-        assert window.lbl_app_version.text() == "نسخه برنامه: 2.0.0"
+        assert window.lbl_app_version.text() == "Daqiq (دقیق) | نسخه برنامه: 2.1.0"
+        assert window.lbl_app_brand.text() == "Daqiq | دقیق"
+        assert window.windowTitle().startswith("‫Daqiq (دقیق)")
         assert [window.catalog_tabs.tabText(i) for i in range(window.catalog_tabs.count())] == [
             "مدیریت کالاها",
             "مدیریت خدمات",
@@ -79,6 +81,26 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
         assert window.lbl_active_db_path.alignment() & Qt.AlignLeft
         assert window.lst_cfg_attributes.minimumHeight() >= 92
         assert not window.lst_cfg_attributes.isHidden()
+        assert isinstance(
+            window.cfg_attributes_section, main_module.CollapsibleSection
+        )
+        assert window.cfg_attributes_section._expanded is True
+        assert window.cb_cfg_data_scope_mode.currentData() == "all"
+        assert window.lst_cfg_data_scope_roles.isEnabled() is False
+        assert window.lst_cfg_data_scope_users.isEnabled() is False
+        assert window.chk_upg_consume_stock.isChecked()
+        window.chk_upg_consume_stock.setChecked(False)
+        window._clear_upgrade_form()
+        assert window.chk_upg_consume_stock.isChecked()
+
+        window.btn_sale_colors.set_colors(["مشکی"], ["مشکی"])
+        window._clear_sale_form()
+        assert window.btn_sale_colors.selected_colors() == []
+        assert window.cb_sale_batch.currentIndex() == -1
+
+        window.btn_batch_colors.set_colors(["نقره‌ای"], ["نقره‌ای"])
+        window._clear_batch_form()
+        assert window.btn_batch_colors.selected_colors() == []
         assert window.btn_theme.isEnabled()
         assert window.btn_table_width.isEnabled()
         assert window.tbl_batches.columnCount() >= 22
