@@ -7186,8 +7186,8 @@ class MainWindow(QMainWindow):
     def _refresh_combos(self):
         with self.db.get_connection() as conn:
             prods = conn.execute(
-                "SELECT id, code, name, category, sub_category, brand, model, specs_json, description,
-                      reorder_point, default_profit_pct, is_active, created_at, updated_at FROM products WHERE is_active=1 ORDER BY updated_at DESC, id DESC"
+                """SELECT id, code, name, category, sub_category, brand, model, specs_json, description,
+                      reorder_point, default_profit_pct, is_active, created_at, updated_at FROM products WHERE is_active=1 ORDER BY updated_at DESC, id DESC"""
             ).fetchall()
             emps = conn.execute(
                 "SELECT id, name, role, phone, is_active, permissions, password, created_at, updated_at FROM employees WHERE is_active=1 ORDER BY updated_at DESC, id DESC"
@@ -7207,8 +7207,8 @@ class MainWindow(QMainWindow):
                     "SELECT id, name, phone, address, notes, created_at, updated_at FROM suppliers ORDER BY updated_at DESC, id DESC"
                 ).fetchall()
             srvs = conn.execute(
-                "SELECT id, code, service_type, name, default_fee, default_side_cost, description,
-                      is_active, created_at, updated_at FROM service_catalog WHERE is_active=1 ORDER BY updated_at DESC, id DESC"
+                """SELECT id, code, service_type, name, default_fee, default_side_cost, description,
+                      is_active, created_at, updated_at FROM service_catalog WHERE is_active=1 ORDER BY updated_at DESC, id DESC"""
             ).fetchall()
             batches = conn.execute(
                 """
@@ -7617,8 +7617,8 @@ class MainWindow(QMainWindow):
     def _refresh_services_table(self):
         with self.db.get_connection() as conn:
             cat_rows = conn.execute(
-                "SELECT id, code, service_type, name, default_fee, default_side_cost, description,
-                      is_active, created_at, updated_at FROM service_catalog WHERE is_active=1 ORDER BY updated_at DESC, id DESC"
+                """SELECT id, code, service_type, name, default_fee, default_side_cost, description,
+                      is_active, created_at, updated_at FROM service_catalog WHERE is_active=1 ORDER BY updated_at DESC, id DESC"""
             ).fetchall()
             rec_rows = conn.execute("""
                 SELECT sr.id, sr.invoice_number, sr.service_id, sr.seller_employee_id,
