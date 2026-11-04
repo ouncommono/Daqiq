@@ -925,17 +925,100 @@ def test_service_update_recalculates_net_profit_from_received_amount(manager):
         record["service_fee"], record["paid_amount"], record["settlement_status"]
     ) == (-100, 0)
 
-def test_fresh_schema_places_audit_columns_last_and_sets_version(manager):
-    expected_tables = (
-        "employees", "suppliers", "customers", "products", "batches", "upgrades",
-        "sales", "service_catalog", "service_price_history", "service_records",
-        "payments", "audit_logs",
-    )
+def test_fresh_schema_has_v2_physical_column_order_and_metadata(manager):
+    expected_columns = {
+        "employees": [
+            "id", "name", "role", "phone", "is_active", "permissions",
+            "password", "created_at", "updated_at",
+        ],
+        "batches": [
+            "id", "batch_code", "product_id", "supplier_id", "buyer_employee_id",
+            "invoice_number", "purchase_date", "initial_qty", "sold_qty",
+            "returned_qty", "remaining_qty", "unit_purchase_price", "extra_cost_total",
+            "upgrade_cost_unit", "unit_cost_price", "suggested_sell_price", "profit_pct",
+            "paid_amount", "settlement_status", "serial_numbers", "colors_json",
+            "initial_specs", "final_specs", "supplier_name_snapshot", "notes",
+            "created_at", "updated_at",
+        ],
+        "upgrades": [
+            "id", "target_batch_id", "part_batch_id", "technician_id", "target_qty",
+            "part_qty_used", "stock_deducted_qty", "part_unit_cost", "labor_cost_unit",
+            "added_cost_unit", "upgrade_date", "serial_number", "manual_part_description",
+            "old_specs", "new_specs", "notes", "created_at", "updated_at",
+        ],
+        "sales": [
+            "id", "invoice_number", "product_id", "batch_id", "seller_employee_id",
+            "customer_name", "qty", "returned_qty", "suggested_unit_price",
+            "actual_unit_price", "unit_cost_price", "unit_discount", "total_discount",
+            "price_Markup_unit", "unit_profit", "total_profit", "total_amount",
+            "paid_amount", "settlement_status", "sale_datetime", "warranty_company",
+            "warranty_start", "warranty_months", "warranty_days", "warranty_end",
+            "serial_number", "specifications", "colors_json", "notes",
+            "created_at", "updated_at",
+        ],
+        "service_records": [
+            "id", "invoice_number", "service_id", "seller_employee_id",
+            "technician_employee_id", "service_type", "service_name", "customer_name",
+            "historical_tariff", "service_fee", "side_cost", "paid_amount", "net_profit",
+            "settlement_status", "service_datetime", "description", "created_at",
+            "updated_at",
+        ],
+    }
     with manager.get_connection() as conn:
-        for table_name in expected_tables:
+        for table_name, expected in expected_columns.items():
             columns = [
                 row["name"]
                 for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
             ]
-            assert columns[-2:] == ["created_at", "updated_at"], table_name
+            assert columns == expected, table_name
         assert conn.execute("PRAGMA user_version").fetchone()[0] == 200
+        metadata = dict(conn.execute("SELECT key, value FROM settings").fetchall())
+        assert metadata["app_version"] == "2.0.0"
+        assert metadata["schema_version"] == "200"
+
+
+def test_v2_rejects_pre_v2_database_without_attempting_migration(tmp_path, monkeypatch):
+    monkeypatch.setenv("APPDATA", str(tmp_path / "app-data"))
+    monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
+    legacy_path = tmp_path / "legacy.db"
+    with sqlite3.connect(legacy_path) as conn:
+        conn.execute("CREATE TABLE legacy_records (id INTEGER PRIMARY KEY, value TEXT)")
+        conn.commit()
+
+    with pytest.raises(RuntimeError, match="نسخه 2.0.0"):
+        DatabaseManager(str(legacy_path))
+
+
+def test_upgrade_can_apply_specs_without_consuming_available_part_stock(manager):
+    product_id = create_product(manager)
+    target_id = create_batch(manager, product_id, code="C-NO-CONSUME-TARGET", quantity=2)
+    part_id = create_batch(manager, product_id, code="C-NO-CONSUME-PART", quantity=4)
+    with manager.get_connection() as conn:
+        part_before = conn.execute(
+            "SELECT remaining_qty, sold_qty FROM batches WHERE id=?", (part_id,)
+        ).fetchone()
+
+    manager.upgrade_batch_product(
+        target_id, 1, part_id, 2, 25, "RAM: 16GB DDR5",
+        "1405/01/03", None, consume_stock=False,
+    )
+
+    with manager.get_connection() as conn:
+        part_after = conn.execute(
+            "SELECT remaining_qty, sold_qty FROM batches WHERE id=?", (part_id,)
+        ).fetchone()
+        upgrade = conn.execute(
+            "SELECT id, stock_deducted_qty FROM upgrades ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+
+    assert part_after["remaining_qty"] == part_before["remaining_qty"]
+    assert part_after["sold_qty"] == part_before["sold_qty"]
+    assert upgrade["stock_deducted_qty"] == 0
+
+    manager.revert_upgrade(int(upgrade["id"]))
+    with manager.get_connection() as conn:
+        part_reverted = conn.execute(
+            "SELECT remaining_qty, sold_qty FROM batches WHERE id=?", (part_id,)
+        ).fetchone()
+    assert part_reverted["remaining_qty"] == part_before["remaining_qty"]
+    assert part_reverted["sold_qty"] == part_before["sold_qty"]
