@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QBoxLayout,
     QCompleter,
     QSizePolicy,
+    QPushButton,
     QToolButton,
     QScrollBar,
     QLabel,
@@ -1392,13 +1393,21 @@ def test_backup_numeric_fields_select_their_current_value_on_focus(tmp_path, mon
     try:
         assert isinstance(window.sp_bk_interval, main_module.SelectAllSpinBox)
         assert isinstance(window.sp_bk_retention, main_module.SelectAllSpinBox)
+        window.show()
+        window.tabs.setCurrentIndex(window._settings_tab_index)
+        qapp.processEvents()
+        backup_header = next(
+            button for button in window.findChildren(QPushButton, "collapsibleSectionHeader")
+            if "پایگاه داده و پشتیبان‌گیری" in button.text()
+        )
+        backup_header.click()
+        qapp.processEvents()
         for spin, value in (
             (window.sp_bk_interval, 90),
             (window.sp_bk_retention, 12),
         ):
             spin.setValue(value)
-            spin.show()
-            spin.setFocus(Qt.OtherFocusReason)
+            spin.lineEdit().setFocus(Qt.OtherFocusReason)
             qapp.processEvents()
             assert spin.lineEdit().selectedText() == str(value)
     finally:
