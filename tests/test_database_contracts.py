@@ -338,7 +338,7 @@ def test_v3_schema_initialization_is_idempotent_and_keeps_upgrade_column_order(m
         "added_cost_unit", "upgrade_date", "serial_number", "manual_part_description",
         "old_specs", "new_specs", "notes", "created_at", "updated_at",
     ]
-    assert version == 310
+    assert version == 320
 
 
 def test_upgrade_backend_rejects_unconfirmed_insufficient_inventory(manager):
@@ -629,8 +629,8 @@ def test_v3_application_config_records_release_and_preserves_current_preferences
     assert manager.cfg["zero_append_count"] == 4
     assert manager.cfg["default_window_maximized"] is False
     assert manager.cfg["require_login_password"] is True
-    assert manager.cfg["app_version"] == "3.1.0"
-    assert manager.cfg["schema_version"] == 310
+    assert manager.cfg["app_version"] == "3.2.0"
+    assert manager.cfg["schema_version"] == 320
     assert manager.cfg["config_schema_version"] == 2
 
 
@@ -1009,6 +1009,11 @@ def test_fresh_schema_has_v3_physical_column_order_and_metadata(manager):
             "id", "name", "role", "phone", "is_active", "permissions",
             "password", "created_at", "updated_at",
         ],
+        "products": [
+            "id", "code", "name", "category", "sub_category", "brand", "model",
+            "specs_json", "description", "reorder_point", "default_profit_pct",
+            "is_active", "created_at", "updated_at",
+        ],
         "batches": [
             "id", "batch_code", "product_id", "supplier_id", "buyer_employee_id",
             "invoice_number", "purchase_date", "initial_qty", "sold_qty",
@@ -1049,10 +1054,14 @@ def test_fresh_schema_has_v3_physical_column_order_and_metadata(manager):
                 for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
             ]
             assert columns == expected, table_name
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 310
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 320
+        product_indexes = {
+            row["name"] for row in conn.execute("PRAGMA index_list(products)")
+        }
+        assert "idx_products_taxonomy" in product_indexes
         metadata = dict(conn.execute("SELECT key, value FROM settings").fetchall())
-        assert metadata["app_version"] == "3.1.0"
-        assert metadata["schema_version"] == "310"
+        assert metadata["app_version"] == "3.2.0"
+        assert metadata["schema_version"] == "320"
 
 
 def test_v3_schema_creates_normalized_access_scope_tables(manager):
@@ -1073,7 +1082,7 @@ def test_v3_schema_creates_normalized_access_scope_tables(manager):
             ).fetchall()
         ]
         assert scope_columns == ["access_level_name", "mode"]
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 310
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 320
 
 
 def test_v3_rejects_pre_v3_database_without_attempting_migration(tmp_path, monkeypatch):
@@ -1084,7 +1093,7 @@ def test_v3_rejects_pre_v3_database_without_attempting_migration(tmp_path, monke
         conn.execute("CREATE TABLE legacy_records (id INTEGER PRIMARY KEY, value TEXT)")
         conn.commit()
 
-    with pytest.raises(RuntimeError, match="نسخه 3.1.0"):
+    with pytest.raises(RuntimeError, match="نسخه 3.2.0"):
         DatabaseManager(str(legacy_path))
 
 
@@ -1115,6 +1124,89 @@ def test_first_upgrade_rollback_restores_product_base_specifications(manager):
             "SELECT final_specs FROM batches WHERE id=?", (target_id,)
         ).fetchone()["final_specs"]
     assert restored == base_specs
+
+
+def test_bulk_inventory_quantities_are_atomic_for_create_edit_and_delete(manager):
+    product_id = create_product(manager, "P-BULK-QTY")
+    batch_id = create_batch(manager, product_id, code="C-BULK-QTY", quantity=1)
+    created_batch_id = create_batch(
+        manager, product_id, code="C-BULK-CREATE", quantity=10
+    )
+    with manager.get_connection() as conn:
+        created = conn.execute(
+            "SELECT initial_qty, remaining_qty FROM batches WHERE id=?",
+            (created_batch_id,),
+        ).fetchone()
+    assert (created["initial_qty"], created["remaining_qty"]) == (10, 10)
+
+    manager.update_batch(
+        batch_id, None, None, "PO-BULK", "1405/01/01",
+        10, 100, 0, 150, 0, "", "bulk quantity",
+    )
+    manager.update_batch(
+        batch_id, None, None, "PO-BULK", "1405/01/01",
+        50, 100, 0, 150, 0, "", "bulk quantity",
+    )
+    with manager.get_connection() as conn:
+        batch = conn.execute(
+            "SELECT initial_qty, sold_qty, remaining_qty FROM batches WHERE id=?",
+            (batch_id,),
+        ).fetchone()
+    assert (batch["initial_qty"], batch["sold_qty"], batch["remaining_qty"]) == (50, 0, 50)
+
+    manager.add_sale(
+        "INV-BULK-QTY", product_id, batch_id, None, "مشتری آزمون",
+        10, 150, 150, 0, "1405/01/02 12:00:00",
+        settlement_status="تسویه‌نشده",
+    )
+    with manager.get_connection() as conn:
+        sale_id = int(conn.execute(
+            "SELECT id FROM sales WHERE invoice_number='INV-BULK-QTY'"
+        ).fetchone()["id"])
+        stock_after_create = conn.execute(
+            "SELECT sold_qty, remaining_qty FROM batches WHERE id=?", (batch_id,)
+        ).fetchone()
+    assert (stock_after_create["sold_qty"], stock_after_create["remaining_qty"]) == (10, 40)
+
+    manager.update_sale(
+        sale_id, None, "مشتری آزمون", 25, 150, 150, 0,
+        "", "", 0, "", "", "", "تسویه‌نشده",
+    )
+    with manager.get_connection() as conn:
+        stock_after_increase = conn.execute(
+            "SELECT sold_qty, remaining_qty FROM batches WHERE id=?", (batch_id,)
+        ).fetchone()
+    assert (stock_after_increase["sold_qty"], stock_after_increase["remaining_qty"]) == (25, 25)
+
+    manager.update_sale(
+        sale_id, None, "مشتری آزمون", 5, 150, 150, 0,
+        "", "", 0, "", "", "", "تسویه‌نشده",
+    )
+    with manager.get_connection() as conn:
+        stock_after_decrease = conn.execute(
+            "SELECT sold_qty, remaining_qty FROM batches WHERE id=?", (batch_id,)
+        ).fetchone()
+    assert (stock_after_decrease["sold_qty"], stock_after_decrease["remaining_qty"]) == (5, 45)
+
+    manager.delete_sale(sale_id)
+    with manager.get_connection() as conn:
+        stock_after_delete = conn.execute(
+            "SELECT sold_qty, remaining_qty FROM batches WHERE id=?", (batch_id,)
+        ).fetchone()
+    assert (stock_after_delete["sold_qty"], stock_after_delete["remaining_qty"]) == (0, 50)
+
+    manager.delete_product(product_id)
+    with manager.get_connection() as conn:
+        assert conn.execute(
+            "SELECT COUNT(*) FROM products WHERE id=?", (product_id,)
+        ).fetchone()[0] == 0
+        assert conn.execute(
+            "SELECT COUNT(*) FROM batches WHERE id IN (?, ?)",
+            (batch_id, created_batch_id),
+        ).fetchone()[0] == 0
+        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+    assert manager._batch_integer("۱۰", "تعداد", minimum=1) == 10
+    assert manager._batch_integer("۵۰", "تعداد", minimum=1) == 50
 
 
 def test_upgrade_can_apply_specs_without_consuming_available_part_stock(manager):
