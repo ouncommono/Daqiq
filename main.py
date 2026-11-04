@@ -6532,22 +6532,25 @@ class MainWindow(QMainWindow):
             "model": "مدل", "brand": "برند",
         }
         display_titles = {
-            "پردازنده": "CPU", "ظرفیت رم": "RAM Capacity",
-            "نسل رم": "RAM Type", "نسخه DDR": "DDR Version",
-            "حافظه داخلی": "Storage", "پردازنده گرافیکی": "GPU",
-            "صفحه‌نمایش": "Display", "ظرفیت": "Capacity",
-            "نوع رابط": "Interface", "نوع سوکت": "Socket",
-            "نوع اتصال / پورت": "Connectivity", "مشخصات": "Specifications",
-            "مشخصات تکمیلی": "Additional Specifications",
-            "سایز": "Size", "نوع پنل": "Panel Type",
-            "نرخ نوسازی": "Refresh Rate", "درگاه‌ها": "Ports",
-            "ولتاژ": "Voltage", "آمپر و توان": "Current / Power",
-            "استاندارد شبکه": "Network Standard", "تعداد درگاه": "Port Count",
-            "فناوری چاپ": "Print Technology", "نوع چاپ": "Print Type",
-            "فرکانس": "Frequency", "وضوح تصویر": "Resolution",
-            "توان طراحی حرارتی": "TDP", "حافظه گرافیکی": "VRAM",
-            "گارانتی": "Warranty", "شماره سریال": "Serial Number",
-            "مدل": "Model", "برند": "Brand",
+            normalize_catalog_label(name): title
+            for name, title in {
+                "پردازنده": "CPU", "ظرفیت رم": "RAM Capacity",
+                "نسل رم": "RAM Type", "نسخه DDR": "DDR Version",
+                "حافظه داخلی": "Storage", "پردازنده گرافیکی": "GPU",
+                "صفحه‌نمایش": "Display", "ظرفیت": "Capacity",
+                "نوع رابط": "Interface", "نوع سوکت": "Socket",
+                "نوع اتصال / پورت": "Connectivity", "مشخصات": "Specifications",
+                "مشخصات تکمیلی": "Additional Specifications",
+                "سایز": "Size", "نوع پنل": "Panel Type",
+                "نرخ نوسازی": "Refresh Rate", "درگاه‌ها": "Ports",
+                "ولتاژ": "Voltage", "آمپر و توان": "Current / Power",
+                "استاندارد شبکه": "Network Standard", "تعداد درگاه": "Port Count",
+                "فناوری چاپ": "Print Technology", "نوع چاپ": "Print Type",
+                "فرکانس": "Frequency", "وضوح تصویر": "Resolution",
+                "توان طراحی حرارتی": "TDP", "حافظه گرافیکی": "VRAM",
+                "گارانتی": "Warranty", "شماره سریال": "Serial Number",
+                "مدل": "Model", "برند": "Brand",
+            }.items()
         }
         generic_titles = {
             "specification", "specifications", "additional details",
@@ -6797,6 +6800,25 @@ class MainWindow(QMainWindow):
         self._pending_attribute_renames = []
         self._pending_color_renames = []
         self._pending_service_type_renames = []
+
+        # Compare raw stored definitions with the localized v4 draft. Queue JSON
+        # key changes so product values are preserved when settings are saved.
+        original_attributes = stored.get("attributes", {}) if isinstance(stored, dict) else {}
+        localized_attributes = self._taxonomy_draft.get("attributes", {})
+        for category, original_definitions in original_attributes.items():
+            localized_definitions = localized_attributes.get(category, [])
+            if not isinstance(original_definitions, list):
+                continue
+            for original, localized in zip(original_definitions, localized_definitions):
+                old_name = str(original.get("name") or "").strip()
+                new_name = str(localized.get("name") or "").strip()
+                if old_name and new_name and old_name != new_name:
+                    scope = str(
+                        original.get("subcategory") or localized.get("subcategory") or ""
+                    )
+                    self._pending_attribute_renames.append(
+                        (category, old_name, new_name, scope, scope)
+                    )
 
         legacy_attribute_names = {
             "CPU": ("پردازنده", "CPU"),
@@ -7533,10 +7555,9 @@ class MainWindow(QMainWindow):
                 "colors": list(DEFAULT_COLORS),
                 "service_types": ["نرم‌افزاری", "سخت‌افزاری"],
             })
-        raw = self.db.get_setting("product_catalog_config", "")
-        normalized_json = json.dumps(normalized, ensure_ascii=False, separators=(",", ":"))
-        if raw != normalized_json:
-            self.db.save_product_catalog_config(normalized)
+        # Keep persisted names intact until the settings form can queue the
+        # matching product-spec JSON-key renames. The UI uses localized names
+        # immediately; explicit Save commits catalogue and product data together.
         return normalized
 
     def _load_subcategory_caption(self, category):
