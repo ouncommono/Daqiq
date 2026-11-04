@@ -76,7 +76,7 @@ from exporter import (
     get_next_excel_filename,
 )
 
-APP_VERSION = "3.2.0"
+APP_VERSION = "3.3.0"
 
 DEFAULT_ACCESS_LEVELS = [
     {"name": "دسترسی کامل (مدیر کل)", "policy": "دسترسی کامل (مدیر کل)"},
@@ -5922,13 +5922,15 @@ class MainWindow(QMainWindow):
         sub_btn_row = QHBoxLayout()
         btn_add_sub = QPushButton("افزودن")
         btn_add_sub.setObjectName("btnAddSubcategory")
+        btn_add_sub.setProperty("catalogAction", "addSubcategory")
         btn_add_sub.clicked.connect(self._add_catalog_subcategory)
         btn_rename_sub = QPushButton("تغییر نام")
-        btn_rename_sub.setObjectName("btnRenameSubcategory")
         btn_rename_sub.setObjectName("btnSecondary")
+        btn_rename_sub.setProperty("catalogAction", "renameSubcategory")
         btn_rename_sub.clicked.connect(self._rename_catalog_subcategory)
         btn_delete_sub = QPushButton("حذف")
         btn_delete_sub.setObjectName("btnDanger")
+        btn_delete_sub.setProperty("catalogAction", "deleteSubcategory")
         btn_delete_sub.clicked.connect(self._delete_catalog_subcategory)
         sub_btn_row.addWidget(btn_add_sub)
         sub_btn_row.addWidget(btn_rename_sub)
