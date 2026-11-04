@@ -83,4 +83,6 @@ This release update preserves the existing business-table identifiers and relati
 
 ### Validation and acceptance
 - Add regression tests for the v2 schema/version contract, rejection of old databases, stock-preserving upgrades, typed table sorting, financial colors and service-code reporting.
-- Automated CI validation is required before review. Manual Windows/desktop visual acceptance remains a release checklist item.
+- GitHub Actions run [#173](https://github.com/ouncommono/Accounting-Software/actions/runs/41749974130) passed: **71 passed, 0 failed**; Python compilation also passed.
+- CI emitted 141 non-failing Qt deprecation warnings for `QSortFilterProxyModel.invalidateFilter()`.
+- Manual Windows/desktop visual acceptance remains a release checklist item.
