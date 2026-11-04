@@ -113,6 +113,21 @@ def app_config_exists():
     return os.path.isfile(CONFIG_FILE)
 
 
+def app_config_has_database_selection():
+    """Require a parseable config with an explicitly stored active database path."""
+    if not app_config_exists():
+        return False
+    try:
+        with open(CONFIG_FILE, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return False
+    return (
+        isinstance(data, dict)
+        and bool(str(data.get("db_path") or "").strip())
+    )
+
+
 def load_app_config():
     default_db = get_default_database_path()
     default_cfg = {
