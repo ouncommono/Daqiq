@@ -48,7 +48,7 @@ from PySide6.QtGui import QFont, QColor, QFontMetrics
 from database import (
     DatabaseManager, load_app_config, save_app_config, hash_password,
     receivable_balance, service_financial_breakdown, app_config_exists,
-    get_default_database_path,
+    get_default_database_path, round_integer_division, round_percentage_amount,
 )
 from utils_and_widgets import (
     MAIN_CATEGORIES,
@@ -2719,14 +2719,14 @@ class MainWindow(QMainWindow):
         buy_u = self.pr_batch_buy.get_value()
         extra_t = self.pr_batch_extra.get_value()
         qty = self.cb_batch_qty.get_qty()
-        cost_u = buy_u + (round(extra_t / qty) if qty > 0 else 0)
+        cost_u = buy_u + (round_integer_division(extra_t, qty) if qty > 0 else 0)
         prod_data = self.cb_batch_prod.currentData()
         pct = (
             float(prod_data["default_profit_pct"])
             if prod_data
             else float(self.db.cfg.get("default_profit_pct", 20))
         )
-        suggested = round(cost_u * (1 + (pct / 100.0)))
+        suggested = round_percentage_amount(cost_u, pct)
         self.pr_batch_suggest.set_value(suggested)
         st = self.cb_batch_status.currentText()
         if st.startswith("تسویه‌شده"):
@@ -6504,6 +6504,10 @@ class MainWindow(QMainWindow):
             "portcount": "تعداد درگاه", "printtechnology": "فناوری چاپ",
             "printcolor": "نوع چاپ", "printtype": "نوع چاپ",
             "frequency": "فرکانس", "bus": "فرکانس",
+            "tdp": "توان طراحی حرارتی", "vram": "حافظه گرافیکی",
+            "ramfrequency": "فرکانس", "memoryfrequency": "فرکانس",
+            "resolution": "وضوح تصویر", "screensize": "سایز",
+            "graphiccard": "پردازنده گرافیکی", "نوعram": "نسل رم",
             "warranty": "گارانتی", "serialnumber": "شماره سریال",
             "model": "مدل", "brand": "برند",
         }
@@ -6520,8 +6524,10 @@ class MainWindow(QMainWindow):
             "ولتاژ": "Voltage", "آمپر و توان": "Current / Power",
             "استاندارد شبکه": "Network Standard", "تعداد درگاه": "Port Count",
             "فناوری چاپ": "Print Technology", "نوع چاپ": "Print Type",
-            "فرکانس": "Frequency", "گارانتی": "Warranty",
-            "شماره سریال": "Serial Number", "مدل": "Model", "برند": "Brand",
+            "فرکانس": "Frequency", "وضوح تصویر": "Resolution",
+            "توان طراحی حرارتی": "TDP", "حافظه گرافیکی": "VRAM",
+            "گارانتی": "Warranty", "شماره سریال": "Serial Number",
+            "مدل": "Model", "برند": "Brand",
         }
         generic_titles = {
             "specification", "specifications", "additional details",
