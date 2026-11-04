@@ -6614,6 +6614,53 @@ class MainWindow(QMainWindow):
         merged["attributes"] = attributes
         return merged
 
+    @staticmethod
+    def _enforce_other_subcategory_attribute_contract(config):
+        """Keep «سایر موارد» last and expose exactly one Specifications field."""
+        if not isinstance(config, dict):
+            return config
+        categories = list(config.get("categories") or [])
+        subcategories = config.setdefault("subcategories", {})
+        attributes = config.setdefault("attributes", {})
+        other_key = normalize_catalog_label("سایر موارد")
+        spec_keys = {
+            normalize_catalog_label("مشخصات"),
+            normalize_catalog_label("مشخصه"),
+            normalize_catalog_label("specification"),
+            normalize_catalog_label("specifications"),
+        }
+        for category in categories:
+            values = subcategories.setdefault(category, [])
+            values[:] = [
+                value for value in values
+                if normalize_catalog_label(value) != other_key
+            ]
+            values.append("سایر موارد")
+
+            definitions = attributes.setdefault(category, [])
+            retained = []
+            spec_values = []
+            for item in definitions:
+                if not isinstance(item, dict):
+                    continue
+                if normalize_catalog_label(item.get("subcategory") or "") != other_key:
+                    retained.append(item)
+                    continue
+                if normalize_catalog_label(item.get("name") or "") in spec_keys:
+                    spec_values.extend(item.get("values") or [])
+            attributes[category] = retained + [{
+                "name": "مشخصات",
+                "label": "Specifications",
+                "values": list(dict.fromkeys(
+                    str(value).strip() for value in spec_values
+                    if str(value).strip()
+                )),
+                "subcategory": "سایر موارد",
+            }]
+        config["attributes"] = attributes
+        config["subcategories"] = subcategories
+        return config
+
     def _set_default_subcategory_removed(self, category, value, removed=True):
         key = normalize_catalog_label(value)
         if not key or not any(
@@ -6675,6 +6722,7 @@ class MainWindow(QMainWindow):
         """Mirror DynamicSpecsWidget's built-in fields into the configurable catalogue."""
         attributes = self._taxonomy_draft.setdefault("attributes", {})
         subcategories = self._taxonomy_draft.setdefault("subcategories", {})
+        other_key = normalize_catalog_label("سایر موارد")
         for category in list(self._taxonomy_draft.get("categories", [])):
             widget = DynamicSpecsWidget()
             try:
@@ -6684,6 +6732,8 @@ class MainWindow(QMainWindow):
                     if category == "قطعات" else [""]
                 )
                 for scope in scopes:
+                    if normalize_catalog_label(scope) == other_key:
+                        continue
                     if category == "قطعات" and widget.cb_sub is not None:
                         if widget.cb_sub.findText(scope) < 0:
                             widget.cb_sub.addItem(scope)
@@ -6736,7 +6786,7 @@ class MainWindow(QMainWindow):
         for row in rows:
             category = str(row["category"] or "").strip()
             scope = str(row["sub_category"] or "").strip()
-            if not category:
+            if not category or normalize_catalog_label(scope) == normalize_catalog_label("سایر موارد"):
                 continue
             try:
                 specs = json.loads(row["specs_json"] or "{}")
@@ -6805,20 +6855,36 @@ class MainWindow(QMainWindow):
         # key changes so product values are preserved when settings are saved.
         original_attributes = stored.get("attributes", {}) if isinstance(stored, dict) else {}
         localized_attributes = self._taxonomy_draft.get("attributes", {})
+        other_key = normalize_catalog_label("سایر موارد")
         for category, original_definitions in original_attributes.items():
             localized_definitions = localized_attributes.get(category, [])
             if not isinstance(original_definitions, list):
                 continue
-            for original, localized in zip(original_definitions, localized_definitions):
-                old_name = str(original.get("name") or "").strip()
-                new_name = str(localized.get("name") or "").strip()
-                if old_name and new_name and old_name != new_name:
-                    scope = str(
-                        original.get("subcategory") or localized.get("subcategory") or ""
-                    )
-                    self._pending_attribute_renames.append(
-                        (category, old_name, new_name, scope, scope)
-                    )
+            # The catch-all fields are deliberately consolidated into one
+            # Specifications field, so they are excluded from positional pairing.
+            scopes = []
+            for definition in original_definitions:
+                scope = str(definition.get("subcategory") or "")
+                scope_key = normalize_catalog_label(scope)
+                if scope_key != other_key and scope_key not in scopes:
+                    scopes.append(scope_key)
+            for scope_key in scopes:
+                originals = [
+                    item for item in original_definitions
+                    if normalize_catalog_label(item.get("subcategory") or "") == scope_key
+                ]
+                localized = [
+                    item for item in localized_definitions
+                    if normalize_catalog_label(item.get("subcategory") or "") == scope_key
+                ]
+                for original, localized_item in zip(originals, localized):
+                    old_name = str(original.get("name") or "").strip()
+                    new_name = str(localized_item.get("name") or "").strip()
+                    if old_name and new_name and old_name != new_name:
+                        scope = str(original.get("subcategory") or "")
+                        self._pending_attribute_renames.append(
+                            (category, old_name, new_name, scope, scope)
+                        )
 
         legacy_attribute_names = {
             "CPU": ("پردازنده", "CPU"),
@@ -6893,6 +6959,9 @@ class MainWindow(QMainWindow):
         self._merge_builtin_product_features_into_draft()
         self._merge_persisted_product_spec_fields_into_draft()
         self._deduplicate_catalog_draft()
+        self._taxonomy_draft = self._enforce_other_subcategory_attribute_contract(
+            self._taxonomy_draft
+        )
 
         # Use the normalized draft immediately in product forms; persistence and
         # JSON-key migration happen together when the user saves settings.
