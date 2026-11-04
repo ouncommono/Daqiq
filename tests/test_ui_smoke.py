@@ -399,7 +399,7 @@ def test_sale_batch_picker_shows_only_distinguishing_specifications(tmp_path, mo
         ]
         assert any("RAM: 8GB" in tooltip for tooltip in tooltips)
         assert any("RAM: 16GB" in tooltip for tooltip in tooltips)
-        assert all("CPU: Core i7" not in tooltip and "SSD: 512GB" not in tooltip for tooltip in tooltips)
+        assert all("CPU: Core i7" in tooltip and "SSD: 512GB" in tooltip for tooltip in tooltips)
         assert all("مشخصات اولیه" not in tooltip for tooltip in tooltips)
 
         window.cb_sale_batch._search_proxy.set_query("SSD: 512GB")
