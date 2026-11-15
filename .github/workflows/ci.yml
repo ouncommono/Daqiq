@@ -1,44 +1,157 @@
-name: Python validation
+name: Daqiq CI/CD Pipeline
 
 on:
   push:
     branches:
       - main
-      - feature/accounting-security-ux-upgrade
+      - 'feature/**'
+      - 'release/**'
+    tags:
+      - 'v*'
   pull_request:
     branches:
       - main
+  workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
+  pull-requests: write
 
-# Keep only the latest validation run for each PR/ref; rapid fix commits
-# must not leave stale UI test runs competing for runners.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  syntax-and-database-tests:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+  validate-and-test:
+    name: Validate and Test
+    runs-on: windows-latest
+    timeout-minutes: 15
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
-      - name: Install Qt runtime libraries
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libegl1 libgl1 libopengl0 libdbus-1-3 libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xfixes0 libxcb-xinerama0
-      - name: Install test dependencies
+
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install PySide6==6.11.3 openpyxl jdatetime pytest
-      - name: Compile Python files
+          pip install -r requirements.txt
+          pip install pytest openpyxl pyinstaller
+
+      - name: Compile Python bytecode
         run: python -m compileall -q .
-      - name: Run database regression tests
+
+      - name: Run PyTest suite
         run: python -m pytest -q
+
+  build-executable:
+    name: Build Standalone Executable
+    needs: validate-and-test
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller openpyxl
+
+      - name: Read Application Version
+        id: version_step
+        shell: pwsh
+        run: |
+          $ver = (Get-Content VERSION).Trim()
+          if (-not $ver) { $ver = "4.1.0" }
+          Write-Output "APP_VERSION=$ver" >> $env:GITHUB_ENV
+          Write-Output "Building for version: $ver"
+
+      - name: Build Executable with PyInstaller
+        run: |
+          pyinstaller --noconfirm --onefile --windowed --name "Daqiq_${{ env.APP_VERSION }}" main.py
+
+      - name: Validate Built Binary
+        shell: pwsh
+        run: |
+          $target = "dist/Daqiq_${{ env.APP_VERSION }}.exe"
+          if (-not (Test-Path $target)) {
+            Write-Error "Binary build output not found: $target"
+            exit 1
+          }
+          $bytes = (Get-Item $target).Length
+          Write-Output "Executable built successfully: $target ($bytes bytes)"
+
+      - name: Upload Windows Executable Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Daqiq-Windows-${{ env.APP_VERSION }}
+          path: dist/Daqiq_${{ env.APP_VERSION }}.exe
+          if-no-files-found: error
+
+  draft-release-or-pr:
+    name: Draft Release and Open PR
+    needs: build-executable
+    runs-on: windows-latest
+    if: github.event_name != 'pull_request'
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read Application Version
+        id: version_step
+        shell: pwsh
+        run: |
+          $ver = (Get-Content VERSION).Trim()
+          if (-not $ver) { $ver = "4.1.0" }
+          Write-Output "APP_VERSION=$ver" >> $env:GITHUB_ENV
+
+      - name: Download Build Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Daqiq-Windows-${{ env.APP_VERSION }}
+          path: dist
+
+      - name: Create Open Pull Request (Feature Branches)
+        if: github.ref != 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Rule: Do NOT auto-merge this PR in the workflow. Register it solely as an open PR ready for final human code review and validation.
+          $currentBranch = (git branch --show-current).Trim()
+          Write-Output "Creating or checking open PR from $currentBranch to main..."
+          gh pr create `
+            --base main `
+            --head $currentBranch `
+            --title "Release v${{ env.APP_VERSION }}: Comprehensive Enterprise Upgrade" `
+            --body "Automated CI/CD build package for v${{ env.APP_VERSION }}. This PR contains all refactored modules, database schema v410 normalization, barcode scanner workflows, dynamic openpyxl export engine, and decoupled state management. Registered solely for human code review and validation (auto-merge disabled)." 2>$null || Write-Output "Pull request already exists."
+
+      - name: Publish Draft Release Tagged as Latest
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "Latest"
+          $title = "Daqiq v${{ env.APP_VERSION }} (Release Latest)"
+          $exePath = "dist/Daqiq_${{ env.APP_VERSION }}.exe"
+          Write-Output "Publishing draft release tagged $tag..."
+          gh release create $tag $exePath `
+            --title $title `
+            --notes "Daqiq v${{ env.APP_VERSION }} official release build. Executable packaged with PyInstaller." `
+            --draft `
+            --prerelease=false 2>$null || `
+          gh release upload $tag $exePath --clobber

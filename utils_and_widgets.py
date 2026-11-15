@@ -1666,3 +1666,135 @@ class DynamicSpecsWidget(QGroupBox):
                     w.setCurrentText(str(val))
                 else:
                     w.setText(str(val))
+
+
+class DynamicDomainValueRow(QWidget):
+    """Single row representing one domain/suggested value with input field and dedicated (+) and (-) buttons."""
+    removed = Signal(object)
+    added_after = Signal(object)
+    changed = Signal()
+
+    def __init__(self, text="", parent=None):
+        super().__init__(parent)
+        self.setLayoutDirection(Qt.RightToLeft)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 1, 0, 1)
+        layout.setSpacing(6)
+
+        self.ed_value = QLineEdit(text)
+        self.ed_value.setPlaceholderText("مقدار پیشنهادی (مثلاً USB 3.0, Type-C, HDMI)...")
+        self.ed_value.textChanged.connect(lambda: self.changed.emit())
+
+        self.btn_add = QPushButton("➕")
+        self.btn_add.setToolTip("افزودن مقدار جدید بعد از این سطر")
+        self.btn_add.setFixedSize(28, 28)
+        self.btn_add.clicked.connect(lambda: self.added_after.emit(self))
+
+        self.btn_remove = QPushButton("➖")
+        self.btn_remove.setToolTip("حذف این مقدار")
+        self.btn_remove.setFixedSize(28, 28)
+        self.btn_remove.setObjectName("btnDanger")
+        self.btn_remove.clicked.connect(lambda: self.removed.emit(self))
+
+        layout.addWidget(self.ed_value, 1)
+        layout.addWidget(self.btn_add)
+        layout.addWidget(self.btn_remove)
+
+    def text(self) -> str:
+        return self.ed_value.text().strip()
+
+    def setText(self, text: str):
+        self.ed_value.setText(text)
+
+
+class DynamicAttributeValuesWidget(QWidget):
+    """Dynamic list view component replacing comma-separated text fields for sub-category domains."""
+    valuesChanged = Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setLayoutDirection(Qt.RightToLeft)
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(4)
+
+        self.scroll_area = SmoothScrollArea(self)
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setMinimumHeight(90)
+        self.scroll_area.setMaximumHeight(150)
+
+        self.container = QWidget()
+        self.rows_layout = QVBoxLayout(self.container)
+        self.rows_layout.setContentsMargins(4, 4, 4, 4)
+        self.rows_layout.setSpacing(4)
+        self.rows_layout.addStretch()
+
+        self.scroll_area.setWidget(self.container)
+        main_layout.addWidget(self.scroll_area)
+
+        btn_bar = QHBoxLayout()
+        self.btn_add_initial = QPushButton("➕ افزودن مقدار جدید")
+        self.btn_add_initial.setObjectName("btnSecondary")
+        self.btn_add_initial.clicked.connect(lambda: self.add_row(""))
+        btn_bar.addWidget(self.btn_add_initial)
+        btn_bar.addStretch()
+        main_layout.addLayout(btn_bar)
+
+        self.rows = []
+        self.add_row("")
+
+    def get_values(self) -> list:
+        result = []
+        for r in self.rows:
+            val = r.text()
+            if val and val not in result:
+                result.append(val)
+        return result
+
+    def set_values(self, values_list: list):
+        self.clear()
+        if not values_list:
+            self.add_row("")
+            return
+        for val in values_list:
+            val_str = str(val).strip()
+            if val_str:
+                self.add_row(val_str)
+        if not self.rows:
+            self.add_row("")
+
+    def add_row(self, text="", after_row=None):
+        row = DynamicDomainValueRow(text, self.container)
+        row.removed.connect(self._on_remove_row)
+        row.added_after.connect(self._on_add_after)
+        row.changed.connect(lambda: self.valuesChanged.emit())
+
+        if after_row is not None and after_row in self.rows:
+            idx = self.rows.index(after_row)
+            self.rows.insert(idx + 1, row)
+            self.rows_layout.insertWidget(idx + 1, row)
+        else:
+            idx = len(self.rows)
+            self.rows.append(row)
+            self.rows_layout.insertWidget(idx, row)
+
+        self.valuesChanged.emit()
+        return row
+
+    def _on_remove_row(self, row):
+        if row in self.rows:
+            self.rows.remove(row)
+            self.rows_layout.removeWidget(row)
+            row.deleteLater()
+            if not self.rows:
+                self.add_row("")
+            self.valuesChanged.emit()
+
+    def _on_add_after(self, row):
+        self.add_row("", after_row=row)
+
+    def clear(self):
+        for r in list(self.rows):
+            self.rows_layout.removeWidget(r)
+            r.deleteLater()
+        self.rows.clear()

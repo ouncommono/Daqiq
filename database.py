@@ -8,8 +8,8 @@ import time
 import hashlib
 from decimal import Decimal, ROUND_HALF_EVEN
 
-APP_VERSION = "4.0.0"
-SCHEMA_VERSION = 400
+APP_VERSION = "4.1.0"
+SCHEMA_VERSION = 410
 
 SQLITE_INTEGER_MIN = -(1 << 63)
 SQLITE_INTEGER_MAX = (1 << 63) - 1
@@ -24,7 +24,7 @@ EXPECTED_SCHEMA_COLUMNS = {
     "access_level_scope_users": ("access_level_name", "employee_id"),
     "suppliers": ("id", "name", "phone", "address", "notes", "created_at", "updated_at"),
     "customers": ("id", "name", "phone", "notes", "created_at", "updated_at"),
-    "products": ("id", "code", "name", "category", "sub_category", "brand", "model", "specs_json", "description", "reorder_point", "default_profit_pct", "is_active", "created_at", "updated_at"),
+    "products": ("id", "code", "name", "category", "sub_category", "brand", "model", "specs_json", "description", "reorder_point", "default_profit_pct", "is_active", "serial_number", "created_at", "updated_at"),
     "batches": ("id", "batch_code", "product_id", "supplier_id", "buyer_employee_id", "invoice_number", "purchase_date", "initial_qty", "sold_qty", "returned_qty", "remaining_qty", "unit_purchase_price", "extra_cost_total", "upgrade_cost_unit", "unit_cost_price", "suggested_sell_price", "profit_pct", "paid_amount", "settlement_status", "serial_numbers", "colors_json", "initial_specs", "final_specs", "supplier_name_snapshot", "notes", "created_at", "updated_at"),
     "upgrades": ("id", "target_batch_id", "part_batch_id", "technician_id", "target_qty", "part_qty_used", "stock_deducted_qty", "part_unit_cost", "labor_cost_unit", "added_cost_unit", "upgrade_date", "serial_number", "manual_part_description", "old_specs", "new_specs", "notes", "created_at", "updated_at"),
     "sales": ("id", "invoice_number", "product_id", "batch_id", "seller_employee_id", "customer_name", "qty", "returned_qty", "suggested_unit_price", "actual_unit_price", "unit_cost_price", "unit_discount", "total_discount", "price_Markup_unit", "unit_profit", "total_profit", "total_amount", "paid_amount", "settlement_status", "sale_datetime", "warranty_company", "warranty_start", "warranty_months", "warranty_days", "warranty_end", "serial_number", "specifications", "colors_json", "notes", "created_at", "updated_at"),
@@ -43,7 +43,7 @@ def validate_schema_column_order(conn):
         )
         if actual_columns != expected_columns:
             raise RuntimeError(
-                f"ساختار ستون‌های جدول {table_name} با قرارداد نسخه 4.0.0 سازگار نیست."
+                f"ساختار ستون‌های جدول {table_name} با قرارداد نسخه 4.1.0 سازگار نیست."
             )
 
 
@@ -198,6 +198,20 @@ def save_app_config(cfg):
     os.replace(temp_path, CONFIG_FILE)
 
 
+class ManagedConnection(sqlite3.Connection):
+    """Context manager for SQLite connections that commits/rollbacks and guarantees handle closure."""
+
+    def __enter__(self):
+        super().__enter__()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        try:
+            return super().__exit__(exc_type, exc_val, exc_tb)
+        finally:
+            self.close()
+
+
 class DatabaseManager:
     def __init__(self, db_path=None):
         self.cfg = load_app_config()
@@ -215,6 +229,7 @@ class DatabaseManager:
             self.db_path,
             timeout=30.0,
             isolation_level="DEFERRED",
+            factory=ManagedConnection,
         )
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA busy_timeout = 30000")
@@ -242,8 +257,8 @@ class DatabaseManager:
             }
             if existing_tables and current_version != SCHEMA_VERSION:
                 raise RuntimeError(
-                    "این پایگاه داده برای نسخه 4.0.0 ساخته نشده است. "
-                    "نسخه 4.0.0 به پایگاه داده تازه نیاز دارد و مهاجرت خودکار "
+                    "این پایگاه داده برای نسخه 4.1.0 ساخته نشده است. "
+                    "نسخه 4.1.0 به پایگاه داده تازه نیاز دارد و مهاجرت خودکار "
                     "از نسخه‌های قبلی پشتیبانی نمی‌شود."
                 )
             cur = conn.cursor()
@@ -339,6 +354,7 @@ class DatabaseManager:
                     default_profit_pct REAL NOT NULL DEFAULT 20.0
                         CHECK (default_profit_pct >= 0),
                     is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
+                    serial_number TEXT NOT NULL DEFAULT '',
                     created_at TEXT NOT NULL DEFAULT '',
                     updated_at TEXT NOT NULL DEFAULT ''
                 )
@@ -606,6 +622,10 @@ class DatabaseManager:
                 )
             for index_sql in (
                 "CREATE INDEX IF NOT EXISTS idx_products_taxonomy ON products(category, sub_category, updated_at DESC, id DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_products_serial ON products(serial_number)",
+                "CREATE INDEX IF NOT EXISTS idx_batches_serial ON batches(serial_numbers)",
+                "CREATE INDEX IF NOT EXISTS idx_batches_code ON batches(batch_code)",
+                "CREATE INDEX IF NOT EXISTS idx_sales_serial ON sales(serial_number)",
                 "CREATE INDEX IF NOT EXISTS idx_batches_product_stock ON batches(product_id, remaining_qty)",
                 "CREATE INDEX IF NOT EXISTS idx_batches_product_activity ON batches(product_id, updated_at DESC, id DESC)",
                 "CREATE INDEX IF NOT EXISTS idx_batches_supplier_activity ON batches(supplier_id, updated_at DESC, id DESC)",
@@ -904,6 +924,7 @@ class DatabaseManager:
         description,
         reorder_point,
         default_profit_pct,
+        serial_number="",
     ):
         auto_name = (
             name.strip()
@@ -916,8 +937,8 @@ class DatabaseManager:
                 code = self.generate_next_code("products", "code", "P-", 1001, conn=conn)
             conn.execute(
                 """
-                INSERT INTO products (code, name, category, sub_category, brand, model, specs_json, description, reorder_point, default_profit_pct)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO products (code, name, category, sub_category, brand, model, specs_json, description, reorder_point, default_profit_pct, serial_number)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     code,
@@ -930,6 +951,7 @@ class DatabaseManager:
                     description,
                     int(reorder_point),
                     float(default_profit_pct),
+                    str(serial_number or "").strip(),
                 ),
             )
             self.log_audit(conn, "ثبت کالا", f"کد کالا: {code} - {auto_name}")
@@ -949,6 +971,7 @@ class DatabaseManager:
         description,
         reorder_point,
         default_profit_pct,
+        serial_number="",
     ):
         auto_name = (
             name.strip()
@@ -960,7 +983,7 @@ class DatabaseManager:
             conn.execute(
                 """
                 UPDATE products SET code=?, name=?, category=?, sub_category=?, brand=?, model=?,
-                specs_json=?, description=?, reorder_point=?, default_profit_pct=?
+                specs_json=?, description=?, reorder_point=?, default_profit_pct=?, serial_number=?
                 WHERE id=?
             """,
                 (
@@ -974,11 +997,89 @@ class DatabaseManager:
                     description,
                     int(reorder_point),
                     float(default_profit_pct),
+                    str(serial_number or "").strip(),
                     prod_id,
                 ),
             )
             self.log_audit(conn, "ویرایش کالا", f"کد کالا: {code} - {auto_name}")
             conn.commit()
+
+    def lookup_by_serial_or_barcode(self, query_string):
+        """Lookup product and batch information matching a serial number, barcode, or cargo code.
+        
+        Optimized for barcode scanner (Keyboard Wedge) and manual search:
+        Checks batches (batch_code, serial_numbers) and products (serial_number, code).
+        Returns a dict with 'product', 'batches', and 'matched_batch'.
+        """
+        query = str(query_string or "").strip()
+        if not query:
+            return {"product": None, "batches": [], "matched_batch": None}
+
+        with self.get_connection() as conn:
+            # 1. Search batches by batch_code or exact/contained serial_numbers
+            batch_row = conn.execute(
+                """
+                SELECT b.*, p.id AS p_id, p.code AS p_code, p.name AS p_name,
+                       p.category AS p_category, p.sub_category AS p_sub_category,
+                       p.brand AS p_brand, p.model AS p_model, p.specs_json AS p_specs_json,
+                       p.description AS p_description, p.serial_number AS p_serial_number
+                FROM batches b
+                JOIN products p ON b.product_id = p.id
+                WHERE b.batch_code = ? OR b.serial_numbers = ? OR b.serial_numbers LIKE ?
+                ORDER BY b.remaining_qty > 0 DESC, b.updated_at DESC
+                LIMIT 1
+                """,
+                (query, query, f"%{query}%"),
+            ).fetchone()
+
+            matched_batch = None
+            product = None
+            if batch_row:
+                matched_batch = dict(batch_row)
+                product = {
+                    "id": batch_row["p_id"],
+                    "code": batch_row["p_code"],
+                    "name": batch_row["p_name"],
+                    "category": batch_row["p_category"],
+                    "sub_category": batch_row["p_sub_category"],
+                    "brand": batch_row["p_brand"],
+                    "model": batch_row["p_model"],
+                    "specs_json": batch_row["p_specs_json"],
+                    "description": batch_row["p_description"],
+                    "serial_number": batch_row["p_serial_number"],
+                }
+
+            # 2. If no batch match, search products directly by serial_number or code
+            if not product:
+                prod_row = conn.execute(
+                    "SELECT * FROM products WHERE serial_number = ? OR code = ?",
+                    (query, query),
+                ).fetchone()
+                if prod_row:
+                    product = dict(prod_row)
+
+            # 3. If product is found, fetch available active batches with remaining stock
+            available_batches = []
+            if product:
+                rows = conn.execute(
+                    """
+                    SELECT b.*, p.code AS p_code, p.name AS p_name, p.category, p.sub_category,
+                           p.brand, p.model, p.specs_json AS product_specs_json,
+                           p.description AS product_description
+                    FROM batches b
+                    JOIN products p ON b.product_id = p.id
+                    WHERE b.product_id = ? AND b.remaining_qty > 0
+                    ORDER BY b.updated_at DESC, b.id DESC
+                    """,
+                    (product["id"],),
+                ).fetchall()
+                available_batches = [dict(r) for r in rows]
+
+            return {
+                "product": product,
+                "batches": available_batches,
+                "matched_batch": matched_batch,
+            }
 
     def _delete_linked_upgrades(self, conn, batch_ids=None, technician_id=None):
         batch_ids = list(batch_ids or [])
