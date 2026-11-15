@@ -38,9 +38,9 @@ class ReleaseV4Tests(unittest.TestCase):
         cls._app = QApplication.instance() or QApplication([])
 
     def test_application_version_is_consistent(self):
-        self.assertEqual(APP_VERSION, "4.0.0")
-        self.assertEqual(UI_APP_VERSION, "4.0.0")
-        self.assertEqual(SCHEMA_VERSION, 400)
+        self.assertEqual(APP_VERSION, "4.1.0")
+        self.assertEqual(UI_APP_VERSION, "4.1.0")
+        self.assertEqual(SCHEMA_VERSION, 410)
 
     def test_price_input_preserves_large_python_integers(self):
         widget = PriceInput(_FakeDatabase())
@@ -89,7 +89,7 @@ class ReleaseV4Tests(unittest.TestCase):
                 db = DatabaseManager(db_path)
 
                 with db.get_connection() as conn:
-                    self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 400)
+                    self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 410)
                     for table, expected in EXPECTED_SCHEMA_COLUMNS.items():
                         actual = tuple(
                             row["name"]
@@ -220,10 +220,14 @@ class ReleaseV4Tests(unittest.TestCase):
     def test_existing_pre_v4_database_is_not_a_valid_startup_target(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = os.path.join(tmp, "legacy.db")
-            with sqlite3.connect(db_path) as connection:
+            connection = sqlite3.connect(db_path)
+            try:
                 for table in ("settings", "employees", "suppliers", "products", "batches", "sales"):
                     connection.execute(f"CREATE TABLE {table} (id INTEGER PRIMARY KEY)")
                 connection.execute("PRAGMA user_version = 330")
+                connection.commit()
+            finally:
+                connection.close()
             self.assertFalse(main_module._is_valid_sqlite_database_file(db_path))
 
     def test_empty_jalali_date_remains_empty(self):

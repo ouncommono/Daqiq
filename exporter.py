@@ -383,14 +383,24 @@ def export_table_to_excel(
     for r_vals in data_rows:
         ws.append([_clean_excel_value(value) for value in r_vals])
 
-    for row in ws.iter_rows(min_row=start_data_row, max_row=ws.max_row, max_col=col_count):
+    zebra_fill = PatternFill("solid", fgColor="F8FAFC")
+    white_fill = PatternFill("solid", fgColor="FFFFFF")
+    for row_idx, row in enumerate(ws.iter_rows(min_row=start_data_row, max_row=ws.max_row, max_col=col_count), start=0):
+        fill = zebra_fill if row_idx % 2 == 1 else white_fill
         for cell in row:
             cell.font = Font(name="Tahoma", size=10)
             # Signed values remain centered like every other comprehensive-report cell.
             cell.alignment = Alignment(horizontal="center", vertical="center", readingOrder=0)
             cell.border = thin_border
+            cell.fill = fill
 
     for col in range(1, col_count + 1):
-        ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = 18
+        col_letter = openpyxl.utils.get_column_letter(col)
+        max_len = 12
+        for cell in ws[col_letter]:
+            val_str = str(cell.value or "")
+            if cell.row > (2 if summary_text else 1):
+                max_len = max(max_len, len(val_str))
+        ws.column_dimensions[col_letter].width = min(40, max(16, max_len + 4))
 
     wb.save(file_path)

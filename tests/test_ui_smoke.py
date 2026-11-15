@@ -48,11 +48,12 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
         assert window.tabs.count() == 10
         assert window.chk_upg_consume_stock.isChecked()
         assert window.tabs.tabText(9).endswith("تنظیمات")
-        assert window.lbl_app_version.text() == "دقیق | نسخه برنامه: 4.0.0"
+        assert window.lbl_app_version.text() == "دقیق | نسخه برنامه: 4.1.0"
         assert [window.catalog_tabs.tabText(i) for i in range(window.catalog_tabs.count())] == [
             "مدیریت کالاها",
             "مدیریت خدمات",
             "تنظیمات خروجی موجودی همکار",
+            "تنظیمات خروجی اکسل گزارش‌ها",
             "مدیریت سطوح دسترسی",
         ]
         assert len(window.inventory_export_column_checks) == 32
@@ -140,7 +141,7 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
         assert window.dt_batch_date.ed_day.width() >= 48
         assert window.dt_batch_date.ed_month.width() >= 48
         assert window.dt_batch_date.width() < 250
-        assert isinstance(window.tabs.widget(9), SmoothScrollArea)
+        assert window.tabs.widget(9).findChild(SmoothScrollArea) is not None
         assert isinstance(window.lst_cfg_subcategories, main_module.SmoothScrollListWidget)
         assert isinstance(window.lst_cfg_attributes, main_module.SmoothScrollListWidget)
         assert isinstance(window.lst_cfg_colors, main_module.SmoothScrollListWidget)

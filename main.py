@@ -63,6 +63,7 @@ from utils_and_widgets import (
     QuantitySelector,
     JalaliDateEdit,
     DynamicSpecsWidget,
+    DynamicAttributeValuesWidget,
     add_jalali_months,
     add_jalali_days,
     normalize_digits,
@@ -80,7 +81,169 @@ from exporter import (
     get_next_excel_filename,
 )
 
-APP_VERSION = "4.0.0"
+APP_VERSION = "4.1.0"
+
+REPORT_AVAILABLE_COLUMNS = {
+    "همه (گزارش جامع خرید، فروش و خدمات)": [
+        "نوع عملیات", "شماره فاکتور / محموله", "تاریخ و ساعت", "کد کالا / خدمت",
+        "دسته‌بندی", "زیرمجموعه", "برند و مدل / عنوان", "مشخصات فنی",
+        "کاربر ثبت‌کننده", "مشتری / تأمین‌کننده", "تعداد", "مبلغ واحد (تومان)",
+        "تخفیف (-) / تشدید (+)", "بهای تمام‌شده / هزینه جانبی", "مبلغ کل (تومان)",
+        "پرداخت‌شده (تومان)", "مانده حساب (تومان)", "سود خالص (تومان)", "وضعیت تسویه",
+    ],
+    "۱. گزارش کامل تمام فروش‌ها": [
+        "شناسه", "شماره فاکتور", "تاریخ و ساعت فروش", "کد کالا", "مشخصات کالا",
+        "کد محموله", "فروشنده", "مشتری", "تعداد", "قیمت پیشنهادی واحد",
+        "قیمت فروش واحد", "بهای تمام‌شده واحد", "تخفیف (-) / تشدید (+)",
+        "سود واحد", "سود کل", "مبلغ کل فاکتور", "دریافتی", "مانده حساب",
+        "وضعیت تسویه", "گارانتی", "سریال کالا", "رنگ‌ها", "مشخصات فنی", "توضیحات",
+    ],
+    "۱۱. گزارش تخفیف‌ها و تشدیدهای فروش": [
+        "شماره فاکتور", "تاریخ فروش", "کد کالا", "عنوان کالا", "فروشنده",
+        "مشتری", "تعداد", "قیمت پیشنهادی واحد", "قیمت فروش واحد", "تخفیف واحد",
+        "تخفیف کل", "تشدید واحد", "تشدید کل", "تخفیف (-) / تشدید (+) کل",
+        "درصد اثر بر قیمت (%)",
+    ],
+    "۱۲. گزارش کامل خدمات انجام‌شده": [
+        "شناسه", "شماره قبض", "تاریخ و ساعت", "کد خدمت", "نوع خدمت",
+        "عنوان خدمت", "ثبت‌کننده / پذیرش", "کارشناس / تکنسین", "مشتری",
+        "تعرفه مرجع", "اجرت دریافتی", "هزینه جانبی", "دریافتی", "مانده طلب",
+        "وضعیت تسویه", "سود خالص خدمت", "شرح خدمت",
+    ],
+    "۲. گزارش کامل تمام خریدها (محموله‌ها)": [
+        "شناسه", "کد محموله", "کد کالا", "مشخصات کالا", "تأمین‌کننده",
+        "مسئول خرید", "شماره فاکتور", "تاریخ خرید", "تعداد خرید", "تعداد فروش",
+        "موجودی فعلی", "قیمت خرید واحد", "هزینه جانبی کل", "هزینه ارتقا واحد",
+        "بهای تمام‌شده واحد", "قیمت فروش پیشنهادی", "درصد سود (%)", "وضعیت تسویه",
+        "پرداخت‌شده", "مانده بدهی", "مشخصات فنی / توضیحات", "بهای کل محموله (تومان)",
+        "رنگ‌های محموله",
+    ],
+    "۹. گزارش بدهی به تأمین‌کنندگان": [
+        "شناسه محموله", "کد محموله", "کد کالا", "مشخصات کالا", "تأمین‌کننده",
+        "شماره فاکتور خرید", "تاریخ خرید", "بهای کل محموله (تومان)",
+        "مبلغ پرداخت‌شده (تومان)", "مانده بدهی (تومان)", "وضعیت تسویه",
+    ],
+    "۳. گزارش موجودی فعلی کالاها": [
+        "شناسه", "کد کالا", "دسته‌بندی", "زیرمجموعه", "برند", "مدل",
+        "مشخصات فنی", "موجودی کل", "تعداد فروش", "حداقل موجودی",
+        "درصد سود (%)", "وضعیت موجودی", "توضیحات",
+    ],
+    "۴. گزارش موجودی و سود به تفکیک محموله": [
+        "کد محموله", "کد کالا", "مشخصات کالا", "تأمین‌کننده", "تعداد خرید",
+        "تعداد فروش", "موجودی فعلی", "بهای تمام‌شده واحد", "قیمت فروش پیشنهادی",
+        "درصد سود (%)", "ارزش ریالی موجودی (تومان)", "سود محقق‌شده (تومان)",
+    ],
+    "۵. گزارش سود تجمعی هر کالا": [
+        "کد کالا", "دسته‌بندی", "زیرمجموعه", "برند و مدل", "کل تعداد خریداری‌شده",
+        "کل تعداد فروخته‌شده", "موجودی فعلی", "میانگین بهای تمام‌شده",
+        "میانگین قیمت فروش", "کل درآمد فروش (تومان)", "سود ناخالص تجمعی (تومان)",
+    ],
+    "۶. گزارش سود و عملکرد هر محموله": [
+        "کد محموله", "کد کالا", "مشخصات کالا", "تأمین‌کننده", "تعداد اولیه",
+        "تعداد فروخته‌شده", "موجودی باقی‌مانده", "کل بهای تمام‌شده محموله",
+        "کل درآمد حاصل از فروش", "سود محقق‌شده فعلی", "سود بالقوه موجودی باقی‌مانده",
+        "کل سود پیش‌بینی‌شده محموله", "درصد بازدهی سرمایه (%)",
+    ],
+    "۸. گزارش کالاهای کم‌موجود (نیازمند خرید)": [
+        "کد کالا", "دسته‌بندی", "زیرمجموعه", "برند و مدل", "موجودی فعلی",
+        "حداقل موجودی (حد سفارش)", "کسری موجودی", "وضعیت",
+    ],
+    "۷. گزارش جامع عملکرد هر کاربر / فروشنده": [
+        "شناسه کاربر", "نام کاربر / همکار", "نقش سازمانی", "تعداد فاکتورهای فروش",
+        "تعداد اقلام فروخته‌شده", "مبلغ کل فروش (تومان)", "سود حاصل از فروش (تومان)",
+        "تعداد خدمات ثبت‌شده", "درآمد خدمات (تومان)", "سود خالص خدمات (تومان)",
+        "مجموع سودآوری برای فروشگاه (تومان)",
+    ],
+    "۱۰. گزارش فاکتورهای تسویه‌نشده (طلب و بدهی)": [
+        "نوع فاکتور", "شماره فاکتور / محموله", "تاریخ", "طرف حساب (مشتری / تأمین‌کننده)",
+        "مسئول / کاربر", "مبلغ کل (تومان)", "پرداخت‌شده / دریافتی (تومان)",
+        "مانده طلب / بدهی (تومان)", "وضعیت تسویه",
+    ],
+}
+
+
+class CatalogSettingsState:
+    """Decoupled UI state buffer for Item Settings tab to survive tab navigation lifecycles."""
+
+    def __init__(self):
+        self.category_new_name = ""
+        self.subcategory_name = ""
+        self.attribute_name = ""
+        self.attribute_label = ""
+        self.attribute_values = []
+        self.color_name = ""
+
+    def capture_from_window(self, win):
+        if hasattr(win, "ed_cfg_category") and win.ed_cfg_category is not None:
+            self.category_new_name = win.ed_cfg_category.text()
+        if hasattr(win, "ed_cfg_subcategory") and win.ed_cfg_subcategory is not None:
+            self.subcategory_name = win.ed_cfg_subcategory.text()
+        if hasattr(win, "ed_cfg_attribute_name") and win.ed_cfg_attribute_name is not None:
+            self.attribute_name = win.ed_cfg_attribute_name.text()
+        if hasattr(win, "ed_cfg_attribute_label") and win.ed_cfg_attribute_label is not None:
+            self.attribute_label = win.ed_cfg_attribute_label.text()
+        if hasattr(win, "attr_values_widget") and win.attr_values_widget is not None:
+            self.attribute_values = win.attr_values_widget.get_values()
+        if hasattr(win, "ed_cfg_color") and win.ed_cfg_color is not None:
+            self.color_name = win.ed_cfg_color.text()
+
+    def restore_to_window(self, win):
+        if hasattr(win, "ed_cfg_category") and win.ed_cfg_category is not None:
+            if self.category_new_name:
+                win.ed_cfg_category.setText(self.category_new_name)
+        if hasattr(win, "ed_cfg_subcategory") and win.ed_cfg_subcategory is not None:
+            if self.subcategory_name:
+                win.ed_cfg_subcategory.setText(self.subcategory_name)
+        if hasattr(win, "ed_cfg_attribute_name") and win.ed_cfg_attribute_name is not None:
+            if self.attribute_name:
+                win.ed_cfg_attribute_name.setText(self.attribute_name)
+        if hasattr(win, "ed_cfg_attribute_label") and win.ed_cfg_attribute_label is not None:
+            if self.attribute_label:
+                win.ed_cfg_attribute_label.setText(self.attribute_label)
+        if hasattr(win, "attr_values_widget") and win.attr_values_widget is not None:
+            if self.attribute_values:
+                win.attr_values_widget.set_values(self.attribute_values)
+        if hasattr(win, "ed_cfg_color") and win.ed_cfg_color is not None:
+            if self.color_name:
+                win.ed_cfg_color.setText(self.color_name)
+
+
+class SettingsSnapshot:
+    """Memento pattern deep-copy buffer for Settings rollback (انصراف)."""
+
+    def __init__(self, win):
+        self.cfg = copy.deepcopy(win.db.cfg)
+        self.taxonomy_draft = copy.deepcopy(getattr(win, "_taxonomy_draft", {}))
+        self.pending_attribute_renames = list(getattr(win, "_pending_attribute_renames", []))
+        self.shop_name = win.db.get_setting("shop_name", "فروشگاه من")
+        self.colleague_export_cols = win.db.get_setting("colleague_inventory_export_columns", "[]")
+        self.report_export_configs = win.db.get_setting("report_excel_export_configs", "{}")
+        self.category_text = win.ed_cfg_category.text() if hasattr(win, "ed_cfg_category") else ""
+        self.subcategory_text = win.ed_cfg_subcategory.text() if hasattr(win, "ed_cfg_subcategory") else ""
+        self.attribute_name_text = win.ed_cfg_attribute_name.text() if hasattr(win, "ed_cfg_attribute_name") else ""
+        self.attribute_label_text = win.ed_cfg_attribute_label.text() if hasattr(win, "ed_cfg_attribute_label") else ""
+        self.attribute_values = win.attr_values_widget.get_values() if hasattr(win, "attr_values_widget") else []
+        self.color_text = win.ed_cfg_color.text() if hasattr(win, "ed_cfg_color") else ""
+
+    def restore(self, win):
+        win.db.cfg = copy.deepcopy(self.cfg)
+        win._taxonomy_draft = copy.deepcopy(self.taxonomy_draft)
+        win._pending_attribute_renames = list(self.pending_attribute_renames)
+        win._load_general_settings_form()
+        if hasattr(win, "ed_cfg_category"):
+            win.ed_cfg_category.setText(self.category_text)
+        if hasattr(win, "ed_cfg_subcategory"):
+            win.ed_cfg_subcategory.setText(self.subcategory_text)
+        if hasattr(win, "ed_cfg_attribute_name"):
+            win.ed_cfg_attribute_name.setText(self.attribute_name_text)
+        if hasattr(win, "ed_cfg_attribute_label"):
+            win.ed_cfg_attribute_label.setText(self.attribute_label_text)
+        if hasattr(win, "attr_values_widget"):
+            win.attr_values_widget.set_values(self.attribute_values)
+        if hasattr(win, "ed_cfg_color"):
+            win.ed_cfg_color.setText(self.color_text)
+        if hasattr(win, "_catalog_settings_state"):
+            win._catalog_settings_state.capture_from_window(win)
 
 DEFAULT_ACCESS_LEVELS = [
     {"name": "دسترسی کامل (مدیر کل)", "policy": "دسترسی کامل (مدیر کل)"},
@@ -664,8 +827,8 @@ class DatabaseBootstrapDialog(QDialog):
                 QMessageBox.critical(
                     self,
                     "پایگاه دادهٔ نامعتبر",
-                    "فایل انتخاب‌شده سالم نیست یا با ساختار نسخه 4.0.0 سازگار نیست. "
-                    "مهاجرت خودکار پشتیبانی نمی‌شود؛ برای شروع، یک پایگاه دادهٔ نسخه 4.0.0 بسازید.",
+                    "فایل انتخاب‌شده سالم نیست یا با ساختار نسخه 4.1.0 سازگار نیست. "
+                    "مهاجرت خودکار پشتیبانی نمی‌شود؛ برای شروع، یک پایگاه دادهٔ نسخه 4.1.0 بسازید.",
                 )
                 return
         elif os.path.exists(path) and os.path.getsize(path) > 0:
@@ -788,6 +951,8 @@ class MainWindow(QMainWindow):
         self._table_search_fields = {}
         self._dashboard_card_styles = []
         self.catalog_config = self._effective_product_catalog_config()
+        self._catalog_settings_state = CatalogSettingsState()
+        self._settings_snapshot = None
 
         self._apply_styles()
         self._build_ui()
@@ -2076,8 +2241,31 @@ class MainWindow(QMainWindow):
 
     def _on_main_tab_changed(self, index):
         if index == getattr(self, "_settings_tab_index", -1):
-            # Unsaved edits are drafts only; entering Settings always reloads persisted values.
+            if getattr(self, "_settings_snapshot", None) is None:
+                self._settings_snapshot = SettingsSnapshot(self)
             self._load_general_settings_form()
+            if hasattr(self, "_catalog_settings_state") and self._catalog_settings_state is not None:
+                self._catalog_settings_state.restore_to_window(self)
+        else:
+            if hasattr(self, "_catalog_settings_state") and self._catalog_settings_state is not None:
+                self._catalog_settings_state.capture_from_window(self)
+
+    def _on_catalog_subtab_changed(self, index):
+        if hasattr(self, "_catalog_settings_state") and self._catalog_settings_state is not None:
+            if index == 0:
+                self._catalog_settings_state.restore_to_window(self)
+            else:
+                self._catalog_settings_state.capture_from_window(self)
+
+    def _rollback_settings(self):
+        """Rollback all settings to initial snapshot (Memento pattern) and navigate to Dashboard."""
+        if hasattr(self, "_settings_snapshot") and self._settings_snapshot is not None:
+            self._settings_snapshot.restore(self)
+            self._settings_snapshot = None
+        else:
+            self._load_general_settings_form()
+            self._catalog_settings_state = CatalogSettingsState()
+        self.tabs.setCurrentIndex(0)
 
     def _populate_table_safely(self, table: QTableWidget, rows_data: list, highlight_col=None):
         """
@@ -2265,6 +2453,9 @@ class MainWindow(QMainWindow):
 
         self.ed_prod_code = SmartLineEdit("P-1001")
         self.ed_prod_code.setToolTip("در صورت خالی بودن، کد بعدی به‌صورت خودکار تخصیص می‌یابد.")
+        self.ed_prod_serial = SmartLineEdit("")
+        self.ed_prod_serial.setPlaceholderText("اسکن بارکدخوان یا تایپ شماره سریال...")
+        self.ed_prod_serial.setToolTip("شماره سریال یا بارکد کالا را وارد کنید یا با بارکدخوان اسکن نمایید.")
         self.cb_prod_cat = SearchableComboBox()
         self.cb_prod_cat.setEditable(0)
         product_categories = self.catalog_config.get("categories") or list(MAIN_CATEGORIES)
@@ -2287,6 +2478,7 @@ class MainWindow(QMainWindow):
         self.ed_prod_desc = SmartLineEdit("توضیحات تکمیلی کالا...")
 
         f_layout.addRow("کد کالا (شناسه):", self.ed_prod_code)
+        f_layout.addRow("شماره سریال / بارکد:", self.ed_prod_serial)
         f_layout.addRow("دسته‌بندی اصلی *:", self.cb_prod_cat)
         f_layout.addRow("برند کالا:", self.ed_prod_brand)
         f_layout.addRow("مدل کالا:", self.ed_prod_model)
@@ -2350,6 +2542,7 @@ class MainWindow(QMainWindow):
     def _clear_product_form(self):
         self.selected_product_id = None
         self._set_generated_code_placeholder(self.ed_prod_code, "products", "code", "P-")
+        self.ed_prod_serial.clear()
         self.cb_prod_cat.setCurrentIndex(0)
         self._configure_product_specs(self.cb_prod_cat.currentText())
         self.ed_prod_brand.clear()
@@ -2371,6 +2564,7 @@ class MainWindow(QMainWindow):
         sub = self.specs_widget.get_sub_category()
         brand = self.ed_prod_brand.text().strip()
         model = self.ed_prod_model.text().strip()
+        serial_number = self.ed_prod_serial.text().strip()
         specs_dict = self.specs_widget.get_specs_dict()
         if not brand and not model and sub == "سایر موارد":
             QMessageBox.warning(
@@ -2405,9 +2599,9 @@ class MainWindow(QMainWindow):
                 self.sp_prod_reorder.value(), self.sp_prod_profit.value(),
             )
             if target_id:
-                self.db.update_product(target_id, *args)
+                self.db.update_product(target_id, *args, serial_number=serial_number)
             else:
-                self.db.add_product(*args)
+                self.db.add_product(*args, serial_number=serial_number)
             self.refresh_all_data()
             self._clear_product_form()
         except Exception as e:
@@ -2433,12 +2627,14 @@ class MainWindow(QMainWindow):
 
         with self.db.get_connection() as conn:
             r = conn.execute(
-                "SELECT specs_json FROM products WHERE id=?", (self.selected_product_id,)
+                "SELECT specs_json, serial_number FROM products WHERE id=?", (self.selected_product_id,)
             ).fetchone()
-            if r and r["specs_json"]:
-                sp_data = json.loads(r["specs_json"])
-                sp_data.pop("رنگ", None)
-                self.specs_widget.set_specs_dict(sp_data)
+            if r:
+                self.ed_prod_serial.setText(r["serial_number"] or "")
+                if r["specs_json"]:
+                    sp_data = json.loads(r["specs_json"])
+                    sp_data.pop("رنگ", None)
+                    self.specs_widget.set_specs_dict(sp_data)
 
     def _update_selected_product(self):
         specs = self.specs_widget.get_specs_dict()
@@ -2447,6 +2643,7 @@ class MainWindow(QMainWindow):
             return
         try:
             code = self.ed_prod_code.text().strip()
+            serial_number = self.ed_prod_serial.text().strip()
             with self.db.get_connection() as conn:
                 duplicate = conn.execute(
                     "SELECT id FROM products WHERE code=? AND id<>?",
@@ -2471,6 +2668,7 @@ class MainWindow(QMainWindow):
                 self.ed_prod_brand.text().strip(), self.ed_prod_model.text().strip(),
                 specs, self.ed_prod_desc.text().strip(),
                 self.sp_prod_reorder.value(), self.sp_prod_profit.value(),
+                serial_number=serial_number,
             )
             self.selected_product_id = target_id
             self.refresh_all_data()
@@ -2516,6 +2714,10 @@ class MainWindow(QMainWindow):
         self.cb_batch_prod = SearchableComboBox()
         self.cb_batch_prod.setToolTip("نام دسته‌بندی، زیرگروه (مثلاً کیبورد)، برند، مدل یا کد کالا را تایپ کنید")
         self.cb_batch_prod.currentIndexChanged.connect(self._on_batch_prod_changed)
+        self.ed_batch_serial_number = SmartLineEdit("")
+        self.ed_batch_serial_number.setPlaceholderText("اسکن بارکدخوان یا تایپ شماره سریال...")
+        self.ed_batch_serial_number.setToolTip("ورود دستی شماره سریال یا اسکن خودکار با بارکدخوان (Keyboard Wedge)")
+        self.ed_batch_serial_number.returnPressed.connect(self._on_batch_serial_scanned)
         self.cb_batch_supplier = SearchableComboBox()
         self.cb_batch_supplier.setEditable(False)
         self.cb_batch_buyer = SearchableComboBox()
@@ -2550,32 +2752,35 @@ class MainWindow(QMainWindow):
         grid.addWidget(self.ed_batch_code, 0, 1)
         grid.addWidget(QLabel("انتخاب کالا *:"), 0, 2)
         grid.addWidget(self.cb_batch_prod, 0, 3)
-        grid.addWidget(QLabel("تأمین‌کننده:"), 0, 4)
-        grid.addWidget(self.cb_batch_supplier, 0, 5)
+        grid.addWidget(QLabel("شماره سریال / بارکد:"), 0, 4)
+        grid.addWidget(self.ed_batch_serial_number, 0, 5)
 
-        grid.addWidget(QLabel("مسئول خرید:"), 1, 0)
-        grid.addWidget(self.cb_batch_buyer, 1, 1)
-        grid.addWidget(QLabel("شماره فاکتور:"), 1, 2)
-        grid.addWidget(self.ed_batch_inv, 1, 3)
-        grid.addWidget(QLabel("تاریخ خرید:"), 1, 4)
-        grid.addWidget(self.dt_batch_date, 1, 5)
+        grid.addWidget(QLabel("تأمین‌کننده:"), 1, 0)
+        grid.addWidget(self.cb_batch_supplier, 1, 1)
+        grid.addWidget(QLabel("مسئول خرید:"), 1, 2)
+        grid.addWidget(self.cb_batch_buyer, 1, 3)
+        grid.addWidget(QLabel("شماره فاکتور:"), 1, 4)
+        grid.addWidget(self.ed_batch_inv, 1, 5)
 
-        grid.addWidget(QLabel("تعداد خرید *:"), 2, 0)
-        grid.addWidget(self.cb_batch_qty, 2, 1)
-        grid.addWidget(QLabel("قیمت خرید واحد (تومان):"), 2, 2)
-        grid.addWidget(self.pr_batch_buy, 2, 3)
-        grid.addWidget(QLabel("هزینه جانبی کل (تومان):"), 2, 4)
-        grid.addWidget(self.pr_batch_extra, 2, 5)
+        grid.addWidget(QLabel("تاریخ خرید:"), 2, 0)
+        grid.addWidget(self.dt_batch_date, 2, 1)
+        grid.addWidget(QLabel("تعداد خرید *:"), 2, 2)
+        grid.addWidget(self.cb_batch_qty, 2, 3)
+        grid.addWidget(QLabel("قیمت خرید واحد (تومان):"), 2, 4)
+        grid.addWidget(self.pr_batch_buy, 2, 5)
 
-        grid.addWidget(QLabel("قیمت فروش پیشنهادی:"), 3, 0)
-        grid.addWidget(self.pr_batch_suggest, 3, 1)
-        grid.addWidget(QLabel("وضعیت تسویه:"), 3, 2)
-        grid.addWidget(self.cb_batch_status, 3, 3)
-        grid.addWidget(QLabel("مبلغ پرداخت‌شده:"), 3, 4)
-        grid.addWidget(self.pr_batch_paid, 3, 5)
+        grid.addWidget(QLabel("هزینه جانبی کل (تومان):"), 3, 0)
+        grid.addWidget(self.pr_batch_extra, 3, 1)
+        grid.addWidget(QLabel("قیمت فروش پیشنهادی:"), 3, 2)
+        grid.addWidget(self.pr_batch_suggest, 3, 3)
+        grid.addWidget(QLabel("وضعیت تسویه:"), 3, 4)
+        grid.addWidget(self.cb_batch_status, 3, 5)
 
-        grid.addWidget(QLabel("رنگ‌های این محموله:"), 4, 0)
-        grid.addWidget(self.btn_batch_colors, 4, 1, 1, 5)
+        grid.addWidget(QLabel("مبلغ پرداخت‌شده:"), 4, 0)
+        grid.addWidget(self.pr_batch_paid, 4, 1)
+        grid.addWidget(QLabel("رنگ‌های این محموله:"), 4, 2)
+        grid.addWidget(self.btn_batch_colors, 4, 3, 1, 3)
+
         grid.addWidget(QLabel("مشخصات فنی / توضیحات:"), 5, 0)
         grid.addWidget(self.ed_batch_serial, 5, 1, 1, 5)
 
@@ -2697,9 +2902,26 @@ class MainWindow(QMainWindow):
             self.ed_batch_serial.setText(combined)
         self._recalc_batch_suggested()
 
+    def _on_batch_serial_scanned(self):
+        """Hardware barcode scanner (Keyboard Wedge) and manual Enter event handler for purchase batch entry."""
+        serial = self.ed_batch_serial_number.text().strip()
+        if not serial:
+            return
+        result = self.db.lookup_by_serial_or_barcode(serial)
+        product = result.get("product")
+        if product:
+            target_prod_id = int(product["id"])
+            for index in range(self.cb_batch_prod.count()):
+                data = self.cb_batch_prod.itemData(index)
+                if data and int(data.get("id", -1)) == target_prod_id:
+                    self.cb_batch_prod.setCurrentIndex(index)
+                    # Automatically cascades and fills all dependent fields via _on_batch_prod_changed
+                    break
+
     def _clear_batch_form(self):
         self.selected_batch_id = None
         self._set_generated_code_placeholder(self.ed_batch_code, "batches", "batch_code", "C-")
+        self.ed_batch_serial_number.clear()
         self.cb_batch_prod.setCurrentIndex(-1)
         self.cb_batch_prod.clearEditText()
         self.cb_batch_supplier.setCurrentIndex(-1)
@@ -2762,6 +2984,7 @@ class MainWindow(QMainWindow):
                 else self.cb_batch_supplier.currentText().strip()
             )
             specifications = self.ed_batch_serial.text().strip()
+            batch_serial = self.ed_batch_serial_number.text().strip()
             batch_code = self.ed_batch_code.text().strip()
             batch_values = (
                 supplier_id,
@@ -2773,7 +2996,7 @@ class MainWindow(QMainWindow):
                 self.pr_batch_extra.get_value(),
                 self.pr_batch_suggest.get_value(),
                 self.pr_batch_paid.get_value(),
-                "",
+                batch_serial,
                 specifications,
                 self.cb_batch_status.currentText(),
             )
@@ -2859,7 +3082,7 @@ class MainWindow(QMainWindow):
         batch_serial_text = self.tbl_batches.item(r, 20).text()
         with self.db.get_connection() as conn:
             batch_state = conn.execute(
-                """SELECT b.colors_json, b.supplier_id, b.buyer_employee_id,
+                """SELECT b.colors_json, b.supplier_id, b.buyer_employee_id, b.serial_numbers,
                           b.product_id, p.code, p.name, p.category, p.sub_category,
                           p.brand, p.model, p.specs_json, p.description
                    FROM batches b JOIN products p ON p.id=b.product_id
@@ -2867,6 +3090,7 @@ class MainWindow(QMainWindow):
                 (self.selected_batch_id,),
             ).fetchone()
         if batch_state:
+            self.ed_batch_serial_number.setText(batch_state["serial_numbers"] or "")
             product_index = next(
                 (
                     index for index in range(self.cb_batch_prod.count())
@@ -2917,6 +3141,7 @@ class MainWindow(QMainWindow):
                 else self.cb_batch_supplier.currentText().strip()
             )
             specifications = self.ed_batch_serial.text().strip()
+            batch_serial = self.ed_batch_serial_number.text().strip()
             self.db.update_batch(
                 self.selected_batch_id,
                 supplier_id,
@@ -2928,7 +3153,7 @@ class MainWindow(QMainWindow):
                 self.pr_batch_extra.get_value(),
                 self.pr_batch_suggest.get_value(),
                 self.pr_batch_paid.get_value(),
-                specifications,
+                batch_serial,
                 specifications,
                 self.cb_batch_status.currentText(),
                 colors=self._checked_colors(self.btn_batch_colors),
@@ -3035,6 +3260,9 @@ class MainWindow(QMainWindow):
             self.cb_war_months.addItem(label, days)
         self.dt_war_end = JalaliDateEdit(default_today=False)
         self.ed_sale_serial = SmartLineEdit("")
+        self.ed_sale_serial.setPlaceholderText("اسکن بارکدخوان یا تایپ شماره سریال...")
+        self.ed_sale_serial.setToolTip("شماره سریال یا بارکد کالا را وارد کنید یا با بارکدخوان اسکن نمایید.")
+        self.ed_sale_serial.returnPressed.connect(self._on_sale_serial_scanned)
 
         self.dt_war_start.dateChanged.connect(self._recalc_warranty_end)
         self.cb_war_months.currentIndexChanged.connect(self._recalc_warranty_end)
@@ -3359,6 +3587,48 @@ class MainWindow(QMainWindow):
         self.pr_sale_suggest.set_value(sug)
         self.pr_sale_actual.set_value(sug)
         self._recalc_sale_live()
+
+    def _on_sale_serial_scanned(self):
+        """Hardware barcode scanner (Keyboard Wedge) and manual Enter event handler for sales."""
+        serial = self.ed_sale_serial.text().strip()
+        if not serial:
+            return
+        result = self.db.lookup_by_serial_or_barcode(serial)
+        product = result.get("product")
+        matched_batch = result.get("matched_batch")
+
+        if not product and matched_batch:
+            with self.db.get_connection() as conn:
+                p_row = conn.execute("SELECT * FROM products WHERE id=?", (matched_batch["product_id"],)).fetchone()
+                if p_row:
+                    product = dict(p_row)
+
+        if product:
+            target_prod_id = int(product["id"])
+            found_index = -1
+            for index in range(self.cb_sale_prod.count()):
+                data = self.cb_sale_prod.itemData(index)
+                if data and int(data.get("id", -1)) == target_prod_id:
+                    found_index = index
+                    break
+
+            if found_index >= 0:
+                self.cb_sale_prod.setCurrentIndex(found_index)
+
+            # Crucial Automation: IF query results in only one unique cargo linked to that
+            # specific serial/item (or matched a specific batch directly), select it in
+            # "محموله موجود" and instantly auto-fill all dependent cascading fields!
+            if matched_batch is not None:
+                target_batch_id = int(matched_batch["id"])
+                for b_idx in range(self.cb_sale_batch.count()):
+                    b_data = self.cb_sale_batch.itemData(b_idx)
+                    if b_data and int(b_data.get("id", -1)) == target_batch_id:
+                        self.cb_sale_batch.setCurrentIndex(b_idx)
+                        self._on_sale_batch_changed()
+                        break
+            elif self.cb_sale_batch.count() == 1:
+                self.cb_sale_batch.setCurrentIndex(0)
+                self._on_sale_batch_changed()
 
     def _clear_sale_form(self):
         self.selected_sale_id = None
@@ -5495,8 +5765,27 @@ class MainWindow(QMainWindow):
                     for c in range(self.tbl_report.columnCount())
                 ]
             )
+        rep_type = self.cb_rep_type.currentText()
+        try:
+            export_configs = json.loads(self.db.get_setting("report_excel_export_configs", "{}") or "{}")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            export_configs = {}
+
+        if rep_type in export_configs and export_configs[rep_type]:
+            custom_columns = export_configs[rep_type]
+            header_to_idx = {h: idx for idx, h in enumerate(headers)}
+            valid_col_indices = [
+                (col_name, header_to_idx[col_name])
+                for col_name in custom_columns
+                if col_name in header_to_idx
+            ]
+            if valid_col_indices:
+                headers = [item[0] for item in valid_col_indices]
+                selected_indices = [item[1] for item in valid_col_indices]
+                rows = [[row[idx] for idx in selected_indices] for row in rows]
+
         export_table_to_excel(
-            self.cb_rep_type.currentText(),
+            rep_type,
             headers,
             rows,
             path,
@@ -5793,6 +6082,206 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "خطا در حذف", str(e))
 
     # =========================================================================
+    # موتور پیکربندی داینامیک خروجی اکسل گزارش‌ها (openpyxl)
+    # =========================================================================
+    def _build_report_export_config_page(self) -> QWidget:
+        page = QWidget()
+        page.setLayoutDirection(Qt.RightToLeft)
+        page_layout = QVBoxLayout(page)
+        page_layout.setContentsMargins(12, 12, 12, 12)
+        page_layout.setSpacing(10)
+
+        gb = QGroupBox("تنظیمات ستون‌ها و ترتیب خروجی اکسل گزارش‌ها")
+        gb_layout = QVBoxLayout(gb)
+        gb_layout.setContentsMargins(12, 12, 12, 12)
+        gb_layout.setSpacing(10)
+
+        hint = QLabel(
+            "نوع گزارش موردنظر را انتخاب کنید. ستون‌های دلخواه را انتخاب کرده و با دکمه‌های «انتقال به بالا» و «انتقال به پایین» ترتیب نمایش آنها را در خروجی اکسل مشخص نمایید."
+        )
+        hint.setWordWrap(True)
+        hint.setObjectName("settingsHint")
+        gb_layout.addWidget(hint)
+
+        type_row = QHBoxLayout()
+        type_row.setSpacing(8)
+        lbl_type = QLabel("نوع گزارش:")
+        lbl_type.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        self.cb_report_export_type = QComboBox()
+        self.cb_report_export_type.setMinimumHeight(32)
+        for report_type in REPORT_AVAILABLE_COLUMNS.keys():
+            self.cb_report_export_type.addItem(report_type)
+        type_row.addWidget(lbl_type)
+        type_row.addWidget(self.cb_report_export_type, 1)
+        gb_layout.addLayout(type_row)
+
+        cols_container = QHBoxLayout()
+        cols_container.setSpacing(10)
+
+        self.lst_report_export_columns = SmoothScrollListWidget()
+        self.lst_report_export_columns.setMinimumHeight(240)
+        self.lst_report_export_columns.setMaximumHeight(350)
+        cols_container.addWidget(self.lst_report_export_columns, 1)
+
+        btn_box = QVBoxLayout()
+        btn_box.setSpacing(8)
+        btn_box.setAlignment(Qt.AlignTop)
+
+        btn_up = QPushButton("⬆️ انتقال به بالا")
+        btn_up.setObjectName("btnSecondary")
+        btn_up.setMinimumHeight(32)
+        btn_up.clicked.connect(self._move_report_export_col_up)
+
+        btn_down = QPushButton("⬇️ انتقال به پایین")
+        btn_down.setObjectName("btnSecondary")
+        btn_down.setMinimumHeight(32)
+        btn_down.clicked.connect(self._move_report_export_col_down)
+
+        btn_select_all = QPushButton("انتخاب همه")
+        btn_select_all.setMinimumHeight(32)
+        btn_select_all.clicked.connect(lambda: self._set_all_report_export_cols(True))
+
+        btn_deselect_all = QPushButton("لغو انتخاب همه")
+        btn_deselect_all.setMinimumHeight(32)
+        btn_deselect_all.clicked.connect(lambda: self._set_all_report_export_cols(False))
+
+        btn_reset_default = QPushButton("بازنشانی به پیش‌فرض")
+        btn_reset_default.setObjectName("btnDanger")
+        btn_reset_default.setMinimumHeight(32)
+        btn_reset_default.clicked.connect(self._reset_report_export_cols_default)
+
+        btn_save_report_cfg = QPushButton("💾 ذخیره تنظیمات این گزارش")
+        btn_save_report_cfg.setObjectName("btnSuccess")
+        btn_save_report_cfg.setMinimumHeight(36)
+        btn_save_report_cfg.clicked.connect(self._save_report_export_config_ui)
+
+        btn_box.addWidget(btn_up)
+        btn_box.addWidget(btn_down)
+        btn_box.addWidget(btn_select_all)
+        btn_box.addWidget(btn_deselect_all)
+        btn_box.addWidget(btn_reset_default)
+        btn_box.addWidget(btn_save_report_cfg)
+        btn_box.addStretch(1)
+
+        cols_container.addLayout(btn_box)
+        gb_layout.addLayout(cols_container)
+
+        page_layout.addWidget(gb)
+        page_layout.addStretch(1)
+
+        self.cb_report_export_type.currentTextChanged.connect(self._load_report_export_columns_ui)
+        self._load_report_export_columns_ui(self.cb_report_export_type.currentText())
+
+        return page
+
+    def _load_report_export_columns_ui(self, report_type=None):
+        if not report_type:
+            report_type = self.cb_report_export_type.currentText()
+        if not report_type:
+            return
+
+        all_columns = REPORT_AVAILABLE_COLUMNS.get(report_type, [])
+        try:
+            export_configs = json.loads(self.db.get_setting("report_excel_export_configs", "{}") or "{}")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            export_configs = {}
+
+        self.lst_report_export_columns.clear()
+        if report_type in export_configs and isinstance(export_configs[report_type], list):
+            saved_enabled = export_configs[report_type]
+            added = set()
+            for col in saved_enabled:
+                if col in all_columns:
+                    item = QListWidgetItem(col)
+                    item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+                    item.setCheckState(Qt.Checked)
+                    self.lst_report_export_columns.addItem(item)
+                    added.add(col)
+            for col in all_columns:
+                if col not in added:
+                    item = QListWidgetItem(col)
+                    item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+                    item.setCheckState(Qt.Unchecked)
+                    self.lst_report_export_columns.addItem(item)
+        else:
+            for col in all_columns:
+                item = QListWidgetItem(col)
+                item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+                item.setCheckState(Qt.Checked)
+                self.lst_report_export_columns.addItem(item)
+
+    def _move_report_export_col_up(self):
+        row = self.lst_report_export_columns.currentRow()
+        if row > 0:
+            item = self.lst_report_export_columns.takeItem(row)
+            self.lst_report_export_columns.insertItem(row - 1, item)
+            self.lst_report_export_columns.setCurrentRow(row - 1)
+
+    def _move_report_export_col_down(self):
+        row = self.lst_report_export_columns.currentRow()
+        if 0 <= row < self.lst_report_export_columns.count() - 1:
+            item = self.lst_report_export_columns.takeItem(row)
+            self.lst_report_export_columns.insertItem(row + 1, item)
+            self.lst_report_export_columns.setCurrentRow(row + 1)
+
+    def _set_all_report_export_cols(self, checked: bool):
+        state = Qt.Checked if checked else Qt.Unchecked
+        for i in range(self.lst_report_export_columns.count()):
+            self.lst_report_export_columns.item(i).setCheckState(state)
+
+    def _reset_report_export_cols_default(self):
+        report_type = self.cb_report_export_type.currentText()
+        try:
+            export_configs = json.loads(self.db.get_setting("report_excel_export_configs", "{}") or "{}")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            export_configs = {}
+        if report_type in export_configs:
+            export_configs.pop(report_type, None)
+            self.db.set_setting("report_excel_export_configs", json.dumps(export_configs, ensure_ascii=False))
+        self._load_report_export_columns_ui(report_type)
+        QMessageBox.information(
+            self, "بازنشانی تنظیمات", f"تنظیمات خروجی اکسل برای «{report_type}» به حالت پیش‌فرض بازگشت."
+        )
+
+    def _save_report_export_config_internal(self):
+        if not hasattr(self, "cb_report_export_type") or not hasattr(self, "lst_report_export_columns"):
+            return
+        report_type = self.cb_report_export_type.currentText()
+        if not report_type:
+            return
+        ordered_enabled = []
+        for i in range(self.lst_report_export_columns.count()):
+            item = self.lst_report_export_columns.item(i)
+            if item.checkState() == Qt.Checked:
+                ordered_enabled.append(item.text())
+        try:
+            export_configs = json.loads(self.db.get_setting("report_excel_export_configs", "{}") or "{}")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            export_configs = {}
+        if ordered_enabled:
+            export_configs[report_type] = ordered_enabled
+        else:
+            export_configs.pop(report_type, None)
+        self.db.set_setting("report_excel_export_configs", json.dumps(export_configs, ensure_ascii=False))
+
+    def _save_report_export_config_ui(self):
+        report_type = self.cb_report_export_type.currentText()
+        ordered_enabled = []
+        for i in range(self.lst_report_export_columns.count()):
+            item = self.lst_report_export_columns.item(i)
+            if item.checkState() == Qt.Checked:
+                ordered_enabled.append(item.text())
+        if not ordered_enabled:
+            QMessageBox.warning(
+                self, "خطا در تنظیم ستون‌ها", "دست‌کم یک ستون باید برای خروجی اکسل انتخاب شود."
+            )
+            return
+        self._save_report_export_config_internal()
+        QMessageBox.information(
+            self, "ذخیره تنظیمات", f"تنظیمات ستون‌ها و ترتیب خروجی اکسل برای «{report_type}» ذخیره شد."
+        )
+
+    # =========================================================================
     # ۱۰. تب تنظیمات و پشتیبان‌گیری
     # =========================================================================
     def _init_tab_settings(self):
@@ -5978,6 +6467,9 @@ class MainWindow(QMainWindow):
         self.cb_cfg_category = QComboBox()
         self.ed_cfg_category = QLineEdit()
         self.ed_cfg_category.setPlaceholderText("نام فارسی دسته‌بندی اصلی را وارد کنید...")
+        self.ed_cfg_category.textChanged.connect(
+            lambda _: getattr(self, "_catalog_settings_state", None) and self._catalog_settings_state.capture_from_window(self)
+        )
         cat_btn_row = QHBoxLayout()
         btn_add_category = QPushButton("افزودن")
         btn_add_category.clicked.connect(self._add_catalog_category)
@@ -6008,6 +6500,9 @@ class MainWindow(QMainWindow):
         self.lst_cfg_subcategories.setMaximumHeight(125)
         self.ed_cfg_subcategory = QLineEdit()
         self.ed_cfg_subcategory.setPlaceholderText("نام زیرمجموعه را وارد کنید؛ مثلاً صفحه‌نمایش یا پردازنده...")
+        self.ed_cfg_subcategory.textChanged.connect(
+            lambda _: getattr(self, "_catalog_settings_state", None) and self._catalog_settings_state.capture_from_window(self)
+        )
         sub_btn_row = QHBoxLayout()
         btn_add_sub = QPushButton("افزودن")
         btn_add_sub.setProperty("catalogAction", "addSubcategory")
@@ -6055,6 +6550,9 @@ class MainWindow(QMainWindow):
         self.ed_cfg_attribute_name.setPlaceholderText(
             "نام فارسی ویژگی؛ مثلاً پردازنده، ظرفیت رم یا نوع پنل"
         )
+        self.ed_cfg_attribute_name.textChanged.connect(
+            lambda _: getattr(self, "_catalog_settings_state", None) and self._catalog_settings_state.capture_from_window(self)
+        )
         self.ed_cfg_attribute_label = QLineEdit()
         self.ed_cfg_attribute_label.setMinimumHeight(32)
         self.ed_cfg_attribute_label.setPlaceholderText(
@@ -6069,10 +6567,10 @@ class MainWindow(QMainWindow):
         self.lbl_cfg_attribute_help.setWordWrap(True)
         self.lbl_cfg_attribute_help.setObjectName("settingsHint")
         self.lbl_cfg_attribute_help.setMinimumHeight(38)
-        self.ed_cfg_attribute_values = QLineEdit()
-        self.ed_cfg_attribute_values.setMinimumHeight(32)
-        self.ed_cfg_attribute_values.setPlaceholderText(
-            "مقادیر پیشنهادی را با ویرگول جدا کنید؛ هنگام ثبت کالا امکان تایپ مقدار دیگر هم وجود دارد."
+        self.attr_values_widget = DynamicAttributeValuesWidget()
+        self.ed_cfg_attribute_values = self.attr_values_widget
+        self.attr_values_widget.valuesChanged.connect(
+            lambda: getattr(self, "_catalog_settings_state", None) and self._catalog_settings_state.capture_from_window(self)
         )
         self.cb_cfg_attribute_subcategory = QComboBox()
         self.cb_cfg_attribute_subcategory.addItem("همهٔ زیرمجموعه‌ها", "")
@@ -6133,7 +6631,7 @@ class MainWindow(QMainWindow):
             0, 2, 1, 2,
         )
         attribute_grid.addWidget(
-            labeled_field("مقادیر پیشنهادی:", self.ed_cfg_attribute_values), 1, 0, 1, 4
+            labeled_field("مقادیر پیشنهادی:", self.attr_values_widget), 1, 0, 1, 4
         )
         attribute_grid.addWidget(self.lbl_cfg_attribute_help, 2, 0, 1, 4)
         attribute_grid.addLayout(attr_btn_row, 3, 0, 1, 4)
@@ -6149,6 +6647,9 @@ class MainWindow(QMainWindow):
         self.lst_cfg_colors.setMaximumHeight(125)
         self.ed_cfg_color = QLineEdit()
         self.ed_cfg_color.setPlaceholderText("نام رنگ را وارد کنید؛ مثلاً سبز، ذغالی یا نقره‌ای...")
+        self.ed_cfg_color.textChanged.connect(
+            lambda _: getattr(self, "_catalog_settings_state", None) and self._catalog_settings_state.capture_from_window(self)
+        )
         color_btn_row = QHBoxLayout()
         btn_add_color = QPushButton("افزودن رنگ")
         btn_add_color.clicked.connect(self._add_catalog_color)
@@ -6294,7 +6795,10 @@ class MainWindow(QMainWindow):
         access_management_page_layout.addStretch(1)
 
         self.catalog_tabs.addTab(inventory_export_page, "تنظیمات خروجی موجودی همکار")
+        report_export_page = self._build_report_export_config_page()
+        self.catalog_tabs.addTab(report_export_page, "تنظیمات خروجی اکسل گزارش‌ها")
         self.catalog_tabs.addTab(access_management_page, "مدیریت سطوح دسترسی")
+        self.catalog_tabs.currentChanged.connect(self._on_catalog_subtab_changed)
         layout.addWidget(CollapsibleSection(
             "مدیریت ساختار کالاها، خدمات، خروجی‌ها و دسترسی‌ها", gb_catalog
         ))
@@ -6382,16 +6886,43 @@ class MainWindow(QMainWindow):
         gb_db.setTitle("")
         layout.addWidget(CollapsibleSection("پایگاه داده و پشتیبان‌گیری", gb_db))
 
+        settings_container = QWidget()
+        settings_container_layout = QVBoxLayout(settings_container)
+        settings_container_layout.setContentsMargins(0, 0, 0, 0)
+        settings_container_layout.setSpacing(0)
+
+        tab.setMinimumWidth(940)
+        scroll = SmoothScrollArea()
+        scroll.setWidget(tab)
+        settings_container_layout.addWidget(scroll, 1)
+
+        floating_bar = QWidget()
+        floating_bar.setObjectName("floatingSettingsBar")
+        floating_bar.setLayoutDirection(Qt.RightToLeft)
+        floating_layout = QHBoxLayout(floating_bar)
+        floating_layout.setContentsMargins(16, 8, 16, 8)
+        floating_layout.setSpacing(12)
+
         btn_save_set = QPushButton("💾 ذخیره تنظیمات")
         self.btn_save_settings = btn_save_set
         btn_save_set.setMinimumHeight(42)
         btn_save_set.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         btn_save_set.clicked.connect(self._save_general_settings)
-        layout.addWidget(btn_save_set)
 
-        self._settings_tab_index = self._add_scrollable_tab(
-            tab, "⚙️ تنظیمات"
-        )
+        btn_cancel_set = QPushButton("انصراف")
+        self.btn_cancel_settings = btn_cancel_set
+        btn_cancel_set.setObjectName("btnSecondary")
+        btn_cancel_set.setMinimumHeight(42)
+        btn_cancel_set.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        btn_cancel_set.setMinimumWidth(120)
+        btn_cancel_set.clicked.connect(self._rollback_settings)
+
+        floating_layout.addWidget(btn_save_set, 1)
+        floating_layout.addWidget(btn_cancel_set)
+
+        settings_container_layout.addWidget(floating_bar, 0)
+
+        self._settings_tab_index = self.tabs.addTab(settings_container, "⚙️ تنظیمات")
         self._load_general_settings_form()
 
     def _load_general_settings_form(self):
@@ -7354,10 +7885,7 @@ class MainWindow(QMainWindow):
                 "این مشخصه قبلاً برای همین زیرمجموعه ثبت شده است."
             )
             return
-        values = [
-            value.strip() for value in self.ed_cfg_attribute_values.text().replace("،", ",").split(",")
-            if value.strip()
-        ]
+        values = self.attr_values_widget.get_values()
         definitions.append({
             "name": name,
             "label": self.ed_cfg_attribute_label.text().strip(),
@@ -7366,7 +7894,7 @@ class MainWindow(QMainWindow):
         })
         self.ed_cfg_attribute_name.clear()
         self.ed_cfg_attribute_label.clear()
-        self.ed_cfg_attribute_values.clear()
+        self.attr_values_widget.clear()
         self._refresh_catalog_management_lists()
 
     def _on_catalog_attribute_selected(self, current, _previous=None):
@@ -7383,7 +7911,7 @@ class MainWindow(QMainWindow):
         if definition:
             self.ed_cfg_attribute_name.setText(definition["name"])
             self.ed_cfg_attribute_label.setText(definition.get("label", ""))
-            self.ed_cfg_attribute_values.setText(", ".join(definition.get("values", [])))
+            self.attr_values_widget.set_values(definition.get("values", []))
             # Selecting a feature populates its editor without changing the active filter.
 
     def _update_catalog_attribute(self):
@@ -7418,7 +7946,8 @@ class MainWindow(QMainWindow):
             and normalize_catalog_label(item.get("subcategory") or "") == new_scope_key
         ]
 
-        merged_values = list(current.get("values") or [])
+        widget_values = self.attr_values_widget.get_values()
+        merged_values = list(widget_values)
         for index in duplicate_indexes:
             duplicate = definitions[index]
             duplicate_name = str(duplicate.get("name") or "").strip()
@@ -7437,10 +7966,6 @@ class MainWindow(QMainWindow):
                 definition_index -= 1
         current = definitions[definition_index]
 
-        raw_values = self.ed_cfg_attribute_values.text().replace("،", ",")
-        merged_values.extend(
-            value.strip() for value in raw_values.split(",") if value.strip()
-        )
         new_values = list(dict.fromkeys(
             str(value).strip() for value in merged_values if str(value).strip()
         ))
@@ -8080,6 +8605,7 @@ class MainWindow(QMainWindow):
                 "colleague_inventory_export_columns",
                 json.dumps(selected_export_columns, ensure_ascii=False),
             )
+            self._save_report_export_config_internal()
             self.db.cfg["auto_backup_enabled"] = self.chk_auto_bk.isChecked()
             self.db.cfg["auto_backup_interval_min"] = self.sp_bk_interval.value()
             self.db.cfg["auto_backup_retention_count"] = self.sp_bk_retention.value()
@@ -8100,6 +8626,9 @@ class MainWindow(QMainWindow):
         self._restart_backup_timer()
         self._refresh_visual_layout()
         self._load_general_settings_form()
+        self._settings_snapshot = SettingsSnapshot(self)
+        if hasattr(self, "_catalog_settings_state") and self._catalog_settings_state is not None:
+            self._catalog_settings_state.capture_from_window(self)
         QMessageBox.information(
             self, "ذخیره تنظیمات", "تنظیمات با موفقیت ذخیره شدند."
         )
@@ -8402,7 +8931,7 @@ class MainWindow(QMainWindow):
             rows = conn.execute(f"""
                 SELECT p.id, p.code, p.name, p.category, p.sub_category, p.brand, p.model,
                        p.specs_json, p.description, p.reorder_point, p.default_profit_pct,
-                       p.is_active, p.created_at, p.updated_at,
+                       p.is_active, p.serial_number, p.created_at, p.updated_at,
                        COALESCE(SUM(b.remaining_qty), 0) as rem_qty,
                        COALESCE(SUM(b.sold_qty), 0) as sold_qty
                 FROM products p
@@ -8414,7 +8943,7 @@ class MainWindow(QMainWindow):
         for r in rows:
             specs = json.loads(r["specs_json"] or "{}")
             specs_str = self._format_specs_for_display(specs, r["category"])
-            search_pool = f"{r['code']} {r['category']} {r['sub_category']} {r['brand']} {r['model']} {specs_str} {r['description']}".lower()
+            search_pool = f"{r['code']} {r['serial_number'] or ''} {r['category']} {r['sub_category']} {r['brand']} {r['model']} {specs_str} {r['description']}".lower()
             if q and q not in search_pool:
                 continue
             rem = int(r["rem_qty"])
