@@ -1,3 +1,59 @@
+# Daqiq 4.2.0
+
+## Release Summary & Enterprise Architectural Refactoring
+
+- **Clean Slate Normalized Database Architecture (Schema Version 420)**:
+  - Greenfield SQLite schema v420 discarding legacy migrations for a fully normalized, high-performance architecture.
+  - Prioritized table column sequencing upon creation: `serial_number` is placed immediately after `id` in `products`, followed by logical identifier fields.
+  - Added indexed customer contact phone (`customer_phone`) in `sales` table (`idx_sales_customer_phone`) and dedicated search indexing.
+  - Advanced Cryptographic Database Security: Optional AES-256-GCM authenticated encryption with PBKDF2 key derivation (HMAC-SHA256, 256,000 iterations, 16-byte DAQIQ_ENC_V1 envelope) and SQLCipher compatibility without data loss.
+
+- **Explicit Serial Number Observer Pattern & Visibility**:
+  - Rendered "شماره سریال" (Serial Number) explicitly as a standalone distinct column in `tbl_products`, `tbl_batches`, and `tbl_sales`.
+  - Implemented automatic trace/observer watcher on product comboboxes in both "ثبت خرید و محموله‌ها" and "ثبت فروش": selecting a product dynamically queries the database and auto-populates the Serial Number field.
+  - Reordered form field inputs across "مدیریت کالاها", "ثبت خرید و محموله‌ها", and "ثبت فروش" so Serial Number is logically the VERY FIRST input field in row 0.
+
+- **Dynamic Feature Sets, Taxonomy Standardization & Bilingual Search Support**:
+  - Standardized main categories purely in Persian.
+  - Standardized subcategories strictly adhering to the bilingual `فارسی (انگلیسی)` format for international search indexing (e.g., `رم کامپیوتر (RAM PC)`, `حافظه اس‌اس‌دی (SSD)`).
+  - Feature Data Schema: Persian keys ("نام ویژگی"), English display labels ("Display Names"), and English dropdown values.
+  - Tailored dynamic specification logic:
+    - "لپ‌تاپ": "مشخصات" (Specifications) exists across all subcategories; "سایر موارد (Other)" strictly retains ONLY "مشخصات".
+    - "حافظه اس‌اس‌دی (SSD)" vs "هارد دیسک اینترنال (Internal HDD)": Independent tailored capacity lists (SSD: 120GB to 8TB; HDD: 160GB to 16TB); merged duplicate interface fields into a single dynamic "نوع رابط" field.
+    - "قطعات": Removed duplicate "مشخصه" in favor of unified "مشخصات" across all subcategories.
+    - "لوازم جانبی": Expanded "نوع اتصال / پورت" to modern multi-mode connections (Wired + Wireless, Wired + Bluetooth, etc.); mouse connectivity formatted consistently.
+    - Global Taxonomy Invariant: Across all categories, "مشخصات" is present on all subcategories, and only "مشخصات" exists on "سایر موارد".
+
+- **Customer Contact Data Integration**:
+  - Added mandatory "شماره تماس مشتری" (Customer Contact Number) field in "ثبت فروش".
+  - Enforced strict validation preventing sale completion without customer contact details.
+  - Propagated customer contact number system-wide: persisted in database `sales` table, displayed in bottom sales grids, and exported in reporting views.
+
+- **Configurable Default Inventory & Margins**:
+  - Hardcoded default for "حداقل موجودی" (Minimum Stock) set to 1.
+  - Added UI configuration control in application settings directly beneath "درصد سود پیش‌فرض فروشگاه (%)" to dynamically configure and persist `cfg["default_min_stock"]`.
+
+- **Dynamic Backup Directory & System Sleep Overflow Fix**:
+  - Implemented dynamic backup save path configuration with folder picker in settings, persisted to `cfg["backup_dir"]`.
+  - Fixed Qt 32-bit signed timer `OverflowError` after PC sleep/wake: abolished long-duration timer and implemented a robust 60,000ms polling heartbeat timer comparing `time.time() >= self._target_backup_time`.
+
+- **Excel Export UX & Custom Reporting**:
+  - Enhanced column selector list in "تنظیمات خروجی اکسل گزارش‌ها": clicking row label text toggles item checkbox state.
+  - Added "نام گزارش" input field to save and rename custom report layouts.
+  - Expanded available export fields to include Serial Number and Customer Contact Number across comprehensive reports.
+
+- **Card Frame Modern UI/UX Paradigm & Collapsible Sections**:
+  - Redesigned "مدیریت کالاها" using card frame containers with consistent grid padding, 12px margins, and clear visual hierarchy.
+  - Balanced, proportionate, and responsive "انصراف" and "💾 ذخیره تنظیمات" action buttons.
+  - Clicking "انصراف" safely collapses (`.collapse()`, `.pack_forget()`, `.grid_forget()`) all expanded accordion menus in settings.
+  - Handled CustomTkinter asset bundling for PyInstaller builds (`sys._MEIPASS` and `--collect-all customtkinter`).
+
+- **CI/CD Pipeline & GitHub Release**:
+  - Added `.github/workflows/release.yml` with PyInstaller executable build, `softprops/action-gh-release@v2` targeting `Latest` tag, and `permissions: contents: write`.
+  - Prepared release branch `release/v4.2.0` with pull request targeting `main` (auto-merge disabled).
+
+---
+
 # Daqiq 4.1.0
 
 ## Release Summary & Architectural Enhancements

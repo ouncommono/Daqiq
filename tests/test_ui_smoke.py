@@ -48,7 +48,7 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
         assert window.tabs.count() == 10
         assert window.chk_upg_consume_stock.isChecked()
         assert window.tabs.tabText(9).endswith("تنظیمات")
-        assert window.lbl_app_version.text() == "دقیق | نسخه برنامه: 4.1.0"
+        assert window.lbl_app_version.text() == "دقیق | نسخه برنامه: 4.2.0"
         assert [window.catalog_tabs.tabText(i) for i in range(window.catalog_tabs.count())] == [
             "مدیریت کالاها",
             "مدیریت خدمات",
@@ -106,10 +106,10 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
         assert not hasattr(window, "chk_zero_enabled")
         assert window.lbl_live_clock.toolTip()
         assert window.lst_cfg_subcategories.count() > 0
-        assert "لپ‌تاپ عمومی / مالتی‌مدیا" in [
-            window.lst_cfg_subcategories.item(index).text()
+        assert any(
+            "لپ‌تاپ عمومی / مالتی‌مدیا" in window.lst_cfg_subcategories.item(index).text()
             for index in range(window.lst_cfg_subcategories.count())
-        ]
+        )
         assert window.ed_search_sales is not None
 
         # Technical keywords remain searchable but never become part of the visible item.
@@ -944,6 +944,7 @@ def test_sale_clear_form_resets_values_and_keeps_next_invoice_as_placeholder(
         window.ed_sale_inv.setText("MANUAL-INV")
         window.ed_sale_customer.setText("مشتری آزمایشی")
         window.ed_sale_specs.setText("RAM: 16GB DDR5")
+        window.ed_sale_customer_phone.setText("09123456789")
         window.pr_sale_paid.set_value(500)
         window.ed_war_company.setText("Warranty")
         window.ed_sale_serial.setText("SERIAL-1")
@@ -956,6 +957,7 @@ def test_sale_clear_form_resets_values_and_keeps_next_invoice_as_placeholder(
         assert window.ed_sale_inv.text() == ""
         assert window.ed_sale_inv.placeholderText() == "INV-1001"
         assert window.ed_sale_customer.text() == ""
+        assert window.ed_sale_customer_phone.text() == ""
         assert window.ed_sale_specs.text() == ""
         assert window.pr_sale_actual.get_value() == 0
         assert window.pr_sale_paid.get_value() == 0
@@ -1027,6 +1029,7 @@ def test_sales_all_products_loads_batches_and_saves_the_selected_batch_product(
         )
         window.cb_sale_qty.setCurrentText("1")
         window.ed_sale_inv.setText("INV-ALL-PRODUCTS")
+        window.ed_sale_customer_phone.setText("09120000000")
         window.cb_sale_status.setCurrentText("تسویه‌نشده")
         window.pr_sale_paid.set_value(0)
         window._save_new_sale()

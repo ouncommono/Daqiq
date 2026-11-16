@@ -1,12 +1,12 @@
 @echo off
 chcp 65001 >nul
-set "APP_VERSION=4.1.0"
+set "APP_VERSION=4.2.0"
 echo Building Daqiq %APP_VERSION%...
 echo Installing required libraries...
 pip install -r requirements.txt
 
 echo Building standalone Windows Executable (EXE)...
-pyinstaller --noconfirm --onefile --windowed --name "Daqiq_%APP_VERSION%" main.py
+pyinstaller --noconfirm --onefile --windowed --name "Daqiq_%APP_VERSION%" --collect-all customtkinter main.py
 
 echo.
 echo Build %APP_VERSION% Completed Successfully!

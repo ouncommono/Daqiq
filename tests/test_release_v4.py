@@ -38,9 +38,9 @@ class ReleaseV4Tests(unittest.TestCase):
         cls._app = QApplication.instance() or QApplication([])
 
     def test_application_version_is_consistent(self):
-        self.assertEqual(APP_VERSION, "4.1.0")
-        self.assertEqual(UI_APP_VERSION, "4.1.0")
-        self.assertEqual(SCHEMA_VERSION, 410)
+        self.assertEqual(APP_VERSION, "4.2.0")
+        self.assertEqual(UI_APP_VERSION, "4.2.0")
+        self.assertEqual(SCHEMA_VERSION, 420)
 
     def test_price_input_preserves_large_python_integers(self):
         widget = PriceInput(_FakeDatabase())
@@ -89,7 +89,7 @@ class ReleaseV4Tests(unittest.TestCase):
                 db = DatabaseManager(db_path)
 
                 with db.get_connection() as conn:
-                    self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 410)
+                    self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 420)
                     for table, expected in EXPECTED_SCHEMA_COLUMNS.items():
                         actual = tuple(
                             row["name"]
@@ -269,10 +269,10 @@ class ReleaseV4Tests(unittest.TestCase):
         normalized = MainWindow._enforce_other_subcategory_attribute_contract(normalized)
 
         subcategories = normalized["subcategories"]["قطعات"]
-        self.assertEqual(subcategories[-1], "سایر موارد")
+        self.assertTrue(subcategories[-1].startswith("سایر موارد"))
         other_fields = [
             item for item in normalized["attributes"]["قطعات"]
-            if item.get("subcategory") == "سایر موارد"
+            if str(item.get("subcategory", "")).startswith("سایر موارد")
         ]
         self.assertEqual(len(other_fields), 1)
         self.assertEqual(other_fields[0]["name"], "مشخصات")
@@ -287,7 +287,7 @@ class ReleaseV4Tests(unittest.TestCase):
         
     def test_required_default_other_categories_are_last(self):
         for category in ("قطعات", "لوازم جانبی", "شبکه و مودم", "ماشین‌های اداری"):
-            self.assertEqual(DEFAULT_SUBCATEGORIES[category][-1], "سایر موارد")
+            self.assertTrue(DEFAULT_SUBCATEGORIES[category][-1].startswith("سایر موارد"))
 
 
 if __name__ == "__main__":

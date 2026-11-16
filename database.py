@@ -6,13 +6,113 @@ import sqlite3
 import jdatetime
 import time
 import hashlib
+import struct
 from decimal import Decimal, ROUND_HALF_EVEN
 
-APP_VERSION = "4.1.0"
-SCHEMA_VERSION = 410
+try:
+    from Crypto.Protocol.KDF import PBKDF2
+    from Crypto.Cipher import AES
+    from Crypto.Random import get_random_bytes
+    from Crypto.Hash import SHA256
+    PYCRYPTODOME_AVAILABLE = True
+except ImportError:
+    PYCRYPTODOME_AVAILABLE = False
+
+APP_VERSION = "4.2.0"
+SCHEMA_VERSION = 420
 
 SQLITE_INTEGER_MIN = -(1 << 63)
 SQLITE_INTEGER_MAX = (1 << 63) - 1
+
+# Header magic and cryptographic constants for AES-256-GCM database security
+ENCRYPTION_MAGIC = b"DAQIQ_ENC_V1\x00\x00\x00\x00"
+KDF_ITERATIONS = 256000
+KEY_SIZE = 32
+SALT_SIZE = 16
+
+def resource_path(relative_path):
+    """Get absolute path to resource, works for dev and for PyInstaller."""
+    if hasattr(sys, "_MEIPASS"):
+        return os.path.join(sys._MEIPASS, relative_path)
+    return os.path.join(os.path.abspath("."), relative_path)
+
+def is_database_encrypted(db_path):
+    """Check if the SQLite database file starts with the Daqiq encryption magic header."""
+    if not db_path or not os.path.isfile(db_path):
+        return False
+    try:
+        with open(db_path, "rb") as f:
+            header = f.read(16)
+            return header == ENCRYPTION_MAGIC
+    except Exception:
+        return False
+
+def encrypt_database_file(db_path, password, target_path=None):
+    """Encrypt a database file using PBKDF2 (HMAC-SHA256, 256000 iters) + AES-256-GCM without data loss."""
+    if not PYCRYPTODOME_AVAILABLE:
+        raise RuntimeError("کتابخانه pycryptodome برای رمزنگاری پایگاه داده یافت نشد.")
+    if not password:
+        raise ValueError("رمز عبور رمزنگاری نمی‌تواند خالی باشد.")
+    if is_database_encrypted(db_path):
+        raise ValueError("این پایگاه داده از قبل رمزنگاری شده است.")
+    
+    target_path = target_path or db_path
+    temp_target = target_path + ".enc_tmp"
+    salt = get_random_bytes(SALT_SIZE)
+    key = PBKDF2(password, salt, dkLen=KEY_SIZE, count=KDF_ITERATIONS, hmac_hash_module=SHA256)
+    cipher = AES.new(key, AES.MODE_GCM)
+    nonce = cipher.nonce
+
+    with open(db_path, "rb") as f_in:
+        plaintext = f_in.read()
+
+    ciphertext, tag = cipher.encrypt_and_digest(plaintext)
+    with open(temp_target, "wb") as f_out:
+        f_out.write(ENCRYPTION_MAGIC)
+        f_out.write(salt)
+        f_out.write(struct.pack(">I", len(nonce)))
+        f_out.write(nonce)
+        f_out.write(struct.pack(">I", len(tag)))
+        f_out.write(tag)
+        f_out.write(ciphertext)
+
+    os.replace(temp_target, target_path)
+    return target_path
+
+def decrypt_database_file(encrypted_path, password, target_path=None):
+    """Decrypt an AES-256-GCM encrypted database file without data loss."""
+    if not PYCRYPTODOME_AVAILABLE:
+        raise RuntimeError("کتابخانه pycryptodome برای رمزگشایی پایگاه داده یافت نشد.")
+    if not password:
+        raise ValueError("رمز عبور رمزنگاری وارد نشده است.")
+    if not is_database_encrypted(encrypted_path):
+        raise ValueError("فایل موردنظر رمزنگاری نشده است یا قالب نامعتبر دارد.")
+
+    target_path = target_path or encrypted_path
+    temp_target = target_path + ".dec_tmp"
+    with open(encrypted_path, "rb") as f_in:
+        magic = f_in.read(16)
+        if magic != ENCRYPTION_MAGIC:
+            raise ValueError("فرمت فایل رمزنگاری شده نامعتبر است.")
+        salt = f_in.read(SALT_SIZE)
+        nonce_len = struct.unpack(">I", f_in.read(4))[0]
+        nonce = f_in.read(nonce_len)
+        tag_len = struct.unpack(">I", f_in.read(4))[0]
+        tag = f_in.read(tag_len)
+        ciphertext = f_in.read()
+
+    key = PBKDF2(password, salt, dkLen=KEY_SIZE, count=KDF_ITERATIONS, hmac_hash_module=SHA256)
+    cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
+    try:
+        plaintext = cipher.decrypt_and_verify(ciphertext, tag)
+    except Exception as exc:
+        raise ValueError("رمز عبور رمزنگاری نادرست است یا فایل دستکاری شده است.") from exc
+
+    with open(temp_target, "wb") as f_out:
+        f_out.write(plaintext)
+
+    os.replace(temp_target, target_path)
+    return target_path
 
 # New v4 databases have a deliberate, testable physical column order. Application
 # SQL uses named columns; this contract protects all positional consumers.
@@ -24,10 +124,10 @@ EXPECTED_SCHEMA_COLUMNS = {
     "access_level_scope_users": ("access_level_name", "employee_id"),
     "suppliers": ("id", "name", "phone", "address", "notes", "created_at", "updated_at"),
     "customers": ("id", "name", "phone", "notes", "created_at", "updated_at"),
-    "products": ("id", "code", "name", "category", "sub_category", "brand", "model", "specs_json", "description", "reorder_point", "default_profit_pct", "is_active", "serial_number", "created_at", "updated_at"),
+    "products": ("id", "serial_number", "code", "name", "category", "sub_category", "brand", "model", "specs_json", "description", "reorder_point", "default_profit_pct", "is_active", "created_at", "updated_at"),
     "batches": ("id", "batch_code", "product_id", "supplier_id", "buyer_employee_id", "invoice_number", "purchase_date", "initial_qty", "sold_qty", "returned_qty", "remaining_qty", "unit_purchase_price", "extra_cost_total", "upgrade_cost_unit", "unit_cost_price", "suggested_sell_price", "profit_pct", "paid_amount", "settlement_status", "serial_numbers", "colors_json", "initial_specs", "final_specs", "supplier_name_snapshot", "notes", "created_at", "updated_at"),
     "upgrades": ("id", "target_batch_id", "part_batch_id", "technician_id", "target_qty", "part_qty_used", "stock_deducted_qty", "part_unit_cost", "labor_cost_unit", "added_cost_unit", "upgrade_date", "serial_number", "manual_part_description", "old_specs", "new_specs", "notes", "created_at", "updated_at"),
-    "sales": ("id", "invoice_number", "product_id", "batch_id", "seller_employee_id", "customer_name", "qty", "returned_qty", "suggested_unit_price", "actual_unit_price", "unit_cost_price", "unit_discount", "total_discount", "price_Markup_unit", "unit_profit", "total_profit", "total_amount", "paid_amount", "settlement_status", "sale_datetime", "warranty_company", "warranty_start", "warranty_months", "warranty_days", "warranty_end", "serial_number", "specifications", "colors_json", "notes", "created_at", "updated_at"),
+    "sales": ("id", "serial_number", "invoice_number", "product_id", "batch_id", "seller_employee_id", "customer_name", "customer_phone", "qty", "returned_qty", "suggested_unit_price", "actual_unit_price", "unit_cost_price", "unit_discount", "total_discount", "price_Markup_unit", "unit_profit", "total_profit", "total_amount", "paid_amount", "settlement_status", "sale_datetime", "warranty_company", "warranty_start", "warranty_months", "warranty_days", "warranty_end", "specifications", "colors_json", "notes", "created_at", "updated_at"),
     "service_catalog": ("id", "code", "service_type", "name", "default_fee", "default_side_cost", "description", "is_active", "created_at", "updated_at"),
     "service_price_history": ("id", "service_id", "change_date", "old_fee", "new_fee", "created_at", "updated_at"),
     "service_records": ("id", "invoice_number", "service_id", "seller_employee_id", "technician_employee_id", "service_type", "service_name", "customer_name", "historical_tariff", "service_fee", "side_cost", "paid_amount", "net_profit", "settlement_status", "service_datetime", "description", "created_at", "updated_at"),
@@ -43,7 +143,7 @@ def validate_schema_column_order(conn):
         )
         if actual_columns != expected_columns:
             raise RuntimeError(
-                f"ساختار ستون‌های جدول {table_name} با قرارداد نسخه 4.1.0 سازگار نیست."
+                f"ساختار ستون‌های جدول {table_name} با قرارداد نسخه 4.2.0 سازگار نیست."
             )
 
 
@@ -140,6 +240,8 @@ def load_app_config():
         "auto_backup_last_success_by_db": {},
         "last_backup_time": "ثبت نشده",
         "default_profit_pct": 20,
+        "default_min_stock": 1,
+        "db_encryption_enabled": False,
         "zero_append_count": 3,
         "default_window_maximized": True,
         "require_login_password": False,
@@ -218,7 +320,8 @@ class DatabaseManager:
         self.db_path = os.path.abspath(db_path or self.cfg["db_path"])
         os.makedirs(os.path.dirname(self.db_path) or ".", exist_ok=True)
         self.cfg["db_path"] = self.db_path
-        self.cfg["backup_dir"] = os.path.dirname(self.db_path) or "."
+        if not self.cfg.get("backup_dir"):
+            self.cfg["backup_dir"] = os.path.dirname(self.db_path) or "."
         self.init_db()
         self._normalize_application_config()
         save_app_config(self.cfg)
@@ -257,8 +360,8 @@ class DatabaseManager:
             }
             if existing_tables and current_version != SCHEMA_VERSION:
                 raise RuntimeError(
-                    "این پایگاه داده برای نسخه 4.1.0 ساخته نشده است. "
-                    "نسخه 4.1.0 به پایگاه داده تازه نیاز دارد و مهاجرت خودکار "
+                    "این پایگاه داده برای نسخه 4.2.0 ساخته نشده است. "
+                    "نسخه 4.2.0 به پایگاه داده تازه نیاز دارد و مهاجرت خودکار "
                     "از نسخه‌های قبلی پشتیبانی نمی‌شود."
                 )
             cur = conn.cursor()
@@ -342,19 +445,19 @@ class DatabaseManager:
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS products (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    serial_number TEXT NOT NULL DEFAULT '',
                     code TEXT NOT NULL UNIQUE CHECK (length(trim(code)) > 0),
                     name TEXT NOT NULL CHECK (length(trim(name)) > 0),
                     category TEXT NOT NULL CHECK (length(trim(category)) > 0),
-                    sub_category TEXT DEFAULT 'سایر موارد',
+                    sub_category TEXT DEFAULT 'سایر موارد (Other)',
                     brand TEXT DEFAULT '',
                     model TEXT DEFAULT '',
                     specs_json TEXT DEFAULT '{}',
                     description TEXT DEFAULT '',
-                    reorder_point INTEGER NOT NULL DEFAULT 2 CHECK (reorder_point >= 0),
+                    reorder_point INTEGER NOT NULL DEFAULT 1 CHECK (reorder_point >= 0),
                     default_profit_pct REAL NOT NULL DEFAULT 20.0
                         CHECK (default_profit_pct >= 0),
                     is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
-                    serial_number TEXT NOT NULL DEFAULT '',
                     created_at TEXT NOT NULL DEFAULT '',
                     updated_at TEXT NOT NULL DEFAULT ''
                 )
@@ -431,11 +534,13 @@ class DatabaseManager:
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS sales (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    serial_number TEXT DEFAULT '',
                     invoice_number TEXT NOT NULL,
                     product_id INTEGER NOT NULL,
                     batch_id INTEGER NOT NULL,
                     seller_employee_id INTEGER,
                     customer_name TEXT DEFAULT '',
+                    customer_phone TEXT DEFAULT '',
                     qty INTEGER NOT NULL CHECK (qty > 0),
                     returned_qty INTEGER NOT NULL DEFAULT 0 CHECK (returned_qty >= 0 AND returned_qty <= qty),
                     suggested_unit_price INTEGER NOT NULL CHECK (suggested_unit_price >= 0),
@@ -455,7 +560,6 @@ class DatabaseManager:
                     warranty_months INTEGER NOT NULL DEFAULT 0,
                     warranty_days INTEGER NOT NULL DEFAULT 0,
                     warranty_end TEXT DEFAULT '',
-                    serial_number TEXT DEFAULT '',
                     specifications TEXT DEFAULT '',
                     colors_json TEXT NOT NULL DEFAULT '[]',
                     notes TEXT DEFAULT '',
@@ -626,6 +730,7 @@ class DatabaseManager:
                 "CREATE INDEX IF NOT EXISTS idx_batches_serial ON batches(serial_numbers)",
                 "CREATE INDEX IF NOT EXISTS idx_batches_code ON batches(batch_code)",
                 "CREATE INDEX IF NOT EXISTS idx_sales_serial ON sales(serial_number)",
+                "CREATE INDEX IF NOT EXISTS idx_sales_customer_phone ON sales(customer_phone)",
                 "CREATE INDEX IF NOT EXISTS idx_batches_product_stock ON batches(product_id, remaining_qty)",
                 "CREATE INDEX IF NOT EXISTS idx_batches_product_activity ON batches(product_id, updated_at DESC, id DESC)",
                 "CREATE INDEX IF NOT EXISTS idx_batches_supplier_activity ON batches(supplier_id, updated_at DESC, id DESC)",
@@ -655,7 +760,8 @@ class DatabaseManager:
         self.cfg["config_schema_version"] = 2
         self.cfg["app_version"] = APP_VERSION
         self.cfg["schema_version"] = SCHEMA_VERSION
-        self.cfg["backup_dir"] = os.path.dirname(os.path.abspath(self.db_path)) or "."
+        if not self.cfg.get("backup_dir"):
+            self.cfg["backup_dir"] = os.path.dirname(os.path.abspath(self.db_path)) or "."
         self.cfg["db_path"] = os.path.abspath(self.db_path)
         self.cfg["auto_backup_retention_count"] = max(
             1, int(self.cfg.get("auto_backup_retention_count", 10) or 10)
@@ -922,8 +1028,8 @@ class DatabaseManager:
         model,
         specs_dict,
         description,
-        reorder_point,
-        default_profit_pct,
+        reorder_point=1,
+        default_profit_pct=20.0,
         serial_number="",
     ):
         auto_name = (
@@ -937,10 +1043,11 @@ class DatabaseManager:
                 code = self.generate_next_code("products", "code", "P-", 1001, conn=conn)
             conn.execute(
                 """
-                INSERT INTO products (code, name, category, sub_category, brand, model, specs_json, description, reorder_point, default_profit_pct, serial_number)
+                INSERT INTO products (serial_number, code, name, category, sub_category, brand, model, specs_json, description, reorder_point, default_profit_pct)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
+                    str(serial_number or "").strip(),
                     code,
                     auto_name,
                     category,
@@ -951,7 +1058,6 @@ class DatabaseManager:
                     description,
                     int(reorder_point),
                     float(default_profit_pct),
-                    str(serial_number or "").strip(),
                 ),
             )
             self.log_audit(conn, "ثبت کالا", f"کد کالا: {code} - {auto_name}")
@@ -1927,11 +2033,13 @@ class DatabaseManager:
         warranty_days=None,
         specifications="",
         colors=None,
+        customer_phone="",
     ):
         qty = self._batch_integer(qty, "تعداد فروش", minimum=1)
         product_id = self._batch_integer(product_id, "کالا", minimum=1)
         batch_id = self._batch_integer(batch_id, "محموله", minimum=1)
         customer_name = str(customer_name or "").strip()
+        customer_phone = str(customer_phone or "").strip()
         warranty_company = str(warranty_company or "").strip()
         warranty_start = str(warranty_start or "").strip()
         warranty_end = str(warranty_end or "").strip()
@@ -2008,20 +2116,22 @@ class DatabaseManager:
             cur.execute(
                 """
                 INSERT INTO sales (
-                    invoice_number, product_id, batch_id, seller_employee_id, customer_name,
-                    qty, suggested_unit_price, actual_unit_price, unit_cost_price,
-                    unit_discount, total_discount, price_Markup_unit, unit_profit, total_profit,
-                    total_amount, paid_amount, settlement_status, sale_datetime,
-                    warranty_company, warranty_start, warranty_months, warranty_days, warranty_end,
-                    serial_number, notes, specifications, colors_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    serial_number, invoice_number, product_id, batch_id, seller_employee_id,
+                    customer_name, customer_phone, qty, suggested_unit_price, actual_unit_price,
+                    unit_cost_price, unit_discount, total_discount, price_Markup_unit,
+                    unit_profit, total_profit, total_amount, paid_amount, settlement_status,
+                    sale_datetime, warranty_company, warranty_start, warranty_months,
+                    warranty_days, warranty_end, specifications, colors_json, notes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
+                    serial_number,
                     invoice_number,
                     product_id,
                     batch_id,
                     seller_employee_id,
                     customer_name,
+                    customer_phone,
                     qty,
                     suggested_unit_price,
                     actual_unit_price,
@@ -2040,10 +2150,9 @@ class DatabaseManager:
                     int(warranty_months),
                     int(warranty_days if warranty_days is not None else int(warranty_months or 0) * 30),
                     warranty_end,
-                    serial_number,
-                    notes,
                     str(specifications or ""),
                     json.dumps(normalized_colors or [], ensure_ascii=False),
+                    notes,
                 ),
             )
             sale_id = cur.lastrowid
@@ -2095,10 +2204,12 @@ class DatabaseManager:
         warranty_days=None,
         specifications=None,
         colors=None,
+        customer_phone="",
     ):
         new_qty = self._batch_integer(new_qty, "تعداد فروش", minimum=1)
         sale_id = self._batch_integer(sale_id, "شناسه فروش", minimum=1)
         customer_name = str(customer_name or "").strip()
+        customer_phone = str(customer_phone or "").strip()
         warranty_company = str(warranty_company or "").strip()
         warranty_start = str(warranty_start or "").strip()
         warranty_end = str(warranty_end or "").strip()
@@ -2110,12 +2221,12 @@ class DatabaseManager:
 
         with self.get_connection() as conn:
             conn.execute("BEGIN IMMEDIATE")
-            old_sale = conn.execute("""SELECT id, invoice_number, product_id, batch_id, seller_employee_id,
-            customer_name, qty, returned_qty, suggested_unit_price, actual_unit_price,
+            old_sale = conn.execute("""SELECT id, serial_number, invoice_number, product_id, batch_id, seller_employee_id,
+            customer_name, customer_phone, qty, returned_qty, suggested_unit_price, actual_unit_price,
             unit_cost_price, unit_discount, total_discount, price_Markup_unit,
             unit_profit, total_profit, total_amount, paid_amount, settlement_status,
             sale_datetime, warranty_company, warranty_start, warranty_months,
-            warranty_days, warranty_end, serial_number, specifications, colors_json,
+            warranty_days, warranty_end, specifications, colors_json,
             notes, created_at, updated_at FROM sales WHERE id=?""", (sale_id,)).fetchone()
             if not old_sale:
                 raise ValueError("ردیف فروش یافت نشد.")
@@ -2192,7 +2303,7 @@ class DatabaseManager:
 
             conn.execute(
                 """
-                UPDATE sales SET seller_employee_id=?, customer_name=?, qty=?,
+                UPDATE sales SET seller_employee_id=?, customer_name=?, customer_phone=?, qty=?,
                 suggested_unit_price=?, actual_unit_price=?, unit_discount=?, total_discount=?,
                 price_Markup_unit=?, unit_profit=?, total_profit=?, total_amount=?,
                 paid_amount=?, settlement_status=?, warranty_company=?, warranty_start=?,
@@ -2203,6 +2314,7 @@ class DatabaseManager:
                 (
                     seller_employee_id,
                     customer_name,
+                    customer_phone if customer_phone else (old_sale["customer_phone"] or ""),
                     new_qty,
                     suggested_unit_price,
                     actual_unit_price,
@@ -2502,7 +2614,10 @@ class DatabaseManager:
 
     # --- پشتیبان‌گیری و بازیابی ---
     def get_automatic_backup_directory(self):
-        """Return the Backups folder belonging to the currently active database."""
+        """Return the Backups folder belonging to the currently active database or custom configured backup dir."""
+        configured = self.cfg.get("backup_dir")
+        if configured and os.path.isdir(configured):
+            return os.path.join(configured, "Backups")
         database_dir = os.path.dirname(os.path.abspath(self.db_path)) or "."
         return os.path.join(database_dir, "Backups")
 
@@ -2708,7 +2823,8 @@ class DatabaseManager:
         self.cfg["last_backup_time"] = jdatetime.datetime.now().strftime(
             "%Y/%m/%d %H:%M:%S"
         )
-        self.cfg["backup_dir"] = os.path.dirname(database_path) or "."
+        if not self.cfg.get("backup_dir"):
+            self.cfg["backup_dir"] = os.path.dirname(database_path) or "."
         if automatic:
             database_key = os.path.normcase(database_path)
             backup_state = dict(self.cfg.get("auto_backup_last_success_by_db", {}))
