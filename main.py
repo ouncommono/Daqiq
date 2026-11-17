@@ -50,6 +50,7 @@ from database import (
     receivable_balance, service_financial_breakdown,
     app_config_has_database_selection, get_default_database_path,
     SCHEMA_VERSION, round_integer_division, round_percentage_amount,
+    is_database_encrypted, DatabasePasswordRequiredError, DatabaseInvalidPasswordError,
 )
 from utils_and_widgets import (
     MAIN_CATEGORIES,
@@ -81,7 +82,7 @@ from exporter import (
     get_next_excel_filename,
 )
 
-APP_VERSION = "4.1.0"
+APP_VERSION = "4.3.0"
 
 REPORT_AVAILABLE_COLUMNS = {
     "همه (گزارش جامع خرید، فروش و خدمات)": [
@@ -93,7 +94,7 @@ REPORT_AVAILABLE_COLUMNS = {
     ],
     "۱. گزارش کامل تمام فروش‌ها": [
         "شناسه", "شماره فاکتور", "تاریخ و ساعت فروش", "کد کالا", "مشخصات کالا",
-        "کد محموله", "فروشنده", "مشتری", "تعداد", "قیمت پیشنهادی واحد",
+        "کد محموله", "فروشنده", "مشتری", "شماره تماس مشتری", "تعداد", "قیمت پیشنهادی واحد",
         "قیمت فروش واحد", "بهای تمام‌شده واحد", "تخفیف (-) / تشدید (+)",
         "سود واحد", "سود کل", "مبلغ کل فاکتور", "دریافتی", "مانده حساب",
         "وضعیت تسویه", "گارانتی", "سریال کالا", "رنگ‌ها", "مشخصات فنی", "توضیحات",
@@ -111,7 +112,7 @@ REPORT_AVAILABLE_COLUMNS = {
         "وضعیت تسویه", "سود خالص خدمت", "شرح خدمت",
     ],
     "۲. گزارش کامل تمام خریدها (محموله‌ها)": [
-        "شناسه", "کد محموله", "کد کالا", "مشخصات کالا", "تأمین‌کننده",
+        "شناسه", "کد محموله", "شماره سریال", "کد کالا", "مشخصات کالا", "تأمین‌کننده",
         "مسئول خرید", "شماره فاکتور", "تاریخ خرید", "تعداد خرید", "تعداد فروش",
         "موجودی فعلی", "قیمت خرید واحد", "هزینه جانبی کل", "هزینه ارتقا واحد",
         "بهای تمام‌شده واحد", "قیمت فروش پیشنهادی", "درصد سود (%)", "وضعیت تسویه",
@@ -124,7 +125,7 @@ REPORT_AVAILABLE_COLUMNS = {
         "مبلغ پرداخت‌شده (تومان)", "مانده بدهی (تومان)", "وضعیت تسویه",
     ],
     "۳. گزارش موجودی فعلی کالاها": [
-        "شناسه", "کد کالا", "دسته‌بندی", "زیرمجموعه", "برند", "مدل",
+        "شناسه", "شماره سریال", "کد کالا", "دسته‌بندی", "زیرمجموعه", "برند", "مدل",
         "مشخصات فنی", "موجودی کل", "تعداد فروش", "حداقل موجودی",
         "درصد سود (%)", "وضعیت موجودی", "توضیحات",
     ],
@@ -717,6 +718,8 @@ def _is_valid_sqlite_database_file(path):
     """Validate both SQLite integrity and the minimum accounting schema."""
     if not path or not os.path.isfile(path):
         return False
+    if is_database_encrypted(path):
+        return True
     conn = None
     try:
         # Opening a verified existing file to inspect schema does not mutate it.
@@ -742,6 +745,56 @@ def _is_valid_sqlite_database_file(path):
     finally:
         if conn is not None:
             conn.close()
+
+
+class DatabaseUnlockDialog(QDialog):
+    """Dialog for unlocking an encrypted SQLite database."""
+
+    def __init__(self, db_path: str, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("قفل‌گشایی پایگاه داده رمزگذاری‌شده")
+        self.setLayoutDirection(Qt.RightToLeft)
+        self.setMinimumWidth(440)
+        self.db_path = db_path
+        self.password = None
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 18)
+        layout.setSpacing(14)
+
+        icon_title = QLabel("🔒 پایگاه داده رمزگذاری شده است")
+        icon_title.setStyleSheet("font-size: 15px; font-weight: bold; color: #1e293b;")
+        layout.addWidget(icon_title)
+
+        msg = QLabel(
+            f"پایگاه دادهٔ زیر با رمز عبور محافظت می‌شود:\n"
+            f"{os.path.basename(db_path)}\n\n"
+            "لطفاً برای دسترسی، رمز عبور را وارد کنید:"
+        )
+        msg.setWordWrap(True)
+        layout.addWidget(msg)
+
+        self.ed_password = QLineEdit()
+        self.ed_password.setEchoMode(QLineEdit.Password)
+        self.ed_password.setPlaceholderText("رمز عبور پایگاه داده...")
+        self.ed_password.returnPressed.connect(self._submit)
+        layout.addWidget(self.ed_password)
+
+        btn_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        btn_box.button(QDialogButtonBox.Ok).setText("قفل‌گشایی")
+        btn_box.button(QDialogButtonBox.Cancel).setText("انصراف")
+        btn_box.setCenterButtons(True)
+        btn_box.accepted.connect(self._submit)
+        btn_box.rejected.connect(self.reject)
+        layout.addWidget(btn_box)
+
+    def _submit(self):
+        pwd = self.ed_password.text()
+        if not pwd:
+            QMessageBox.warning(self, "خطا", "لطفاً رمز عبور را وارد نمایید.")
+            return
+        self.password = pwd
+        self.accept()
 
 
 class DatabaseBootstrapDialog(QDialog):
@@ -827,8 +880,8 @@ class DatabaseBootstrapDialog(QDialog):
                 QMessageBox.critical(
                     self,
                     "پایگاه دادهٔ نامعتبر",
-                    "فایل انتخاب‌شده سالم نیست یا با ساختار نسخه 4.1.0 سازگار نیست. "
-                    "مهاجرت خودکار پشتیبانی نمی‌شود؛ برای شروع، یک پایگاه دادهٔ نسخه 4.1.0 بسازید.",
+                    "فایل انتخاب‌شده سالم نیست یا با ساختار نسخه 4.3.0 سازگار نیست. "
+                    "مهاجرت خودکار پشتیبانی نمی‌شود؛ برای شروع، یک پایگاه دادهٔ نسخه 4.3.0 بسازید.",
                 )
                 return
         elif os.path.exists(path) and os.path.getsize(path) > 0:
@@ -1998,6 +2051,15 @@ class MainWindow(QMainWindow):
         self.backup_timer.timeout.connect(self._run_periodic_backup)
         self._restart_backup_timer()
 
+    def closeEvent(self, event):
+        if hasattr(self, "backup_timer") and self.backup_timer.isActive():
+            self.backup_timer.stop()
+        if hasattr(self, "clock_timer") and self.clock_timer.isActive():
+            self.clock_timer.stop()
+        if hasattr(self, "db") and self.db is not None:
+            self.db.sync_database()
+        super().closeEvent(event)
+
     def _restart_backup_timer(self):
         cfg = self.db.cfg
         if not cfg.get("auto_backup_enabled", True):
@@ -2010,12 +2072,18 @@ class MainWindow(QMainWindow):
             interval_minutes = 60
         interval_seconds = max(1, min(1440, interval_minutes)) * 60
         last_success = self.db.get_last_automatic_backup_timestamp()
-        if last_success > 0:
-            delay_seconds = max(1, interval_seconds - (time.time() - last_success))
+        now = time.time()
+        if 0 < last_success <= now:
+            delay_seconds = max(1, interval_seconds - (now - last_success))
         else:
             delay_seconds = interval_seconds
         self.backup_timer.setSingleShot(True)
-        self.backup_timer.start(max(1000, int(delay_seconds * 1000)))
+        # Enforce signed 32-bit integer boundary (max 2,147,483,647 ms)
+        msec = max(1000, min(int(delay_seconds * 1000), 2_147_483_647))
+        try:
+            self.backup_timer.start(msec)
+        except (OverflowError, Exception):
+            self.backup_timer.start(60 * 1000)
 
     def _run_periodic_backup(self):
         try:
@@ -2258,13 +2326,28 @@ class MainWindow(QMainWindow):
                 self._catalog_settings_state.capture_from_window(self)
 
     def _rollback_settings(self):
-        """Rollback all settings to initial snapshot (Memento pattern) and navigate to Dashboard."""
+        """Rollback all settings to initial snapshot (Memento pattern), collapse sections, and navigate to Dashboard."""
         if hasattr(self, "_settings_snapshot") and self._settings_snapshot is not None:
             self._settings_snapshot.restore(self)
             self._settings_snapshot = None
         else:
             self._load_general_settings_form()
             self._catalog_settings_state = CatalogSettingsState()
+
+        # Reset password change fields if present
+        for attr in ("ed_db_current_pass", "ed_db_new_pass", "ed_db_confirm_pass"):
+            if hasattr(self, attr) and getattr(self, attr) is not None:
+                getattr(self, attr).clear()
+        if hasattr(self, "chk_remove_db_pass") and self.chk_remove_db_pass is not None:
+            self.chk_remove_db_pass.setChecked(False)
+
+        # Collapse all collapsible sections in the settings tab
+        if hasattr(self, "_settings_tab_index"):
+            settings_page = self.tabs.widget(self._settings_tab_index)
+            if settings_page:
+                for section in settings_page.findChildren(CollapsibleSection):
+                    section.collapse()
+
         self.tabs.setCurrentIndex(0)
 
     def _populate_table_safely(self, table: QTableWidget, rows_data: list, highlight_col=None):
@@ -2448,25 +2531,59 @@ class MainWindow(QMainWindow):
         self.selected_product_id = None
 
         top_split = QHBoxLayout()
-        gb_form = QGroupBox("تعریف و ویرایش کالا (بدون نیاز به نام محصول؛ شناسایی با دسته‌بندی، زیرمجموعه، برند و مدل)")
-        f_layout = QFormLayout(gb_form)
+        top_split.setSpacing(12)
 
-        self.ed_prod_code = SmartLineEdit("P-1001")
-        self.ed_prod_code.setToolTip("در صورت خالی بودن، کد بعدی به‌صورت خودکار تخصیص می‌یابد.")
+        # کارت ۱: هویت و اطلاعات پایه کالا
+        gb_identity = QGroupBox("کارت ۱: هویت و اطلاعات پایه کالا")
+        self.gb_prod_identity = gb_identity
+        f_identity = QFormLayout(gb_identity)
+        f_identity.setContentsMargins(10, 12, 10, 10)
+        f_identity.setSpacing(8)
+
         self.ed_prod_serial = SmartLineEdit("")
         self.ed_prod_serial.setPlaceholderText("اسکن بارکدخوان یا تایپ شماره سریال...")
         self.ed_prod_serial.setToolTip("شماره سریال یا بارکد کالا را وارد کنید یا با بارکدخوان اسکن نمایید.")
+        self.ed_prod_code = SmartLineEdit("P-1001")
+        self.ed_prod_code.setToolTip("در صورت خالی بودن، کد بعدی به‌صورت خودکار تخصیص می‌یابد.")
         self.cb_prod_cat = SearchableComboBox()
         self.cb_prod_cat.setEditable(0)
         product_categories = self.catalog_config.get("categories") or list(MAIN_CATEGORIES)
         self.cb_prod_cat.addItems(list(dict.fromkeys(product_categories)))
         self.cb_prod_cat.setToolTip("دسته‌بندی اصلی را از فهرست انتخاب کنید.")
-
         self.ed_prod_brand = SmartLineEdit("مثلاً ASUS, Lenovo, HP, Logitech...")
         self.ed_prod_model = SmartLineEdit("مدل کالا (مثلاً G102, VivoBook 15...)")
+
+        f_identity.addRow("شماره سریال / بارکد:", self.ed_prod_serial)
+        f_identity.addRow("کد کالا (شناسه):", self.ed_prod_code)
+        f_identity.addRow("دسته‌بندی اصلی *:", self.cb_prod_cat)
+        f_identity.addRow("برند کالا:", self.ed_prod_brand)
+        f_identity.addRow("مدل کالا:", self.ed_prod_model)
+
+        # کارت ۲: مشخصات فنی تخصصی
+        gb_specs = QGroupBox("کارت ۲: مشخصات فنی تخصصی")
+        self.gb_prod_specs = gb_specs
+        v_specs = QVBoxLayout(gb_specs)
+        v_specs.setContentsMargins(8, 10, 8, 8)
+        self.specs_widget = DynamicSpecsWidget()
+        self.cb_prod_cat.currentTextChanged.connect(self._configure_product_specs)
+        self._configure_product_specs(self.cb_prod_cat.currentText())
+        specs_scroll = SmoothScrollArea()
+        self.specs_scroll = specs_scroll
+        specs_scroll.setWidgetResizable(True)
+        specs_scroll.setWidget(self.specs_widget)
+        specs_scroll.setMinimumHeight(190)
+        v_specs.addWidget(specs_scroll)
+
+        # کارت ۳: انبارداری و قیمت‌گذاری
+        gb_inventory = QGroupBox("کارت ۳: انبارداری و قیمت‌گذاری")
+        self.gb_prod_inventory = gb_inventory
+        f_inventory = QFormLayout(gb_inventory)
+        f_inventory.setContentsMargins(10, 12, 10, 10)
+        f_inventory.setSpacing(8)
+
         self.sp_prod_reorder = QSpinBox()
-        self.sp_prod_reorder.setRange(0, 1000)
-        self.sp_prod_reorder.setValue(3)
+        self.sp_prod_reorder.setRange(0, 100000)
+        self.sp_prod_reorder.setValue(int(self.db.cfg.get("default_min_stock", 1)))
         self.sp_prod_reorder.setToolTip("اگر موجودی کالا به این عدد یا کمتر برسد، در داشبورد هشدار داده می‌شود")
 
         self.sp_prod_profit = QSpinBox()
@@ -2477,21 +2594,13 @@ class MainWindow(QMainWindow):
         self.sp_prod_profit.setToolTip("درصد سود پیش‌فرض برای محاسبه قیمت فروش پیشنهادی این کالا")
         self.ed_prod_desc = SmartLineEdit("توضیحات تکمیلی کالا...")
 
-        f_layout.addRow("کد کالا (شناسه):", self.ed_prod_code)
-        f_layout.addRow("شماره سریال / بارکد:", self.ed_prod_serial)
-        f_layout.addRow("دسته‌بندی اصلی *:", self.cb_prod_cat)
-        f_layout.addRow("برند کالا:", self.ed_prod_brand)
-        f_layout.addRow("مدل کالا:", self.ed_prod_model)
-        f_layout.addRow("حداقل موجودی (هشدار سفارش):", self.sp_prod_reorder)
-        f_layout.addRow("درصد سود پیشنهادی (%):", self.sp_prod_profit)
-        f_layout.addRow("توضیحات:", self.ed_prod_desc)
+        f_inventory.addRow("حداقل موجودی (هشدار سفارش):", self.sp_prod_reorder)
+        f_inventory.addRow("درصد سود پیشنهادی (%):", self.sp_prod_profit)
+        f_inventory.addRow("توضیحات تکمیلی:", self.ed_prod_desc)
 
-        self.specs_widget = DynamicSpecsWidget()
-        self.cb_prod_cat.currentTextChanged.connect(self._configure_product_specs)
-        self._configure_product_specs(self.cb_prod_cat.currentText())
-
-        top_split.addWidget(gb_form, 3)
-        top_split.addWidget(self.specs_widget, 3)
+        top_split.addWidget(gb_identity, 3)
+        top_split.addWidget(gb_specs, 4)
+        top_split.addWidget(gb_inventory, 3)
         layout.addLayout(top_split)
 
         btn_row = QHBoxLayout()
@@ -2506,7 +2615,7 @@ class MainWindow(QMainWindow):
         btn_del = QPushButton("🗑️ حذف کالای انتخابی")
         btn_del.setObjectName("btnDanger")
         btn_del.clicked.connect(self._delete_selected_product)
-        self.ed_prod_search = SmartLineEdit("🔍 جست‌وجوی کد کالا، دسته‌بندی، زیرگروه (مثلاً کیبورد)، برند یا مدل...")
+        self.ed_prod_search = SmartLineEdit("🔍 جست‌وجوی کد کالا، شماره سریال، دسته‌بندی، زیرگروه، برند یا مدل...")
         self.ed_prod_search.textChanged.connect(self._refresh_products_table)
 
         btn_row.addWidget(btn_clear)
@@ -2520,6 +2629,7 @@ class MainWindow(QMainWindow):
         self.tbl_products = self._create_table(
             [
                 "شناسه",
+                "شماره سریال",
                 "کد کالا",
                 "دسته‌بندی",
                 "زیرمجموعه",
@@ -2547,7 +2657,7 @@ class MainWindow(QMainWindow):
         self._configure_product_specs(self.cb_prod_cat.currentText())
         self.ed_prod_brand.clear()
         self.ed_prod_model.clear()
-        self.sp_prod_reorder.setValue(3)
+        self.sp_prod_reorder.setValue(int(self.db.cfg.get("default_min_stock", 1)))
         self.sp_prod_profit.setValue(int(float(self.db.cfg.get("default_profit_pct", 20))))
         self.ed_prod_desc.clear()
         if self.specs_widget.cb_sub is not None:
@@ -2613,24 +2723,28 @@ class MainWindow(QMainWindow):
             return
         row = items[0].row()
         self.selected_product_id = int(self.tbl_products.item(row, 0).text())
-        self.ed_prod_code.setText(self.tbl_products.item(row, 1).text())
-        cat_txt = self.tbl_products.item(row, 2).text()
-        sub_txt = self.tbl_products.item(row, 3).text()
+        serial_item = self.tbl_products.item(row, 1)
+        serial_val = serial_item.text().strip() if serial_item else ""
+        self.ed_prod_serial.setText("" if serial_val == "-" else serial_val)
+        self.ed_prod_code.setText(self.tbl_products.item(row, 2).text())
+        cat_txt = self.tbl_products.item(row, 3).text()
+        sub_txt = self.tbl_products.item(row, 4).text()
         self.cb_prod_cat.setCurrentText(cat_txt)
         self._configure_product_specs(cat_txt)
         self.specs_widget.set_sub_category(sub_txt)
-        self.ed_prod_brand.setText(self.tbl_products.item(row, 4).text())
-        self.ed_prod_model.setText(self.tbl_products.item(row, 5).text())
-        self.sp_prod_reorder.setValue(int(self.tbl_products.item(row, 9).text()))
-        self.sp_prod_profit.setValue(int(float(self.tbl_products.item(row, 10).text())))
-        self.ed_prod_desc.setText(self.tbl_products.item(row, 12).text())
+        self.ed_prod_brand.setText(self.tbl_products.item(row, 5).text())
+        self.ed_prod_model.setText(self.tbl_products.item(row, 6).text())
+        self.sp_prod_reorder.setValue(int(self.tbl_products.item(row, 10).text()))
+        self.sp_prod_profit.setValue(int(float(self.tbl_products.item(row, 11).text())))
+        self.ed_prod_desc.setText(self.tbl_products.item(row, 13).text())
 
         with self.db.get_connection() as conn:
             r = conn.execute(
                 "SELECT specs_json, serial_number FROM products WHERE id=?", (self.selected_product_id,)
             ).fetchone()
             if r:
-                self.ed_prod_serial.setText(r["serial_number"] or "")
+                if r["serial_number"]:
+                    self.ed_prod_serial.setText(r["serial_number"])
                 if r["specs_json"]:
                     sp_data = json.loads(r["specs_json"])
                     sp_data.pop("رنگ", None)
@@ -2809,6 +2923,7 @@ class MainWindow(QMainWindow):
             [
                 "شناسه",
                 "کد محموله",
+                "شماره سریال",
                 "کد کالا",
                 "مشخصات کالا",
                 "تأمین‌کننده",
@@ -2900,6 +3015,15 @@ class MainWindow(QMainWindow):
             desc = (prod.get("description") or "").strip()
             combined = f"{specs_str} - {desc}".strip(" -") if desc else specs_str
             self.ed_batch_serial.setText(combined)
+
+            if not getattr(self, "_syncing_serial", False):
+                self._syncing_serial = True
+                try:
+                    p_serial = prod.get("serial_number") or ""
+                    if p_serial:
+                        self.ed_batch_serial_number.setText(p_serial)
+                finally:
+                    self._syncing_serial = False
         self._recalc_batch_suggested()
 
     def _on_batch_serial_scanned(self):
@@ -2907,16 +3031,21 @@ class MainWindow(QMainWindow):
         serial = self.ed_batch_serial_number.text().strip()
         if not serial:
             return
-        result = self.db.lookup_by_serial_or_barcode(serial)
-        product = result.get("product")
-        if product:
-            target_prod_id = int(product["id"])
-            for index in range(self.cb_batch_prod.count()):
-                data = self.cb_batch_prod.itemData(index)
-                if data and int(data.get("id", -1)) == target_prod_id:
-                    self.cb_batch_prod.setCurrentIndex(index)
-                    # Automatically cascades and fills all dependent fields via _on_batch_prod_changed
-                    break
+        if getattr(self, "_syncing_serial", False):
+            return
+        self._syncing_serial = True
+        try:
+            result = self.db.lookup_by_serial_or_barcode(serial)
+            product = result.get("product")
+            if product:
+                target_prod_id = int(product["id"])
+                for index in range(self.cb_batch_prod.count()):
+                    data = self.cb_batch_prod.itemData(index)
+                    if data and int(data.get("id", -1)) == target_prod_id:
+                        self.cb_batch_prod.setCurrentIndex(index)
+                        break
+        finally:
+            self._syncing_serial = False
 
     def _clear_batch_form(self):
         self.selected_batch_id = None
@@ -3063,34 +3192,39 @@ class MainWindow(QMainWindow):
         r = items[0].row()
         self.selected_batch_id = int(self.tbl_batches.item(r, 0).text())
         self.ed_batch_code.setText(self.tbl_batches.item(r, 1).text())
-        self.ed_batch_inv.setText(self.tbl_batches.item(r, 6).text())
-        self.dt_batch_date.set_date(self.tbl_batches.item(r, 7).text())
-        self.cb_batch_qty.setCurrentText(self.tbl_batches.item(r, 8).text())
+        serial_item = self.tbl_batches.item(r, 2)
+        if serial_item:
+            self.ed_batch_serial_number.setText("" if serial_item.text() == "-" else serial_item.text())
+        self.ed_batch_inv.setText(self.tbl_batches.item(r, 7).text())
+        self.dt_batch_date.set_date(self.tbl_batches.item(r, 8).text())
+        self.cb_batch_qty.setCurrentText(self.tbl_batches.item(r, 9).text())
         self.pr_batch_buy.set_value(
-            int(self.tbl_batches.item(r, 11).text().replace(",", ""))
-        )
-        self.pr_batch_extra.set_value(
             int(self.tbl_batches.item(r, 12).text().replace(",", ""))
         )
+        self.pr_batch_extra.set_value(
+            int(self.tbl_batches.item(r, 13).text().replace(",", ""))
+        )
         self.pr_batch_suggest.set_value(
-            int(self.tbl_batches.item(r, 15).text().replace(",", ""))
+            int(self.tbl_batches.item(r, 16).text().replace(",", ""))
         )
-        self.cb_batch_status.setCurrentText(self.tbl_batches.item(r, 17).text())
+        self.cb_batch_status.setCurrentText(self.tbl_batches.item(r, 18).text())
         self.pr_batch_paid.set_value(
-            int(self.tbl_batches.item(r, 18).text().replace(",", ""))
+            int(self.tbl_batches.item(r, 19).text().replace(",", ""))
         )
-        batch_serial_text = self.tbl_batches.item(r, 20).text()
+        batch_serial_text = self.tbl_batches.item(r, 21).text()
         with self.db.get_connection() as conn:
             batch_state = conn.execute(
                 """SELECT b.colors_json, b.supplier_id, b.buyer_employee_id, b.serial_numbers,
-                          b.product_id, p.code, p.name, p.category, p.sub_category,
+                          b.serial_number, b.product_id, p.code, p.name, p.category, p.sub_category,
                           p.brand, p.model, p.specs_json, p.description
                    FROM batches b JOIN products p ON p.id=b.product_id
                    WHERE b.id=?""",
                 (self.selected_batch_id,),
             ).fetchone()
         if batch_state:
-            self.ed_batch_serial_number.setText(batch_state["serial_numbers"] or "")
+            self.ed_batch_serial_number.setText(
+                batch_state["serial_number"] or batch_state["serial_numbers"] or ""
+            )
             product_index = next(
                 (
                     index for index in range(self.cb_batch_prod.count())
@@ -3215,6 +3349,9 @@ class MainWindow(QMainWindow):
         self.cb_sale_seller = SearchableComboBox()
         self.cb_sale_seller.setEditable(False)
         self.ed_sale_customer = SmartLineEdit("")
+        self.ed_sale_cust_phone = SmartLineEdit("")
+        self.ed_sale_cust_phone.setPlaceholderText("شماره تماس مشتری...")
+        self.ed_sale_cust_phone.setToolTip("شماره تماس مشتری برای ثبت در فاکتور و پیگیری خدمات")
         self.btn_sale_colors = ColorSelectionButton()
         self.ed_sale_specs = SmartLineEdit("مشخصات دقیق کالای فروخته‌شده؛ قابل ویرایش...")
         self.ed_sale_specs.setLayoutDirection(Qt.LeftToRight)
@@ -3291,20 +3428,23 @@ class MainWindow(QMainWindow):
 
         grid.addWidget(QLabel("نام مشتری:"), 3, 0)
         grid.addWidget(self.ed_sale_customer, 3, 1)
-        grid.addWidget(QLabel("شرکت گارانتی:"), 3, 2)
-        grid.addWidget(self.ed_war_company, 3, 3)
-        grid.addWidget(QLabel("شروع گارانتی:"), 3, 4)
-        grid.addWidget(self.dt_war_start, 3, 5)
+        grid.addWidget(QLabel("تلفن مشتری:"), 3, 2)
+        grid.addWidget(self.ed_sale_cust_phone, 3, 3)
+        grid.addWidget(QLabel("شرکت گارانتی:"), 3, 4)
+        grid.addWidget(self.ed_war_company, 3, 5)
 
-        grid.addWidget(QLabel("مدت گارانتی:"), 4, 0)
-        grid.addWidget(self.cb_war_months, 4, 1)
-        grid.addWidget(QLabel("انقضای گارانتی:"), 4, 2)
-        grid.addWidget(self.dt_war_end, 4, 3)
-        grid.addWidget(QLabel("سریال کالا:"), 4, 4)
-        grid.addWidget(self.ed_sale_serial, 4, 5)
+        grid.addWidget(QLabel("شروع گارانتی:"), 4, 0)
+        grid.addWidget(self.dt_war_start, 4, 1)
+        grid.addWidget(QLabel("مدت گارانتی:"), 4, 2)
+        grid.addWidget(self.cb_war_months, 4, 3)
+        grid.addWidget(QLabel("انقضای گارانتی:"), 4, 4)
+        grid.addWidget(self.dt_war_end, 4, 5)
 
-        grid.addWidget(QLabel("رنگ‌های فروخته‌شده:"), 5, 0)
-        grid.addWidget(self.btn_sale_colors, 5, 1, 1, 5)
+        grid.addWidget(QLabel("سریال کالا:"), 5, 0)
+        grid.addWidget(self.ed_sale_serial, 5, 1)
+        grid.addWidget(QLabel("رنگ‌های فروخته‌شده:"), 5, 2)
+        grid.addWidget(self.btn_sale_colors, 5, 3, 1, 3)
+
         grid.addWidget(QLabel("مشخصات فنی کالای فروخته‌شده:"), 6, 0)
         grid.addWidget(self.ed_sale_specs, 6, 1, 1, 5)
         grid.addWidget(self.lbl_sale_summary, 7, 0, 1, 6)
@@ -3341,6 +3481,7 @@ class MainWindow(QMainWindow):
                 "کد محموله",
                 "فروشنده",
                 "مشتری",
+                "شماره تماس مشتری",
                 "تعداد",
                 "قیمت پیشنهادی واحد",
                 "قیمت فروش واحد",
@@ -3586,6 +3727,18 @@ class MainWindow(QMainWindow):
         sug = int(b["suggested_sell_price"])
         self.pr_sale_suggest.set_value(sug)
         self.pr_sale_actual.set_value(sug)
+
+        if not getattr(self, "_syncing_serial", False):
+            self._syncing_serial = True
+            try:
+                b_serial = b.get("serial_number") or b.get("serial_numbers") or ""
+                if not b_serial and isinstance(self.cb_sale_prod.currentData(), dict):
+                    b_serial = self.cb_sale_prod.currentData().get("serial_number") or ""
+                if b_serial:
+                    self.ed_sale_serial.setText(b_serial)
+            finally:
+                self._syncing_serial = False
+
         self._recalc_sale_live()
 
     def _on_sale_serial_scanned(self):
@@ -3593,42 +3746,45 @@ class MainWindow(QMainWindow):
         serial = self.ed_sale_serial.text().strip()
         if not serial:
             return
-        result = self.db.lookup_by_serial_or_barcode(serial)
-        product = result.get("product")
-        matched_batch = result.get("matched_batch")
+        if getattr(self, "_syncing_serial", False):
+            return
+        self._syncing_serial = True
+        try:
+            result = self.db.lookup_by_serial_or_barcode(serial)
+            product = result.get("product")
+            matched_batch = result.get("matched_batch")
 
-        if not product and matched_batch:
-            with self.db.get_connection() as conn:
-                p_row = conn.execute("SELECT * FROM products WHERE id=?", (matched_batch["product_id"],)).fetchone()
-                if p_row:
-                    product = dict(p_row)
+            if not product and matched_batch:
+                with self.db.get_connection() as conn:
+                    p_row = conn.execute("SELECT * FROM products WHERE id=?", (matched_batch["product_id"],)).fetchone()
+                    if p_row:
+                        product = dict(p_row)
 
-        if product:
-            target_prod_id = int(product["id"])
-            found_index = -1
-            for index in range(self.cb_sale_prod.count()):
-                data = self.cb_sale_prod.itemData(index)
-                if data and int(data.get("id", -1)) == target_prod_id:
-                    found_index = index
-                    break
-
-            if found_index >= 0:
-                self.cb_sale_prod.setCurrentIndex(found_index)
-
-            # Crucial Automation: IF query results in only one unique cargo linked to that
-            # specific serial/item (or matched a specific batch directly), select it in
-            # "محموله موجود" and instantly auto-fill all dependent cascading fields!
-            if matched_batch is not None:
-                target_batch_id = int(matched_batch["id"])
-                for b_idx in range(self.cb_sale_batch.count()):
-                    b_data = self.cb_sale_batch.itemData(b_idx)
-                    if b_data and int(b_data.get("id", -1)) == target_batch_id:
-                        self.cb_sale_batch.setCurrentIndex(b_idx)
-                        self._on_sale_batch_changed()
+            if product:
+                target_prod_id = int(product["id"])
+                found_index = -1
+                for index in range(self.cb_sale_prod.count()):
+                    data = self.cb_sale_prod.itemData(index)
+                    if data and int(data.get("id", -1)) == target_prod_id:
+                        found_index = index
                         break
-            elif self.cb_sale_batch.count() == 1:
-                self.cb_sale_batch.setCurrentIndex(0)
-                self._on_sale_batch_changed()
+
+                if found_index >= 0:
+                    self.cb_sale_prod.setCurrentIndex(found_index)
+
+                if matched_batch is not None:
+                    target_batch_id = int(matched_batch["id"])
+                    for b_idx in range(self.cb_sale_batch.count()):
+                        b_data = self.cb_sale_batch.itemData(b_idx)
+                        if b_data and int(b_data.get("id", -1)) == target_batch_id:
+                            self.cb_sale_batch.setCurrentIndex(b_idx)
+                            self._on_sale_batch_changed()
+                            break
+                elif self.cb_sale_batch.count() == 1:
+                    self.cb_sale_batch.setCurrentIndex(0)
+                    self._on_sale_batch_changed()
+        finally:
+            self._syncing_serial = False
 
     def _clear_sale_form(self):
         self.selected_sale_id = None
@@ -3642,6 +3798,7 @@ class MainWindow(QMainWindow):
         self.cb_sale_seller.setCurrentIndex(-1)
         self.cb_sale_seller.clearEditText()
         self.ed_sale_customer.clear()
+        self.ed_sale_cust_phone.clear()
         self.ed_sale_specs.clear()
         self.pr_sale_actual.set_value(0)
         self.pr_sale_paid.set_value(0)
@@ -3765,6 +3922,7 @@ class MainWindow(QMainWindow):
                 warranty_days=self._get_warranty_days(),
                 specifications=self.ed_sale_specs.text().strip(),
                 colors=self._checked_colors(self.btn_sale_colors),
+                customer_phone=self.ed_sale_cust_phone.text().strip(),
             )
             self.refresh_all_data()
             self._set_generated_code_placeholder(
@@ -3854,6 +4012,7 @@ class MainWindow(QMainWindow):
 
         self.ed_sale_inv.setText(sale["invoice_number"] or "")
         self.ed_sale_customer.setText(sale["customer_name"] or "")
+        self.ed_sale_cust_phone.setText(sale["customer_phone"] or "")
         self.cb_sale_qty.setCurrentText(str(sale["qty"]))
         self.pr_sale_suggest.set_value(int(sale["suggested_unit_price"] or 0))
         self.pr_sale_actual.set_value(int(sale["actual_unit_price"] or 0))
@@ -3921,6 +4080,7 @@ class MainWindow(QMainWindow):
                 warranty_days=self._get_warranty_days(),
                 specifications=self.ed_sale_specs.text().strip(),
                 colors=selected_colors,
+                customer_phone=self.ed_sale_cust_phone.text().strip(),
             )
             self.refresh_all_data()
             QMessageBox.information(self, "اصلاح فروش", "ردیف فروش با موفقیت اصلاح شد.")
@@ -5162,6 +5322,7 @@ class MainWindow(QMainWindow):
                     "کد محموله",
                     "فروشنده",
                     "مشتری",
+                    "شماره تماس مشتری",
                     "تعداد",
                     "قیمت پیشنهادی واحد",
                     "قیمت فروش واحد",
@@ -5180,7 +5341,7 @@ class MainWindow(QMainWindow):
                 ]
                 q = conn.execute("""
                     SELECT s.id, s.invoice_number, s.product_id, s.batch_id, s.seller_employee_id,
-                           s.customer_name, s.qty, s.returned_qty, s.suggested_unit_price,
+                           s.customer_name, s.customer_phone, s.qty, s.returned_qty, s.suggested_unit_price,
                            s.actual_unit_price, s.unit_cost_price, s.unit_discount, s.total_discount,
                            s.price_Markup_unit, s.unit_profit, s.total_profit, s.total_amount,
                            s.paid_amount, s.settlement_status, s.sale_datetime, s.warranty_company,
@@ -5209,7 +5370,7 @@ class MainWindow(QMainWindow):
                     diff_val = (int(r["actual_unit_price"]) - int(r["suggested_unit_price"])) * int(r["qty"])
                     if rep_type.startswith("۱۱.") and diff_val == 0:
                         continue
-                    search_pool = f"{r['invoice_number']} {r['code']} {r['category']} {r['sub_category']} {r['brand']} {r['model']} {r['batch_code']} {r['customer_name']} {r['serial_number']}".lower()
+                    search_pool = f"{r['invoice_number']} {r['code']} {r['category']} {r['sub_category']} {r['brand']} {r['model']} {r['batch_code']} {r['customer_name']} {r['customer_phone'] or ''} {r['serial_number']}".lower()
                     if q_txt and q_txt not in search_pool:
                         continue
 
@@ -5234,6 +5395,7 @@ class MainWindow(QMainWindow):
                             r["batch_code"],
                             r["emp_name"],
                             r["customer_name"] or "-",
+                            r["customer_phone"] or "-",
                             r["qty"],
                             f"{r['suggested_unit_price']:,}",
                             f"{r['actual_unit_price']:,}",
@@ -6109,10 +6271,30 @@ class MainWindow(QMainWindow):
         lbl_type.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
         self.cb_report_export_type = QComboBox()
         self.cb_report_export_type.setMinimumHeight(32)
+        try:
+            custom_reports = json.loads(self.db.get_setting("custom_report_profiles", "[]") or "[]")
+            all_distinct = list(dict.fromkeys(col for cols in REPORT_AVAILABLE_COLUMNS.values() for col in cols))
+            for rep_name in custom_reports:
+                if rep_name and rep_name not in REPORT_AVAILABLE_COLUMNS:
+                    REPORT_AVAILABLE_COLUMNS[rep_name] = all_distinct
+        except Exception:
+            pass
         for report_type in REPORT_AVAILABLE_COLUMNS.keys():
             self.cb_report_export_type.addItem(report_type)
         type_row.addWidget(lbl_type)
         type_row.addWidget(self.cb_report_export_type, 1)
+
+        btn_add_custom_rep = QPushButton("➕ گزارش جدید…")
+        btn_add_custom_rep.clicked.connect(self._add_custom_report_profile)
+        btn_rename_custom_rep = QPushButton("✏️ تغییر نام…")
+        btn_rename_custom_rep.setObjectName("btnSecondary")
+        btn_rename_custom_rep.clicked.connect(self._rename_custom_report_profile)
+        btn_del_custom_rep = QPushButton("🗑️ حذف")
+        btn_del_custom_rep.setObjectName("btnDanger")
+        btn_del_custom_rep.clicked.connect(self._delete_custom_report_profile)
+        type_row.addWidget(btn_add_custom_rep)
+        type_row.addWidget(btn_rename_custom_rep)
+        type_row.addWidget(btn_del_custom_rep)
         gb_layout.addLayout(type_row)
 
         cols_container = QHBoxLayout()
@@ -6121,6 +6303,7 @@ class MainWindow(QMainWindow):
         self.lst_report_export_columns = SmoothScrollListWidget()
         self.lst_report_export_columns.setMinimumHeight(240)
         self.lst_report_export_columns.setMaximumHeight(350)
+        self.lst_report_export_columns.itemClicked.connect(self._toggle_report_export_col_item)
         cols_container.addWidget(self.lst_report_export_columns, 1)
 
         btn_box = QVBoxLayout()
@@ -6173,6 +6356,106 @@ class MainWindow(QMainWindow):
         self._load_report_export_columns_ui(self.cb_report_export_type.currentText())
 
         return page
+
+    def _toggle_report_export_col_item(self, item: QListWidgetItem):
+        if item is not None:
+            new_state = Qt.Unchecked if item.checkState() == Qt.Checked else Qt.Checked
+            item.setCheckState(new_state)
+
+    def _add_custom_report_profile(self):
+        from PySide6.QtWidgets import QInputDialog
+        name, ok = QInputDialog.getText(
+            self, "ایجاد گزارش سفارشی", "نام گزارش سفارشی جدید را وارد کنید:"
+        )
+        clean_name = name.strip() if name else ""
+        if not ok or not clean_name:
+            return
+        if clean_name in REPORT_AVAILABLE_COLUMNS:
+            QMessageBox.warning(self, "خطا", "گزارشی با این نام از قبل وجود دارد.")
+            return
+
+        all_distinct = list(dict.fromkeys(
+            col for cols in REPORT_AVAILABLE_COLUMNS.values() for col in cols
+        ))
+        REPORT_AVAILABLE_COLUMNS[clean_name] = all_distinct
+        try:
+            custom_reports = json.loads(self.db.get_setting("custom_report_profiles", "[]") or "[]")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            custom_reports = []
+        if clean_name not in custom_reports:
+            custom_reports.append(clean_name)
+            self.db.set_setting("custom_report_profiles", json.dumps(custom_reports, ensure_ascii=False))
+
+        self.cb_report_export_type.addItem(clean_name)
+        self.cb_report_export_type.setCurrentText(clean_name)
+        QMessageBox.information(self, "موفقیت", f"گزارش سفارشی «{clean_name}» ایجاد شد.")
+
+    def _rename_custom_report_profile(self):
+        from PySide6.QtWidgets import QInputDialog
+        current = self.cb_report_export_type.currentText()
+        try:
+            custom_reports = json.loads(self.db.get_setting("custom_report_profiles", "[]") or "[]")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            custom_reports = []
+        if current not in custom_reports:
+            QMessageBox.warning(self, "خطا", "فقط گزارش‌های سفارشی ایجادشده قابل تغییر نام هستند.")
+            return
+        name, ok = QInputDialog.getText(
+            self, "تغییر نام گزارش سفارشی", "نام جدید گزارش را وارد کنید:", text=current
+        )
+        clean_name = name.strip() if name else ""
+        if not ok or not clean_name or clean_name == current:
+            return
+        if clean_name in REPORT_AVAILABLE_COLUMNS:
+            QMessageBox.warning(self, "خطا", "گزارشی با این نام از قبل وجود دارد.")
+            return
+
+        cols = REPORT_AVAILABLE_COLUMNS.pop(current, [])
+        REPORT_AVAILABLE_COLUMNS[clean_name] = cols
+        custom_reports = [clean_name if r == current else r for r in custom_reports]
+        self.db.set_setting("custom_report_profiles", json.dumps(custom_reports, ensure_ascii=False))
+
+        try:
+            export_configs = json.loads(self.db.get_setting("report_excel_export_configs", "{}") or "{}")
+            if current in export_configs:
+                export_configs[clean_name] = export_configs.pop(current)
+                self.db.set_setting("report_excel_export_configs", json.dumps(export_configs, ensure_ascii=False))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            pass
+
+        idx = self.cb_report_export_type.findText(current)
+        if idx >= 0:
+            self.cb_report_export_type.setItemText(idx, clean_name)
+            self.cb_report_export_type.setCurrentIndex(idx)
+        QMessageBox.information(self, "موفقیت", f"نام گزارش به «{clean_name}» تغییر یافت.")
+
+    def _delete_custom_report_profile(self):
+        current = self.cb_report_export_type.currentText()
+        try:
+            custom_reports = json.loads(self.db.get_setting("custom_report_profiles", "[]") or "[]")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            custom_reports = []
+        if current not in custom_reports:
+            QMessageBox.warning(self, "خطا", "فقط گزارش‌های سفارشی ایجادشده قابل حذف هستند.")
+            return
+        if not _ask_yes_no(self, "تأیید حذف", f"آیا از حذف گزارش سفارشی «{current}» اطمینان دارید؟"):
+            return
+
+        REPORT_AVAILABLE_COLUMNS.pop(current, None)
+        custom_reports = [r for r in custom_reports if r != current]
+        self.db.set_setting("custom_report_profiles", json.dumps(custom_reports, ensure_ascii=False))
+        try:
+            export_configs = json.loads(self.db.get_setting("report_excel_export_configs", "{}") or "{}")
+            if current in export_configs:
+                export_configs.pop(current, None)
+                self.db.set_setting("report_excel_export_configs", json.dumps(export_configs, ensure_ascii=False))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            pass
+
+        idx = self.cb_report_export_type.findText(current)
+        if idx >= 0:
+            self.cb_report_export_type.removeItem(idx)
+        QMessageBox.information(self, "موفقیت", f"گزارش سفارشی «{current}» حذف شد.")
 
     def _load_report_export_columns_ui(self, report_type=None):
         if not report_type:
@@ -6426,6 +6709,10 @@ class MainWindow(QMainWindow):
 
         self.sp_set_profit = QSpinBox()
         self.sp_set_profit.setRange(0, 300)
+        self.sp_set_default_min_stock = QSpinBox()
+        self.sp_set_default_min_stock.setRange(0, 100000)
+        self.sp_set_default_min_stock.setValue(1)
+        self.sp_set_default_min_stock.setToolTip("حداقل موجودی پیش‌فرض برای کالاهای جدید (آستانه هشدار کسری انبار)")
         self.cb_zero_count = QComboBox()
         self.cb_zero_count.addItem("بدون صفر اضافی (۰)", "0")
         self.cb_zero_count.addItem("افزودن ۱ صفر (×۱۰)", "1")
@@ -6445,6 +6732,7 @@ class MainWindow(QMainWindow):
         self.ed_shop_name.setLayoutDirection(Qt.RightToLeft)
 
         f_gen.addRow("درصد سود پیش‌فرض فروشگاه (%):", self.sp_set_profit)
+        f_gen.addRow("حداقل موجودی پیش‌فرض (هشدار انبار):", self.sp_set_default_min_stock)
         f_gen.addRow("تعداد صفرهای اضافی قیمت:", self.cb_zero_count)
         f_gen.addRow("حالت باز شدن پنجره:", self.cb_win_mode)
         f_gen.addRow("نام فروشگاه:", self.ed_shop_name)
@@ -6875,16 +7163,57 @@ class MainWindow(QMainWindow):
         self.lbl_last_backup.setWordWrap(True)
         self.lbl_last_backup.setObjectName("settingsHint")
 
+        self.ed_auto_bk_dir = QLineEdit()
+        self.ed_auto_bk_dir.setPlaceholderText("مسیر پیش‌فرض (پوشه Backups در کنار فایل پایگاه داده)...")
+        self.ed_auto_bk_dir.setClearButtonEnabled(True)
+        btn_browse_auto_bk = QPushButton("انتخاب پوشه…")
+        btn_browse_auto_bk.clicked.connect(self._browse_auto_backup_dir)
+        btn_reset_auto_bk = QPushButton("پیش‌فرض")
+        btn_reset_auto_bk.setObjectName("btnSecondary")
+        btn_reset_auto_bk.clicked.connect(lambda: self.ed_auto_bk_dir.clear())
+        auto_bk_row = QHBoxLayout()
+        auto_bk_row.addWidget(self.ed_auto_bk_dir, 1)
+        auto_bk_row.addWidget(btn_browse_auto_bk)
+        auto_bk_row.addWidget(btn_reset_auto_bk)
+
         f_db.addRow("مسیر پایگاه دادهٔ فعال:", self.lbl_active_db_path)
         f_db.addRow("فهرست پایگاه‌های داده:", self.lst_recent_databases)
         f_db.addRow(db_btn_row)
         f_db.addRow(self.chk_auto_bk)
+        f_db.addRow("پوشهٔ ذخیره پشتیبان خودکار:", auto_bk_row)
         f_db.addRow("فاصلهٔ پشتیبان‌گیری خودکار:", self.sp_bk_interval)
         f_db.addRow("حداکثر نسخه‌های پشتیبان خودکار:", self.sp_bk_retention)
         f_db.addRow(bk_btn_row)
         f_db.addRow(self.lbl_last_backup)
         gb_db.setTitle("")
         layout.addWidget(CollapsibleSection("پایگاه داده و پشتیبان‌گیری", gb_db))
+
+        # بخش امنیت و رمز عبور فایل پایگاه داده (رمزنگاری احرازشده AES-256-GCM)
+        gb_db_sec = QGroupBox("امنیت و رمز عبور فایل پایگاه داده")
+        f_db_sec = QFormLayout(gb_db_sec)
+        f_db_sec.setContentsMargins(12, 12, 12, 10)
+        f_db_sec.setHorizontalSpacing(14)
+        f_db_sec.setVerticalSpacing(8)
+
+        self.lbl_db_enc_status = QLabel()
+        self.ed_db_current_pass = QLineEdit()
+        self.ed_db_current_pass.setEchoMode(QLineEdit.Password)
+        self.ed_db_current_pass.setPlaceholderText("رمز عبور فعلی پایگاه داده...")
+        self.ed_db_new_pass = QLineEdit()
+        self.ed_db_new_pass.setEchoMode(QLineEdit.Password)
+        self.ed_db_new_pass.setPlaceholderText("رمز عبور جدید...")
+        self.ed_db_confirm_pass = QLineEdit()
+        self.ed_db_confirm_pass.setEchoMode(QLineEdit.Password)
+        self.ed_db_confirm_pass.setPlaceholderText("تکرار رمز عبور جدید...")
+        self.chk_remove_db_pass = QCheckBox("حذف رمز عبور و بازگشت به فایل پایگاه داده معمولی (بدون رمز)")
+
+        f_db_sec.addRow("وضعیت رمزگذاری فایل:", self.lbl_db_enc_status)
+        f_db_sec.addRow("رمز عبور فعلی:", self.ed_db_current_pass)
+        f_db_sec.addRow("رمز عبور جدید:", self.ed_db_new_pass)
+        f_db_sec.addRow("تکرار رمز عبور جدید:", self.ed_db_confirm_pass)
+        f_db_sec.addRow(self.chk_remove_db_pass)
+        gb_db_sec.setTitle("")
+        layout.addWidget(CollapsibleSection("امنیت و رمز عبور فایل پایگاه داده", gb_db_sec))
 
         settings_container = QWidget()
         settings_container_layout = QVBoxLayout(settings_container)
@@ -6913,17 +7242,24 @@ class MainWindow(QMainWindow):
         self.btn_cancel_settings = btn_cancel_set
         btn_cancel_set.setObjectName("btnSecondary")
         btn_cancel_set.setMinimumHeight(42)
-        btn_cancel_set.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-        btn_cancel_set.setMinimumWidth(120)
+        btn_cancel_set.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         btn_cancel_set.clicked.connect(self._rollback_settings)
 
         floating_layout.addWidget(btn_save_set, 1)
-        floating_layout.addWidget(btn_cancel_set)
+        floating_layout.addWidget(btn_cancel_set, 1)
 
         settings_container_layout.addWidget(floating_bar, 0)
 
         self._settings_tab_index = self.tabs.addTab(settings_container, "⚙️ تنظیمات")
         self._load_general_settings_form()
+
+    def _browse_auto_backup_dir(self):
+        current = self.ed_auto_bk_dir.text().strip() if hasattr(self, "ed_auto_bk_dir") else ""
+        chosen = QFileDialog.getExistingDirectory(
+            self, "انتخاب پوشهٔ ذخیره پشتیبان خودکار", current or ""
+        )
+        if chosen:
+            self.ed_auto_bk_dir.setText(os.path.abspath(chosen))
 
     def _load_general_settings_form(self):
         cfg = self.db.cfg
@@ -6931,6 +7267,19 @@ class MainWindow(QMainWindow):
         self.chk_req_pass.setChecked(bool(cfg.get("require_login_password", False)))
         self.chk_req_pass.blockSignals(False)
         self.sp_set_profit.setValue(int(float(cfg.get("default_profit_pct", 20))))
+        if hasattr(self, "sp_set_default_min_stock"):
+            self.sp_set_default_min_stock.setValue(int(cfg.get("default_min_stock", 1)))
+        if hasattr(self, "ed_auto_bk_dir"):
+            self.ed_auto_bk_dir.setText(str(cfg.get("auto_backup_dir", "") or ""))
+        if hasattr(self, "lbl_db_enc_status"):
+            is_enc = self.db.is_encrypted()
+            self.lbl_db_enc_status.setText("🔒 رمزگذاری‌شده با الگوریتم استاندارد AES-256-GCM" if is_enc else "🔓 فاقد رمز عبور (پایگاه داده معمولی)")
+            self.lbl_db_enc_status.setStyleSheet("color: #16a34a; font-weight: bold;" if is_enc else "color: #64748b; font-weight: bold;")
+            self.ed_db_current_pass.clear()
+            self.ed_db_new_pass.clear()
+            self.ed_db_confirm_pass.clear()
+            self.chk_remove_db_pass.setChecked(False)
+            self.chk_remove_db_pass.setEnabled(is_enc)
 
         zero_count = str(cfg.get("zero_append_count", 3))
         zero_index = self.cb_zero_count.findData(zero_count)
@@ -8350,23 +8699,42 @@ class MainWindow(QMainWindow):
             )
             return
 
+        target_password = None
+        if os.path.isfile(target_path) and is_database_encrypted(target_path):
+            while True:
+                unlock_dlg = DatabaseUnlockDialog(target_path, self)
+                if unlock_dlg.exec() != QDialog.Accepted:
+                    return
+                try:
+                    with open(target_path, "rb") as f:
+                        test_bytes = f.read()
+                    decrypt_database_bytes(test_bytes, unlock_dlg.password)
+                    target_password = unlock_dlg.password
+                    break
+                except DatabaseInvalidPasswordError:
+                    QMessageBox.critical(self, "رمز عبور نادرست", "رمز عبور وارد شده برای این پایگاه داده نادرست است.")
+                except Exception as e:
+                    QMessageBox.critical(self, "خطا در اتصال", f"خطا در بررسی رمز عبور پایگاه داده:\n{e}")
+                    return
+
         previous_path = self.db.db_path
+        previous_password = getattr(self.db, "password", None)
         previous_config = copy.deepcopy(self.db.cfg)
         previous_employee = self.active_employee
 
         try:
             os.makedirs(os.path.dirname(target_path) or ".", exist_ok=True)
-            self.db.db_path = target_path
-            self.db.cfg["db_path"] = target_path
-            self.db.cfg["backup_dir"] = os.path.dirname(target_path) or "."
+            self.db.switch_database(target_path, password=target_password)
             recents = [
                 os.path.abspath(path) for path in self.db.cfg.get("recent_databases", [])
                 if path and os.path.normcase(os.path.abspath(path)) != os.path.normcase(target_path)
             ]
             self.db.cfg["recent_databases"] = [target_path] + recents
-            self.db.init_db()
         except Exception as exc:
-            self.db.db_path = previous_path
+            try:
+                self.db.switch_database(previous_path, password=previous_password)
+            except Exception:
+                pass
             self.db.cfg = previous_config
             QMessageBox.critical(self, "خطا در اتصال", f"اتصال به پایگاه داده انجام نشد.\n{exc}")
             self._refresh_multi_db_combo()
@@ -8374,7 +8742,10 @@ class MainWindow(QMainWindow):
 
         selected_employee, accepted = _resolve_startup_employee(self.db, self)
         if not accepted:
-            self.db.db_path = previous_path
+            try:
+                self.db.switch_database(previous_path, password=previous_password)
+            except Exception:
+                pass
             self.db.cfg = previous_config
             self.active_employee = previous_employee
             self._refresh_multi_db_combo()
@@ -8588,10 +8959,36 @@ class MainWindow(QMainWindow):
                 self.db.save_product_catalog_config(self._taxonomy_draft, conn=conn)
                 conn.commit()
 
+            # مدیریت امنیت و رمز عبور پایگاه داده
+            if hasattr(self, "chk_remove_db_pass") and self.chk_remove_db_pass.isChecked():
+                cur_p = self.ed_db_current_pass.text()
+                if not cur_p:
+                    raise ValueError("برای حذف رمز عبور پایگاه داده، وارد کردن رمز عبور فعلی الزامی است.")
+                self.db.remove_password(cur_p)
+            elif hasattr(self, "ed_db_new_pass") and self.ed_db_new_pass.text():
+                new_p = self.ed_db_new_pass.text()
+                conf_p = self.ed_db_confirm_pass.text()
+                if new_p != conf_p:
+                    raise ValueError("رمز عبور جدید پایگاه داده با تکرار آن مطابقت ندارد.")
+                if self.db.is_encrypted():
+                    cur_p = self.ed_db_current_pass.text()
+                    if not cur_p:
+                        raise ValueError("برای تغییر رمز عبور پایگاه داده، وارد کردن رمز عبور فعلی الزامی است.")
+                    if self.db.password and cur_p != self.db.password:
+                        raise ValueError("رمز عبور فعلی پایگاه داده نادرست است.")
+                self.db.set_password(new_p)
+
             self.db.cfg["default_profit_pct"] = self.sp_set_profit.value()
+            if hasattr(self, "sp_set_default_min_stock"):
+                self.db.cfg["default_min_stock"] = self.sp_set_default_min_stock.value()
             self.db.cfg["zero_append_count"] = int(self.cb_zero_count.currentData())
             self.db.cfg["default_window_maximized"] = self.cb_win_mode.currentData() == "1"
             self.db.cfg["require_login_password"] = effective_password_policy
+
+            if hasattr(self, "ed_auto_bk_dir"):
+                custom_bk_dir = self.ed_auto_bk_dir.text().strip()
+                self.db.cfg["auto_backup_dir"] = custom_bk_dir
+                self.db.cfg["auto_backup_dir_custom"] = bool(custom_bk_dir)
 
             shop_name = self.ed_shop_name.text().strip() or "فروشگاه من"
             self.db.set_setting("shop_name", shop_name)
@@ -8955,6 +9352,7 @@ class MainWindow(QMainWindow):
             data.append(
                 [
                     r["id"],
+                    r["serial_number"] or "-",
                     r["code"],
                     r["category"],
                     r["sub_category"],
@@ -8969,7 +9367,7 @@ class MainWindow(QMainWindow):
                     r["description"],
                 ]
             )
-        self._populate_table_safely(self.tbl_products, data, highlight_col=11)
+        self._populate_table_safely(self.tbl_products, data, highlight_col=12)
 
     def _refresh_batches_table(self):
         with self.db.get_connection() as conn:
@@ -8995,10 +9393,12 @@ class MainWindow(QMainWindow):
                 tot_bill, r["paid_amount"], r["settlement_status"]
             )
             prod_title = self._format_product_picker_label(dict(r))
+            batch_serial = r["serial_numbers"] or "-"
             data.append(
                 [
                     r["id"],
                     r["batch_code"],
+                    batch_serial,
                     r["p_code"],
                     prod_title,
                     r["sup_name"] or "-",
@@ -9022,13 +9422,13 @@ class MainWindow(QMainWindow):
                     "، ".join(self._decode_colors(r["colors_json"])) or "-",
                 ]
             )
-        self._populate_table_safely(self.tbl_batches, data, highlight_col=17)
+        self._populate_table_safely(self.tbl_batches, data, highlight_col=18)
 
     def _refresh_sales_table(self):
         with self.db.get_connection() as conn:
             rows = self._execute_scoped_query(conn, """
                 SELECT s.id, s.invoice_number, s.product_id, s.batch_id, s.seller_employee_id,
-                       s.customer_name, s.qty, s.returned_qty, s.suggested_unit_price,
+                       s.customer_name, s.customer_phone, s.qty, s.returned_qty, s.suggested_unit_price,
                        s.actual_unit_price, s.unit_cost_price, s.unit_discount, s.total_discount,
                        s.price_Markup_unit, s.unit_profit, s.total_profit, s.total_amount,
                        s.paid_amount, s.settlement_status, s.sale_datetime, s.warranty_company,
@@ -9072,6 +9472,7 @@ class MainWindow(QMainWindow):
                     r["batch_code"],
                     r["emp_name"],
                     r["customer_name"] or "",
+                    r["customer_phone"] or "",
                     r["qty"],
                     f"{r['suggested_unit_price']:,}",
                     f"{r['actual_unit_price']:,}",
@@ -9088,7 +9489,7 @@ class MainWindow(QMainWindow):
                     "، ".join(self._decode_colors(r["colors_json"])) or "-",
                 ]
             )
-        self._populate_table_safely(self.tbl_sales, data, highlight_col=11)
+        self._populate_table_safely(self.tbl_sales, data, highlight_col=12)
 
     def _refresh_upgrades_table(self):
         with self.db.get_connection() as conn:
@@ -9482,7 +9883,30 @@ def main():
     selected_db_path = select_startup_database_path()
     if not selected_db_path:
         sys.exit(0)
-    db = DatabaseManager(selected_db_path)
+
+    db = None
+    if os.path.isfile(selected_db_path) and is_database_encrypted(selected_db_path):
+        while True:
+            unlock_dlg = DatabaseUnlockDialog(selected_db_path)
+            if unlock_dlg.exec() != QDialog.Accepted:
+                sys.exit(0)
+            try:
+                with open(selected_db_path, "rb") as f:
+                    test_bytes = f.read()
+                decrypt_database_bytes(test_bytes, unlock_dlg.password)
+                db = DatabaseManager(selected_db_path, password=unlock_dlg.password)
+                break
+            except DatabaseInvalidPasswordError:
+                QMessageBox.critical(None, "رمز عبور نادرست", "رمز عبور وارد شده برای بازگشایی پایگاه داده نادرست است.")
+            except Exception as e:
+                QMessageBox.critical(None, "خطا در اتصال", f"خطا در باز کردن پایگاه داده:\n{e}")
+                sys.exit(0)
+    else:
+        try:
+            db = DatabaseManager(selected_db_path)
+        except Exception as e:
+            QMessageBox.critical(None, "خطا در اتصال", f"خطا در باز کردن پایگاه داده:\n{e}")
+            sys.exit(0)
 
     active_emp = None
     active_emp, accepted = _resolve_startup_employee(db)

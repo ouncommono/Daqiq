@@ -97,161 +97,343 @@ def _unique_catalog_labels(values):
             result.append(label)
     return result
 
-# فهرست جامع دسته‌بندی‌های اصلی فروشگاه (بند ۱ و ۲)
+# فهرست جامع دسته‌بندی‌های اصلی فروشگاه (100% فارسی)
 MAIN_CATEGORIES = [
-    "لپ‌تاپ",
+    "لپ تاپ",
+    "کیس و سیستم آماده",
     "قطعات",
+    "ذخیره ساز و حافظه",
+    "مانیتور و نمایشگر",
     "لوازم جانبی",
-    "مانیتور",
-    "کیس و مینی‌کیس",
-    "آداپتور و تغذیه",
-    "شبکه و مودم",
-    "ماشین‌های اداری",
+    "تجهیزات شبکه",
+    "ماشین های اداری",
+    "کابل و مبدل",
     "سایر موارد",
 ]
 
-# زیرمجموعه‌های پیش‌فرض برای شروع؛ پس از ذخیره قابل تغییر توسط هر فروشگاه هستند.
+# زیرمجموعه‌های پیش‌فرض استاندارد بین‌المللی با فرمت دو زبانه "فارسی (English)"
 DEFAULT_SUBCATEGORIES = {
-    "لپ‌تاپ": [
-        "لپ‌تاپ عمومی / مالتی‌مدیا", "لپ‌تاپ گیمینگ (Gaming)",
-        "لپ‌تاپ مهندسی و رندرینگ", "لپ‌تاپ استوک / صنعتی",
-        "اولترابوک / تبلت‌شو", "مک‌بوک (MacBook)", "سایر موارد",
+    "لپ تاپ": [
+        "لپ تاپ عمومی و مالتی مدیا (General & Multimedia Laptop)",
+        "لپ تاپ گیمینگ (Gaming Laptop)",
+        "لپ تاپ مهندسی و رندرینگ (Workstation & Engineering Laptop)",
+        "اولترابوک و باریک (Ultrabook & Slim)",
+        "مک بوک (MacBook)",
+        "سایر موارد (Other)",
+    ],
+    "کیس و سیستم آماده": [
+        "کیس کامل اسمبل شده (Desktop PC)",
+        "مینی کیس (Mini PC)",
+        "آل این وان (All-in-One)",
+        "تین کلاینت و زیرو کلاینت (Thin Client & Zero Client)",
+        "پوسته کیس (Case)",
+        "سایر موارد (Other)",
     ],
     "قطعات": [
-        "پردازنده (CPU)", "رم کامپیوتر (RAM PC)",
-        "رم لپ‌تاپ (RAM Laptop)", "حافظه اس‌اس‌دی (SSD)",
-        "هارد دیسک اینترنال (HDD)", "کارت گرافیک (Graphic Card)",
-        "مادربرد (Motherboard)", "پاور / منبع تغذیه کیس (Power)",
-        "فن و خنک‌کننده (Cooling / Fan)", "صفحه‌نمایش لپ‌تاپ (LED / LCD Panel)",
-        "باتری لپ‌تاپ (Laptop Battery)", "کیبورد تعمیراتی لپ‌تاپ (Internal Keyboard)",
-        "قاب، لولا و فلت لپ‌تاپ", "کارت شبکه و صدا اینترنال",
-        "درایو نوری (DVD RW / Caddy)", "سایر موارد",
+        "پردازنده (CPU)",
+        "مادربرد (Motherboard)",
+        "کارت گرافیک (GPU)",
+        "رم کامپیوتر (Desktop RAM)",
+        "رم لپ تاپ (Laptop RAM)",
+        "منبع تغذیه (PSU)",
+        "خنک کننده (Cooler)",
+        "درایو نوری (Optical Drive)",
+        "کارت صدا و شبکه (Sound & Network Card)",
+        "سایر موارد (Other)",
+    ],
+    "ذخیره ساز و حافظه": [
+        "حافظه اس اس دی (SSD)",
+        "هارد دیسک اینترنال (Internal HDD)",
+        "هارد اکسترنال (External HDD)",
+        "اس اس دی اکسترنال (External SSD)",
+        "فلش مموری (Flash Drive)",
+        "کارت حافظه (Memory Card)",
+        "سایر موارد (Other)",
+    ],
+    "مانیتور و نمایشگر": [
+        "مانیتور اداری و خانگی (Office & Home Monitor)",
+        "مانیتور گیمینگ (Gaming Monitor)",
+        "مانیتور طراحی و حرفه ای (Professional & Design Monitor)",
+        "مانیتور خمیده (Curved Monitor)",
+        "سایر موارد (Other)",
     ],
     "لوازم جانبی": [
-        "ماوس (Mouse)", "کیبورد (Keyboard)",
-        "پک کمبو ماوس و کیبورد", "هدست، هدفون و هندزفری", "اسپیکر (Speaker)",
-        "فلش مموری (Flash Memory)", "هارد اکسترنال (External HDD)",
-        "اس‌اس‌دی اکسترنال (External SSD)", "کول‌پد لپ‌تاپ (Coolpad)",
-        "کیف و کوله‌پشتی لپ‌تاپ", "هاب USB و Type-C",
-        "کابل تصویر (HDMI / DisplayPort / VGA)", "کابل برق، شبکه و افزایش طول",
-        "مبدل و دانگل (Converter / Dongle)", "ماوس‌پد (Mouse Pad)",
-        "وب‌کم و میکروفون (Webcam / Mic)", "گیم‌پد و دسته بازی (Gamepad)",
-        "خمیر سیلیکون و اسپری تمیزکننده", "سایر موارد",
+        "ماوس (Mouse)",
+        "کیبورد (Keyboard)",
+        "کمبو ماوس و کیبورد (Keyboard & Mouse Combo)",
+        "هدست و هدفون (Headset & Headphones)",
+        "اسپیکر (Speaker)",
+        "پد ماوس (Mousepad)",
+        "وب کم (Webcam)",
+        "میکروفون (Microphone)",
+        "کول پد و خنک کننده لپ تاپ (Laptop Cooling Pad)",
+        "کیف و کوله پشتی (Bag & Backpack)",
+        "دسته بازی (Gamepad & Controller)",
+        "سایر موارد (Other)",
     ],
-    "مانیتور": [
-        "مانیتور اداری و خانگی", "مانیتور گیمینگ (Gaming)",
-        "مانیتور طراحی و صنعتی", "مانیتور استوک", "مانیتور منحنی (Curved)",
+    "تجهیزات شبکه": [
+        "مودم و روتر (Modem & Router)",
+        "سوئیچ شبکه (Network Switch)",
+        "اکسس پوینت (Access Point)",
+        "کارت شبکه (Network Adapter)",
+        "سایر موارد (Other)",
     ],
-    "کیس و مینی‌کیس": [
-        "مینی‌کیس استوک (Mini Case)", "کیس کامل اسمبل‌شده (PC)",
-        "آل‌این‌وان (All-in-One)", "تین‌کلاینت (Thin Client)",
-        "پوسته کیس خالی (Case Chassis)",
+    "ماشین های اداری": [
+        "پرینتر (Printer)",
+        "اسکنر (Scanner)",
+        "دستگاه کپی (Copier)",
+        "کارتریج و تونر (Cartridge & Toner)",
+        "بارکدخوان (Barcode Scanner)",
+        "سایر موارد (Other)",
     ],
-    "آداپتور و تغذیه": [
-        "شارژر و آداپتور لپ‌تاپ", "آداپتور مانیتور و مینی‌کیس",
-        "آداپتور مودم و سوئیچ (9V/12V)", "محافظ برق و چندراهی",
-        "برق اضطراری (UPS) و باتری UPS", "کابل برق سهند / سه‌پین / دوپین",
+    "کابل و مبدل": [
+        "کابل تصویر (Video Cable - HDMI / DP / VGA)",
+        "کابل و تبدیل برق (Power Cable & Adapter)",
+        "کابل شبکه (LAN / Ethernet Cable)",
+        "کابل و رابط USB و Type-C (USB & Type-C Cable)",
+        "مبدل و دانگل (Converter & Dongle)",
+        "هاب USB و Type-C (USB & Type-C Hub)",
+        "سایر موارد (Other)",
     ],
-    "شبکه و مودم": [
-        "مودم ADSL / VDSL", "مودم سیم‌کارتی 4G / 5G / TD-LTE",
-        "روتر و اکسس‌پوینت بی‌سیم", "سوئیچ شبکه (5/8/16/24 پورت)",
-        "کارت شبکه USB / PCIe", "سایر موارد",
+    "سایر موارد": [
+        "سایر موارد (Other)",
     ],
-    "ماشین‌های اداری": [
-        "پرینتر و چندکاره", "اسکنر", "کارتریج و تونر", "سایر موارد",
-    ],
-    "سایر موارد": ["سایر موارد"],
 }
 
-# فهرست جامع پردازنده‌های قدیمی و جدید (بند ۲)
-# Broad CPU families and suffix patterns. The editable search field lets the user
-# replace xxx with the exact SKU digits without maintaining an endless model catalogue.
+# مقادیر استاندارد بین‌المللی انگلیسی برای ویژگی‌ها
 CPU_LIST = [
     "",
-    "Intel Celeron N4xxx / N5xxx",
-    "Intel Celeron 4xxxU / 5xxxU",
-    "Intel Pentium N5xxx / N6xxx",
-    "Intel Pentium 6xxxU / 7xxxU",
-    "Intel Processor N100 / N200 / N300",
-    "Intel Core i3 Xxxx U / H / HQ",
-    "Intel Core i5 Xxxx U / H / HQ / HK",
-    "Intel Core i7 Xxxx U / H / HQ / HK / HX",
-    "Intel Core i9 Xxxx H / HK / HX",
-    "Intel Core Ultra 5 XxxV / XxxU / XxxH",
-    "Intel Core Ultra 7 XxxV / XxxU / XxxH",
-    "Intel Core Ultra 9 XxxV / XxxU / XxxH",
-    "Intel Xeon E-Series",
-    "Intel Xeon W-Series",
-    "AMD Athlon 3xxxU / 3xxxG",
-    "AMD Ryzen 3 XxxxU / XxxxG",
-    "AMD Ryzen 5 XxxxU / XxxxH / XxxxHS / XxxxHX / XxxxG",
-    "AMD Ryzen 7 XxxxU / XxxxH / XxxxHS / XxxxHX / XxxxG",
-    "AMD Ryzen 9 XxxxHS / XxxxHX",
-    "AMD Ryzen AI 5 / 7 / 9",
-    "AMD Ryzen Threadripper Xxxx",
-    "Apple M1",
-    "Apple M2",
-    "Apple M3",
-    "Apple M4",
-
+    "Intel Core i3",
+    "Intel Core i5",
+    "Intel Core i7",
+    "Intel Core i9",
+    "Intel Core Ultra 5",
+    "Intel Core Ultra 7",
+    "Intel Core Ultra 9",
+    "Intel Xeon",
+    "Intel Pentium / Celeron",
+    "AMD Ryzen 3",
+    "AMD Ryzen 5",
+    "AMD Ryzen 7",
+    "AMD Ryzen 9",
+    "AMD Ryzen AI 7 / 9",
+    "AMD Threadripper",
+    "Apple M1 / M2 / M3 / M4",
 ]
 
 RAM_CAPACITIES = [
     "",
     "2GB",
     "4GB",
-    "6GB",
     "8GB",
-    "12GB",
     "16GB",
-    "20GB",
     "24GB",
     "32GB",
-    "48GB",
     "64GB",
     "128GB",
 ]
 
-STORAGE_LIST = [
+DDR_VERSIONS = [
     "",
-    "120GB SSD",
+    "DDR2",
+    "DDR3 / DDR3L",
+    "DDR4",
+    "DDR5",
+    "LPDDR4 / LPDDR5",
+]
+
+RAM_FREQUENCIES = [
+    "",
+    "800MHz",
+    "1333MHz",
+    "1600MHz",
+    "2133MHz",
+    "2400MHz",
+    "2666MHz",
+    "3000MHz",
+    "3200MHz",
+    "3600MHz",
+    "4800MHz",
+    "5200MHz",
+    "5600MHz",
+    "6000MHz",
+    "6400MHz",
+]
+
+SYSTEM_STORAGE_LIST = [
+    "",
     "128GB SSD",
-    "240GB SSD",
     "256GB SSD",
-    "480GB SSD",
     "512GB SSD",
-    "1TB SSD NVMe",
-    "2TB SSD NVMe",
-    "4TB SSD",
-    "320GB HDD",
+    "1TB SSD",
+    "2TB SSD",
     "500GB HDD",
     "1TB HDD",
     "2TB HDD",
-    "4TB HDD",
-    "1TB HDD + 128GB SSD",
-    "1TB HDD + 256GB SSD",
-    "1TB HDD + 512GB SSD",
+    "128GB SSD + 1TB HDD",
+    "256GB SSD + 1TB HDD",
+    "512GB SSD + 1TB HDD",
+    "1TB SSD + 2TB HDD",
+]
+
+SSD_CAPACITIES = [
+    "",
+    "120GB",
+    "128GB",
+    "240GB",
+    "256GB",
+    "480GB",
+    "500GB",
+    "512GB",
+    "960GB",
+    "1TB",
+    "2TB",
+    "4TB",
+    "8TB",
+]
+
+HDD_CAPACITIES = [
+    "",
+    "500GB",
+    "1TB",
+    "2TB",
+    "4TB",
+    "6TB",
+    "8TB",
+    "10TB",
+    "12TB",
+    "16TB",
+    "18TB",
+    "20TB",
+]
+
+SSD_INTERFACES = [
+    "",
+    "M.2 NVMe PCIe 3.0",
+    "M.2 NVMe PCIe 4.0",
+    "M.2 NVMe PCIe 5.0",
+    "M.2 SATA (NGFF)",
+    "SATA III 2.5-inch",
+    "PCIe Add-in Card (AIC)",
+    "U.2 / U.3",
+    "mSATA",
+]
+
+HDD_INTERFACES = [
+    "",
+    "SATA III 3.5-inch",
+    "SATA III 2.5-inch",
+    "SAS 3.5-inch",
+    "SAS 2.5-inch",
 ]
 
 GPU_LIST = [
     "",
     "Intel HD / UHD Graphics (Onboard)",
     "Intel Iris Xe Graphics",
-    "AMD Radeon Vega / Integrated",
-    "NVIDIA GeForce MX110 / MX130 / MX150",
-    "NVIDIA GeForce MX230 / MX250 / MX330 / MX350 / MX450 / MX550",
+    "AMD Radeon Graphics (Integrated)",
     "NVIDIA GeForce GT 710 / 730 / 1030",
-    "NVIDIA GeForce GTX 1050 / 1050Ti / 1060 / 1070 / 1080",
-    "NVIDIA GeForce GTX 1650 / 1650Ti / 1660 / 1660Ti / 1660 Super",
-    "NVIDIA GeForce RTX 2050 / 2060 / 2070 / 2080",
-    "NVIDIA GeForce RTX 3050 / 3050Ti / 3060 / 3070 / 3080 / 3090",
+    "NVIDIA GeForce GTX 1650 / 1660 / 1660 Super / Ti",
+    "NVIDIA GeForce RTX 2060 / 2070 / 2080",
+    "NVIDIA GeForce RTX 3050 / 3060 / 3070 / 3080 / 3090",
     "NVIDIA GeForce RTX 4050 / 4060 / 4070 / 4080 / 4090",
-    "AMD Radeon RX 550 / 560 / 570 / 580 / 590",
-    "AMD Radeon RX 5500 / 5600 / 5700 XT",
-    "AMD Radeon RX 6500 / 6600 / 6700 / 6800 / 6900 XT",
+    "AMD Radeon RX 580 / 590",
+    "AMD Radeon RX 6600 / 6700 / 6800 / 6900 XT",
     "AMD Radeon RX 7600 / 7700 / 7800 / 7900 XT",
 ]
 
+CONNECTIVITY_OPTIONS = [
+    "",
+    "Wired USB-A",
+    "Wired USB-C",
+    "Wireless 2.4GHz (USB Dongle)",
+    "Bluetooth",
+    "Dual-Mode (Wired + Wireless 2.4GHz)",
+    "Dual-Mode (Wired + Bluetooth)",
+    "Dual-Mode (Wireless 2.4GHz + Bluetooth)",
+    "Tri-Mode / Multi-Mode (Wired + 2.4GHz + Bluetooth)",
+    "3.5mm Audio Jack",
+    "USB + 3.5mm Jack",
+]
+
+BAG_TYPES = [
+    "",
+    "Backpack",
+    "Shoulder Bag",
+    "Sleeve",
+    "Hard Case",
+]
+
+BAG_SIZES = [
+    "",
+    "13-inch",
+    "14-inch",
+    "15.6-inch",
+    "16-inch",
+    "17.3-inch",
+]
+
+BAG_MATERIALS = [
+    "",
+    "Water-Resistant Polyester",
+    "Nylon",
+    "Leather",
+    "Anti-Theft Hard Shell",
+]
+
+SCREEN_SIZES = [
+    "",
+    "13.3-inch",
+    "14-inch",
+    "15.6-inch",
+    "16-inch",
+    "17.3-inch",
+    "19-inch",
+    "20-inch",
+    "21.5-inch",
+    "22-inch",
+    "24-inch",
+    "27-inch",
+    "32-inch",
+    "34-inch",
+    "49-inch",
+]
+
+RESOLUTIONS = [
+    "",
+    "HD (1366x768)",
+    "HD+ (1600x900)",
+    "FHD (1920x1080)",
+    "2K / QHD (2560x1440)",
+    "4K UHD (3840x2160)",
+    "UltraWide FHD (2560x1080)",
+    "UltraWide QHD (3440x1440)",
+]
+
+PANEL_TYPES = [
+    "",
+    "IPS",
+    "VA",
+    "TN",
+    "OLED",
+    "Fast IPS",
+    "Nano IPS",
+]
+
+REFRESH_RATES = [
+    "",
+    "60Hz",
+    "75Hz",
+    "100Hz",
+    "120Hz",
+    "144Hz",
+    "165Hz",
+    "180Hz",
+    "240Hz",
+    "360Hz",
+]
+
+STORAGE_LIST = SYSTEM_STORAGE_LIST
 
 DEFAULT_COLORS = [
     "مشکی", "سفید", "نقره‌ای", "خاکستری", "ذغالی", "سرمه‌ای",
@@ -260,60 +442,101 @@ DEFAULT_COLORS = [
     "چند‌رنگ", "سایر",
 ]
 
-
-# فهرست ویژگی‌های فنی اولیه؛ هر فروشگاه می‌تواند مقادیر و محدودهٔ زیرمجموعه را تغییر دهد.
 DEFAULT_ATTRIBUTES = {
-    "لپ‌تاپ": [
+    "لپ تاپ": [
         {"name": "پردازنده", "label": "CPU", "values": CPU_LIST[1:]},
-        {"name": "ظرفیت رم", "label": "RAM", "values": RAM_CAPACITIES[1:]},
-        {"name": "نسل رم", "label": "RAM Type", "values": ["DDR3 / DDR3L", "DDR4", "DDR5", "LPDDR4 / LPDDR5"]},
-        {"name": "حافظه داخلی", "label": "Storage", "values": STORAGE_LIST[1:]},
+        {"name": "ظرفیت رم", "label": "RAM Capacity", "values": RAM_CAPACITIES[1:]},
+        {"name": "نسخه DDR", "label": "DDR Version", "values": DDR_VERSIONS[1:]},
+        {"name": "حافظه داخلی", "label": "Storage", "values": SYSTEM_STORAGE_LIST[1:]},
         {"name": "پردازنده گرافیکی", "label": "GPU", "values": GPU_LIST[1:]},
-        {"name": "صفحه‌نمایش", "label": "Display", "values": [
-            "13.3 inch", "14 inch HD / FHD", "15.6 inch HD",
-            "15.6 inch FHD IPS", "15.6 inch 144Hz / 165Hz",
-            "16 inch FHD+ / 2K", "17.3 inch FHD",
-        ]},
-    ],
-    "قطعات": [
-        {"name": "ظرفیت", "label": "Capacity", "values": RAM_CAPACITIES[1:], "subcategory": "رم کامپیوتر (RAM PC)"},
-        {"name": "ظرفیت", "label": "Capacity", "values": RAM_CAPACITIES[1:], "subcategory": "رم لپ‌تاپ (RAM Laptop)"},
-        {"name": "نوع رابط", "label": "Interface", "values": ["SATA", "NVMe", "PCIe"], "subcategory": "حافظه اس‌اس‌دی (SSD)"},
-        {"name": "ظرفیت", "label": "Capacity", "values": [], "subcategory": "هارد دیسک اینترنال (HDD)"},
-        {"name": "نوع سوکت", "label": "Socket", "values": [], "subcategory": "پردازنده (CPU)"},
-    ],
-    "لوازم جانبی": [
-        {"name": "نوع اتصال / پورت", "label": "Connectivity", "values": [
-            "Wired USB", "2.4GHz Wireless", "Bluetooth",
-            "Tri-mode (Wired / Wireless / Bluetooth)", "USB Type-C",
-            "3.5mm Audio Jack", "HDMI / DisplayPort / VGA",
-        ]},
+        {"name": "سایز صفحه نمایش", "label": "Screen Size", "values": SCREEN_SIZES[1:]},
+        {"name": "دقت صفحه نمایش", "label": "Resolution", "values": RESOLUTIONS[1:]},
+        {"name": "نرخ نوسازی", "label": "Refresh Rate", "values": REFRESH_RATES[1:]},
         {"name": "مشخصات", "label": "Specifications", "values": []},
     ],
-    "مانیتور": [
-        {"name": "سایز", "label": "Size", "values": ["19 inch", "20 inch", "22 inch", "24 inch", "27 inch", "32 inch", "34 inch"]},
-        {"name": "نوع پنل", "label": "Panel", "values": ["IPS", "VA", "TN", "OLED", "Nano IPS"]},
-        {"name": "نرخ نوسازی", "label": "Refresh Rate", "values": ["60Hz", "75Hz", "100Hz", "144Hz", "165Hz", "180Hz", "240Hz"]},
-        {"name": "درگاه‌ها", "label": "Ports", "values": ["HDMI + VGA", "HDMI + DisplayPort", "HDMI + DP + Type-C", "VGA + DVI"]},
-    ],
-    "کیس و مینی‌کیس": [
+    "کیس و سیستم آماده": [
         {"name": "پردازنده", "label": "CPU", "values": CPU_LIST[1:]},
-        {"name": "ظرفیت رم", "label": "RAM", "values": RAM_CAPACITIES[1:]},
-        {"name": "حافظه داخلی", "label": "Storage", "values": STORAGE_LIST[1:]},
+        {"name": "ظرفیت رم", "label": "RAM Capacity", "values": RAM_CAPACITIES[1:]},
+        {"name": "نسخه DDR", "label": "DDR Version", "values": DDR_VERSIONS[1:]},
+        {"name": "حافظه داخلی", "label": "Storage", "values": SYSTEM_STORAGE_LIST[1:]},
         {"name": "پردازنده گرافیکی", "label": "GPU", "values": GPU_LIST[1:]},
+        {"name": "مشخصات", "label": "Specifications", "values": []},
     ],
-    "آداپتور و تغذیه": [
-        {"name": "ولتاژ", "label": "Voltage", "values": ["5V", "9V", "12V", "19V", "19.5V", "20V", "220V AC"]},
-        {"name": "آمپر و توان", "label": "Current / Power", "values": ["1A / 1.5A / 2A", "2.31A (45W)", "3.25A (65W)", "4.5A (90W)", "6.75A / 7.7A (135W-150W)"]},
-        {"name": "نوع سوکت", "label": "Connector", "values": ["5.5x2.5mm", "HP / Dell Barrel", "Lenovo Rectangular", "USB Type-C PD"]},
+    "قطعات": [
+        {"name": "سری پردازنده", "label": "Processor Series", "values": CPU_LIST[1:], "subcategory": "پردازنده (CPU)"},
+        {"name": "سوکت", "label": "Socket", "values": ["LGA 775", "LGA 1155", "LGA 1150", "LGA 1151", "LGA 1200", "LGA 1700", "LGA 1851", "AM3 / AM3+", "AM4", "AM5", "TR4 / sTRX4", "BGA"], "subcategory": "پردازنده (CPU)"},
+        {"name": "سوکت", "label": "Socket", "values": ["LGA 1155", "LGA 1150", "LGA 1151", "LGA 1200", "LGA 1700", "LGA 1851", "AM4", "AM5"], "subcategory": "مادربرد (Motherboard)"},
+        {"name": "چیپست", "label": "Chipset", "values": ["Intel H81 / B85", "Intel H110 / B250", "Intel H310 / B360 / B365", "Intel H410 / B460 / Z490", "Intel H510 / B560 / Z590", "Intel H610 / B660 / B760 / Z790", "AMD A320 / B450 / X470 / B550 / X570", "AMD A620 / B650 / X670 / X870"], "subcategory": "مادربرد (Motherboard)"},
+        {"name": "فرم فاکتور", "label": "Form Factor", "values": ["ATX", "Micro-ATX (mATX)", "Mini-ITX", "E-ATX"], "subcategory": "مادربرد (Motherboard)"},
+        {"name": "نسخه DDR", "label": "DDR Version", "values": DDR_VERSIONS[1:], "subcategory": "مادربرد (Motherboard)"},
+        {"name": "چیپست گرافیک", "label": "GPU Chipset", "values": GPU_LIST[1:], "subcategory": "کارت گرافیک (GPU)"},
+        {"name": "حافظه VRAM", "label": "VRAM Capacity", "values": ["1GB", "2GB", "4GB", "6GB", "8GB", "10GB", "12GB", "16GB", "20GB", "24GB"], "subcategory": "کارت گرافیک (GPU)"},
+        {"name": "نوع حافظه", "label": "Memory Type", "values": ["GDDR3", "GDDR5", "GDDR6", "GDDR6X"], "subcategory": "کارت گرافیک (GPU)"},
+        {"name": "ظرفیت", "label": "Capacity", "values": RAM_CAPACITIES[1:], "subcategory": "رم کامپیوتر (Desktop RAM)"},
+        {"name": "نسخه DDR", "label": "DDR Version", "values": DDR_VERSIONS[1:], "subcategory": "رم کامپیوتر (Desktop RAM)"},
+        {"name": "فرکانس", "label": "Frequency", "values": RAM_FREQUENCIES[1:], "subcategory": "رم کامپیوتر (Desktop RAM)"},
+        {"name": "ظرفیت", "label": "Capacity", "values": RAM_CAPACITIES[1:], "subcategory": "رم لپ تاپ (Laptop RAM)"},
+        {"name": "نسخه DDR", "label": "DDR Version", "values": DDR_VERSIONS[1:], "subcategory": "رم لپ تاپ (Laptop RAM)"},
+        {"name": "فرکانس", "label": "Frequency", "values": RAM_FREQUENCIES[1:], "subcategory": "رم لپ تاپ (Laptop RAM)"},
+        {"name": "توان خروجی", "label": "Wattage", "values": ["300W", "350W", "400W", "450W", "500W", "550W", "600W", "650W", "700W", "750W", "850W", "1000W", "1200W+"], "subcategory": "منبع تغذیه (PSU)"},
+        {"name": "استاندارد بازدهی", "label": "Efficiency Certification", "values": ["Standard", "80 Plus Bronze", "80 Plus Silver", "80 Plus Gold", "80 Plus Platinum", "80 Plus Titanium"], "subcategory": "منبع تغذیه (PSU)"},
+        {"name": "مدیریت کابل", "label": "Modularity", "values": ["Non-Modular", "Semi-Modular", "Full Modular"], "subcategory": "منبع تغذیه (PSU)"},
+        {"name": "نوع خنک کننده", "label": "Cooler Type", "values": ["Air Cooler", "Liquid Cooler 120mm (AIO)", "Liquid Cooler 240mm (AIO)", "Liquid Cooler 360mm (AIO)"], "subcategory": "خنک کننده (Cooler)"},
+        {"name": "نورپردازی", "label": "Lighting", "values": ["None", "Single Color LED", "RGB", "ARGB"], "subcategory": "خنک کننده (Cooler)"},
+        {"name": "مشخصات", "label": "Specifications", "values": []},
     ],
-    "شبکه و مودم": [
-        {"name": "استاندارد شبکه", "label": "Network Standard", "values": ["Wi-Fi 4", "Wi-Fi 5", "Wi-Fi 6", "Wi-Fi 6E", "Wi-Fi 7", "4G", "5G"]},
-        {"name": "تعداد درگاه", "label": "Ports", "values": []},
+    "ذخیره ساز و حافظه": [
+        {"name": "ظرفیت", "label": "Capacity", "values": SSD_CAPACITIES[1:], "subcategory": "حافظه اس اس دی (SSD)"},
+        {"name": "رابط و فرم", "label": "Interface & Form Factor", "values": SSD_INTERFACES[1:], "subcategory": "حافظه اس اس دی (SSD)"},
+        {"name": "ظرفیت", "label": "Capacity", "values": HDD_CAPACITIES[1:], "subcategory": "هارد دیسک اینترنال (Internal HDD)"},
+        {"name": "رابط و فرم", "label": "Interface & Form Factor", "values": HDD_INTERFACES[1:], "subcategory": "هارد دیسک اینترنال (Internal HDD)"},
+        {"name": "ظرفیت", "label": "Capacity", "values": SSD_CAPACITIES[1:], "subcategory": "هارد اکسترنال (External HDD)"},
+        {"name": "نوع اتصال / پورت", "label": "Connectivity / Port", "values": ["USB 3.0 / USB 3.2 Gen 1", "USB 3.2 Gen 2 (Type-C)", "USB4 / Thunderbolt"], "subcategory": "هارد اکسترنال (External HDD)"},
+        {"name": "ظرفیت", "label": "Capacity", "values": SSD_CAPACITIES[1:], "subcategory": "اس اس دی اکسترنال (External SSD)"},
+        {"name": "نوع اتصال / پورت", "label": "Connectivity / Port", "values": ["USB 3.2 Gen 2 (Type-C)", "USB 3.2 Gen 2x2 (20Gbps)", "USB4 / Thunderbolt"], "subcategory": "اس اس دی اکسترنال (External SSD)"},
+        {"name": "ظرفیت", "label": "Capacity", "values": ["16GB", "32GB", "64GB", "128GB", "256GB", "512GB", "1TB"], "subcategory": "فلش مموری (Flash Drive)"},
+        {"name": "نوع رابط", "label": "Interface", "values": ["USB 2.0", "USB 3.0 / 3.2", "Dual USB-A + Type-C"], "subcategory": "فلش مموری (Flash Drive)"},
+        {"name": "ظرفیت", "label": "Capacity", "values": ["16GB", "32GB", "64GB", "128GB", "256GB", "512GB"], "subcategory": "کارت حافظه (Memory Card)"},
+        {"name": "نوع رابط", "label": "Interface", "values": ["microSDXC / SDXC UHS-I", "microSDXC UHS-II"], "subcategory": "کارت حافظه (Memory Card)"},
+        {"name": "مشخصات", "label": "Specifications", "values": []},
     ],
-    "ماشین‌های اداری": [
-        {"name": "فناوری چاپ", "label": "Print Technology", "values": ["Laser", "Inkjet", "Thermal", "Dot Matrix"]},
-        {"name": "نوع چاپ", "label": "Print Color", "values": ["Monochrome", "Color"]},
+    "مانیتور و نمایشگر": [
+        {"name": "سایز صفحه نمایش", "label": "Screen Size", "values": SCREEN_SIZES[1:]},
+        {"name": "نوع پنل", "label": "Panel Type", "values": PANEL_TYPES[1:]},
+        {"name": "دقت تصویر", "label": "Resolution", "values": RESOLUTIONS[1:]},
+        {"name": "نرخ نوسازی", "label": "Refresh Rate", "values": REFRESH_RATES[1:]},
+        {"name": "پورت های ورودی", "label": "Input Ports", "values": ["HDMI + VGA", "HDMI + DisplayPort", "HDMI + DP + Type-C", "Dual HDMI + DP", "VGA + DVI"]},
+        {"name": "مشخصات", "label": "Specifications", "values": []},
+    ],
+    "لوازم جانبی": [
+        {"name": "نوع اتصال / پورت", "label": "Connectivity / Port", "values": CONNECTIVITY_OPTIONS[1:], "subcategory": "ماوس (Mouse)"},
+        {"name": "دقت حسگر (DPI)", "label": "Sensor DPI", "values": ["1000 DPI", "1200 DPI", "1600 DPI", "2400 DPI", "3200 DPI", "6400 DPI", "12000+ DPI (Gaming)"], "subcategory": "ماوس (Mouse)"},
+        {"name": "نوع اتصال / پورت", "label": "Connectivity / Port", "values": CONNECTIVITY_OPTIONS[1:], "subcategory": "کیبورد (Keyboard)"},
+        {"name": "نوع سوییچ / کلید", "label": "Switch Type", "values": ["Membrane", "Mechanical Blue Switch", "Mechanical Red Switch", "Mechanical Brown Switch", "Optical-Mechanical"], "subcategory": "کیبورد (Keyboard)"},
+        {"name": "نوع اتصال / پورت", "label": "Connectivity / Port", "values": CONNECTIVITY_OPTIONS[1:], "subcategory": "کمبو ماوس و کیبورد (Keyboard & Mouse Combo)"},
+        {"name": "نوع اتصال / پورت", "label": "Connectivity / Port", "values": CONNECTIVITY_OPTIONS[1:], "subcategory": "هدست و هدفون (Headset & Headphones)"},
+        {"name": "نوع اتصال / پورت", "label": "Connectivity / Port", "values": CONNECTIVITY_OPTIONS[1:], "subcategory": "اسپیکر (Speaker)"},
+        {"name": "نوع کاربری", "label": "Type", "values": BAG_TYPES[1:], "subcategory": "کیف و کوله پشتی (Bag & Backpack)"},
+        {"name": "سایز مناسب لپ تاپ", "label": "Compatible Size", "values": BAG_SIZES[1:], "subcategory": "کیف و کوله پشتی (Bag & Backpack)"},
+        {"name": "جنس و مقاومت", "label": "Material", "values": BAG_MATERIALS[1:], "subcategory": "کیف و کوله پشتی (Bag & Backpack)"},
+        {"name": "نوع اتصال / پورت", "label": "Connectivity / Port", "values": CONNECTIVITY_OPTIONS[1:]},
+        {"name": "مشخصات", "label": "Specifications", "values": []},
+    ],
+    "تجهیزات شبکه": [
+        {"name": "استاندارد وای فای", "label": "Wi-Fi Standard", "values": ["Wi-Fi 4 (802.11n)", "Wi-Fi 5 (802.11ac)", "Wi-Fi 6 (802.11ax)", "Wi-Fi 6E", "Wi-Fi 7", "4G LTE", "5G"]},
+        {"name": "سرعت پورت های شبکه", "label": "Port Speed", "values": ["10/100 Fast Ethernet", "Gigabit (10/100/1000)", "2.5G / 10G Multi-Gig"]},
+        {"name": "مشخصات", "label": "Specifications", "values": []},
+    ],
+    "ماشین های اداری": [
+        {"name": "فناوری چاپ", "label": "Print Technology", "values": ["Laser Monochrome", "Laser Color", "Inkjet Color", "Thermal"]},
+        {"name": "قابلیت های دستگاه", "label": "Functions", "values": ["Single Function (Print Only)", "3-in-1 (Print, Scan, Copy)", "4-in-1 (Print, Scan, Copy, Fax)"]},
+        {"name": "نوع اتصال", "label": "Connectivity", "values": ["USB Only", "USB + Network (LAN)", "USB + Wi-Fi", "USB + LAN + Wi-Fi"]},
+        {"name": "مشخصات", "label": "Specifications", "values": []},
+    ],
+    "کابل و مبدل": [
+        {"name": "نوع درگاه / رابط", "label": "Connector Type", "values": ["HDMI to HDMI", "DisplayPort to DisplayPort", "HDMI to VGA", "Type-C to HDMI", "Type-C to Type-C", "USB-A to Type-C", "USB-A to USB-B (Printer)", "Cat6 RJ45"]},
+        {"name": "طول کابل", "label": "Cable Length", "values": ["0.5m", "1m", "1.5m", "1.8m", "2m", "3m", "5m", "10m", "15m", "20m+"]},
+        {"name": "مشخصات", "label": "Specifications", "values": []},
     ],
     "سایر موارد": [
         {"name": "مشخصات", "label": "Specifications", "values": []},
@@ -509,15 +732,28 @@ class CollapsibleSection(QWidget):
         # in this widget instead of relying on QPushButton's checkable state.
         self.header.pressed.connect(self._on_header_pressed)
 
-    def _on_header_pressed(self):
-        self._expanded = not self._expanded
-        title = self.header.text().lstrip("▸▾ ").strip()
+    def collapse(self):
         if self._expanded:
-            self.content.show()
-            self.header.setText("▾  " + title)
-        else:
+            self._expanded = False
             self.content.hide()
+            title = self.header.text().lstrip("▸▾ ").strip()
             self.header.setText("▸  " + title)
+
+    def expand(self):
+        if not self._expanded:
+            self._expanded = True
+            self.content.show()
+            title = self.header.text().lstrip("▸▾ ").strip()
+            self.header.setText("▾  " + title)
+
+    def is_expanded(self) -> bool:
+        return self._expanded
+
+    def _on_header_pressed(self):
+        if self._expanded:
+            self.collapse()
+        else:
+            self.expand()
 
 
 class SmartLineEdit(QLineEdit):
@@ -1231,240 +1467,415 @@ class DynamicSpecsWidget(QGroupBox):
         self.cb_sub.setEditable(0)
         self.cb_sub.setToolTip("زیرمجموعه را از فهرست انتخاب کنید")
 
-        if self.current_category == "لپ‌تاپ":
-            self.cb_sub.currentTextChanged.connect(self._notify_custom_field_callback)
-            self.cb_sub.addItems(
-                [
-                    "لپ‌تاپ عمومی / مالتی‌مدیا",
-                    "لپ‌تاپ گیمینگ (Gaming)",
-                    "لپ‌تاپ مهندسی و رندرینگ",
-                    "لپ‌تاپ استوک / صنعتی",
-                    "اولترابوک / تبلت‌شو",
-                    "مک‌بوک (MacBook)",
-                    "سایر موارد",
-                ]
-            )
-            self.form_layout.addRow("زیرمجموعه لپ‌تاپ:", self.cb_sub)
+        cat_key = self.current_category
+        for k in DEFAULT_SUBCATEGORIES:
+            if normalize_catalog_label(k) == normalize_catalog_label(self.current_category):
+                cat_key = k
+                break
 
+        subs = DEFAULT_SUBCATEGORIES.get(cat_key, ["سایر موارد (Other)"])
+        self.cb_sub.addItems(subs)
+        self.form_layout.addRow(f"زیرمجموعه {self.current_category}:", self.cb_sub)
+
+        self.sub_container = QWidget()
+        self.sub_layout = QFormLayout(self.sub_container)
+        self.sub_layout.setContentsMargins(0, 0, 0, 0)
+        self.form_layout.addRow(self.sub_container)
+
+        self.cb_sub.currentTextChanged.connect(self._rebuild_subfields)
+        if subs:
+            self._rebuild_subfields(subs[0])
+
+        self._apply_compact_form_layouts()
+
+    def _rebuild_subfields(self, sub_text: str = ""):
+        if not hasattr(self, "sub_layout") or self.sub_layout is None:
+            return
+        while self.sub_layout.count():
+            it = self.sub_layout.takeAt(0)
+            if it.widget():
+                it.widget().deleteLater()
+        self.fields.clear()
+        self._custom_field_widgets.clear()
+
+        sub_clean = (sub_text or (self.cb_sub.currentText() if self.cb_sub else "")).strip()
+        cat_norm = normalize_catalog_label(self.current_category)
+
+        # Rule B.1: If "سایر موارد" or "Other", keep ONLY "مشخصات" (Specifications)
+        if "سایر موارد" in sub_clean or "other" in sub_clean.lower() or cat_norm == normalize_catalog_label("سایر موارد"):
+            ed_spec = SmartLineEdit("مشخصات فنی یا توضیحات...")
+            self.fields["مشخصات"] = ed_spec
+            self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
+            self._apply_compact_form_layouts()
+            self._notify_custom_field_callback()
+            return
+
+        if "لپ تاپ" in cat_norm or "لپتاپ" in cat_norm:
             cb_cpu = SearchableComboBox()
             cb_cpu.addItems(CPU_LIST)
             cb_ram = SearchableComboBox()
             cb_ram.addItems(RAM_CAPACITIES)
             cb_ram_type = SearchableComboBox()
-            cb_ram_type.addItems(["", "DDR3 / DDR3L", "DDR4", "DDR5", "LPDDR4 / LPDDR5"])
+            cb_ram_type.addItems(DDR_VERSIONS)
             cb_storage = SearchableComboBox()
-            cb_storage.addItems(STORAGE_LIST)
+            cb_storage.addItems(SYSTEM_STORAGE_LIST)
             cb_gpu = SearchableComboBox()
             cb_gpu.addItems(GPU_LIST)
             cb_screen = SearchableComboBox()
-            cb_screen.addItems(
-                [
-                    "",
-                    "13.3 اینچ",
-                    "14 اینچ HD/FHD",
-                    "15.6 اینچ HD",
-                    "15.6 اینچ FHD IPS",
-                    "15.6 اینچ 144Hz/165Hz",
-                    "16 اینچ FHD+/2K",
-                    "17.3 اینچ FHD",
-                ]
-            )
+            cb_screen.addItems(SCREEN_SIZES)
+            cb_res = SearchableComboBox()
+            cb_res.addItems(RESOLUTIONS)
+            cb_hz = SearchableComboBox()
+            cb_hz.addItems(REFRESH_RATES)
+            ed_spec = SmartLineEdit("سایر مشخصات فنی (پورت‌ها، وب‌کم، کیبورد با نور پس‌زمینه و...)")
 
             self.fields = {
                 "پردازنده": cb_cpu,
                 "ظرفیت رم": cb_ram,
-                "نسل رم": cb_ram_type,
+                "نسخه DDR": cb_ram_type,
                 "حافظه داخلی": cb_storage,
                 "پردازنده گرافیکی": cb_gpu,
-                "صفحه‌نمایش": cb_screen,
+                "سایز صفحه نمایش": cb_screen,
+                "دقت صفحه نمایش": cb_res,
+                "نرخ نوسازی": cb_hz,
+                "مشخصات": ed_spec,
             }
-            self.form_layout.addRow("پردازنده (CPU):", cb_cpu)
-            self.form_layout.addRow("ظرفیت رم (RAM):", cb_ram)
-            self.form_layout.addRow("نسخه رم:", cb_ram_type)
-            self.form_layout.addRow("حافظه داخلی (Storage):", cb_storage)
-            self.form_layout.addRow("کارت گرافیک (GPU):", cb_gpu)
-            self.form_layout.addRow("صفحه‌نمایش:", cb_screen)
+            self.sub_layout.addRow("پردازنده (CPU):", cb_cpu)
+            self.sub_layout.addRow("ظرفیت رم (RAM):", cb_ram)
+            self.sub_layout.addRow("نسخه DDR:", cb_ram_type)
+            self.sub_layout.addRow("حافظه داخلی (Storage):", cb_storage)
+            self.sub_layout.addRow("کارت گرافیک (GPU):", cb_gpu)
+            self.sub_layout.addRow("سایز صفحه نمایش:", cb_screen)
+            self.sub_layout.addRow("دقت تصویر (Resolution):", cb_res)
+            self.sub_layout.addRow("نرخ نوسازی (Refresh Rate):", cb_hz)
+            self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
 
-        elif self.current_category == "قطعات":
-            self.cb_sub.addItems(
-                [
-                    "سایر موارد",
-                    "پردازنده (CPU)",
-                    "رم کامپیوتر (RAM PC)",
-                    "رم لپ‌تاپ (RAM Laptop)",
-                    "حافظه اس‌اس‌دی (SSD)",
-                    "هارد دیسک اینترنال (HDD)",
-                    "کارت گرافیک (Graphic Card)",
-                    "مادربرد (Motherboard)",
-                    "پاور / منبع تغذیه کیس (Power)",
-                    "فن و خنک‌کننده (Cooling / Fan)",
-                    "صفحه‌نمایش لپ‌تاپ (LED / LCD Panel)",
-                    "باتری لپ‌تاپ (Laptop Battery)",
-                    "کیبورد تعمیراتی لپ‌تاپ (Internal Keyboard)",
-                    "قاب، لولا و فلت لپ‌تاپ",
-                    "کارت شبکه و صدا اینترنال",
-                    "درایو نوری (DVD RW / Caddy)",
-                ]
-            )
-            self.cb_sub.setCurrentText("سایر موارد")
-            self.cb_sub.currentTextChanged.connect(self._rebuild_part_subfields)
-            self.form_layout.addRow("نوع قطعه:", self.cb_sub)
+        elif "کیس" in cat_norm or "سیستم" in cat_norm:
+            if "case" in sub_clean.lower() or "پوسته" in sub_clean:
+                cb_form = SearchableComboBox()
+                cb_form.addItems(["", "Mid Tower", "Full Tower", "Mini Tower (Micro-ATX)", "Small Form Factor (SFF)"])
+                cb_rgb = SearchableComboBox()
+                cb_rgb.addItems(["", "None", "Single Color LED", "RGB", "ARGB"])
+                ed_spec = SmartLineEdit("مشخصات بدنه و فن‌های نصب‌شده...")
+                self.fields = {
+                    "فرم فاکتور کیس": cb_form,
+                    "نورپردازی": cb_rgb,
+                    "مشخصات": ed_spec,
+                }
+                self.sub_layout.addRow("فرم فاکتور کیس:", cb_form)
+                self.sub_layout.addRow("نورپردازی:", cb_rgb)
+                self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
+            else:
+                cb_cpu = SearchableComboBox()
+                cb_cpu.addItems(CPU_LIST)
+                cb_ram = SearchableComboBox()
+                cb_ram.addItems(RAM_CAPACITIES)
+                cb_ram_type = SearchableComboBox()
+                cb_ram_type.addItems(DDR_VERSIONS)
+                cb_storage = SearchableComboBox()
+                cb_storage.addItems(SYSTEM_STORAGE_LIST)
+                cb_gpu = SearchableComboBox()
+                cb_gpu.addItems(GPU_LIST)
+                ed_spec = SmartLineEdit("سایر مشخصات سیستم...")
+                self.fields = {
+                    "پردازنده": cb_cpu,
+                    "ظرفیت رم": cb_ram,
+                    "نسخه DDR": cb_ram_type,
+                    "حافظه داخلی": cb_storage,
+                    "پردازنده گرافیکی": cb_gpu,
+                    "مشخصات": ed_spec,
+                }
+                self.sub_layout.addRow("پردازنده (CPU):", cb_cpu)
+                self.sub_layout.addRow("ظرفیت رم (RAM):", cb_ram)
+                self.sub_layout.addRow("نسخه DDR:", cb_ram_type)
+                self.sub_layout.addRow("حافظه داخلی (Storage):", cb_storage)
+                self.sub_layout.addRow("کارت گرافیک (GPU):", cb_gpu)
+                self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
 
-            self.sub_container = QWidget()
-            self.sub_layout = QFormLayout(self.sub_container)
-            self.sub_layout.setContentsMargins(0, 0, 0, 0)
-            self.form_layout.addRow(self.sub_container)
-            self._rebuild_part_subfields("سایر موارد")
+        elif "قطعات" in cat_norm:
+            if "cpu" in sub_clean.lower() or "پردازنده" in sub_clean:
+                cb_title = SearchableComboBox()
+                cb_title.addItems(CPU_LIST)
+                cb_sock = SearchableComboBox()
+                cb_sock.addItems(["", "LGA 775", "LGA 1155", "LGA 1150", "LGA 1151", "LGA 1200", "LGA 1700", "LGA 1851", "AM3 / AM3+", "AM4", "AM5", "TR4 / sTRX4", "BGA"])
+                ed_spec = SmartLineEdit("فرکانس، تعداد هسته و مشخصات دیگر...")
+                self.fields = {"سری پردازنده": cb_title, "سوکت": cb_sock, "مشخصات": ed_spec}
+                self.sub_layout.addRow("سری پردازنده:", cb_title)
+                self.sub_layout.addRow("سوکت:", cb_sock)
+                self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
 
-        elif self.current_category == "لوازم جانبی":
-            self.cb_sub.currentTextChanged.connect(self._notify_custom_field_callback)
-            self.cb_sub.addItems(
-                [
-                    "سایر موارد",
-                    "ماوس (Mouse)",
-                    "کیبورد (Keyboard)",
-                    "پک کمبو ماوس و کیبورد",
-                    "هدست، هدفون و هندزفری",
-                    "اسپیکر (Speaker)",
-                    "فلش مموری (Flash Memory)",
-                    "هارد اکسترنال (External HDD)",
-                    "اس‌اس‌دی اکسترنال (External SSD)",
-                    "کول‌پد لپ‌تاپ (Coolpad)",
-                    "کیف و کوله‌پشتی لپ‌تاپ",
-                    "هاب USB و Type-C",
-                    "کابل تصویر (HDMI / DisplayPort / VGA)",
-                    "کابل برق، شبکه و افزایش طول",
-                    "مبدل و دانگل (Converter / Dongle)",
-                    "ماوس‌پد (Mouse Pad)",
-                    "وب‌کم و میکروفون (Webcam / Mic)",
-                    "گیم‌پد و دسته بازی (Gamepad)",
-                    "خمیر سیلیکون و اسپری تمیزکننده",
-                ]
-            )
-            self.cb_sub.setCurrentText("سایر موارد")
-            cb_conn = SearchableComboBox()
-            cb_conn.addItems(
-                [
-                    "",
-                    "باسیم (USB)",
-                    "بی‌سیم ( دانگل 2.4GHz)",
-                    "بلوتوث (Bluetooth)",
-                    "دوحالته و سه‌حالته (باسیم + بی‌سیم + بلوتوث)",
-                    "Type-C",
-                    "جک ۳.۵ میلی‌متری صدا",
-                    "HDMI / DisplayPort / VGA",
-                    "بدون پورت (فیزیکی)",
-                ]
-            )
-            ed_extra = SmartLineEdit("ویژگی تکمیلی (مثلاً طول کابل، ظرفیت، رنگ...)")
-            self.fields = {"نوع اتصال / پورت": cb_conn, "مشخصه": ed_extra}
-            self.form_layout.addRow("نوع لوازم جانبی:", self.cb_sub)
-            self.form_layout.addRow("نوع اتصال / پورت:", cb_conn)
-            self.form_layout.addRow("مشخصات تکمیلی:", ed_extra)
+            elif "motherboard" in sub_clean.lower() or "مادربرد" in sub_clean:
+                cb_sock = SearchableComboBox()
+                cb_sock.addItems(["", "LGA 1155", "LGA 1150", "LGA 1151", "LGA 1200", "LGA 1700", "LGA 1851", "AM4", "AM5"])
+                cb_chip = SearchableComboBox()
+                cb_chip.addItems(["", "Intel H81 / B85", "Intel H110 / B250", "Intel H310 / B360 / B365", "Intel H410 / B460 / Z490", "Intel H510 / B560 / Z590", "Intel H610 / B660 / B760 / Z790", "AMD A320 / B450 / X470 / B550 / X570", "AMD A620 / B650 / X670 / X870"])
+                cb_form = SearchableComboBox()
+                cb_form.addItems(["", "ATX", "Micro-ATX (mATX)", "Mini-ITX", "E-ATX"])
+                cb_ddr = SearchableComboBox()
+                cb_ddr.addItems(DDR_VERSIONS)
+                ed_spec = SmartLineEdit("مشخصات اسلات‌ها و درگاه‌ها...")
+                self.fields = {"سوکت": cb_sock, "چیپست": cb_chip, "فرم فاکتور": cb_form, "نسخه DDR": cb_ddr, "مشخصات": ed_spec}
+                self.sub_layout.addRow("سوکت:", cb_sock)
+                self.sub_layout.addRow("چیپست:", cb_chip)
+                self.sub_layout.addRow("فرم فاکتور:", cb_form)
+                self.sub_layout.addRow("نسخه DDR:", cb_ddr)
+                self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
 
-        elif self.current_category == "مانیتور":
-            self.cb_sub.currentTextChanged.connect(self._notify_custom_field_callback)
-            self.cb_sub.addItems(
-                [
-                    "مانیتور اداری و خانگی",
-                    "مانیتور گیمینگ (Gaming)",
-                    "مانیتور طراحی و صنعتی",
-                    "مانیتور استوک",
-                    "مانیتور منحنی (Curved)",
-                ]
-            )
+            elif "ram" in sub_clean.lower() or "رم" in sub_clean:
+                cb_cap = SearchableComboBox()
+                cb_cap.addItems(RAM_CAPACITIES)
+                cb_ddr = SearchableComboBox()
+                cb_ddr.addItems(DDR_VERSIONS)
+                cb_bus = SearchableComboBox()
+                cb_bus.addItems(RAM_FREQUENCIES)
+                ed_spec = SmartLineEdit("تایمینگ، هیت‌سینک، ولتاژ...")
+                self.fields = {"ظرفیت": cb_cap, "نسخه DDR": cb_ddr, "فرکانس": cb_bus, "مشخصات": ed_spec}
+                self.sub_layout.addRow("ظرفیت رم:", cb_cap)
+                self.sub_layout.addRow("نسخه DDR:", cb_ddr)
+                self.sub_layout.addRow("فرکانس (Frequency):", cb_bus)
+                self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
+
+            elif "gpu" in sub_clean.lower() or "graphic" in sub_clean.lower() or "گرافیک" in sub_clean:
+                cb_gpu = SearchableComboBox()
+                cb_gpu.addItems(GPU_LIST)
+                cb_vram = SearchableComboBox()
+                cb_vram.addItems(["", "1GB", "2GB", "4GB", "6GB", "8GB", "10GB", "12GB", "16GB", "20GB", "24GB"])
+                cb_mem = SearchableComboBox()
+                cb_mem.addItems(["", "GDDR3", "GDDR5", "GDDR6", "GDDR6X"])
+                ed_spec = SmartLineEdit("درگاه‌های خروجی و برق ورودی...")
+                self.fields = {"چیپست گرافیک": cb_gpu, "حافظه VRAM": cb_vram, "نوع حافظه": cb_mem, "مشخصات": ed_spec}
+                self.sub_layout.addRow("چیپست گرافیک:", cb_gpu)
+                self.sub_layout.addRow("حافظه VRAM:", cb_vram)
+                self.sub_layout.addRow("نوع حافظه:", cb_mem)
+                self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
+
+            elif "psu" in sub_clean.lower() or "power" in sub_clean.lower() or "پاور" in sub_clean or "تغذیه" in sub_clean:
+                cb_watt = SearchableComboBox()
+                cb_watt.addItems(["", "300W", "350W", "400W", "450W", "500W", "550W", "600W", "650W", "700W", "750W", "850W", "1000W", "1200W+"])
+                cb_cert = SearchableComboBox()
+                cb_cert.addItems(["", "Standard", "80 Plus Bronze", "80 Plus Silver", "80 Plus Gold", "80 Plus Platinum", "80 Plus Titanium"])
+                cb_mod = SearchableComboBox()
+                cb_mod.addItems(["", "Non-Modular", "Semi-Modular", "Full Modular"])
+                ed_spec = SmartLineEdit("کانکتورهای برق و گارانتی...")
+                self.fields = {"توان خروجی": cb_watt, "استاندارد بازدهی": cb_cert, "مدیریت کابل": cb_mod, "مشخصات": ed_spec}
+                self.sub_layout.addRow("توان خروجی (Watt):", cb_watt)
+                self.sub_layout.addRow("استاندارد بازدهی:", cb_cert)
+                self.sub_layout.addRow("مدیریت کابل:", cb_mod)
+                self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
+
+            elif "cooler" in sub_clean.lower() or "خنک کننده" in sub_clean:
+                cb_type = SearchableComboBox()
+                cb_type.addItems(["", "Air Cooler", "Liquid Cooler 120mm (AIO)", "Liquid Cooler 240mm (AIO)", "Liquid Cooler 360mm (AIO)"])
+                cb_rgb = SearchableComboBox()
+                cb_rgb.addItems(["", "None", "Single Color LED", "RGB", "ARGB"])
+                ed_spec = SmartLineEdit("سوکت‌های پشتیبانی‌شده...")
+                self.fields = {"نوع خنک کننده": cb_type, "نورپردازی": cb_rgb, "مشخصات": ed_spec}
+                self.sub_layout.addRow("نوع خنک‌کننده:", cb_type)
+                self.sub_layout.addRow("نورپردازی:", cb_rgb)
+                self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
+
+            else:
+                ed_spec = SmartLineEdit("مشخصات فنی قطعه...")
+                self.fields = {"مشخصات": ed_spec}
+                self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
+
+        elif "ذخیره ساز" in cat_norm or "حافظه" in cat_norm:
+            if "ssd" in sub_clean.lower() and "external" not in sub_clean.lower() and "اکسترنال" not in sub_clean:
+                cb_cap = SearchableComboBox()
+                cb_cap.addItems(SSD_CAPACITIES)
+                cb_iface = SearchableComboBox()
+                cb_iface.addItems(SSD_INTERFACES)
+                ed_spec = SmartLineEdit("سرعت خواندن/نوشتن، کنترلر و چیپ حافظه...")
+                self.fields = {"ظرفیت": cb_cap, "رابط و فرم": cb_iface, "مشخصات": ed_spec}
+                self.sub_layout.addRow("ظرفیت حافظه (Capacity):", cb_cap)
+                self.sub_layout.addRow("رابط و فرم (Interface & Form Factor):", cb_iface)
+                self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
+
+            elif "hdd" in sub_clean.lower() and "external" not in sub_clean.lower() and "اکسترنال" not in sub_clean:
+                cb_cap = SearchableComboBox()
+                cb_cap.addItems(HDD_CAPACITIES)
+                cb_iface = SearchableComboBox()
+                cb_iface.addItems(HDD_INTERFACES)
+                ed_spec = SmartLineEdit("سرعت چرخش RPM، بافر و کش...")
+                self.fields = {"ظرفیت": cb_cap, "رابط و فرم": cb_iface, "مشخصات": ed_spec}
+                self.sub_layout.addRow("ظرفیت هارد (Capacity):", cb_cap)
+                self.sub_layout.addRow("رابط و فرم (Interface & Form Factor):", cb_iface)
+                self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
+
+            elif "اکسترنال" in sub_clean or "external" in sub_clean.lower():
+                cb_cap = SearchableComboBox()
+                cb_cap.addItems(SSD_CAPACITIES)
+                cb_port = SearchableComboBox()
+                cb_port.addItems(["", "USB 3.0 / USB 3.2 Gen 1", "USB 3.2 Gen 2 (Type-C)", "USB4 / Thunderbolt"])
+                ed_spec = SmartLineEdit("مقاومت در برابر ضربه و آب...")
+                self.fields = {"ظرفیت": cb_cap, "نوع اتصال / پورت": cb_port, "مشخصات": ed_spec}
+                self.sub_layout.addRow("ظرفیت:", cb_cap)
+                self.sub_layout.addRow("نوع اتصال / پورت:", cb_port)
+                self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
+
+            elif "flash" in sub_clean.lower() or "فلش" in sub_clean or "کارت" in sub_clean:
+                cb_cap = SearchableComboBox()
+                cb_cap.addItems(["", "16GB", "32GB", "64GB", "128GB", "256GB", "512GB", "1TB"])
+                cb_iface = SearchableComboBox()
+                cb_iface.addItems(["", "USB 2.0", "USB 3.0 / 3.2", "Dual USB-A + Type-C", "microSDXC / SDXC UHS-I", "microSDXC UHS-II"])
+                ed_spec = SmartLineEdit("جنس بدنه و سرعت انتقال...")
+                self.fields = {"ظرفیت": cb_cap, "نوع رابط": cb_iface, "مشخصات": ed_spec}
+                self.sub_layout.addRow("ظرفیت:", cb_cap)
+                self.sub_layout.addRow("نوع رابط:", cb_iface)
+                self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
+
+            else:
+                ed_spec = SmartLineEdit("مشخصات فنی حافظه...")
+                self.fields = {"مشخصات": ed_spec}
+                self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
+
+        elif "مانیتور" in cat_norm:
             cb_size = SearchableComboBox()
-            cb_size.addItems(["", "19 اینچ", "20 اینچ", "22 اینچ", "24 اینچ", "27 اینچ", "32 اینچ", "34 اینچ"])
+            cb_size.addItems(SCREEN_SIZES)
             cb_panel = SearchableComboBox()
-            cb_panel.addItems(["", "IPS", "VA", "TN", "OLED", "Nano IPS"])
+            cb_panel.addItems(PANEL_TYPES)
+            cb_res = SearchableComboBox()
+            cb_res.addItems(RESOLUTIONS)
             cb_hz = SearchableComboBox()
-            cb_hz.addItems(["", "60Hz", "75Hz", "100Hz", "144Hz", "165Hz", "180Hz", "240Hz"])
+            cb_hz.addItems(REFRESH_RATES)
             cb_ports = SearchableComboBox()
-            cb_ports.addItems(["", "HDMI + VGA", "HDMI + DisplayPort", "HDMI + DP + Type-C", "VGA + DVI"])
-            self.fields = {"سایز": cb_size, "پنل": cb_panel, "نرخ بروزرسانی": cb_hz, "پورت‌ها": cb_ports}
-            self.form_layout.addRow("زیرمجموعه مانیتور:", self.cb_sub)
-            self.form_layout.addRow("سایز صفحه:", cb_size)
-            self.form_layout.addRow("نوع پنل:", cb_panel)
-            self.form_layout.addRow("نرخ تصویر (Hz):", cb_hz)
-            self.form_layout.addRow("پورت‌های ورودی:", cb_ports)
-
-        elif self.current_category == "کیس و مینی‌کیس":
-            self.cb_sub.currentTextChanged.connect(self._notify_custom_field_callback)
-            self.cb_sub.addItems(
-                [
-                    "مینی‌کیس استوک (Mini Case)",
-                    "کیس کامل اسمبل‌شده (PC)",
-                    "آل‌این‌وان (All-in-One)",
-                    "تین‌کلاینت (Thin Client)",
-                    "پوسته کیس خالی (Case Chassis)",
-                ]
-            )
-            cb_cpu = SearchableComboBox()
-            cb_cpu.addItems(CPU_LIST)
-            cb_ram = SearchableComboBox()
-            cb_ram.addItems(RAM_CAPACITIES)
-            cb_st = SearchableComboBox()
-            cb_st.addItems(STORAGE_LIST)
-            cb_gpu = SearchableComboBox()
-            cb_gpu.addItems(GPU_LIST)
+            cb_ports.addItems(["", "HDMI + VGA", "HDMI + DisplayPort", "HDMI + DP + Type-C", "Dual HDMI + DP", "VGA + DVI"])
+            ed_spec = SmartLineEdit("اسپیکر داخلی، پایه آسانسوری، HDR...")
             self.fields = {
-                "پردازنده": cb_cpu,
-                "ظرفیت رم": cb_ram,
-                "حافظه داخلی": cb_st,
-                "پردازنده گرافیکی": cb_gpu,
+                "سایز صفحه نمایش": cb_size,
+                "نوع پنل": cb_panel,
+                "دقت تصویر": cb_res,
+                "نرخ نوسازی": cb_hz,
+                "پورت های ورودی": cb_ports,
+                "مشخصات": ed_spec,
             }
-            self.form_layout.addRow("نوع دستگاه:", self.cb_sub)
-            self.form_layout.addRow("پردازنده (CPU):", cb_cpu)
-            self.form_layout.addRow("رم (RAM):", cb_ram)
-            self.form_layout.addRow("حافظه (Storage):", cb_st)
-            self.form_layout.addRow("گرافیک (GPU):", cb_gpu)
+            self.sub_layout.addRow("سایز صفحه نمایش:", cb_size)
+            self.sub_layout.addRow("نوع پنل:", cb_panel)
+            self.sub_layout.addRow("دقت تصویر:", cb_res)
+            self.sub_layout.addRow("نرخ نوسازی (Hz):", cb_hz)
+            self.sub_layout.addRow("پورت‌های ورودی:", cb_ports)
+            self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
 
-        elif self.current_category == "آداپتور و تغذیه":
-            self.cb_sub.currentTextChanged.connect(self._notify_custom_field_callback)
-            self.cb_sub.addItems(
-                [
-                    "شارژر و آداپتور لپ‌تاپ",
-                    "آداپتور مانیتور و مینی‌کیس",
-                    "آداپتور مودم و سوئیچ (9V/12V)",
-                    "محافظ برق و چندراهی",
-                    "برق اضطراری (UPS) و باتری UPS",
-                    "کابل برق سهند / سه‌پین / دوپین",
-                ]
-            )
-            cb_volt = SearchableComboBox()
-            cb_volt.addItems(["", "19V", "19.5V", "20V", "12V", "9V", "5V", "220V AC"])
-            cb_amp = SearchableComboBox()
-            cb_amp.addItems(["", "1A / 1.5A / 2A", "2.31A (45W)", "3.25A (65W)", "3.42A (65W)", "4.5A (90W)", "4.74A (90W)", "6.15A (120W)", "6.75A / 7.7A (135W-150W)", "9A / 10A (180W-240W)"])
-            cb_tip = SearchableComboBox()
-            cb_tip.addItems(["", "سوکت معمولی (5.5x2.5)", "سوکت سوزنی آبی/مشکی HP/Dell", "سوکت USB / مستطیلی Lenovo", "سوکت Type-C PD", "سوکت ریز Asus/Acer"])
-            self.fields = {"ولتاژ": cb_volt, "آمپر و توان": cb_amp, "نوع سوکت": cb_tip}
-            self.form_layout.addRow("نوع آداپتور / تغذیه:", self.cb_sub)
-            self.form_layout.addRow("ولتاژ خروجی:", cb_volt)
-            self.form_layout.addRow("آمپر / توان (وات):", cb_amp)
-            self.form_layout.addRow("نوع سری / سوکت:", cb_tip)
+        elif "لوازم جانبی" in cat_norm:
+            if "mouse" in sub_clean.lower() or "ماوس" in sub_clean:
+                cb_conn = SearchableComboBox()
+                cb_conn.addItems(CONNECTIVITY_OPTIONS)
+                cb_dpi = SearchableComboBox()
+                cb_dpi.addItems(["", "1000 DPI", "1200 DPI", "1600 DPI", "2400 DPI", "3200 DPI", "6400 DPI", "12000+ DPI (Gaming)"])
+                cb_sensor = SearchableComboBox()
+                cb_sensor.addItems(["", "Optical", "Laser"])
+                ed_spec = SmartLineEdit("تعداد کلیدها، سایلنت، نورپردازی RGB...")
+                self.fields = {
+                    "نوع اتصال / پورت": cb_conn,
+                    "دقت حسگر (DPI)": cb_dpi,
+                    "نوع حسگر": cb_sensor,
+                    "مشخصات": ed_spec,
+                }
+                self.sub_layout.addRow("نوع اتصال / پورت:", cb_conn)
+                self.sub_layout.addRow("دقت حسگر (DPI):", cb_dpi)
+                self.sub_layout.addRow("نوع حسگر:", cb_sensor)
+                self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
+
+            elif "keyboard" in sub_clean.lower() or "کیبورد" in sub_clean:
+                cb_conn = SearchableComboBox()
+                cb_conn.addItems(CONNECTIVITY_OPTIONS)
+                cb_switch = SearchableComboBox()
+                cb_switch.addItems(["", "Membrane", "Mechanical Blue Switch", "Mechanical Red Switch", "Mechanical Brown Switch", "Optical-Mechanical"])
+                cb_farsi = SearchableComboBox()
+                cb_farsi.addItems(["", "Yes (Factory Printed)", "No (English Only)"])
+                ed_spec = SmartLineEdit("نور پس‌زمینه، نام‌پد، استراحتگاه مچ...")
+                self.fields = {
+                    "نوع اتصال / پورت": cb_conn,
+                    "نوع سوییچ / کلید": cb_switch,
+                    "حروف فارسی": cb_farsi,
+                    "مشخصات": ed_spec,
+                }
+                self.sub_layout.addRow("نوع اتصال / پورت:", cb_conn)
+                self.sub_layout.addRow("نوع کلید / سوییچ:", cb_switch)
+                self.sub_layout.addRow("حروف فارسی چاپ کارخانه:", cb_farsi)
+                self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
+
+            elif "bag" in sub_clean.lower() or "backpack" in sub_clean.lower() or "کیف" in sub_clean or "کوله" in sub_clean:
+                cb_bag_type = SearchableComboBox()
+                cb_bag_type.addItems(BAG_TYPES)
+                cb_bag_size = SearchableComboBox()
+                cb_bag_size.addItems(BAG_SIZES)
+                cb_bag_mat = SearchableComboBox()
+                cb_bag_mat.addItems(BAG_MATERIALS)
+                ed_spec = SmartLineEdit("ضربه گیر حبابی، پورت USB، ضد سرقت...")
+                self.fields = {
+                    "نوع کاربری": cb_bag_type,
+                    "سایز مناسب لپ تاپ": cb_bag_size,
+                    "جنس و مقاومت": cb_bag_mat,
+                    "مشخصات": ed_spec,
+                }
+                self.sub_layout.addRow("نوع کیف / کوله:", cb_bag_type)
+                self.sub_layout.addRow("سایز مناسب لپ‌تاپ:", cb_bag_size)
+                self.sub_layout.addRow("جنس و مقاومت بدنه:", cb_bag_mat)
+                self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
+
+            elif "headset" in sub_clean.lower() or "headphone" in sub_clean.lower() or "هدست" in sub_clean or "هدفون" in sub_clean or "اسپیکر" in sub_clean:
+                cb_conn = SearchableComboBox()
+                cb_conn.addItems(CONNECTIVITY_OPTIONS)
+                ed_spec = SmartLineEdit("میکروفون، نویزکنسلینگ، توان خروجی...")
+                self.fields = {"نوع اتصال / پورت": cb_conn, "مشخصات": ed_spec}
+                self.sub_layout.addRow("نوع اتصال / پورت:", cb_conn)
+                self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
+
+            else:
+                cb_conn = SearchableComboBox()
+                cb_conn.addItems(CONNECTIVITY_OPTIONS)
+                ed_spec = SmartLineEdit("مشخصات لوازم جانبی...")
+                self.fields = {"نوع اتصال / پورت": cb_conn, "مشخصات": ed_spec}
+                self.sub_layout.addRow("نوع اتصال / پورت:", cb_conn)
+                self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
+
+        elif "تجهیزات شبکه" in cat_norm or "شبکه" in cat_norm:
+            cb_wifi = SearchableComboBox()
+            cb_wifi.addItems(["", "Wi-Fi 4 (802.11n)", "Wi-Fi 5 (802.11ac)", "Wi-Fi 6 (802.11ax)", "Wi-Fi 6E", "Wi-Fi 7", "4G LTE", "5G"])
+            cb_speed = SearchableComboBox()
+            cb_speed.addItems(["", "10/100 Fast Ethernet", "Gigabit (10/100/1000)", "2.5G / 10G Multi-Gig"])
+            ed_spec = SmartLineEdit("تعداد پورت، آنتن‌ها، توان خروجی...")
+            self.fields = {"استاندارد وای فای": cb_wifi, "سرعت پورت های شبکه": cb_speed, "مشخصات": ed_spec}
+            self.sub_layout.addRow("استاندارد وای‌فای:", cb_wifi)
+            self.sub_layout.addRow("سرعت پورت‌های شبکه:", cb_speed)
+            self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
+
+        elif "ماشین های اداری" in cat_norm or "ماشین‌های اداری" in cat_norm:
+            cb_tech = SearchableComboBox()
+            cb_tech.addItems(["", "Laser Monochrome", "Laser Color", "Inkjet Color", "Thermal"])
+            cb_func = SearchableComboBox()
+            cb_func.addItems(["", "Single Function (Print Only)", "3-in-1 (Print, Scan, Copy)", "4-in-1 (Print, Scan, Copy, Fax)"])
+            cb_conn = SearchableComboBox()
+            cb_conn.addItems(["", "USB Only", "USB + Network (LAN)", "USB + Wi-Fi", "USB + LAN + Wi-Fi"])
+            ed_spec = SmartLineEdit("سرعت چاپ بر دقیقه، رزولوشن DPI، ظرفیت سینی...")
+            self.fields = {"فناوری چاپ": cb_tech, "قابلیت های دستگاه": cb_func, "نوع اتصال": cb_conn, "مشخصات": ed_spec}
+            self.sub_layout.addRow("فناوری چاپ:", cb_tech)
+            self.sub_layout.addRow("قابلیت‌های دستگاه:", cb_func)
+            self.sub_layout.addRow("نوع اتصال:", cb_conn)
+            self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
+
+        elif "کابل" in cat_norm or "مبدل" in cat_norm:
+            cb_type = SearchableComboBox()
+            cb_type.addItems(["", "HDMI to HDMI", "DisplayPort to DisplayPort", "HDMI to VGA", "Type-C to HDMI", "Type-C to Type-C", "USB-A to Type-C", "USB-A to USB-B (Printer)", "Cat6 RJ45"])
+            cb_len = SearchableComboBox()
+            cb_len.addItems(["", "0.5m", "1m", "1.5m", "1.8m", "2m", "3m", "5m", "10m", "15m", "20m+"])
+            ed_spec = SmartLineEdit("پشتیبانی از 4K / 8K، جنس روکش، روکش کنفی...")
+            self.fields = {"نوع درگاه / رابط": cb_type, "طول کابل": cb_len, "مشخصات": ed_spec}
+            self.sub_layout.addRow("نوع درگاه / رابط:", cb_type)
+            self.sub_layout.addRow("طول کابل:", cb_len)
+            self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
 
         else:
-            # شبکه و مودم، ماشین‌های اداری و سایر موارد
-            self.cb_sub.currentTextChanged.connect(self._notify_custom_field_callback)
-            self.cb_sub.addItems(
-                [
-                    "سایر موارد",
-                    "مودم ADSL / VDSL",
-                    "مودم سیم‌کارتی 4G / 5G / TD-LTE",
-                    "روتر و اکسس‌پوینت بی‌سیم",
-                    "سوئیچ شبکه (5/8/16/24 پورت)",
-                    "کارت شبکه USB / PCIe",
-                    "پرینتر و چندکاره",
-                    "اسکنر",
-                    "کارتریج و تونر",
-                ]
-            )
-            ed_spec = SmartLineEdit("مشخصات فنی، پورت‌ها یا توضیحات تخصصی...")
+            ed_spec = SmartLineEdit("مشخصات فنی کالا...")
             self.fields = {"مشخصات": ed_spec}
-            self.form_layout.addRow("زیرمجموعه:", self.cb_sub)
-            self.form_layout.addRow("مشخصات فنی:", ed_spec)
+            self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
 
         self._apply_compact_form_layouts()
+        self._notify_custom_field_callback()
+
+    def _rebuild_part_subfields(self, part_type: str):
+        self._rebuild_subfields(part_type)
 
     def apply_custom_catalog(self, subcategories=None, custom_fields=None):
         """Apply user-managed subcategories and extra specification fields."""

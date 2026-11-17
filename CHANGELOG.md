@@ -1,3 +1,35 @@
+# Daqiq 4.3.0
+
+## Release Summary & Architectural Enhancements (Final Enterprise Production Release)
+
+- **Greenfield Database Normalization (Schema Version 430)**: Complete architectural redesign of the SQLite database schema for clean-slate production deployment. Standardized physical column ordering across all domain tables (`products`, `batches`, `upgrades`, `sales`) placing `serial_number` (`شماره سریال`) as the primary domain column immediately following `id`. Eradicated fragile positional column indexing and legacy migration shims in favor of explicit named column mapping and `sqlite3.Row` dictionary factories.
+- **Product Management Serial Number Integration**: Integrated "شماره سریال" (Serial Number) as the first data column in the bottom inventory summary table (`tbl_products`) in "مدیریت کالاها". Add, edit, filter, search, and selection operations dynamically bind and refresh the serial number in real time.
+- **International-Standard Bilingual Taxonomy Overhaul**:
+  - **Main Categories**: 100% Persian standard naming (`لپ تاپ`, `کیس و سیستم آماده`, `قطعات`, `ذخیره ساز و حافظه`, `مانیتور و نمایشگر`, `لوازم جانبی`, `تجهیزات شبکه`, `ماشین های اداری`, `کابل و مبدل`, `سایر موارد`).
+  - **Subcategories**: Strict bilingual format `"فارسی (English)"` across all categories with seamless bilingual substring filtering and search.
+  - **Attribute Specifications**: Persian internal UI labels, 100% English display names and technical dropdown values.
+  - **Hardware Specifics**: Dedicated single-drive capacities for standalone SSDs and Internal HDDs (dual-drive combos removed); unified `رابط و فرم` (`Interface & Form Factor`); single and multi-mode connectivity options (`Wired`, `Wireless 2.4GHz`, `Bluetooth`, `Tri-Mode Multi-Mode`); non-electronic tailored attributes for bags and backpacks (`نوع کاربری`, `سایز مناسب لپ تاپ`, `جنس و مقاومت`).
+  - **Universal Specification Contract**: `مشخصات` (`Specifications`) is enforced as the final field across all subcategories; `سایر موارد (Other)` contains exclusively the `مشخصات` attribute.
+- **Default Minimum Stock Configuration**: Configurable default minimum stock threshold (`default_min_stock`, default: `1`) added to "تنظیمات عمومی فروش و نمایش" (`sp_set_default_min_stock`) directly below the default profit setting. Form reset actions automatically initialize `reorder_point` to this configured default.
+- **Cargo & Sales Serial Auto-fill with Re-entrancy Protection**: Dedicated `serial_numbers` column in `tbl_batches`. Product selection in "ثبت خرید و محموله‌ها" and shipment selection in "ثبت فروش" automatically cascades and populates the matching serial number. Serial barcode scanner inputs immediately resolve and select corresponding products and cargo. Protected by `_syncing_serial` re-entrancy flag preventing signal recursion.
+- **Customer Phone Integration**: Added `customer_phone` (`شماره تماس مشتری`) to the sales creation form, sales table (`tbl_sales`), sales reports, search pools, and Excel spreadsheet exports.
+- **Customizable Automatic Backup Directory**: Added configurable automatic backup directory with dedicated native folder browser (`QFileDialog.getExistingDirectory`). Validates directory write permissions with graceful fallback to default `Backups` and clear UI status badges.
+- **Excel Report Export Settings Overhaul**:
+  - Full-row click toggle for column selection list (`itemClicked` -> `_toggle_report_export_col_item`).
+  - Custom report profile management: full CRUD capabilities to create (`_add_custom_report_profile`), rename (`_rename_custom_report_profile`), and delete (`_delete_custom_report_profile`) custom report configurations.
+  - Expanded column selection pools across all available report types.
+- **Product Management Three Visual Cards Layout**: Re-engineered "مدیریت کالاها" into 3 distinct visual cards:
+  1. Card 1 (`gb_prod_identity`): Core identity and catalog parameters (`شماره سریال`, `کد کالا`, `دسته‌بندی`, `برند`, `مدل`).
+  2. Card 2 (`gb_prod_specs`, `specs_scroll`): Dynamic hardware specifications contained within a smooth scroll area.
+  3. Card 3 (`gb_prod_inventory`): Inventory, reorder point, profit percentage, and notes.
+- **Settings Viewport Ergonomics & Memento Rollback**: Equalized "ذخیره تنظیمات" (Save) and "انصراف" (Cancel) button proportions (42px height, 50/50 horizontal expanding stretch). Cancel cleanly discards uncommitted drafts, programmatically collapses all collapsible sections via `collapse()`, resets pending security inputs, and returns the operator to the Dashboard.
+- **Backup Timer Overflow Protection & Clean Lifecycle**: Hardened `_restart_backup_timer` with integer boundary guards `min(..., 2_147_483_647)` eliminating signed 32-bit millisecond overflow. Implemented `closeEvent` lifecycle cleanup guaranteeing timer termination and database flush on application exit.
+- **Enterprise Database Encryption (PBKDF2-HMAC-SHA256 + AES-256-GCM)**: Full authenticated encryption for SQLite database files (`MAGIC_ENCRYPTION_HEADER = b"DAQIQ_ENC_V1\x00\x00\x00\x00"`). Decrypts on demand into an isolated temporary runtime database, flushing atomically back to persistent disk. Introduced `DatabaseUnlockDialog` for startup and database switching, complete with password modification and removal workflows in Settings.
+- **DevOps CI/CD Modernization (Node 20+)**: Upgraded `.github/workflows/ci.yml` to Node 20+ native actions (`actions/checkout@v4`, `actions/setup-python@v5`, `actions/upload-artifact@v4`, `actions/download-artifact@v4`, `softprops/action-gh-release@v2`), pinned version `4.3.0`, and bundled `cryptography` dependency for PyInstaller production builds.
+- **QA Status**: 110 passed out of 110 tests (100% pass rate) with zero regressions across `test_database_contracts.py`, `test_release_v4.py`, `test_release_v4_1.py`, `test_release_v4_3.py`, and `test_ui_smoke.py`.
+
+---
+
 # Daqiq 4.1.0
 
 ## Release Summary & Architectural Enhancements

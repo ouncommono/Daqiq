@@ -7,14 +7,81 @@ import jdatetime
 import time
 import hashlib
 from decimal import Decimal, ROUND_HALF_EVEN
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from cryptography.hazmat.primitives import hashes
+from cryptography.exceptions import InvalidTag
 
-APP_VERSION = "4.1.0"
-SCHEMA_VERSION = 410
+APP_VERSION = "4.3.0"
+SCHEMA_VERSION = 430
+
+MAGIC_ENCRYPTION_HEADER = b"DAQIQ_ENC_V1\x00\x00\x00\x00"
+
+class DatabaseEncryptionError(Exception):
+    """خطای عمومی در عملیات رمزنگاری پایگاه داده"""
+    pass
+
+class DatabasePasswordRequiredError(DatabaseEncryptionError):
+    """پایگاه داده دارای رمز عبور است و نیاز به بازگشایی دارد"""
+    pass
+
+class DatabaseInvalidPasswordError(DatabaseEncryptionError):
+    """رمز عبور وارد شده برای پایگاه داده نادرست است"""
+    pass
+
+def is_database_encrypted(file_path: str) -> bool:
+    """Return whether the file is encrypted with Daqiq's AES-256-GCM container format."""
+    if not file_path or not os.path.isfile(file_path):
+        return False
+    try:
+        with open(file_path, "rb") as f:
+            header = f.read(len(MAGIC_ENCRYPTION_HEADER))
+            return header == MAGIC_ENCRYPTION_HEADER
+    except OSError:
+        return False
+
+def encrypt_database_bytes(data: bytes, password: str) -> bytes:
+    """Encrypt raw SQLite database bytes using PBKDF2-HMAC-SHA256 and authenticated AES-256-GCM."""
+    salt = os.urandom(16)
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt,
+        iterations=100_000,
+    )
+    key = kdf.derive(password.encode("utf-8"))
+    nonce = os.urandom(12)
+    aesgcm = AESGCM(key)
+    ciphertext = aesgcm.encrypt(nonce, data, associated_data=MAGIC_ENCRYPTION_HEADER)
+    return MAGIC_ENCRYPTION_HEADER + salt + nonce + ciphertext
+
+def decrypt_database_bytes(encrypted_data: bytes, password: str) -> bytes:
+    """Decrypt authenticated AES-256-GCM database bytes."""
+    min_len = len(MAGIC_ENCRYPTION_HEADER) + 16 + 12 + 16
+    if len(encrypted_data) < min_len:
+        raise DatabaseEncryptionError("فایل پایگاه داده رمزنگاری‌شده ناقص یا آسیب‌دیده است.")
+    if encrypted_data[:len(MAGIC_ENCRYPTION_HEADER)] != MAGIC_ENCRYPTION_HEADER:
+        raise DatabaseEncryptionError("فرمت فایل رمزنگاری شده با استاندارد نرم‌افزار مطابقت ندارد.")
+    salt = encrypted_data[16:32]
+    nonce = encrypted_data[32:44]
+    ciphertext = encrypted_data[44:]
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt,
+        iterations=100_000,
+    )
+    key = kdf.derive(password.encode("utf-8"))
+    aesgcm = AESGCM(key)
+    try:
+        return aesgcm.decrypt(nonce, ciphertext, associated_data=MAGIC_ENCRYPTION_HEADER)
+    except InvalidTag:
+        raise DatabaseInvalidPasswordError("رمز عبور پایگاه داده نادرست است یا داده‌ها دستکاری شده‌اند.")
 
 SQLITE_INTEGER_MIN = -(1 << 63)
 SQLITE_INTEGER_MAX = (1 << 63) - 1
 
-# New v4 databases have a deliberate, testable physical column order. Application
+# New v4.3.0 databases have a deliberate, testable physical column order. Application
 # SQL uses named columns; this contract protects all positional consumers.
 EXPECTED_SCHEMA_COLUMNS = {
     "settings": ("key", "value"),
@@ -24,10 +91,10 @@ EXPECTED_SCHEMA_COLUMNS = {
     "access_level_scope_users": ("access_level_name", "employee_id"),
     "suppliers": ("id", "name", "phone", "address", "notes", "created_at", "updated_at"),
     "customers": ("id", "name", "phone", "notes", "created_at", "updated_at"),
-    "products": ("id", "code", "name", "category", "sub_category", "brand", "model", "specs_json", "description", "reorder_point", "default_profit_pct", "is_active", "serial_number", "created_at", "updated_at"),
-    "batches": ("id", "batch_code", "product_id", "supplier_id", "buyer_employee_id", "invoice_number", "purchase_date", "initial_qty", "sold_qty", "returned_qty", "remaining_qty", "unit_purchase_price", "extra_cost_total", "upgrade_cost_unit", "unit_cost_price", "suggested_sell_price", "profit_pct", "paid_amount", "settlement_status", "serial_numbers", "colors_json", "initial_specs", "final_specs", "supplier_name_snapshot", "notes", "created_at", "updated_at"),
-    "upgrades": ("id", "target_batch_id", "part_batch_id", "technician_id", "target_qty", "part_qty_used", "stock_deducted_qty", "part_unit_cost", "labor_cost_unit", "added_cost_unit", "upgrade_date", "serial_number", "manual_part_description", "old_specs", "new_specs", "notes", "created_at", "updated_at"),
-    "sales": ("id", "invoice_number", "product_id", "batch_id", "seller_employee_id", "customer_name", "qty", "returned_qty", "suggested_unit_price", "actual_unit_price", "unit_cost_price", "unit_discount", "total_discount", "price_Markup_unit", "unit_profit", "total_profit", "total_amount", "paid_amount", "settlement_status", "sale_datetime", "warranty_company", "warranty_start", "warranty_months", "warranty_days", "warranty_end", "serial_number", "specifications", "colors_json", "notes", "created_at", "updated_at"),
+    "products": ("id", "serial_number", "code", "name", "category", "sub_category", "brand", "model", "specs_json", "description", "reorder_point", "default_profit_pct", "is_active", "created_at", "updated_at"),
+    "batches": ("id", "serial_numbers", "batch_code", "product_id", "supplier_id", "buyer_employee_id", "invoice_number", "purchase_date", "initial_qty", "sold_qty", "returned_qty", "remaining_qty", "unit_purchase_price", "extra_cost_total", "upgrade_cost_unit", "unit_cost_price", "suggested_sell_price", "profit_pct", "paid_amount", "settlement_status", "colors_json", "initial_specs", "final_specs", "supplier_name_snapshot", "notes", "created_at", "updated_at"),
+    "upgrades": ("id", "serial_number", "target_batch_id", "part_batch_id", "technician_id", "target_qty", "part_qty_used", "stock_deducted_qty", "part_unit_cost", "labor_cost_unit", "added_cost_unit", "upgrade_date", "manual_part_description", "old_specs", "new_specs", "notes", "created_at", "updated_at"),
+    "sales": ("id", "serial_number", "invoice_number", "product_id", "batch_id", "seller_employee_id", "customer_name", "customer_phone", "qty", "returned_qty", "suggested_unit_price", "actual_unit_price", "unit_cost_price", "unit_discount", "total_discount", "price_Markup_unit", "unit_profit", "total_profit", "total_amount", "paid_amount", "settlement_status", "sale_datetime", "warranty_company", "warranty_start", "warranty_months", "warranty_days", "warranty_end", "specifications", "colors_json", "notes", "created_at", "updated_at"),
     "service_catalog": ("id", "code", "service_type", "name", "default_fee", "default_side_cost", "description", "is_active", "created_at", "updated_at"),
     "service_price_history": ("id", "service_id", "change_date", "old_fee", "new_fee", "created_at", "updated_at"),
     "service_records": ("id", "invoice_number", "service_id", "seller_employee_id", "technician_employee_id", "service_type", "service_name", "customer_name", "historical_tariff", "service_fee", "side_cost", "paid_amount", "net_profit", "settlement_status", "service_datetime", "description", "created_at", "updated_at"),
@@ -36,14 +103,14 @@ EXPECTED_SCHEMA_COLUMNS = {
 }
 
 def validate_schema_column_order(conn):
-    """Fail fast when a database does not match the exact v4 column contract."""
+    """Fail fast when a database does not match the exact v4.3.0 column contract."""
     for table_name, expected_columns in EXPECTED_SCHEMA_COLUMNS.items():
         actual_columns = tuple(
             row["name"] for row in conn.execute(f"PRAGMA table_info({table_name})")
         )
         if actual_columns != expected_columns:
             raise RuntimeError(
-                f"ساختار ستون‌های جدول {table_name} با قرارداد نسخه 4.1.0 سازگار نیست."
+                f"ساختار ستون‌های جدول {table_name} با قرارداد نسخه 4.3.0 سازگار نیست."
             )
 
 
@@ -134,16 +201,18 @@ def load_app_config():
         "db_path": default_db,
         "recent_databases": [default_db],
         "backup_dir": os.path.join(get_default_database_dir(), "backups"),
+        "auto_backup_dir": "",
         "auto_backup_enabled": True,
         "auto_backup_interval_min": 60,
         "auto_backup_retention_count": 10,
         "auto_backup_last_success_by_db": {},
         "last_backup_time": "ثبت نشده",
         "default_profit_pct": 20,
+        "default_min_stock": 1,
         "zero_append_count": 3,
         "default_window_maximized": True,
         "require_login_password": False,
-        "config_schema_version": 2,
+        "config_schema_version": 3,
         "app_version": APP_VERSION,
         "schema_version": SCHEMA_VERSION,
         "theme": "light",
@@ -213,20 +282,159 @@ class ManagedConnection(sqlite3.Connection):
 
 
 class DatabaseManager:
-    def __init__(self, db_path=None):
+    def __init__(self, db_path=None, password=None):
         self.cfg = load_app_config()
         self.db_path = os.path.abspath(db_path or self.cfg["db_path"])
         os.makedirs(os.path.dirname(self.db_path) or ".", exist_ok=True)
         self.cfg["db_path"] = self.db_path
         self.cfg["backup_dir"] = os.path.dirname(self.db_path) or "."
+        self.password = password
+        self._runtime_db_path = None
+        self._is_encrypted = is_database_encrypted(self.db_path)
+
+        if self._is_encrypted:
+            if not self.password:
+                raise DatabasePasswordRequiredError("این پایگاه داده با رمز عبور محافظت می‌شود و نیاز به بازگشایی دارد.")
+            self._mount_encrypted_runtime()
+        else:
+            self._runtime_db_path = self.db_path
+
+        self.init_db()
+        self._normalize_application_config()
+        save_app_config(self.cfg)
+
+    def _mount_encrypted_runtime(self):
+        """Decrypt persistent encrypted DB to an isolated runtime SQLite file."""
+        runtime_dir = os.path.join(get_app_data_dir(), "runtime")
+        os.makedirs(runtime_dir, exist_ok=True)
+        path_hash = hashlib.sha256(self.db_path.encode("utf-8")).hexdigest()[:12]
+        self._runtime_db_path = os.path.join(runtime_dir, f".daqiq_rt_{path_hash}.db")
+
+        with open(self.db_path, "rb") as f:
+            enc_bytes = f.read()
+        dec_bytes = decrypt_database_bytes(enc_bytes, self.password)
+        with open(self._runtime_db_path, "wb") as f:
+            f.write(dec_bytes)
+            f.flush()
+            os.fsync(f.fileno())
+
+    def _flush_encrypted_to_disk(self):
+        """Atomically encrypt the runtime database and persist it to the main file."""
+        if not self.password or not self._runtime_db_path or self._runtime_db_path == self.db_path:
+            return
+        # Ensure WAL transactions are fully merged before reading raw database bytes
+        chk_conn = sqlite3.connect(self._runtime_db_path, timeout=30.0)
+        try:
+            chk_conn.execute("PRAGMA wal_checkpoint(FULL);")
+            chk_conn.commit()
+        finally:
+            chk_conn.close()
+
+        with open(self._runtime_db_path, "rb") as f:
+            plain_bytes = f.read()
+
+        enc_bytes = encrypt_database_bytes(plain_bytes, self.password)
+        with open(self.db_path, "wb") as f:
+            f.write(enc_bytes)
+            f.flush()
+            os.fsync(f.fileno())
+
+    def is_encrypted(self) -> bool:
+        """Return True if this database is currently password-protected."""
+        return bool(self._is_encrypted or self.password or is_database_encrypted(self.db_path))
+
+    def set_password(self, new_password: str):
+        """Set or change the database password atomically."""
+        if not new_password:
+            raise ValueError("رمز عبور نمی‌تواند خالی باشد.")
+        self.sync_database()
+
+        if not self.password:
+            # Transition from plaintext to encrypted
+            runtime_dir = os.path.join(get_app_data_dir(), "runtime")
+            os.makedirs(runtime_dir, exist_ok=True)
+            path_hash = hashlib.sha256(self.db_path.encode("utf-8")).hexdigest()[:12]
+            runtime_path = os.path.join(runtime_dir, f".daqiq_rt_{path_hash}.db")
+            # Checkpoint WAL and set DELETE journal mode so no files remain locked
+            c = sqlite3.connect(self.db_path, timeout=30.0)
+            try:
+                c.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+                c.execute("PRAGMA journal_mode = DELETE;")
+                c.commit()
+            finally:
+                c.close()
+            with open(self.db_path, "rb") as f:
+                plain_bytes = f.read()
+            with open(runtime_path, "wb") as f:
+                f.write(plain_bytes)
+                f.flush()
+                os.fsync(f.fileno())
+            self._runtime_db_path = runtime_path
+
+        self.password = new_password
+        self._is_encrypted = True
+        self._flush_encrypted_to_disk()
+
+    def remove_password(self, current_password: str):
+        """Remove the password and decrypt database back to plaintext SQLite format."""
+        if self.password and current_password != self.password:
+            raise DatabaseInvalidPasswordError("رمز عبور فعلی وارد شده نادرست است.")
+        self.sync_database()
+
+        if self._runtime_db_path and self._runtime_db_path != self.db_path:
+            c = sqlite3.connect(self._runtime_db_path, timeout=30.0)
+            try:
+                c.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+                c.execute("PRAGMA journal_mode = DELETE;")
+                c.commit()
+            finally:
+                c.close()
+            with open(self._runtime_db_path, "rb") as f:
+                plain_bytes = f.read()
+            with open(self.db_path, "wb") as f:
+                f.write(plain_bytes)
+                f.flush()
+                os.fsync(f.fileno())
+            old_rt = self._runtime_db_path
+            self._runtime_db_path = self.db_path
+            try:
+                if old_rt and os.path.exists(old_rt):
+                    os.remove(old_rt)
+            except OSError:
+                pass
+
+        self.password = None
+        self._is_encrypted = False
+
+    def switch_database(self, new_path: str, password: Optional[str] = None):
+        """Cleanly sync current database, switch to new_path, and re-initialize."""
+        self.sync_database()
+        if self._runtime_db_path and self._runtime_db_path != self.db_path and os.path.exists(self._runtime_db_path):
+            try:
+                os.remove(self._runtime_db_path)
+            except OSError:
+                pass
+        self.db_path = os.path.abspath(new_path)
+        os.makedirs(os.path.dirname(self.db_path) or ".", exist_ok=True)
+        self.cfg["db_path"] = self.db_path
+        self.cfg["backup_dir"] = os.path.dirname(self.db_path) or "."
+        self.password = password
+        self._is_encrypted = is_database_encrypted(self.db_path)
+        if self._is_encrypted:
+            if not self.password:
+                raise DatabasePasswordRequiredError("این پایگاه داده با رمز عبور محافظت می‌شود و نیاز به بازگشایی دارد.")
+            self._mount_encrypted_runtime()
+        else:
+            self._runtime_db_path = self.db_path
         self.init_db()
         self._normalize_application_config()
         save_app_config(self.cfg)
 
     def get_connection(self):
         """Create a bounded-wait connection with referential integrity enabled."""
+        target = self._runtime_db_path or self.db_path
         conn = sqlite3.connect(
-            self.db_path,
+            target,
             timeout=30.0,
             isolation_level="DEFERRED",
             factory=ManagedConnection,
@@ -234,6 +442,7 @@ class DatabaseManager:
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA busy_timeout = 30000")
         conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA synchronous = NORMAL")
         return conn
 
     def sync_database(self):
@@ -241,12 +450,14 @@ class DatabaseManager:
         with self.get_connection() as conn:
             conn.execute("PRAGMA wal_checkpoint(FULL);")
             conn.commit()
+        if self.password:
+            self._flush_encrypted_to_disk()
 
     def init_db(self):
         with self.get_connection() as conn:
-            # WAL keeps readers available while serialized writers commit.  The
-            # setting is persistent for this file and is applied before schema DDL.
+            # WAL keeps readers available while serialized writers commit.
             conn.execute("PRAGMA journal_mode = WAL")
+            conn.execute("PRAGMA synchronous = NORMAL")
             current_version = int(conn.execute("PRAGMA user_version").fetchone()[0])
             existing_tables = {
                 row["name"]
@@ -257,8 +468,8 @@ class DatabaseManager:
             }
             if existing_tables and current_version != SCHEMA_VERSION:
                 raise RuntimeError(
-                    "این پایگاه داده برای نسخه 4.1.0 ساخته نشده است. "
-                    "نسخه 4.1.0 به پایگاه داده تازه نیاز دارد و مهاجرت خودکار "
+                    f"این پایگاه داده برای نسخه {APP_VERSION} ساخته نشده است. "
+                    f"نسخه {APP_VERSION} به پایگاه داده تازه نیاز دارد و مهاجرت خودکار "
                     "از نسخه‌های قبلی پشتیبانی نمی‌شود."
                 )
             cur = conn.cursor()
@@ -342,19 +553,19 @@ class DatabaseManager:
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS products (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    serial_number TEXT NOT NULL DEFAULT '',
                     code TEXT NOT NULL UNIQUE CHECK (length(trim(code)) > 0),
                     name TEXT NOT NULL CHECK (length(trim(name)) > 0),
                     category TEXT NOT NULL CHECK (length(trim(category)) > 0),
-                    sub_category TEXT DEFAULT 'سایر موارد',
+                    sub_category TEXT DEFAULT 'سایر موارد (Other)',
                     brand TEXT DEFAULT '',
                     model TEXT DEFAULT '',
                     specs_json TEXT DEFAULT '{}',
                     description TEXT DEFAULT '',
-                    reorder_point INTEGER NOT NULL DEFAULT 2 CHECK (reorder_point >= 0),
+                    reorder_point INTEGER NOT NULL DEFAULT 1 CHECK (reorder_point >= 0),
                     default_profit_pct REAL NOT NULL DEFAULT 20.0
                         CHECK (default_profit_pct >= 0),
                     is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
-                    serial_number TEXT NOT NULL DEFAULT '',
                     created_at TEXT NOT NULL DEFAULT '',
                     updated_at TEXT NOT NULL DEFAULT ''
                 )
@@ -363,6 +574,7 @@ class DatabaseManager:
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS batches (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    serial_numbers TEXT DEFAULT '',
                     batch_code TEXT NOT NULL UNIQUE CHECK (length(trim(batch_code)) > 0),
                     product_id INTEGER NOT NULL,
                     supplier_id INTEGER,
@@ -381,7 +593,6 @@ class DatabaseManager:
                     profit_pct REAL NOT NULL DEFAULT 0,
                     paid_amount INTEGER NOT NULL DEFAULT 0 CHECK (paid_amount >= 0),
                     settlement_status TEXT NOT NULL DEFAULT 'تسویه‌شده',
-                    serial_numbers TEXT DEFAULT '',
                     colors_json TEXT NOT NULL DEFAULT '[]',
                     initial_specs TEXT DEFAULT '',
                     final_specs TEXT DEFAULT '',
@@ -402,6 +613,7 @@ class DatabaseManager:
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS upgrades (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    serial_number TEXT DEFAULT '',
                     target_batch_id INTEGER NOT NULL,
                     part_batch_id INTEGER,
                     technician_id INTEGER,
@@ -412,7 +624,6 @@ class DatabaseManager:
                     labor_cost_unit INTEGER NOT NULL DEFAULT 0 CHECK (labor_cost_unit >= 0),
                     added_cost_unit INTEGER NOT NULL DEFAULT 0 CHECK (added_cost_unit >= 0),
                     upgrade_date TEXT NOT NULL,
-                    serial_number TEXT DEFAULT '',
                     manual_part_description TEXT DEFAULT '',
                     old_specs TEXT DEFAULT '',
                     new_specs TEXT DEFAULT '',
@@ -431,11 +642,13 @@ class DatabaseManager:
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS sales (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    serial_number TEXT DEFAULT '',
                     invoice_number TEXT NOT NULL,
                     product_id INTEGER NOT NULL,
                     batch_id INTEGER NOT NULL,
                     seller_employee_id INTEGER,
                     customer_name TEXT DEFAULT '',
+                    customer_phone TEXT DEFAULT '',
                     qty INTEGER NOT NULL CHECK (qty > 0),
                     returned_qty INTEGER NOT NULL DEFAULT 0 CHECK (returned_qty >= 0 AND returned_qty <= qty),
                     suggested_unit_price INTEGER NOT NULL CHECK (suggested_unit_price >= 0),
@@ -455,7 +668,6 @@ class DatabaseManager:
                     warranty_months INTEGER NOT NULL DEFAULT 0,
                     warranty_days INTEGER NOT NULL DEFAULT 0,
                     warranty_end TEXT DEFAULT '',
-                    serial_number TEXT DEFAULT '',
                     specifications TEXT DEFAULT '',
                     colors_json TEXT NOT NULL DEFAULT '[]',
                     notes TEXT DEFAULT '',
@@ -626,6 +838,7 @@ class DatabaseManager:
                 "CREATE INDEX IF NOT EXISTS idx_batches_serial ON batches(serial_numbers)",
                 "CREATE INDEX IF NOT EXISTS idx_batches_code ON batches(batch_code)",
                 "CREATE INDEX IF NOT EXISTS idx_sales_serial ON sales(serial_number)",
+                "CREATE INDEX IF NOT EXISTS idx_sales_customer_phone ON sales(customer_phone)",
                 "CREATE INDEX IF NOT EXISTS idx_batches_product_stock ON batches(product_id, remaining_qty)",
                 "CREATE INDEX IF NOT EXISTS idx_batches_product_activity ON batches(product_id, updated_at DESC, id DESC)",
                 "CREATE INDEX IF NOT EXISTS idx_batches_supplier_activity ON batches(supplier_id, updated_at DESC, id DESC)",
@@ -652,7 +865,7 @@ class DatabaseManager:
 
     def _normalize_application_config(self):
         """Normalize current application settings without database migration."""
-        self.cfg["config_schema_version"] = 2
+        self.cfg["config_schema_version"] = 3
         self.cfg["app_version"] = APP_VERSION
         self.cfg["schema_version"] = SCHEMA_VERSION
         self.cfg["backup_dir"] = os.path.dirname(os.path.abspath(self.db_path)) or "."
@@ -662,6 +875,10 @@ class DatabaseManager:
         )
         if not isinstance(self.cfg.get("auto_backup_last_success_by_db"), dict):
             self.cfg["auto_backup_last_success_by_db"] = {}
+        if "default_min_stock" not in self.cfg:
+            self.cfg["default_min_stock"] = 1
+        if "auto_backup_dir" not in self.cfg:
+            self.cfg["auto_backup_dir"] = ""
 
     def get_setting(self, key, default=""):
         with self.get_connection() as conn:
@@ -1927,11 +2144,13 @@ class DatabaseManager:
         warranty_days=None,
         specifications="",
         colors=None,
+        customer_phone="",
     ):
         qty = self._batch_integer(qty, "تعداد فروش", minimum=1)
         product_id = self._batch_integer(product_id, "کالا", minimum=1)
         batch_id = self._batch_integer(batch_id, "محموله", minimum=1)
         customer_name = str(customer_name or "").strip()
+        customer_phone = str(customer_phone or "").strip()
         warranty_company = str(warranty_company or "").strip()
         warranty_start = str(warranty_start or "").strip()
         warranty_end = str(warranty_end or "").strip()
@@ -2008,20 +2227,23 @@ class DatabaseManager:
             cur.execute(
                 """
                 INSERT INTO sales (
-                    invoice_number, product_id, batch_id, seller_employee_id, customer_name,
-                    qty, suggested_unit_price, actual_unit_price, unit_cost_price,
-                    unit_discount, total_discount, price_Markup_unit, unit_profit, total_profit,
-                    total_amount, paid_amount, settlement_status, sale_datetime,
-                    warranty_company, warranty_start, warranty_months, warranty_days, warranty_end,
-                    serial_number, notes, specifications, colors_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    serial_number, invoice_number, product_id, batch_id, seller_employee_id,
+                    customer_name, customer_phone, qty, suggested_unit_price, actual_unit_price,
+                    unit_cost_price, unit_discount, total_discount, price_Markup_unit,
+                    unit_profit, total_profit, total_amount, paid_amount,
+                    settlement_status, sale_datetime, warranty_company, warranty_start,
+                    warranty_months, warranty_days, warranty_end, specifications,
+                    colors_json, notes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
+                    serial_number,
                     invoice_number,
                     product_id,
                     batch_id,
                     seller_employee_id,
                     customer_name,
+                    customer_phone,
                     qty,
                     suggested_unit_price,
                     actual_unit_price,
@@ -2040,10 +2262,9 @@ class DatabaseManager:
                     int(warranty_months),
                     int(warranty_days if warranty_days is not None else int(warranty_months or 0) * 30),
                     warranty_end,
-                    serial_number,
-                    notes,
                     str(specifications or ""),
                     json.dumps(normalized_colors or [], ensure_ascii=False),
+                    notes,
                 ),
             )
             sale_id = cur.lastrowid
@@ -2095,10 +2316,12 @@ class DatabaseManager:
         warranty_days=None,
         specifications=None,
         colors=None,
+        customer_phone="",
     ):
         new_qty = self._batch_integer(new_qty, "تعداد فروش", minimum=1)
         sale_id = self._batch_integer(sale_id, "شناسه فروش", minimum=1)
         customer_name = str(customer_name or "").strip()
+        customer_phone = str(customer_phone or "").strip()
         warranty_company = str(warranty_company or "").strip()
         warranty_start = str(warranty_start or "").strip()
         warranty_end = str(warranty_end or "").strip()
@@ -2110,12 +2333,12 @@ class DatabaseManager:
 
         with self.get_connection() as conn:
             conn.execute("BEGIN IMMEDIATE")
-            old_sale = conn.execute("""SELECT id, invoice_number, product_id, batch_id, seller_employee_id,
-            customer_name, qty, returned_qty, suggested_unit_price, actual_unit_price,
+            old_sale = conn.execute("""SELECT id, serial_number, invoice_number, product_id, batch_id, seller_employee_id,
+            customer_name, customer_phone, qty, returned_qty, suggested_unit_price, actual_unit_price,
             unit_cost_price, unit_discount, total_discount, price_Markup_unit,
             unit_profit, total_profit, total_amount, paid_amount, settlement_status,
             sale_datetime, warranty_company, warranty_start, warranty_months,
-            warranty_days, warranty_end, serial_number, specifications, colors_json,
+            warranty_days, warranty_end, specifications, colors_json,
             notes, created_at, updated_at FROM sales WHERE id=?""", (sale_id,)).fetchone()
             if not old_sale:
                 raise ValueError("ردیف فروش یافت نشد.")
@@ -2190,9 +2413,10 @@ class DatabaseManager:
                     else ("تسویه‌نشده" if paid_amount == 0 else "تسویه جزئی")
                 )
 
+            effective_phone = customer_phone if customer_phone else (old_sale["customer_phone"] or "")
             conn.execute(
                 """
-                UPDATE sales SET seller_employee_id=?, customer_name=?, qty=?,
+                UPDATE sales SET seller_employee_id=?, customer_name=?, customer_phone=?, qty=?,
                 suggested_unit_price=?, actual_unit_price=?, unit_discount=?, total_discount=?,
                 price_Markup_unit=?, unit_profit=?, total_profit=?, total_amount=?,
                 paid_amount=?, settlement_status=?, warranty_company=?, warranty_start=?,
@@ -2203,6 +2427,7 @@ class DatabaseManager:
                 (
                     seller_employee_id,
                     customer_name,
+                    effective_phone,
                     new_qty,
                     suggested_unit_price,
                     actual_unit_price,
@@ -2502,9 +2727,23 @@ class DatabaseManager:
 
     # --- پشتیبان‌گیری و بازیابی ---
     def get_automatic_backup_directory(self):
-        """Return the Backups folder belonging to the currently active database."""
+        """Return the Backups folder belonging to the currently active database, respecting custom setting."""
+        custom_dir = str(self.cfg.get("auto_backup_dir") or "").strip()
         database_dir = os.path.dirname(os.path.abspath(self.db_path)) or "."
-        return os.path.join(database_dir, "Backups")
+        default_dir = os.path.join(database_dir, "Backups")
+        if custom_dir:
+            target_dir = os.path.abspath(custom_dir)
+            try:
+                os.makedirs(target_dir, exist_ok=True)
+                probe = os.path.join(target_dir, f".probe_write_{os.getpid()}")
+                with open(probe, "w", encoding="utf-8") as f:
+                    f.write("ok")
+                os.remove(probe)
+                return target_dir
+            except OSError:
+                self.cfg["last_backup_warning"] = "مسیر سفارشی پشتیبان‌گیری خودکار در دسترس نبود؛ از پوشه پیش‌فرض استفاده شد."
+        os.makedirs(default_dir, exist_ok=True)
+        return default_dir
 
     def _automatic_backup_entries(self, directory, database_name):
         """Return this database's automatic snapshots, ordered oldest first."""
@@ -2646,28 +2885,40 @@ class DatabaseManager:
             # sqlite3.Connection as a context manager commits/rolls back but
             # does not close the OS file handle. Explicit close is essential on
             # Windows before rotation or rollback attempts to delete/rename files.
-            source = sqlite3.connect(database_path, timeout=30)
-            destination = None
-            try:
-                source.execute("PRAGMA busy_timeout=30000")
-                destination = sqlite3.connect(write_file, timeout=30)
-                destination.execute("PRAGMA busy_timeout=30000")
-                source.backup(destination, pages=256, sleep=0.25)
-                destination.commit()
-            finally:
-                if destination is not None:
-                    destination.close()
-                source.close()
+            if self.password and self._runtime_db_path:
+                with sqlite3.connect(self._runtime_db_path, timeout=30) as chk_conn:
+                    chk_conn.execute("PRAGMA wal_checkpoint(FULL);")
+                    chk_conn.commit()
+                with open(self._runtime_db_path, "rb") as f:
+                    plain_bytes = f.read()
+                enc_bytes = encrypt_database_bytes(plain_bytes, self.password)
+                with open(write_file, "wb") as f:
+                    f.write(enc_bytes)
+                    f.flush()
+                    os.fsync(f.fileno())
+            else:
+                source = sqlite3.connect(database_path, timeout=30)
+                destination = None
+                try:
+                    source.execute("PRAGMA busy_timeout=30000")
+                    destination = sqlite3.connect(write_file, timeout=30)
+                    destination.execute("PRAGMA busy_timeout=30000")
+                    source.backup(destination, pages=256, sleep=0.25)
+                    destination.commit()
+                finally:
+                    if destination is not None:
+                        destination.close()
+                    source.close()
 
-            check_db = sqlite3.connect(write_file, timeout=30)
-            try:
-                check_result = check_db.execute("PRAGMA quick_check").fetchone()
-            finally:
-                check_db.close()
-            if not check_result or check_result[0] != "ok":
-                raise sqlite3.DatabaseError(
-                    "نسخه پشتیبان از آزمون یکپارچگی پایگاه داده SQLite عبور نکرد."
-                )
+                check_db = sqlite3.connect(write_file, timeout=30)
+                try:
+                    check_result = check_db.execute("PRAGMA quick_check").fetchone()
+                finally:
+                    check_db.close()
+                if not check_result or check_result[0] != "ok":
+                    raise sqlite3.DatabaseError(
+                        "نسخه پشتیبان از آزمون یکپارچگی پایگاه داده SQLite عبور نکرد."
+                    )
 
             if replace_manual_target:
                 os.replace(write_file, backup_file)
@@ -2725,8 +2976,46 @@ class DatabaseManager:
         return backup_file
 
 
-    def restore_backup(self, backup_file_path):
+    def restore_backup(self, backup_file_path, password=None):
+        backup_file = os.path.abspath(backup_file_path)
+        if not os.path.isfile(backup_file):
+            raise FileNotFoundError("فایل پشتیبان انتخاب‌شده یافت نشد.")
+
         self.create_backup()
-        with sqlite3.connect(backup_file_path) as source:
-            with sqlite3.connect(self.db_path) as destination:
-                source.backup(destination)
+
+        if is_database_encrypted(backup_file):
+            pwd = password or self.password
+            if not pwd:
+                raise DatabasePasswordRequiredError("فایل پشتیبان انتخاب‌شده با رمز عبور محافظت می‌شود.")
+            with open(backup_file, "rb") as f:
+                enc = f.read()
+            plain = decrypt_database_bytes(enc, pwd)
+            if plain[:16] != b"SQLite format 3\x00":
+                raise DatabaseEncryptionError("محتوای رمزگشایی‌شده یک پایگاه داده معتبر نیست.")
+
+            if self.password and self._runtime_db_path:
+                with open(self._runtime_db_path, "wb") as f:
+                    f.write(plain)
+                    f.flush()
+                    os.fsync(f.fileno())
+                self._flush_encrypted_to_disk()
+            else:
+                temp_target = self.db_path + ".tmp_rst"
+                with open(temp_target, "wb") as f:
+                    f.write(plain)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(temp_target, self.db_path)
+        else:
+            if self.password and self._runtime_db_path:
+                with open(backup_file, "rb") as f:
+                    plain = f.read()
+                with open(self._runtime_db_path, "wb") as f:
+                    f.write(plain)
+                    f.flush()
+                    os.fsync(f.fileno())
+                self._flush_encrypted_to_disk()
+            else:
+                with sqlite3.connect(backup_file) as source:
+                    with sqlite3.connect(self.db_path) as destination:
+                        source.backup(destination)

@@ -6,3 +6,4 @@ build/
 *.spec
 .pytest_cache/
 *.db
+app_config.json
