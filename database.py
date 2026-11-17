@@ -1,4 +1,5 @@
 # database.py
+from __future__ import annotations
 import os
 import sys
 import json
@@ -6,6 +7,7 @@ import sqlite3
 import jdatetime
 import time
 import hashlib
+from typing import Optional, Dict, Any, List, Union, Tuple
 from decimal import Decimal, ROUND_HALF_EVEN
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
