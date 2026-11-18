@@ -421,6 +421,131 @@ class ReleaseV43Tests(unittest.TestCase):
                 finally:
                     window.close()
 
+    def test_product_form_and_table_column_ordering(self):
+        """Requirement 1 & 11: Product name input in Card 1 and exact table column sequence."""
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = os.path.join(tmp, "prod_col_order.db")
+            config_path = os.path.join(tmp, "app_config.json")
+            with patch.object(database, "CONFIG_FILE", config_path):
+                db = DatabaseManager(db_path)
+                db.add_product("P-ORD-01", "لپ‌تاپ مهندسی ایسوس", "لپ تاپ", "لپ‌تاپ مهندسی (Engineering Laptop)", "ASUS", "ZenBook 14", {}, "توضیحات تست", 2, 18, serial_number="SN-ASUS-999")
+                window = MainWindow(db, active_employee=None)
+                try:
+                    self.assertTrue(hasattr(window, "ed_prod_name"))
+                    cols = [window.tbl_products.horizontalHeaderItem(i).text() for i in range(window.tbl_products.columnCount())]
+                    self.assertEqual(cols[0], "شناسه")
+                    self.assertEqual(cols[1], "شماره سریال")
+                    self.assertEqual(cols[2], "کد کالا")
+                    self.assertEqual(cols[3], "نام کالا")
+                    self.assertEqual(cols[4], "دسته‌بندی")
+
+                    self.assertEqual(window.tbl_products.rowCount(), 1)
+                    self.assertEqual(window.tbl_products.item(0, 1).text(), "SN-ASUS-999")
+                    self.assertEqual(window.tbl_products.item(0, 2).text(), "P-ORD-01")
+                    self.assertEqual(window.tbl_products.item(0, 3).text(), "لپ‌تاپ مهندسی ایسوس")
+
+                    # Select row and verify form inputs
+                    window.tbl_products.selectRow(0)
+                    window._on_product_row_selected()
+                    self.assertEqual(window.ed_prod_serial.text(), "SN-ASUS-999")
+                    self.assertEqual(window.ed_prod_code.text(), "P-ORD-01")
+                    self.assertEqual(window.ed_prod_name.text(), "لپ‌تاپ مهندسی ایسوس")
+                finally:
+                    window.close()
+
+    def test_purchases_and_sales_input_grid_and_table_column_order(self):
+        """Requirement 5, 7, 11: Purchases & Sales form input ordering and table column placement."""
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = os.path.join(tmp, "purch_sales_order.db")
+            config_path = os.path.join(tmp, "app_config.json")
+            with patch.object(database, "CONFIG_FILE", config_path):
+                db = DatabaseManager(db_path)
+                p_code = db.add_product("P-T-01", "رم تستی", "قطعات", "رم کامپیوتر (Desktop RAM)", "Kingston", "Fury", {}, "", 1, 20, serial_number="SN-PROD-01")
+                with db.get_connection() as conn:
+                    p_id = conn.execute("SELECT id FROM products WHERE code=?", (p_code,)).fetchone()["id"]
+                b_code = db.add_batch("B-T-01", p_id, None, None, "INV-BUY-1", "1405/01/01", 10, 2000, 0, 2500, 0, serial_numbers="SN-BATCH-01")
+                with db.get_connection() as conn:
+                    b_id = conn.execute("SELECT id FROM batches WHERE batch_code=?", (b_code,)).fetchone()["id"]
+                db.add_sale("INV-SALE-1", p_id, b_id, None, "مشتری حسینی", 1, 2500, 2500, 0, "1405/01/02 12:00:00", serial_number="SN-SALE-01", customer_phone="09112223344")
+
+                window = MainWindow(db, active_employee=None)
+                try:
+                    # Purchases table columns
+                    b_cols = [window.tbl_batches.horizontalHeaderItem(i).text() for i in range(window.tbl_batches.columnCount())]
+                    self.assertEqual(b_cols[0], "شناسه")
+                    self.assertEqual(b_cols[1], "شماره سریال")
+                    self.assertEqual(b_cols[2], "کد محموله")
+
+                    self.assertEqual(window.tbl_batches.item(0, 1).text(), "SN-BATCH-01")
+                    self.assertEqual(window.tbl_batches.item(0, 2).text(), "B-T-01")
+
+                    # Sales table columns
+                    s_cols = [window.tbl_sales.horizontalHeaderItem(i).text() for i in range(window.tbl_sales.columnCount())]
+                    self.assertEqual(s_cols[0], "شناسه")
+                    self.assertEqual(s_cols[1], "شماره سریال")
+                    self.assertEqual(s_cols[2], "شماره فاکتور")
+
+                    self.assertEqual(window.tbl_sales.item(0, 1).text(), "SN-SALE-01")
+                    self.assertEqual(window.tbl_sales.item(0, 2).text(), "INV-SALE-1")
+
+                    # Selecting batch row does NOT crash and loads batch
+                    window.tbl_batches.selectRow(0)
+                    window._on_batch_row_selected()
+                    self.assertEqual(window.ed_batch_serial_number.text(), "SN-BATCH-01")
+                    self.assertEqual(window.ed_batch_code.text(), "B-T-01")
+                finally:
+                    window.close()
+
+    def test_comprehensive_reports_serial_number_and_export_config(self):
+        """Requirement 8 & 11: Report live tables place serial_number first and align with REPORT_AVAILABLE_COLUMNS."""
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = os.path.join(tmp, "report_align.db")
+            config_path = os.path.join(tmp, "app_config.json")
+            with patch.object(database, "CONFIG_FILE", config_path):
+                db = DatabaseManager(db_path)
+                p_code = db.add_product("P-REP-1", "کالای گزارش", "قطعات", "رم کامپیوتر (Desktop RAM)", "Corsair", "Pro", {}, "", 1, 20, serial_number="SN-REP-PROD")
+                with db.get_connection() as conn:
+                    p_id = conn.execute("SELECT id FROM products WHERE code=?", (p_code,)).fetchone()["id"]
+                b_code = db.add_batch("B-REP-1", p_id, None, None, "INV-B-1", "1405/01/01", 5, 5000, 0, 6000, 0, serial_numbers="SN-REP-BATCH")
+                with db.get_connection() as conn:
+                    b_id = conn.execute("SELECT id FROM batches WHERE batch_code=?", (b_code,)).fetchone()["id"]
+                db.add_sale("INV-REP-S1", p_id, b_id, None, "مشتری علوی", 1, 6000, 6000, 0, "1405/01/03 14:00:00", serial_number="SN-REP-SALE", customer_phone="09199998888")
+
+                window = MainWindow(db, active_employee=None)
+                try:
+                    # Sales report
+                    window.cb_rep_type.setCurrentText("۱. گزارش کامل تمام فروش‌ها")
+                    window._update_report_live()
+                    rep_headers = [window.tbl_report.horizontalHeaderItem(i).text() for i in range(window.tbl_report.columnCount())]
+                    self.assertEqual(rep_headers[0], "شماره سریال")
+                    self.assertEqual(rep_headers[1], "شماره فاکتور")
+                    self.assertEqual(rep_headers, REPORT_AVAILABLE_COLUMNS["۱. گزارش کامل تمام فروش‌ها"])
+
+                    # Purchases report
+                    window.cb_rep_type.setCurrentText("۲. گزارش کامل تمام خریدها (محموله‌ها)")
+                    window._update_report_live()
+                    rep_headers_b = [window.tbl_report.horizontalHeaderItem(i).text() for i in range(window.tbl_report.columnCount())]
+                    self.assertEqual(rep_headers_b[0], "شماره سریال")
+                    self.assertEqual(rep_headers_b[1], "کد محموله")
+                    self.assertEqual(rep_headers_b, REPORT_AVAILABLE_COLUMNS["۲. گزارش کامل تمام خریدها (محموله‌ها)"])
+
+                    # Inventory report
+                    window.cb_rep_type.setCurrentText("۳. گزارش موجودی فعلی کالاها")
+                    window._update_report_live()
+                    rep_headers_i = [window.tbl_report.horizontalHeaderItem(i).text() for i in range(window.tbl_report.columnCount())]
+                    self.assertEqual(rep_headers_i[0], "شماره سریال")
+                    self.assertEqual(rep_headers_i[1], "کد کالا")
+                    self.assertEqual(rep_headers_i[2], "نام کالا")
+                    self.assertEqual(rep_headers_i, REPORT_AVAILABLE_COLUMNS["۳. گزارش موجودی فعلی کالاها"])
+
+                    # On-page custom report creation
+                    self.assertTrue(hasattr(window, "ed_report_name"))
+                    window.ed_report_name.setText("گزارش سود ماهانه فروشگاه")
+                    window._add_custom_report_profile()
+                    self.assertIn("گزارش سود ماهانه فروشگاه", REPORT_AVAILABLE_COLUMNS)
+                finally:
+                    window.close()
+
 
 if __name__ == "__main__":
     unittest.main()

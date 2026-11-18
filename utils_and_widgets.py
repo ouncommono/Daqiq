@@ -22,10 +22,12 @@ from PySide6.QtWidgets import (
     QTableWidget,
     QListWidget,
     QAbstractItemView,
+    QStyledItemDelegate,
 )
 from PySide6.QtCore import (
     Qt,
     Signal,
+    QEvent,
     QModelIndex,
     QSortFilterProxyModel,
     QPropertyAnimation,
@@ -677,6 +679,11 @@ class SmoothScrollTableWidget(QTableWidget):
     def __init__(self, rows=0, columns=0, parent=None):
         super().__init__(rows, columns, parent)
         self._wheel_animation = None
+
+    def selectRow(self, row: int):
+        super().selectRow(row)
+        if 0 <= row < self.rowCount() and not self.selectionModel().hasSelection():
+            self.setCurrentCell(row, 0)
 
     def wheelEvent(self, event):
         horizontal = bool(event.modifiers() & Qt.ShiftModifier)
@@ -1350,35 +1357,68 @@ class JalaliDateEdit(QWidget):
             self.set_date("")
 
 
-class DynamicSpecsWidget(QGroupBox):
+class FullRowCheckDelegate(QStyledItemDelegate):
+    """Ensure clicking anywhere on an item row or label toggles its check state without double toggling."""
+    def editorEvent(self, event, model, option, index):
+        if event.type() == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
+            current = index.data(Qt.CheckStateRole)
+            if current is not None:
+                new_state = Qt.Unchecked if current == Qt.Checked else Qt.Checked
+                model.setData(index, new_state, Qt.CheckStateRole)
+                return True
+        return super().editorEvent(event, model, option, index)
+
+
+class _FormLayoutCompat:
+    """Compatibility adapter for tests expecting a QFormLayout API on DynamicSpecsWidget."""
+    def __init__(self, owner):
+        self._owner = owner
+
+    def labelForField(self, field_widget):
+        return self._owner._field_labels.get(field_widget)
+
+
+class DynamicSpecsWidget(QWidget):
     """
-    بند ۱ و ۲: ویجت جامع زیرمجموعه‌ها و مشخصات فنی با قابلیت تایپ دستی زیرمجموعه
-    و پوشش کامل لپ‌تاپ، قطعات، لوازم جانبی، مانیتور، کیس/مینی‌کیس، آداپتور و...
+    ویجت تخصصی و پیشرفته مشخصات فنی زیرمجموعه‌ها با چیدمان گرید دو ستونه منظم و ریسپانسیو.
     """
 
     def __init__(self, parent=None):
-        super().__init__("انتخاب زیرمجموعه و مشخصات فنی کالا", parent)
+        super().__init__(parent)
+        self.setLayoutDirection(Qt.RightToLeft)
         self.main_layout = QVBoxLayout(self)
-        self.form_widget = QWidget()
-        self.form_layout = QFormLayout(self.form_widget)
-        self.form_widget.setLayoutDirection(Qt.RightToLeft)
-        self.form_layout.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.form_layout.setFormAlignment(Qt.AlignRight | Qt.AlignTop)
-        self.form_layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
-        self.form_layout.setHorizontalSpacing(12)
-        self.form_layout.setVerticalSpacing(9)
-        self.form_scroll = SmoothScrollArea(self)
-        self.form_scroll.setWidget(self.form_widget)
-        self.form_scroll.setWidgetResizable(True)
-        self.form_scroll.setMinimumHeight(150)
-        self.form_scroll.setMaximumHeight(285)
-        self.main_layout.addWidget(self.form_scroll)
-        self.current_category = "لپ‌تاپ"
+        self.main_layout.setContentsMargins(4, 4, 4, 4)
+        self.main_layout.setSpacing(8)
+
+        # ردیف بالای انتخاب زیرمجموعه
+        self.sub_header_layout = QHBoxLayout()
+        self.sub_header_layout.setSpacing(8)
+        self.lbl_sub = QLabel("زیرمجموعه:")
+        self.lbl_sub.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.lbl_sub.setMinimumWidth(80)
+        self.cb_sub = SearchableComboBox()
+        self.cb_sub.setEditable(0)
+        self.cb_sub.setToolTip("زیرمجموعه را از فهرست انتخاب کنید")
+        self.sub_header_layout.addWidget(self.lbl_sub)
+        self.sub_header_layout.addWidget(self.cb_sub, 1)
+        self.main_layout.addLayout(self.sub_header_layout)
+
+        # کانتینر مشخصات فنی تخصصی با لایه‌بندی شبکه (Grid) دو ستونه
+        self.sub_container = QWidget()
+        self.sub_container.setLayoutDirection(Qt.RightToLeft)
+        self.sub_layout = QGridLayout(self.sub_container)
+        self.sub_layout.setContentsMargins(0, 4, 0, 4)
+        self.sub_layout.setHorizontalSpacing(10)
+        self.sub_layout.setVerticalSpacing(8)
+        self.main_layout.addWidget(self.sub_container)
+
+        self.current_category = "لپ تاپ"
         self.fields = {}
         self._custom_field_widgets = {}
-        self.cb_sub = None
+        self._field_labels = {}
+        self.form_layout = _FormLayoutCompat(self)
         self._custom_field_callback = None
-        self.set_category("لپ‌تاپ")
+        self.set_category("لپ تاپ")
 
     def set_custom_field_callback(self, callback):
         """Store bound callbacks weakly to avoid a MainWindow <-> widget cycle."""
@@ -1397,75 +1437,21 @@ class DynamicSpecsWidget(QGroupBox):
             callback()
 
     def _clear_form(self):
-        while self.form_layout.count():
-            item = self.form_layout.takeAt(0)
+        while self.sub_layout.count():
+            item = self.sub_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
         self.fields.clear()
         self._custom_field_widgets.clear()
-        self.cb_sub = None
-
-    def _apply_compact_form_layouts(self):
-        """Keep RTL field captions compact while giving editors consistent spacing."""
-        layouts = [self.form_layout]
-        sub_layout = getattr(self, "sub_layout", None)
-        if sub_layout is not None:
-            try:
-                layouts.append(sub_layout)
-            except RuntimeError:
-                pass
-
-        for form_layout in layouts:
-            try:
-                form_layout.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                form_layout.setFormAlignment(Qt.AlignRight | Qt.AlignTop)
-                form_layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
-                form_layout.setHorizontalSpacing(12)
-                form_layout.setVerticalSpacing(9)
-                for row in range(form_layout.rowCount()):
-                    field_item = form_layout.itemAt(row, QFormLayout.FieldRole)
-                    field_widget = field_item.widget() if field_item else None
-                    label_widget = (
-                        form_layout.labelForField(field_widget)
-                        if field_widget is not None else None
-                    )
-                    if isinstance(label_widget, QLabel):
-                        label_widget.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                        label_widget.setLayoutDirection(Qt.RightToLeft)
-                        label_widget.setSizePolicy(
-                            QSizePolicy.Maximum, QSizePolicy.Fixed
-                        )
-                        label_widget.setMinimumWidth(72)
-                        label_widget.setMaximumWidth(
-                            max(100, min(220, label_widget.sizeHint().width() + 8))
-                        )
-                        label_widget.setWordWrap(False)
-                    if field_widget is not None:
-                        field_widget.setMinimumHeight(
-                            max(30, field_widget.minimumHeight())
-                        )
-                        field_widget.setSizePolicy(
-                            QSizePolicy.Expanding, QSizePolicy.Fixed
-                        )
-            except RuntimeError:
-                # A category rebuild may have just scheduled this layout for deletion.
-                continue
 
     def set_subcategory_label(self, label: str):
         """Customize the caption associated with the category-specific subcategory selector."""
-        if self.cb_sub is None:
-            return
-        label_widget = self.form_layout.labelForField(self.cb_sub)
-        if label_widget is not None:
-            label_widget.setText(f"{str(label or 'زیرمجموعه').strip()}:")
+        if hasattr(self, "lbl_sub") and self.lbl_sub is not None:
+            self.lbl_sub.setText(f"{str(label or 'زیرمجموعه').strip()}:")
 
     def set_category(self, category: str):
         self.current_category = category.strip()
         self._clear_form()
-
-        self.cb_sub = SearchableComboBox()
-        self.cb_sub.setEditable(0)
-        self.cb_sub.setToolTip("زیرمجموعه را از فهرست انتخاب کنید")
 
         cat_key = self.current_category
         for k in DEFAULT_SUBCATEGORIES:
@@ -1474,19 +1460,19 @@ class DynamicSpecsWidget(QGroupBox):
                 break
 
         subs = DEFAULT_SUBCATEGORIES.get(cat_key, ["سایر موارد (Other)"])
+        self.cb_sub.blockSignals(True)
+        self.cb_sub.clear()
         self.cb_sub.addItems(subs)
-        self.form_layout.addRow(f"زیرمجموعه {self.current_category}:", self.cb_sub)
+        self.cb_sub.blockSignals(False)
+        self.lbl_sub.setText(f"زیرمجموعه {self.current_category}:")
 
-        self.sub_container = QWidget()
-        self.sub_layout = QFormLayout(self.sub_container)
-        self.sub_layout.setContentsMargins(0, 0, 0, 0)
-        self.form_layout.addRow(self.sub_container)
-
+        try:
+            self.cb_sub.currentTextChanged.disconnect()
+        except Exception:
+            pass
         self.cb_sub.currentTextChanged.connect(self._rebuild_subfields)
         if subs:
             self._rebuild_subfields(subs[0])
-
-        self._apply_compact_form_layouts()
 
     def _rebuild_subfields(self, sub_text: str = ""):
         if not hasattr(self, "sub_layout") or self.sub_layout is None:
@@ -1497,6 +1483,7 @@ class DynamicSpecsWidget(QGroupBox):
                 it.widget().deleteLater()
         self.fields.clear()
         self._custom_field_widgets.clear()
+        self._field_labels.clear()
 
         sub_clean = (sub_text or (self.cb_sub.currentText() if self.cb_sub else "")).strip()
         cat_norm = normalize_catalog_label(self.current_category)
@@ -1504,11 +1491,20 @@ class DynamicSpecsWidget(QGroupBox):
         # Rule B.1: If "سایر موارد" or "Other", keep ONLY "مشخصات" (Specifications)
         if "سایر موارد" in sub_clean or "other" in sub_clean.lower() or cat_norm == normalize_catalog_label("سایر موارد"):
             ed_spec = SmartLineEdit("مشخصات فنی یا توضیحات...")
+            lbl_spec = QLabel("مشخصات (Specifications):")
+            lbl_spec.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            lbl_spec.setMinimumWidth(80)
+            ed_spec.setMinimumHeight(30)
+            ed_spec.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            self.sub_layout.addWidget(lbl_spec, 0, 0)
+            self.sub_layout.addWidget(ed_spec, 0, 1, 1, 3)
             self.fields["مشخصات"] = ed_spec
-            self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
-            self._apply_compact_form_layouts()
+            self._field_labels[ed_spec] = lbl_spec
             self._notify_custom_field_callback()
             return
+
+        regular_fields = []
+        ed_spec = None
 
         if "لپ تاپ" in cat_norm or "لپتاپ" in cat_norm:
             cb_cpu = SearchableComboBox()
@@ -1529,26 +1525,16 @@ class DynamicSpecsWidget(QGroupBox):
             cb_hz.addItems(REFRESH_RATES)
             ed_spec = SmartLineEdit("سایر مشخصات فنی (پورت‌ها، وب‌کم، کیبورد با نور پس‌زمینه و...)")
 
-            self.fields = {
-                "پردازنده": cb_cpu,
-                "ظرفیت رم": cb_ram,
-                "نسخه DDR": cb_ram_type,
-                "حافظه داخلی": cb_storage,
-                "پردازنده گرافیکی": cb_gpu,
-                "سایز صفحه نمایش": cb_screen,
-                "دقت صفحه نمایش": cb_res,
-                "نرخ نوسازی": cb_hz,
-                "مشخصات": ed_spec,
-            }
-            self.sub_layout.addRow("پردازنده (CPU):", cb_cpu)
-            self.sub_layout.addRow("ظرفیت رم (RAM):", cb_ram)
-            self.sub_layout.addRow("نسخه DDR:", cb_ram_type)
-            self.sub_layout.addRow("حافظه داخلی (Storage):", cb_storage)
-            self.sub_layout.addRow("کارت گرافیک (GPU):", cb_gpu)
-            self.sub_layout.addRow("سایز صفحه نمایش:", cb_screen)
-            self.sub_layout.addRow("دقت تصویر (Resolution):", cb_res)
-            self.sub_layout.addRow("نرخ نوسازی (Refresh Rate):", cb_hz)
-            self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
+            regular_fields = [
+                ("پردازنده", "پردازنده (CPU):", cb_cpu),
+                ("ظرفیت رم", "ظرفیت رم (RAM):", cb_ram),
+                ("نسخه DDR", "نسخه DDR:", cb_ram_type),
+                ("حافظه داخلی", "حافظه داخلی (Storage):", cb_storage),
+                ("پردازنده گرافیکی", "کارت گرافیک (GPU):", cb_gpu),
+                ("سایز صفحه نمایش", "سایز صفحه نمایش:", cb_screen),
+                ("دقت صفحه نمایش", "دقت تصویر (Resolution):", cb_res),
+                ("نرخ نوسازی", "نرخ نوسازی (Refresh Rate):", cb_hz),
+            ]
 
         elif "کیس" in cat_norm or "سیستم" in cat_norm:
             if "case" in sub_clean.lower() or "پوسته" in sub_clean:
@@ -1557,14 +1543,10 @@ class DynamicSpecsWidget(QGroupBox):
                 cb_rgb = SearchableComboBox()
                 cb_rgb.addItems(["", "None", "Single Color LED", "RGB", "ARGB"])
                 ed_spec = SmartLineEdit("مشخصات بدنه و فن‌های نصب‌شده...")
-                self.fields = {
-                    "فرم فاکتور کیس": cb_form,
-                    "نورپردازی": cb_rgb,
-                    "مشخصات": ed_spec,
-                }
-                self.sub_layout.addRow("فرم فاکتور کیس:", cb_form)
-                self.sub_layout.addRow("نورپردازی:", cb_rgb)
-                self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
+                regular_fields = [
+                    ("فرم فاکتور کیس", "فرم فاکتور کیس:", cb_form),
+                    ("نورپردازی", "نورپردازی:", cb_rgb),
+                ]
             else:
                 cb_cpu = SearchableComboBox()
                 cb_cpu.addItems(CPU_LIST)
@@ -1577,20 +1559,13 @@ class DynamicSpecsWidget(QGroupBox):
                 cb_gpu = SearchableComboBox()
                 cb_gpu.addItems(GPU_LIST)
                 ed_spec = SmartLineEdit("سایر مشخصات سیستم...")
-                self.fields = {
-                    "پردازنده": cb_cpu,
-                    "ظرفیت رم": cb_ram,
-                    "نسخه DDR": cb_ram_type,
-                    "حافظه داخلی": cb_storage,
-                    "پردازنده گرافیکی": cb_gpu,
-                    "مشخصات": ed_spec,
-                }
-                self.sub_layout.addRow("پردازنده (CPU):", cb_cpu)
-                self.sub_layout.addRow("ظرفیت رم (RAM):", cb_ram)
-                self.sub_layout.addRow("نسخه DDR:", cb_ram_type)
-                self.sub_layout.addRow("حافظه داخلی (Storage):", cb_storage)
-                self.sub_layout.addRow("کارت گرافیک (GPU):", cb_gpu)
-                self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
+                regular_fields = [
+                    ("پردازنده", "پردازنده (CPU):", cb_cpu),
+                    ("ظرفیت رم", "ظرفیت رم (RAM):", cb_ram),
+                    ("نسخه DDR", "نسخه DDR:", cb_ram_type),
+                    ("حافظه داخلی", "حافظه داخلی (Storage):", cb_storage),
+                    ("پردازنده گرافیکی", "کارت گرافیک (GPU):", cb_gpu),
+                ]
 
         elif "قطعات" in cat_norm:
             if "cpu" in sub_clean.lower() or "پردازنده" in sub_clean:
@@ -1599,10 +1574,10 @@ class DynamicSpecsWidget(QGroupBox):
                 cb_sock = SearchableComboBox()
                 cb_sock.addItems(["", "LGA 775", "LGA 1155", "LGA 1150", "LGA 1151", "LGA 1200", "LGA 1700", "LGA 1851", "AM3 / AM3+", "AM4", "AM5", "TR4 / sTRX4", "BGA"])
                 ed_spec = SmartLineEdit("فرکانس، تعداد هسته و مشخصات دیگر...")
-                self.fields = {"سری پردازنده": cb_title, "سوکت": cb_sock, "مشخصات": ed_spec}
-                self.sub_layout.addRow("سری پردازنده:", cb_title)
-                self.sub_layout.addRow("سوکت:", cb_sock)
-                self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
+                regular_fields = [
+                    ("سری پردازنده", "سری پردازنده:", cb_title),
+                    ("سوکت", "سوکت:", cb_sock),
+                ]
 
             elif "motherboard" in sub_clean.lower() or "مادربرد" in sub_clean:
                 cb_sock = SearchableComboBox()
@@ -1614,12 +1589,12 @@ class DynamicSpecsWidget(QGroupBox):
                 cb_ddr = SearchableComboBox()
                 cb_ddr.addItems(DDR_VERSIONS)
                 ed_spec = SmartLineEdit("مشخصات اسلات‌ها و درگاه‌ها...")
-                self.fields = {"سوکت": cb_sock, "چیپست": cb_chip, "فرم فاکتور": cb_form, "نسخه DDR": cb_ddr, "مشخصات": ed_spec}
-                self.sub_layout.addRow("سوکت:", cb_sock)
-                self.sub_layout.addRow("چیپست:", cb_chip)
-                self.sub_layout.addRow("فرم فاکتور:", cb_form)
-                self.sub_layout.addRow("نسخه DDR:", cb_ddr)
-                self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
+                regular_fields = [
+                    ("سوکت", "سوکت:", cb_sock),
+                    ("چیپست", "چیپست:", cb_chip),
+                    ("فرم فاکتور", "فرم فاکتور:", cb_form),
+                    ("نسخه DDR", "نسخه DDR:", cb_ddr),
+                ]
 
             elif "ram" in sub_clean.lower() or "رم" in sub_clean:
                 cb_cap = SearchableComboBox()
@@ -1629,11 +1604,11 @@ class DynamicSpecsWidget(QGroupBox):
                 cb_bus = SearchableComboBox()
                 cb_bus.addItems(RAM_FREQUENCIES)
                 ed_spec = SmartLineEdit("تایمینگ، هیت‌سینک، ولتاژ...")
-                self.fields = {"ظرفیت": cb_cap, "نسخه DDR": cb_ddr, "فرکانس": cb_bus, "مشخصات": ed_spec}
-                self.sub_layout.addRow("ظرفیت رم:", cb_cap)
-                self.sub_layout.addRow("نسخه DDR:", cb_ddr)
-                self.sub_layout.addRow("فرکانس (Frequency):", cb_bus)
-                self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
+                regular_fields = [
+                    ("ظرفیت", "ظرفیت رم:", cb_cap),
+                    ("نسخه DDR", "نسخه DDR:", cb_ddr),
+                    ("فرکانس", "فرکانس (Frequency):", cb_bus),
+                ]
 
             elif "gpu" in sub_clean.lower() or "graphic" in sub_clean.lower() or "گرافیک" in sub_clean:
                 cb_gpu = SearchableComboBox()
@@ -1643,11 +1618,11 @@ class DynamicSpecsWidget(QGroupBox):
                 cb_mem = SearchableComboBox()
                 cb_mem.addItems(["", "GDDR3", "GDDR5", "GDDR6", "GDDR6X"])
                 ed_spec = SmartLineEdit("درگاه‌های خروجی و برق ورودی...")
-                self.fields = {"چیپست گرافیک": cb_gpu, "حافظه VRAM": cb_vram, "نوع حافظه": cb_mem, "مشخصات": ed_spec}
-                self.sub_layout.addRow("چیپست گرافیک:", cb_gpu)
-                self.sub_layout.addRow("حافظه VRAM:", cb_vram)
-                self.sub_layout.addRow("نوع حافظه:", cb_mem)
-                self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
+                regular_fields = [
+                    ("چیپست گرافیک", "چیپست گرافیک:", cb_gpu),
+                    ("حافظه VRAM", "حافظه VRAM:", cb_vram),
+                    ("نوع حافظه", "نوع حافظه:", cb_mem),
+                ]
 
             elif "psu" in sub_clean.lower() or "power" in sub_clean.lower() or "پاور" in sub_clean or "تغذیه" in sub_clean:
                 cb_watt = SearchableComboBox()
@@ -1657,11 +1632,11 @@ class DynamicSpecsWidget(QGroupBox):
                 cb_mod = SearchableComboBox()
                 cb_mod.addItems(["", "Non-Modular", "Semi-Modular", "Full Modular"])
                 ed_spec = SmartLineEdit("کانکتورهای برق و گارانتی...")
-                self.fields = {"توان خروجی": cb_watt, "استاندارد بازدهی": cb_cert, "مدیریت کابل": cb_mod, "مشخصات": ed_spec}
-                self.sub_layout.addRow("توان خروجی (Watt):", cb_watt)
-                self.sub_layout.addRow("استاندارد بازدهی:", cb_cert)
-                self.sub_layout.addRow("مدیریت کابل:", cb_mod)
-                self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
+                regular_fields = [
+                    ("توان خروجی", "توان خروجی (Watt):", cb_watt),
+                    ("استاندارد بازدهی", "استاندارد بازدهی:", cb_cert),
+                    ("مدیریت کابل", "مدیریت کابل:", cb_mod),
+                ]
 
             elif "cooler" in sub_clean.lower() or "خنک کننده" in sub_clean:
                 cb_type = SearchableComboBox()
@@ -1669,15 +1644,13 @@ class DynamicSpecsWidget(QGroupBox):
                 cb_rgb = SearchableComboBox()
                 cb_rgb.addItems(["", "None", "Single Color LED", "RGB", "ARGB"])
                 ed_spec = SmartLineEdit("سوکت‌های پشتیبانی‌شده...")
-                self.fields = {"نوع خنک کننده": cb_type, "نورپردازی": cb_rgb, "مشخصات": ed_spec}
-                self.sub_layout.addRow("نوع خنک‌کننده:", cb_type)
-                self.sub_layout.addRow("نورپردازی:", cb_rgb)
-                self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
+                regular_fields = [
+                    ("نوع خنک کننده", "نوع خنک‌کننده:", cb_type),
+                    ("نورپردازی", "نورپردازی:", cb_rgb),
+                ]
 
             else:
                 ed_spec = SmartLineEdit("مشخصات فنی قطعه...")
-                self.fields = {"مشخصات": ed_spec}
-                self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
 
         elif "ذخیره ساز" in cat_norm or "حافظه" in cat_norm:
             if "ssd" in sub_clean.lower() and "external" not in sub_clean.lower() and "اکسترنال" not in sub_clean:
@@ -1686,10 +1659,10 @@ class DynamicSpecsWidget(QGroupBox):
                 cb_iface = SearchableComboBox()
                 cb_iface.addItems(SSD_INTERFACES)
                 ed_spec = SmartLineEdit("سرعت خواندن/نوشتن، کنترلر و چیپ حافظه...")
-                self.fields = {"ظرفیت": cb_cap, "رابط و فرم": cb_iface, "مشخصات": ed_spec}
-                self.sub_layout.addRow("ظرفیت حافظه (Capacity):", cb_cap)
-                self.sub_layout.addRow("رابط و فرم (Interface & Form Factor):", cb_iface)
-                self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
+                regular_fields = [
+                    ("ظرفیت", "ظرفیت حافظه (Capacity):", cb_cap),
+                    ("رابط و فرم", "رابط و فرم (Interface & Form Factor):", cb_iface),
+                ]
 
             elif "hdd" in sub_clean.lower() and "external" not in sub_clean.lower() and "اکسترنال" not in sub_clean:
                 cb_cap = SearchableComboBox()
@@ -1697,10 +1670,10 @@ class DynamicSpecsWidget(QGroupBox):
                 cb_iface = SearchableComboBox()
                 cb_iface.addItems(HDD_INTERFACES)
                 ed_spec = SmartLineEdit("سرعت چرخش RPM، بافر و کش...")
-                self.fields = {"ظرفیت": cb_cap, "رابط و فرم": cb_iface, "مشخصات": ed_spec}
-                self.sub_layout.addRow("ظرفیت هارد (Capacity):", cb_cap)
-                self.sub_layout.addRow("رابط و فرم (Interface & Form Factor):", cb_iface)
-                self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
+                regular_fields = [
+                    ("ظرفیت", "ظرفیت هارد (Capacity):", cb_cap),
+                    ("رابط و فرم", "رابط و فرم (Interface & Form Factor):", cb_iface),
+                ]
 
             elif "اکسترنال" in sub_clean or "external" in sub_clean.lower():
                 cb_cap = SearchableComboBox()
@@ -1708,10 +1681,10 @@ class DynamicSpecsWidget(QGroupBox):
                 cb_port = SearchableComboBox()
                 cb_port.addItems(["", "USB 3.0 / USB 3.2 Gen 1", "USB 3.2 Gen 2 (Type-C)", "USB4 / Thunderbolt"])
                 ed_spec = SmartLineEdit("مقاومت در برابر ضربه و آب...")
-                self.fields = {"ظرفیت": cb_cap, "نوع اتصال / پورت": cb_port, "مشخصات": ed_spec}
-                self.sub_layout.addRow("ظرفیت:", cb_cap)
-                self.sub_layout.addRow("نوع اتصال / پورت:", cb_port)
-                self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
+                regular_fields = [
+                    ("ظرفیت", "ظرفیت:", cb_cap),
+                    ("نوع اتصال / پورت", "نوع اتصال / پورت:", cb_port),
+                ]
 
             elif "flash" in sub_clean.lower() or "فلش" in sub_clean or "کارت" in sub_clean:
                 cb_cap = SearchableComboBox()
@@ -1719,15 +1692,13 @@ class DynamicSpecsWidget(QGroupBox):
                 cb_iface = SearchableComboBox()
                 cb_iface.addItems(["", "USB 2.0", "USB 3.0 / 3.2", "Dual USB-A + Type-C", "microSDXC / SDXC UHS-I", "microSDXC UHS-II"])
                 ed_spec = SmartLineEdit("جنس بدنه و سرعت انتقال...")
-                self.fields = {"ظرفیت": cb_cap, "نوع رابط": cb_iface, "مشخصات": ed_spec}
-                self.sub_layout.addRow("ظرفیت:", cb_cap)
-                self.sub_layout.addRow("نوع رابط:", cb_iface)
-                self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
+                regular_fields = [
+                    ("ظرفیت", "ظرفیت:", cb_cap),
+                    ("نوع رابط", "نوع رابط:", cb_iface),
+                ]
 
             else:
                 ed_spec = SmartLineEdit("مشخصات فنی حافظه...")
-                self.fields = {"مشخصات": ed_spec}
-                self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
 
         elif "مانیتور" in cat_norm:
             cb_size = SearchableComboBox()
@@ -1741,20 +1712,13 @@ class DynamicSpecsWidget(QGroupBox):
             cb_ports = SearchableComboBox()
             cb_ports.addItems(["", "HDMI + VGA", "HDMI + DisplayPort", "HDMI + DP + Type-C", "Dual HDMI + DP", "VGA + DVI"])
             ed_spec = SmartLineEdit("اسپیکر داخلی، پایه آسانسوری، HDR...")
-            self.fields = {
-                "سایز صفحه نمایش": cb_size,
-                "نوع پنل": cb_panel,
-                "دقت تصویر": cb_res,
-                "نرخ نوسازی": cb_hz,
-                "پورت های ورودی": cb_ports,
-                "مشخصات": ed_spec,
-            }
-            self.sub_layout.addRow("سایز صفحه نمایش:", cb_size)
-            self.sub_layout.addRow("نوع پنل:", cb_panel)
-            self.sub_layout.addRow("دقت تصویر:", cb_res)
-            self.sub_layout.addRow("نرخ نوسازی (Hz):", cb_hz)
-            self.sub_layout.addRow("پورت‌های ورودی:", cb_ports)
-            self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
+            regular_fields = [
+                ("سایز صفحه نمایش", "سایز صفحه نمایش:", cb_size),
+                ("نوع پنل", "نوع پنل:", cb_panel),
+                ("دقت تصویر", "دقت تصویر:", cb_res),
+                ("نرخ نوسازی", "نرخ نوسازی (Hz):", cb_hz),
+                ("پورت های ورودی", "پورت‌های ورودی:", cb_ports),
+            ]
 
         elif "لوازم جانبی" in cat_norm:
             if "mouse" in sub_clean.lower() or "ماوس" in sub_clean:
@@ -1765,16 +1729,11 @@ class DynamicSpecsWidget(QGroupBox):
                 cb_sensor = SearchableComboBox()
                 cb_sensor.addItems(["", "Optical", "Laser"])
                 ed_spec = SmartLineEdit("تعداد کلیدها، سایلنت، نورپردازی RGB...")
-                self.fields = {
-                    "نوع اتصال / پورت": cb_conn,
-                    "دقت حسگر (DPI)": cb_dpi,
-                    "نوع حسگر": cb_sensor,
-                    "مشخصات": ed_spec,
-                }
-                self.sub_layout.addRow("نوع اتصال / پورت:", cb_conn)
-                self.sub_layout.addRow("دقت حسگر (DPI):", cb_dpi)
-                self.sub_layout.addRow("نوع حسگر:", cb_sensor)
-                self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
+                regular_fields = [
+                    ("نوع اتصال / پورت", "نوع اتصال / پورت:", cb_conn),
+                    ("دقت حسگر (DPI)", "دقت حسگر (DPI):", cb_dpi),
+                    ("نوع حسگر", "نوع حسگر:", cb_sensor),
+                ]
 
             elif "keyboard" in sub_clean.lower() or "کیبورد" in sub_clean:
                 cb_conn = SearchableComboBox()
@@ -1784,16 +1743,11 @@ class DynamicSpecsWidget(QGroupBox):
                 cb_farsi = SearchableComboBox()
                 cb_farsi.addItems(["", "Yes (Factory Printed)", "No (English Only)"])
                 ed_spec = SmartLineEdit("نور پس‌زمینه، نام‌پد، استراحتگاه مچ...")
-                self.fields = {
-                    "نوع اتصال / پورت": cb_conn,
-                    "نوع سوییچ / کلید": cb_switch,
-                    "حروف فارسی": cb_farsi,
-                    "مشخصات": ed_spec,
-                }
-                self.sub_layout.addRow("نوع اتصال / پورت:", cb_conn)
-                self.sub_layout.addRow("نوع کلید / سوییچ:", cb_switch)
-                self.sub_layout.addRow("حروف فارسی چاپ کارخانه:", cb_farsi)
-                self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
+                regular_fields = [
+                    ("نوع اتصال / پورت", "نوع اتصال / پورت:", cb_conn),
+                    ("نوع سوییچ / کلید", "نوع کلید / سوییچ:", cb_switch),
+                    ("حروف فارسی", "حروف فارسی چاپ کارخانه:", cb_farsi),
+                ]
 
             elif "bag" in sub_clean.lower() or "backpack" in sub_clean.lower() or "کیف" in sub_clean or "کوله" in sub_clean:
                 cb_bag_type = SearchableComboBox()
@@ -1803,32 +1757,27 @@ class DynamicSpecsWidget(QGroupBox):
                 cb_bag_mat = SearchableComboBox()
                 cb_bag_mat.addItems(BAG_MATERIALS)
                 ed_spec = SmartLineEdit("ضربه گیر حبابی، پورت USB، ضد سرقت...")
-                self.fields = {
-                    "نوع کاربری": cb_bag_type,
-                    "سایز مناسب لپ تاپ": cb_bag_size,
-                    "جنس و مقاومت": cb_bag_mat,
-                    "مشخصات": ed_spec,
-                }
-                self.sub_layout.addRow("نوع کیف / کوله:", cb_bag_type)
-                self.sub_layout.addRow("سایز مناسب لپ‌تاپ:", cb_bag_size)
-                self.sub_layout.addRow("جنس و مقاومت بدنه:", cb_bag_mat)
-                self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
+                regular_fields = [
+                    ("نوع کاربری", "نوع کیف / کوله:", cb_bag_type),
+                    ("سایز مناسب لپ تاپ", "سایز مناسب لپ‌تاپ:", cb_bag_size),
+                    ("جنس و مقاومت", "جنس و مقاومت بدنه:", cb_bag_mat),
+                ]
 
             elif "headset" in sub_clean.lower() or "headphone" in sub_clean.lower() or "هدست" in sub_clean or "هدفون" in sub_clean or "اسپیکر" in sub_clean:
                 cb_conn = SearchableComboBox()
                 cb_conn.addItems(CONNECTIVITY_OPTIONS)
                 ed_spec = SmartLineEdit("میکروفون، نویزکنسلینگ، توان خروجی...")
-                self.fields = {"نوع اتصال / پورت": cb_conn, "مشخصات": ed_spec}
-                self.sub_layout.addRow("نوع اتصال / پورت:", cb_conn)
-                self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
+                regular_fields = [
+                    ("نوع اتصال / پورت", "نوع اتصال / پورت:", cb_conn),
+                ]
 
             else:
                 cb_conn = SearchableComboBox()
                 cb_conn.addItems(CONNECTIVITY_OPTIONS)
                 ed_spec = SmartLineEdit("مشخصات لوازم جانبی...")
-                self.fields = {"نوع اتصال / پورت": cb_conn, "مشخصات": ed_spec}
-                self.sub_layout.addRow("نوع اتصال / پورت:", cb_conn)
-                self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
+                regular_fields = [
+                    ("نوع اتصال / پورت", "نوع اتصال / پورت:", cb_conn),
+                ]
 
         elif "تجهیزات شبکه" in cat_norm or "شبکه" in cat_norm:
             cb_wifi = SearchableComboBox()
@@ -1836,10 +1785,10 @@ class DynamicSpecsWidget(QGroupBox):
             cb_speed = SearchableComboBox()
             cb_speed.addItems(["", "10/100 Fast Ethernet", "Gigabit (10/100/1000)", "2.5G / 10G Multi-Gig"])
             ed_spec = SmartLineEdit("تعداد پورت، آنتن‌ها، توان خروجی...")
-            self.fields = {"استاندارد وای فای": cb_wifi, "سرعت پورت های شبکه": cb_speed, "مشخصات": ed_spec}
-            self.sub_layout.addRow("استاندارد وای‌فای:", cb_wifi)
-            self.sub_layout.addRow("سرعت پورت‌های شبکه:", cb_speed)
-            self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
+            regular_fields = [
+                ("استاندارد وای فای", "استاندارد وای‌فای:", cb_wifi),
+                ("سرعت پورت های شبکه", "سرعت پورت‌های شبکه:", cb_speed),
+            ]
 
         elif "ماشین های اداری" in cat_norm or "ماشین‌های اداری" in cat_norm:
             cb_tech = SearchableComboBox()
@@ -1849,11 +1798,11 @@ class DynamicSpecsWidget(QGroupBox):
             cb_conn = SearchableComboBox()
             cb_conn.addItems(["", "USB Only", "USB + Network (LAN)", "USB + Wi-Fi", "USB + LAN + Wi-Fi"])
             ed_spec = SmartLineEdit("سرعت چاپ بر دقیقه، رزولوشن DPI، ظرفیت سینی...")
-            self.fields = {"فناوری چاپ": cb_tech, "قابلیت های دستگاه": cb_func, "نوع اتصال": cb_conn, "مشخصات": ed_spec}
-            self.sub_layout.addRow("فناوری چاپ:", cb_tech)
-            self.sub_layout.addRow("قابلیت‌های دستگاه:", cb_func)
-            self.sub_layout.addRow("نوع اتصال:", cb_conn)
-            self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
+            regular_fields = [
+                ("فناوری چاپ", "فناوری چاپ:", cb_tech),
+                ("قابلیت های دستگاه", "قابلیت‌های دستگاه:", cb_func),
+                ("نوع اتصال", "نوع اتصال:", cb_conn),
+            ]
 
         elif "کابل" in cat_norm or "مبدل" in cat_norm:
             cb_type = SearchableComboBox()
@@ -1861,21 +1810,79 @@ class DynamicSpecsWidget(QGroupBox):
             cb_len = SearchableComboBox()
             cb_len.addItems(["", "0.5m", "1m", "1.5m", "1.8m", "2m", "3m", "5m", "10m", "15m", "20m+"])
             ed_spec = SmartLineEdit("پشتیبانی از 4K / 8K، جنس روکش، روکش کنفی...")
-            self.fields = {"نوع درگاه / رابط": cb_type, "طول کابل": cb_len, "مشخصات": ed_spec}
-            self.sub_layout.addRow("نوع درگاه / رابط:", cb_type)
-            self.sub_layout.addRow("طول کابل:", cb_len)
-            self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
+            regular_fields = [
+                ("نوع درگاه / رابط", "نوع درگاه / رابط:", cb_type),
+                ("طول کابل", "طول کابل:", cb_len),
+            ]
 
         else:
             ed_spec = SmartLineEdit("مشخصات فنی کالا...")
-            self.fields = {"مشخصات": ed_spec}
-            self.sub_layout.addRow("مشخصات (Specifications):", ed_spec)
 
-        self._apply_compact_form_layouts()
+        if ed_spec is None:
+            ed_spec = SmartLineEdit("مشخصات فنی...")
+
+        # Build grid: 2 columns of (Label, Widget)
+        for i, (name, label_str, widget) in enumerate(regular_fields):
+            row = i // 2
+            col_offset = (i % 2) * 2
+            lbl = QLabel(label_str)
+            lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            lbl.setMinimumWidth(80)
+            widget.setMinimumHeight(30)
+            widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            self.sub_layout.addWidget(lbl, row, col_offset)
+            self.sub_layout.addWidget(widget, row, col_offset + 1)
+            self.fields[name] = widget
+            self._field_labels[widget] = lbl
+
+        spec_row = (len(regular_fields) + 1) // 2
+        lbl_spec = QLabel("مشخصات (Specifications):")
+        lbl_spec.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        lbl_spec.setMinimumWidth(80)
+        ed_spec.setMinimumHeight(30)
+        ed_spec.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.sub_layout.addWidget(lbl_spec, spec_row, 0)
+        self.sub_layout.addWidget(ed_spec, spec_row, 1, 1, 3)
+        self.fields["مشخصات"] = ed_spec
+        self._field_labels[ed_spec] = lbl_spec
+
         self._notify_custom_field_callback()
 
     def _rebuild_part_subfields(self, part_type: str):
         self._rebuild_subfields(part_type)
+
+    def _reorganize_grid(self):
+        """Place all regular fields in a clean 2-column grid, followed by 'مشخصات' spanning full width at the bottom."""
+        while self.sub_layout.count():
+            item = self.sub_layout.takeAt(0)
+            if item.widget() and not any(item.widget() is w for w in self.fields.values()):
+                item.widget().deleteLater()
+
+        self._field_labels.clear()
+        regular = [(k, v) for k, v in self.fields.items() if k != "مشخصات"]
+        for i, (name, widget) in enumerate(regular):
+            row = i // 2
+            col_offset = (i % 2) * 2
+            lbl = QLabel(f"{name}:")
+            lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            lbl.setMinimumWidth(80)
+            widget.setMinimumHeight(30)
+            widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            self.sub_layout.addWidget(lbl, row, col_offset)
+            self.sub_layout.addWidget(widget, row, col_offset + 1)
+            self._field_labels[widget] = lbl
+
+        spec_row = (len(regular) + 1) // 2
+        ed_spec = self.fields.get("مشخصات")
+        if ed_spec is not None:
+            lbl_spec = QLabel("مشخصات (Specifications):")
+            lbl_spec.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            lbl_spec.setMinimumWidth(80)
+            ed_spec.setMinimumHeight(30)
+            ed_spec.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            self.sub_layout.addWidget(lbl_spec, spec_row, 0)
+            self.sub_layout.addWidget(ed_spec, spec_row, 1, 1, 3)
+            self._field_labels[ed_spec] = lbl_spec
 
     def apply_custom_catalog(self, subcategories=None, custom_fields=None):
         """Apply user-managed subcategories and extra specification fields."""
@@ -1899,40 +1906,19 @@ class DynamicSpecsWidget(QGroupBox):
             else:
                 self.cb_sub.setCurrentText("")
             self.cb_sub.blockSignals(False)
-            if self.current_category == "قطعات":
-                self._rebuild_part_subfields(self.cb_sub.currentText())
-
-        # Remove custom widgets from the previously selected subcategory before
-        # adding the next set. Built-in fields remain in place and can be reconfigured.
-        for field_name, widget in list(self._custom_field_widgets.items()):
-            if self.fields.get(field_name) is widget:
-                self.fields.pop(field_name, None)
-            # QFormLayout.removeRow(row) owns and destroys the row widgets. Calling
-            # deleteLater() afterwards can target an already-deleted Shiboken wrapper.
-            try:
-                row, _role = self.form_layout.getWidgetPosition(widget)
-                if row >= 0:
-                    self.form_layout.removeRow(row)
-            except RuntimeError:
-                # The Qt parent may already have destroyed this widget during a
-                # category rebuild; clearing the Python reference is sufficient.
-                pass
-        self._custom_field_widgets.clear()
+            self._rebuild_subfields(self.cb_sub.currentText())
 
         if not isinstance(custom_fields, list):
             return
-        seen_custom_names = set()
+
+        has_new_custom = False
         for definition in custom_fields:
             if not isinstance(definition, dict):
                 continue
             field_name = str(definition.get("name", "")).strip()
             normalized_name = normalize_catalog_label(field_name)
-            if not field_name or not normalized_name or normalized_name in seen_custom_names:
+            if not field_name or not normalized_name or normalized_name == normalize_catalog_label("مشخصات"):
                 continue
-            seen_custom_names.add(normalized_name)
-            # The feature name is always the form label. "label" is a storage/output
-            # title and may contain @reference syntax, not a widget caption.
-            form_label = field_name
             raw_values = definition.get("values", [])
             values = [
                 str(value).strip() for value in raw_values
@@ -1948,13 +1934,6 @@ class DynamicSpecsWidget(QGroupBox):
             )
             existing_widget = self.fields.get(existing_key) if existing_key is not None else None
             if existing_widget is not None:
-                # A custom Persian spelling (for example «صفحه نمایش») may be the
-                # same feature as a built-in spelling with ZWNJ («صفحه‌نمایش»).
-                # Reuse that widget and rename its storage key instead of showing a
-                # duplicate control in the product form.
-                if existing_key != field_name:
-                    self.fields.pop(existing_key, None)
-                    self.fields[field_name] = existing_widget
                 if isinstance(existing_widget, QComboBox):
                     current_value = existing_widget.currentText()
                     existing_widget.blockSignals(True)
@@ -1964,12 +1943,6 @@ class DynamicSpecsWidget(QGroupBox):
                     if current_value in values:
                         existing_widget.setCurrentText(current_value)
                     existing_widget.blockSignals(False)
-                field_label = self.form_layout.labelForField(existing_widget)
-                if field_label is None:
-                    field_label = self.sub_layout.labelForField(existing_widget)
-                if isinstance(field_label, QLabel):
-                    field_label.setText(f"{form_label}:")
-                existing_widget.setToolTip(f"مشخصه سفارشی: {form_label}")
                 continue
 
             if values:
@@ -1978,82 +1951,20 @@ class DynamicSpecsWidget(QGroupBox):
                 widget.addItems(list(dict.fromkeys(values)))
             else:
                 widget = SmartLineEdit(f"{field_name}...")
-            widget.setToolTip(f"مشخصه سفارشی: {form_label}")
+            widget.setToolTip(f"مشخصه سفارشی: {field_name}")
+            widget.setMinimumHeight(30)
+            widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
             self.fields[field_name] = widget
             self._custom_field_widgets[field_name] = widget
-            self.form_layout.addRow(f"{form_label}:", widget)
+            has_new_custom = True
 
-        self._apply_compact_form_layouts()
-
-    def _rebuild_part_subfields(self, part_type: str):
-        while self.sub_layout.count():
-            it = self.sub_layout.takeAt(0)
-            if it.widget():
-                it.widget().deleteLater()
-        self.fields.clear()
-
-        if "CPU" in part_type or "پردازنده" in part_type:
-            cb_title = SearchableComboBox()
-            cb_title.addItems(CPU_LIST)
-            cb_sock = SearchableComboBox()
-            cb_sock.addItems(["", "LGA 775 / 1155 / 1150", "LGA 1151", "LGA 1200", "LGA 1700", "AM4", "AM5"])
-            self.fields = {"سری پردازنده": cb_title, "سوکت": cb_sock}
-            self.sub_layout.addRow("عنوان و نسل CPU:", cb_title)
-            self.sub_layout.addRow("سوکت پردازنده:", cb_sock)
-
-        elif "RAM" in part_type or "رم" in part_type:
-            cb_cap = SearchableComboBox()
-            cb_cap.addItems(RAM_CAPACITIES)
-            cb_ddr = SearchableComboBox()
-            # Start blank so DDR2 is never silently assigned to an unspecified module.
-            cb_ddr.addItems(["", "DDR2", "DDR3 / DDR3L", "DDR4", "DDR5"])
-            cb_bus = SearchableComboBox()
-            cb_bus.addItems(["", "1333MHz", "1600MHz", "2400MHz", "2666MHz", "3200MHz", "3600MHz", "4800MHz", "5600MHz", "6000MHz"])
-            self.fields = {"ظرفیت": cb_cap, "نسخه DDR": cb_ddr, "فرکانس": cb_bus}
-            self.sub_layout.addRow("ظرفیت رم:", cb_cap)
-            self.sub_layout.addRow("نسخه DDR:", cb_ddr)
-            self.sub_layout.addRow("فرکانس (Bus):", cb_bus)
-
-        elif "SSD" in part_type or "HDD" in part_type or "هارد" in part_type:
-            cb_cap = SearchableComboBox()
-            cb_cap.addItems(STORAGE_LIST)
-            cb_iface = SearchableComboBox()
-            cb_iface.addItems(["NVMe M.2 PCIe", "M.2 SATA", "SATA 2.5 اینچ", "SATA 3.5 اینچ (کیس)"])
-            self.fields = {"ظرفیت": cb_cap, "رابط و فرم": cb_iface}
-            self.sub_layout.addRow("ظرفیت حافظه:", cb_cap)
-            self.sub_layout.addRow("نوع رابط و سایز:", cb_iface)
-
-        elif "گرافیک" in part_type or "Graphic" in part_type:
-            cb_gpu = SearchableComboBox()
-            cb_gpu.addItems(GPU_LIST)
-            cb_vram = SearchableComboBox()
-            cb_vram.addItems(["", "1GB", "2GB", "4GB", "6GB", "8GB", "12GB", "16GB", "24GB"])
-            self.fields = {"چیپست گرافیک": cb_gpu, "حافظه VRAM": cb_vram}
-            self.sub_layout.addRow("مدل چیپ گرافیک:", cb_gpu)
-            self.sub_layout.addRow("ظرفیت حافظه گرافیک:", cb_vram)
-
-        elif "پاور" in part_type or "Power" in part_type:
-            cb_watt = SearchableComboBox()
-            cb_watt.addItems(["", "250W - 330W", "380W - 430W", "480W - 550W", "600W - 700W", "750W - 850W", "1000W+"])
-            cb_cert = SearchableComboBox()
-            cb_cert.addItems(["", "معمولی", "80Plus Standard/White", "80Plus Bronze", "80Plus Gold", "Full Modular"])
-            self.fields = {"توان پاور": cb_watt, "استاندارد": cb_cert}
-            self.sub_layout.addRow("توان خروجی (Watt):", cb_watt)
-            self.sub_layout.addRow("استاندارد / کابل‌کشی:", cb_cert)
-
-        else:
-            ed_custom = SmartLineEdit("مشخصه فنی قطعه (مثلاً سوکت، ولتاژ، سایز پنل...)")
-            self.fields = {"مشخصه فنی": ed_custom}
-            self.sub_layout.addRow("مشخصات فنی قطعه:", ed_custom)
-
-        self._apply_compact_form_layouts()
-        # Run only after the built-in fields for the newly selected part type exist.
-        self._notify_custom_field_callback()
+        if has_new_custom:
+            self._reorganize_grid()
 
     def get_sub_category(self) -> str:
         if self.cb_sub:
-            return self.cb_sub.currentText().strip() or "سایر موارد"
-        return "سایر موارد"
+            return self.cb_sub.currentText().strip() or "سایر موارد (Other)"
+        return "سایر موارد (Other)"
 
     def set_sub_category(self, sub_text: str):
         if self.cb_sub and sub_text:

@@ -71,6 +71,7 @@ from utils_and_widgets import (
     SmoothScrollArea,
     SmoothScrollTableWidget,
     SmoothScrollListWidget,
+    FullRowCheckDelegate,
     CollapsibleSection,
     bidi_isolate_text,
     strip_bidi_controls,
@@ -93,72 +94,84 @@ REPORT_AVAILABLE_COLUMNS = {
         "پرداخت‌شده (تومان)", "مانده حساب (تومان)", "سود خالص (تومان)", "وضعیت تسویه",
     ],
     "۱. گزارش کامل تمام فروش‌ها": [
-        "شناسه", "شماره فاکتور", "تاریخ و ساعت فروش", "کد کالا", "مشخصات کالا",
-        "کد محموله", "فروشنده", "مشتری", "شماره تماس مشتری", "تعداد", "قیمت پیشنهادی واحد",
-        "قیمت فروش واحد", "بهای تمام‌شده واحد", "تخفیف (-) / تشدید (+)",
-        "سود واحد", "سود کل", "مبلغ کل فاکتور", "دریافتی", "مانده حساب",
-        "وضعیت تسویه", "گارانتی", "سریال کالا", "رنگ‌ها", "مشخصات فنی", "توضیحات",
+        "شماره سریال", "شماره فاکتور", "تاریخ و ساعت فروش", "کد کالا", "دسته‌بندی",
+        "زیرمجموعه", "برند و مدل", "کد محموله", "فروشنده", "مشتری",
+        "شماره تماس مشتری", "تعداد", "قیمت پیشنهادی واحد", "قیمت فروش واحد",
+        "تخفیف (-) / تشدید (+)", "بهای تمام‌شده واحد", "سود هر واحد", "سود کل ردیف",
+        "مبلغ کل فاکتور", "مبلغ دریافتی", "مانده طلب", "وضعیت تسویه", "شرکت گارانتی",
+        "انقضای گارانتی", "مشخصات فنی",
     ],
     "۱۱. گزارش تخفیف‌ها و تشدیدهای فروش": [
-        "شماره فاکتور", "تاریخ فروش", "کد کالا", "عنوان کالا", "فروشنده",
-        "مشتری", "تعداد", "قیمت پیشنهادی واحد", "قیمت فروش واحد", "تخفیف واحد",
-        "تخفیف کل", "تشدید واحد", "تشدید کل", "تخفیف (-) / تشدید (+) کل",
-        "درصد اثر بر قیمت (%)",
+        "شماره سریال", "شماره فاکتور", "تاریخ و ساعت فروش", "کد کالا", "دسته‌بندی",
+        "زیرمجموعه", "برند و مدل", "کد محموله", "فروشنده", "مشتری",
+        "شماره تماس مشتری", "تعداد", "قیمت پیشنهادی واحد", "قیمت فروش واحد",
+        "تخفیف (-) / تشدید (+)", "بهای تمام‌شده واحد", "سود هر واحد", "سود کل ردیف",
+        "مبلغ کل فاکتور", "مبلغ دریافتی", "مانده طلب", "وضعیت تسویه", "شرکت گارانتی",
+        "انقضای گارانتی", "مشخصات فنی",
     ],
     "۱۲. گزارش کامل خدمات انجام‌شده": [
-        "شناسه", "شماره قبض", "تاریخ و ساعت", "کد خدمت", "نوع خدمت",
-        "عنوان خدمت", "ثبت‌کننده / پذیرش", "کارشناس / تکنسین", "مشتری",
-        "تعرفه مرجع", "اجرت دریافتی", "هزینه جانبی", "دریافتی", "مانده طلب",
-        "وضعیت تسویه", "سود خالص خدمت", "شرح خدمت",
+        "شماره فاکتور", "تاریخ و ساعت", "نوع خدمت", "نام خدمت", "مسئول خدمت",
+        "نام مشتری", "هزینه خدمت (تومان)", "تخفیف (-) / تشدید (+)",
+        "هزینه‌های جانبی (تومان)", "سود خالص خدمت (تومان)", "مبلغ دریافتی (تومان)",
+        "مانده طلب", "وضعیت تسویه", "شرح خدمات",
     ],
     "۲. گزارش کامل تمام خریدها (محموله‌ها)": [
-        "شناسه", "کد محموله", "شماره سریال", "کد کالا", "مشخصات کالا", "تأمین‌کننده",
-        "مسئول خرید", "شماره فاکتور", "تاریخ خرید", "تعداد خرید", "تعداد فروش",
-        "موجودی فعلی", "قیمت خرید واحد", "هزینه جانبی کل", "هزینه ارتقا واحد",
-        "بهای تمام‌شده واحد", "قیمت فروش پیشنهادی", "درصد سود (%)", "وضعیت تسویه",
-        "پرداخت‌شده", "مانده بدهی", "مشخصات فنی / توضیحات", "بهای کل محموله (تومان)",
-        "رنگ‌های محموله",
+        "شماره سریال", "کد محموله", "شماره فاکتور خرید", "تاریخ خرید", "کد کالا",
+        "دسته‌بندی", "زیرمجموعه", "برند و مدل", "تأمین‌کننده", "مسئول خرید",
+        "تعداد اولیه", "تعداد فروش‌رفته", "موجودی باقی‌مانده", "قیمت خرید واحد",
+        "هزینه جانبی کل", "هزینه ارتقا واحد", "بهای تمام‌شده واحد", "قیمت فروش پیشنهادی",
+        "درصد سود (%)", "مبلغ کل خرید", "پرداخت‌شده", "مانده بدهی",
+        "سود تحقق‌یافته محموله", "وضعیت تسویه", "مشخصات / توضیحات",
     ],
     "۹. گزارش بدهی به تأمین‌کنندگان": [
-        "شناسه محموله", "کد محموله", "کد کالا", "مشخصات کالا", "تأمین‌کننده",
-        "شماره فاکتور خرید", "تاریخ خرید", "بهای کل محموله (تومان)",
-        "مبلغ پرداخت‌شده (تومان)", "مانده بدهی (تومان)", "وضعیت تسویه",
+        "شماره سریال", "کد محموله", "شماره فاکتور خرید", "تاریخ خرید", "کد کالا",
+        "دسته‌بندی", "زیرمجموعه", "برند و مدل", "تأمین‌کننده", "مسئول خرید",
+        "تعداد اولیه", "تعداد فروش‌رفته", "موجودی باقی‌مانده", "قیمت خرید واحد",
+        "هزینه جانبی کل", "هزینه ارتقا واحد", "بهای تمام‌شده واحد", "قیمت فروش پیشنهادی",
+        "درصد سود (%)", "مبلغ کل خرید", "پرداخت‌شده", "مانده بدهی",
+        "سود تحقق‌یافته محموله", "وضعیت تسویه", "مشخصات / توضیحات",
     ],
     "۳. گزارش موجودی فعلی کالاها": [
-        "شناسه", "شماره سریال", "کد کالا", "دسته‌بندی", "زیرمجموعه", "برند", "مدل",
-        "مشخصات فنی", "موجودی کل", "تعداد فروش", "حداقل موجودی",
-        "درصد سود (%)", "وضعیت موجودی", "توضیحات",
+        "شماره سریال", "کد کالا", "نام کالا", "دسته‌بندی", "زیرمجموعه", "برند", "مدل",
+        "مشخصات فنی", "تعداد کل خریداری‌شده", "تعداد کل فروخته‌شده", "موجودی فعلی انبار",
+        "حداقل موجودی (نقطه سفارش)", "مجموع مبلغ فروش کالا", "سود تجمعی کالا (تومان)", "وضعیت موجودی",
     ],
     "۴. گزارش موجودی و سود به تفکیک محموله": [
-        "کد محموله", "کد کالا", "مشخصات کالا", "تأمین‌کننده", "تعداد خرید",
-        "تعداد فروش", "موجودی فعلی", "بهای تمام‌شده واحد", "قیمت فروش پیشنهادی",
-        "درصد سود (%)", "ارزش ریالی موجودی (تومان)", "سود محقق‌شده (تومان)",
+        "شماره سریال", "کد محموله", "شماره فاکتور خرید", "تاریخ خرید", "کد کالا",
+        "دسته‌بندی", "زیرمجموعه", "برند و مدل", "تأمین‌کننده", "مسئول خرید",
+        "تعداد اولیه", "تعداد فروش‌رفته", "موجودی باقی‌مانده", "قیمت خرید واحد",
+        "هزینه جانبی کل", "هزینه ارتقا واحد", "بهای تمام‌شده واحد", "قیمت فروش پیشنهادی",
+        "درصد سود (%)", "مبلغ کل خرید", "پرداخت‌شده", "مانده بدهی",
+        "سود تحقق‌یافته محموله", "وضعیت تسویه", "مشخصات / توضیحات",
     ],
     "۵. گزارش سود تجمعی هر کالا": [
-        "کد کالا", "دسته‌بندی", "زیرمجموعه", "برند و مدل", "کل تعداد خریداری‌شده",
-        "کل تعداد فروخته‌شده", "موجودی فعلی", "میانگین بهای تمام‌شده",
-        "میانگین قیمت فروش", "کل درآمد فروش (تومان)", "سود ناخالص تجمعی (تومان)",
+        "شماره سریال", "کد کالا", "نام کالا", "دسته‌بندی", "زیرمجموعه", "برند", "مدل",
+        "مشخصات فنی", "تعداد کل خریداری‌شده", "تعداد کل فروخته‌شده", "موجودی فعلی انبار",
+        "حداقل موجودی (نقطه سفارش)", "مجموع مبلغ فروش کالا", "سود تجمعی کالا (تومان)", "وضعیت موجودی",
     ],
     "۶. گزارش سود و عملکرد هر محموله": [
-        "کد محموله", "کد کالا", "مشخصات کالا", "تأمین‌کننده", "تعداد اولیه",
-        "تعداد فروخته‌شده", "موجودی باقی‌مانده", "کل بهای تمام‌شده محموله",
-        "کل درآمد حاصل از فروش", "سود محقق‌شده فعلی", "سود بالقوه موجودی باقی‌مانده",
-        "کل سود پیش‌بینی‌شده محموله", "درصد بازدهی سرمایه (%)",
+        "شماره سریال", "کد محموله", "شماره فاکتور خرید", "تاریخ خرید", "کد کالا",
+        "دسته‌بندی", "زیرمجموعه", "برند و مدل", "تأمین‌کننده", "مسئول خرید",
+        "تعداد اولیه", "تعداد فروش‌رفته", "موجودی باقی‌مانده", "قیمت خرید واحد",
+        "هزینه جانبی کل", "هزینه ارتقا واحد", "بهای تمام‌شده واحد", "قیمت فروش پیشنهادی",
+        "درصد سود (%)", "مبلغ کل خرید", "پرداخت‌شده", "مانده بدهی",
+        "سود تحقق‌یافته محموله", "وضعیت تسویه", "مشخصات / توضیحات",
     ],
     "۸. گزارش کالاهای کم‌موجود (نیازمند خرید)": [
-        "کد کالا", "دسته‌بندی", "زیرمجموعه", "برند و مدل", "موجودی فعلی",
-        "حداقل موجودی (حد سفارش)", "کسری موجودی", "وضعیت",
+        "شماره سریال", "کد کالا", "نام کالا", "دسته‌بندی", "زیرمجموعه", "برند", "مدل",
+        "مشخصات فنی", "تعداد کل خریداری‌شده", "تعداد کل فروخته‌شده", "موجودی فعلی انبار",
+        "حداقل موجودی (نقطه سفارش)", "مجموع مبلغ فروش کالا", "سود تجمعی کالا (تومان)", "وضعیت موجودی",
     ],
     "۷. گزارش جامع عملکرد هر کاربر / فروشنده": [
-        "شناسه کاربر", "نام کاربر / همکار", "نقش سازمانی", "تعداد فاکتورهای فروش",
-        "تعداد اقلام فروخته‌شده", "مبلغ کل فروش (تومان)", "سود حاصل از فروش (تومان)",
-        "تعداد خدمات ثبت‌شده", "درآمد خدمات (تومان)", "سود خالص خدمات (تومان)",
-        "مجموع سودآوری برای فروشگاه (تومان)",
+        "نام کاربر", "نقش سازمانی", "تعداد محموله خریداری‌شده", "مبلغ کل خرید ثبت‌شده",
+        "تعداد فاکتور فروش", "تعداد اقلام فروخته‌شده", "مبلغ کل فروش (تومان)",
+        "سود کل فروش (تومان)", "تعداد خدمات ثبت‌شده", "درآمد خدمات (تومان)",
+        "سود خالص خدمات (تومان)", "مجموع سودآوری کاربر برای فروشگاه (تومان)",
     ],
     "۱۰. گزارش فاکتورهای تسویه‌نشده (طلب و بدهی)": [
-        "نوع فاکتور", "شماره فاکتور / محموله", "تاریخ", "طرف حساب (مشتری / تأمین‌کننده)",
-        "مسئول / کاربر", "مبلغ کل (تومان)", "پرداخت‌شده / دریافتی (تومان)",
-        "مانده طلب / بدهی (تومان)", "وضعیت تسویه",
+        "نوع عملیات / فاکتور", "شماره فاکتور / محموله", "تاریخ", "طرف حساب",
+        "مسئول / کاربر", "عنوان / اقلام", "مبلغ کل (تومان)", "مبلغ پرداخت‌شده (تومان)",
+        "مانده تسویه‌نشده (تومان)", "وضعیت تسویه",
     ],
 }
 
@@ -219,6 +232,7 @@ class SettingsSnapshot:
         self.shop_name = win.db.get_setting("shop_name", "فروشگاه من")
         self.colleague_export_cols = win.db.get_setting("colleague_inventory_export_columns", "[]")
         self.report_export_configs = win.db.get_setting("report_excel_export_configs", "{}")
+        self.custom_report_profiles = win.db.get_setting("custom_report_profiles", "[]")
         self.category_text = win.ed_cfg_category.text() if hasattr(win, "ed_cfg_category") else ""
         self.subcategory_text = win.ed_cfg_subcategory.text() if hasattr(win, "ed_cfg_subcategory") else ""
         self.attribute_name_text = win.ed_cfg_attribute_name.text() if hasattr(win, "ed_cfg_attribute_name") else ""
@@ -230,6 +244,8 @@ class SettingsSnapshot:
         win.db.cfg = copy.deepcopy(self.cfg)
         win._taxonomy_draft = copy.deepcopy(self.taxonomy_draft)
         win._pending_attribute_renames = list(self.pending_attribute_renames)
+        win.db.set_setting("report_excel_export_configs", self.report_export_configs)
+        win.db.set_setting("custom_report_profiles", self.custom_report_profiles)
         win._load_general_settings_form()
         if hasattr(win, "ed_cfg_category"):
             win.ed_cfg_category.setText(self.category_text)
@@ -245,6 +261,10 @@ class SettingsSnapshot:
             win.ed_cfg_color.setText(self.color_text)
         if hasattr(win, "_catalog_settings_state"):
             win._catalog_settings_state.capture_from_window(win)
+        if hasattr(win, "cb_report_export_type"):
+            win._load_report_export_columns_ui(win.cb_report_export_type.currentText())
+        if hasattr(win, "ed_report_name"):
+            win.ed_report_name.clear()
 
 DEFAULT_ACCESS_LEVELS = [
     {"name": "دسترسی کامل (مدیر کل)", "policy": "دسترسی کامل (مدیر کل)"},
@@ -2534,7 +2554,7 @@ class MainWindow(QMainWindow):
         top_split.setSpacing(12)
 
         # کارت ۱: هویت و اطلاعات پایه کالا
-        gb_identity = QGroupBox("کارت ۱: هویت و اطلاعات پایه کالا")
+        gb_identity = QGroupBox("هویت و اطلاعات پایه کالا")
         self.gb_prod_identity = gb_identity
         f_identity = QFormLayout(gb_identity)
         f_identity.setContentsMargins(10, 12, 10, 10)
@@ -2545,6 +2565,8 @@ class MainWindow(QMainWindow):
         self.ed_prod_serial.setToolTip("شماره سریال یا بارکد کالا را وارد کنید یا با بارکدخوان اسکن نمایید.")
         self.ed_prod_code = SmartLineEdit("P-1001")
         self.ed_prod_code.setToolTip("در صورت خالی بودن، کد بعدی به‌صورت خودکار تخصیص می‌یابد.")
+        self.ed_prod_name = SmartLineEdit("نام یا عنوان کالا...")
+        self.ed_prod_name.setToolTip("نام یا عنوان کالا برای نمایش در فاکتور و گزارش‌ها")
         self.cb_prod_cat = SearchableComboBox()
         self.cb_prod_cat.setEditable(0)
         product_categories = self.catalog_config.get("categories") or list(MAIN_CATEGORIES)
@@ -2555,12 +2577,13 @@ class MainWindow(QMainWindow):
 
         f_identity.addRow("شماره سریال / بارکد:", self.ed_prod_serial)
         f_identity.addRow("کد کالا (شناسه):", self.ed_prod_code)
+        f_identity.addRow("نام کالا:", self.ed_prod_name)
         f_identity.addRow("دسته‌بندی اصلی *:", self.cb_prod_cat)
         f_identity.addRow("برند کالا:", self.ed_prod_brand)
         f_identity.addRow("مدل کالا:", self.ed_prod_model)
 
         # کارت ۲: مشخصات فنی تخصصی
-        gb_specs = QGroupBox("کارت ۲: مشخصات فنی تخصصی")
+        gb_specs = QGroupBox("مشخصات فنی تخصصی زیرمجموعه")
         self.gb_prod_specs = gb_specs
         v_specs = QVBoxLayout(gb_specs)
         v_specs.setContentsMargins(8, 10, 8, 8)
@@ -2575,7 +2598,7 @@ class MainWindow(QMainWindow):
         v_specs.addWidget(specs_scroll)
 
         # کارت ۳: انبارداری و قیمت‌گذاری
-        gb_inventory = QGroupBox("کارت ۳: انبارداری و قیمت‌گذاری")
+        gb_inventory = QGroupBox("انبارداری و قیمت‌گذاری")
         self.gb_prod_inventory = gb_inventory
         f_inventory = QFormLayout(gb_inventory)
         f_inventory.setContentsMargins(10, 12, 10, 10)
@@ -2615,7 +2638,7 @@ class MainWindow(QMainWindow):
         btn_del = QPushButton("🗑️ حذف کالای انتخابی")
         btn_del.setObjectName("btnDanger")
         btn_del.clicked.connect(self._delete_selected_product)
-        self.ed_prod_search = SmartLineEdit("🔍 جست‌وجوی کد کالا، شماره سریال، دسته‌بندی، زیرگروه، برند یا مدل...")
+        self.ed_prod_search = SmartLineEdit("🔍 جست‌وجوی کد کالا، شماره سریال، نام کالا، دسته‌بندی، زیرگروه، برند یا مدل...")
         self.ed_prod_search.textChanged.connect(self._refresh_products_table)
 
         btn_row.addWidget(btn_clear)
@@ -2631,6 +2654,7 @@ class MainWindow(QMainWindow):
                 "شناسه",
                 "شماره سریال",
                 "کد کالا",
+                "نام کالا",
                 "دسته‌بندی",
                 "زیرمجموعه",
                 "برند",
@@ -2653,6 +2677,7 @@ class MainWindow(QMainWindow):
         self.selected_product_id = None
         self._set_generated_code_placeholder(self.ed_prod_code, "products", "code", "P-")
         self.ed_prod_serial.clear()
+        self.ed_prod_name.clear()
         self.cb_prod_cat.setCurrentIndex(0)
         self._configure_product_specs(self.cb_prod_cat.currentText())
         self.ed_prod_brand.clear()
@@ -2672,15 +2697,16 @@ class MainWindow(QMainWindow):
     def _save_new_product(self):
         cat = self.cb_prod_cat.currentText().strip() or "سایر موارد"
         sub = self.specs_widget.get_sub_category()
+        name = self.ed_prod_name.text().strip()
         brand = self.ed_prod_brand.text().strip()
         model = self.ed_prod_model.text().strip()
         serial_number = self.ed_prod_serial.text().strip()
         specs_dict = self.specs_widget.get_specs_dict()
-        if not brand and not model and sub == "سایر موارد":
+        if not name and not brand and not model and ("سایر موارد" in sub or "other" in sub.lower()):
             QMessageBox.warning(
                 self,
                 "نقص اطلاعات",
-                "لطفاً حداقل یکی از موارد «زیرمجموعه»، «برند» یا «مدل» را وارد کنید.",
+                "لطفاً حداقل یکی از موارد «نام کالا»، «زیرمجموعه»، «برند» یا «مدل» را وارد کنید.",
             )
             return
         try:
@@ -2704,7 +2730,7 @@ class MainWindow(QMainWindow):
                     return
                 target_id = int(duplicate["id"])
             args = (
-                code or None, "", cat, sub, brand, model, specs_dict,
+                code or None, name, cat, sub, brand, model, specs_dict,
                 self.ed_prod_desc.text().strip(),
                 self.sp_prod_reorder.value(), self.sp_prod_profit.value(),
             )
@@ -2720,35 +2746,40 @@ class MainWindow(QMainWindow):
     def _on_product_row_selected(self):
         items = self.tbl_products.selectedItems()
         if not items:
+            row = self.tbl_products.currentRow()
+            if row < 0:
+                return
+        else:
+            row = items[0].row()
+        item_0 = self.tbl_products.item(row, 0)
+        if not item_0:
             return
-        row = items[0].row()
-        self.selected_product_id = int(self.tbl_products.item(row, 0).text())
-        serial_item = self.tbl_products.item(row, 1)
-        serial_val = serial_item.text().strip() if serial_item else ""
-        self.ed_prod_serial.setText("" if serial_val == "-" else serial_val)
-        self.ed_prod_code.setText(self.tbl_products.item(row, 2).text())
-        cat_txt = self.tbl_products.item(row, 3).text()
-        sub_txt = self.tbl_products.item(row, 4).text()
-        self.cb_prod_cat.setCurrentText(cat_txt)
-        self._configure_product_specs(cat_txt)
-        self.specs_widget.set_sub_category(sub_txt)
-        self.ed_prod_brand.setText(self.tbl_products.item(row, 5).text())
-        self.ed_prod_model.setText(self.tbl_products.item(row, 6).text())
-        self.sp_prod_reorder.setValue(int(self.tbl_products.item(row, 10).text()))
-        self.sp_prod_profit.setValue(int(float(self.tbl_products.item(row, 11).text())))
-        self.ed_prod_desc.setText(self.tbl_products.item(row, 13).text())
-
+        self.selected_product_id = int(item_0.text())
         with self.db.get_connection() as conn:
-            r = conn.execute(
-                "SELECT specs_json, serial_number FROM products WHERE id=?", (self.selected_product_id,)
+            prod = conn.execute(
+                "SELECT * FROM products WHERE id=?", (self.selected_product_id,)
             ).fetchone()
-            if r:
-                if r["serial_number"]:
-                    self.ed_prod_serial.setText(r["serial_number"])
-                if r["specs_json"]:
-                    sp_data = json.loads(r["specs_json"])
+        if prod:
+            self.ed_prod_serial.setText(prod["serial_number"] or "")
+            self.ed_prod_code.setText(prod["code"] or "")
+            self.ed_prod_name.setText(prod["name"] or "")
+            cat_txt = prod["category"] or "سایر موارد"
+            sub_txt = prod["sub_category"] or ""
+            self.cb_prod_cat.setCurrentText(cat_txt)
+            self._configure_product_specs(cat_txt)
+            self.specs_widget.set_sub_category(sub_txt)
+            self.ed_prod_brand.setText(prod["brand"] or "")
+            self.ed_prod_model.setText(prod["model"] or "")
+            self.sp_prod_reorder.setValue(int(prod["reorder_point"] or 1))
+            self.sp_prod_profit.setValue(int(float(prod["default_profit_pct"] or 20)))
+            self.ed_prod_desc.setText(prod["description"] or "")
+            if prod["specs_json"]:
+                try:
+                    sp_data = json.loads(prod["specs_json"])
                     sp_data.pop("رنگ", None)
                     self.specs_widget.set_specs_dict(sp_data)
+                except Exception:
+                    pass
 
     def _update_selected_product(self):
         specs = self.specs_widget.get_specs_dict()
@@ -2862,12 +2893,12 @@ class MainWindow(QMainWindow):
         self.pr_batch_extra.valueChanged.connect(self._recalc_batch_suggested)
         self.cb_batch_qty.qtyChanged.connect(self._recalc_batch_suggested)
 
-        grid.addWidget(QLabel("کد محموله:"), 0, 0)
-        grid.addWidget(self.ed_batch_code, 0, 1)
+        grid.addWidget(QLabel("شماره سریال / بارکد:"), 0, 0)
+        grid.addWidget(self.ed_batch_serial_number, 0, 1)
         grid.addWidget(QLabel("انتخاب کالا *:"), 0, 2)
         grid.addWidget(self.cb_batch_prod, 0, 3)
-        grid.addWidget(QLabel("شماره سریال / بارکد:"), 0, 4)
-        grid.addWidget(self.ed_batch_serial_number, 0, 5)
+        grid.addWidget(QLabel("کد محموله:"), 0, 4)
+        grid.addWidget(self.ed_batch_code, 0, 5)
 
         grid.addWidget(QLabel("تأمین‌کننده:"), 1, 0)
         grid.addWidget(self.cb_batch_supplier, 1, 1)
@@ -2922,8 +2953,8 @@ class MainWindow(QMainWindow):
         self.tbl_batches = self._create_table(
             [
                 "شناسه",
-                "کد محموله",
                 "شماره سریال",
+                "کد محموله",
                 "کد کالا",
                 "مشخصات کالا",
                 "تأمین‌کننده",
@@ -3188,43 +3219,38 @@ class MainWindow(QMainWindow):
     def _on_batch_row_selected(self):
         items = self.tbl_batches.selectedItems()
         if not items:
+            r = self.tbl_batches.currentRow()
+            if r < 0:
+                return
+        else:
+            r = items[0].row()
+        item_0 = self.tbl_batches.item(r, 0)
+        if not item_0:
             return
-        r = items[0].row()
-        self.selected_batch_id = int(self.tbl_batches.item(r, 0).text())
-        self.ed_batch_code.setText(self.tbl_batches.item(r, 1).text())
-        serial_item = self.tbl_batches.item(r, 2)
-        if serial_item:
-            self.ed_batch_serial_number.setText("" if serial_item.text() == "-" else serial_item.text())
-        self.ed_batch_inv.setText(self.tbl_batches.item(r, 7).text())
-        self.dt_batch_date.set_date(self.tbl_batches.item(r, 8).text())
-        self.cb_batch_qty.setCurrentText(self.tbl_batches.item(r, 9).text())
-        self.pr_batch_buy.set_value(
-            int(self.tbl_batches.item(r, 12).text().replace(",", ""))
-        )
-        self.pr_batch_extra.set_value(
-            int(self.tbl_batches.item(r, 13).text().replace(",", ""))
-        )
-        self.pr_batch_suggest.set_value(
-            int(self.tbl_batches.item(r, 16).text().replace(",", ""))
-        )
-        self.cb_batch_status.setCurrentText(self.tbl_batches.item(r, 18).text())
-        self.pr_batch_paid.set_value(
-            int(self.tbl_batches.item(r, 19).text().replace(",", ""))
-        )
-        batch_serial_text = self.tbl_batches.item(r, 21).text()
+        self.selected_batch_id = int(item_0.text())
         with self.db.get_connection() as conn:
             batch_state = conn.execute(
-                """SELECT b.colors_json, b.supplier_id, b.buyer_employee_id, b.serial_numbers,
-                          b.serial_number, b.product_id, p.code, p.name, p.category, p.sub_category,
-                          p.brand, p.model, p.specs_json, p.description
+                """SELECT b.*, p.code, p.name, p.category, p.sub_category,
+                          p.brand, p.model, p.specs_json, p.description,
+                          p.serial_number as product_serial_number
                    FROM batches b JOIN products p ON p.id=b.product_id
                    WHERE b.id=?""",
                 (self.selected_batch_id,),
             ).fetchone()
         if batch_state:
+            self.ed_batch_code.setText(batch_state["batch_code"] or "")
             self.ed_batch_serial_number.setText(
-                batch_state["serial_number"] or batch_state["serial_numbers"] or ""
+                batch_state["serial_numbers"] or batch_state["product_serial_number"] or ""
             )
+            self.ed_batch_inv.setText(batch_state["invoice_number"] or "")
+            self.dt_batch_date.set_date(batch_state["purchase_date"] or "")
+            self.cb_batch_qty.setCurrentText(str(batch_state["initial_qty"]))
+            self.pr_batch_buy.set_value(int(batch_state["unit_purchase_price"] or 0))
+            self.pr_batch_extra.set_value(int(batch_state["extra_cost_total"] or 0))
+            self.pr_batch_suggest.set_value(int(batch_state["suggested_sell_price"] or 0))
+            self.cb_batch_status.setCurrentText(batch_state["settlement_status"] or "تسویه‌شده")
+            self.pr_batch_paid.set_value(int(batch_state["paid_amount"] or 0))
+            self.ed_batch_serial.setText(batch_state["initial_specs"] or "")
             product_index = next(
                 (
                     index for index in range(self.cb_batch_prod.count())
@@ -3241,6 +3267,7 @@ class MainWindow(QMainWindow):
                     "sub_category": batch_state["sub_category"], "brand": batch_state["brand"],
                     "model": batch_state["model"], "specs_json": batch_state["specs_json"],
                     "description": batch_state["description"],
+                    "serial_number": batch_state["product_serial_number"],
                 }
                 product_index = self.cb_batch_prod.count()
                 self.cb_batch_prod.addItem(
@@ -3250,7 +3277,7 @@ class MainWindow(QMainWindow):
             self.cb_batch_prod.blockSignals(True)
             self.cb_batch_prod.setCurrentIndex(product_index)
             self.cb_batch_prod.blockSignals(False)
-            self.ed_batch_serial.setText(batch_serial_text)
+
             supplier_index = self.cb_batch_supplier.findData(batch_state["supplier_id"])
             buyer_index = self.cb_batch_buyer.findData(batch_state["buyer_employee_id"])
             self.cb_batch_supplier.setCurrentIndex(
@@ -3259,11 +3286,11 @@ class MainWindow(QMainWindow):
             self.cb_batch_buyer.setCurrentIndex(
                 buyer_index if buyer_index >= 0 else -1
             )
-        self._populate_color_checklist(
-            self.btn_batch_colors,
-            self.catalog_config.get("colors") or DEFAULT_COLORS,
-            self._decode_colors(batch_state["colors_json"]) if batch_state else [],
-        )
+            self._populate_color_checklist(
+                self.btn_batch_colors,
+                self.catalog_config.get("colors") or DEFAULT_COLORS,
+                self._decode_colors(batch_state["colors_json"]) if batch_state else [],
+            )
 
     def _update_selected_batch(self):
         if not self.selected_batch_id:
@@ -3405,49 +3432,60 @@ class MainWindow(QMainWindow):
         self.cb_war_months.currentIndexChanged.connect(self._recalc_warranty_end)
         self.cb_war_months.currentTextChanged.connect(self._recalc_warranty_end)
 
-        grid.addWidget(QLabel("شماره فاکتور:"), 0, 0)
-        grid.addWidget(self.ed_sale_inv, 0, 1)
+        grid.addWidget(QLabel("شماره سریال / بارکد:"), 0, 0)
+        grid.addWidget(self.ed_sale_serial, 0, 1)
         grid.addWidget(QLabel("انتخاب کالا *:"), 0, 2)
         grid.addWidget(self.cb_sale_prod, 0, 3)
         grid.addWidget(QLabel("محموله موجود *:"), 0, 4)
         grid.addWidget(self.cb_sale_batch, 0, 5)
 
-        grid.addWidget(QLabel("فروشنده *:"), 1, 0)
-        grid.addWidget(self.cb_sale_seller, 1, 1)
-        grid.addWidget(QLabel("تعداد فروش *:"), 1, 2)
-        grid.addWidget(self.cb_sale_qty, 1, 3)
-        grid.addWidget(QLabel("قیمت پیشنهادی واحد:"), 1, 4)
-        grid.addWidget(self.pr_sale_suggest, 1, 5)
+        grid.addWidget(QLabel("شماره فاکتور:"), 1, 0)
+        grid.addWidget(self.ed_sale_inv, 1, 1)
+        grid.addWidget(QLabel("فروشنده *:"), 1, 2)
+        grid.addWidget(self.cb_sale_seller, 1, 3)
+        grid.addWidget(QLabel("تعداد فروش *:"), 1, 4)
+        grid.addWidget(self.cb_sale_qty, 1, 5)
 
-        grid.addWidget(QLabel("قیمت فروش واحد:"), 2, 0)
-        grid.addWidget(self.pr_sale_actual, 2, 1)
-        grid.addWidget(QLabel("وضعیت تسویه:"), 2, 2)
-        grid.addWidget(self.cb_sale_status, 2, 3)
-        grid.addWidget(QLabel("مبلغ دریافتی:"), 2, 4)
-        grid.addWidget(self.pr_sale_paid, 2, 5)
+        grid.addWidget(QLabel("قیمت پیشنهادی واحد:"), 2, 0)
+        grid.addWidget(self.pr_sale_suggest, 2, 1)
+        grid.addWidget(QLabel("قیمت فروش واحد:"), 2, 2)
+        grid.addWidget(self.pr_sale_actual, 2, 3)
+        grid.addWidget(QLabel("وضعیت تسویه:"), 2, 4)
+        grid.addWidget(self.cb_sale_status, 2, 5)
 
-        grid.addWidget(QLabel("نام مشتری:"), 3, 0)
-        grid.addWidget(self.ed_sale_customer, 3, 1)
-        grid.addWidget(QLabel("تلفن مشتری:"), 3, 2)
-        grid.addWidget(self.ed_sale_cust_phone, 3, 3)
-        grid.addWidget(QLabel("شرکت گارانتی:"), 3, 4)
-        grid.addWidget(self.ed_war_company, 3, 5)
+        grid.addWidget(QLabel("مبلغ دریافتی:"), 3, 0)
+        grid.addWidget(self.pr_sale_paid, 3, 1)
+        grid.addWidget(QLabel("نام مشتری:"), 3, 2)
+        grid.addWidget(self.ed_sale_customer, 3, 3)
+        grid.addWidget(QLabel("تلفن مشتری:"), 3, 4)
+        grid.addWidget(self.ed_sale_cust_phone, 3, 5)
 
-        grid.addWidget(QLabel("شروع گارانتی:"), 4, 0)
-        grid.addWidget(self.dt_war_start, 4, 1)
-        grid.addWidget(QLabel("مدت گارانتی:"), 4, 2)
-        grid.addWidget(self.cb_war_months, 4, 3)
-        grid.addWidget(QLabel("انقضای گارانتی:"), 4, 4)
-        grid.addWidget(self.dt_war_end, 4, 5)
+        grid.addWidget(QLabel("شرکت گارانتی:"), 4, 0)
+        grid.addWidget(self.ed_war_company, 4, 1)
+        grid.addWidget(QLabel("شروع گارانتی:"), 4, 2)
+        grid.addWidget(self.dt_war_start, 4, 3)
+        grid.addWidget(QLabel("مدت گارانتی:"), 4, 4)
+        grid.addWidget(self.cb_war_months, 4, 5)
 
-        grid.addWidget(QLabel("سریال کالا:"), 5, 0)
-        grid.addWidget(self.ed_sale_serial, 5, 1)
+        grid.addWidget(QLabel("انقضای گارانتی:"), 5, 0)
+        grid.addWidget(self.dt_war_end, 5, 1)
         grid.addWidget(QLabel("رنگ‌های فروخته‌شده:"), 5, 2)
         grid.addWidget(self.btn_sale_colors, 5, 3, 1, 3)
 
         grid.addWidget(QLabel("مشخصات فنی کالای فروخته‌شده:"), 6, 0)
         grid.addWidget(self.ed_sale_specs, 6, 1, 1, 5)
         grid.addWidget(self.lbl_sale_summary, 7, 0, 1, 6)
+
+        self.setTabOrder(self.ed_sale_serial, self.cb_sale_prod)
+        self.setTabOrder(self.cb_sale_prod, self.cb_sale_batch)
+        self.setTabOrder(self.cb_sale_batch, self.ed_sale_inv)
+        self.setTabOrder(self.ed_sale_inv, self.cb_sale_seller)
+        self.setTabOrder(self.cb_sale_seller, self.cb_sale_qty)
+        self.setTabOrder(self.cb_sale_qty, self.pr_sale_actual)
+        self.setTabOrder(self.pr_sale_actual, self.cb_sale_status)
+        self.setTabOrder(self.cb_sale_status, self.pr_sale_paid)
+        self.setTabOrder(self.pr_sale_paid, self.ed_sale_customer)
+        self.setTabOrder(self.ed_sale_customer, self.ed_sale_cust_phone)
 
         layout.addWidget(gb)
 
@@ -3474,6 +3512,7 @@ class MainWindow(QMainWindow):
         self.tbl_sales = self._create_table(
             [
                 "شناسه",
+                "شماره سریال",
                 "شماره فاکتور",
                 "تاریخ و ساعت فروش",
                 "کد کالا",
@@ -3493,7 +3532,6 @@ class MainWindow(QMainWindow):
                 "مبلغ دریافتی",
                 "وضعیت تسویه",
                 "گارانتی و انقضا",
-                "شماره سریال",
                 "مشخصات فنی فروخته‌شده",
                 "رنگ‌های فروخته‌شده",
             ]
@@ -3614,6 +3652,7 @@ class MainWindow(QMainWindow):
                        b.settlement_status, b.serial_numbers, b.colors_json, b.initial_specs,
                        b.final_specs, b.supplier_name_snapshot, b.notes, b.created_at, b.updated_at,
                        p.code AS p_code, p.category, p.sub_category, p.brand, p.model,
+                       p.serial_number AS product_serial_number,
                    p.specs_json AS product_specs_json, p.description AS product_description
             FROM batches b
             JOIN products p ON p.id=b.product_id
@@ -3731,7 +3770,7 @@ class MainWindow(QMainWindow):
         if not getattr(self, "_syncing_serial", False):
             self._syncing_serial = True
             try:
-                b_serial = b.get("serial_number") or b.get("serial_numbers") or ""
+                b_serial = b.get("serial_numbers") or b.get("product_serial_number") or ""
                 if not b_serial and isinstance(self.cb_sale_prod.currentData(), dict):
                     b_serial = self.cb_sale_prod.currentData().get("serial_number") or ""
                 if b_serial:
@@ -3942,9 +3981,15 @@ class MainWindow(QMainWindow):
     def _on_sale_row_selected(self):
         selected = self.tbl_sales.selectedItems()
         if not selected:
+            row_index = self.tbl_sales.currentRow()
+            if row_index < 0:
+                return
+        else:
+            row_index = selected[0].row()
+        item_0 = self.tbl_sales.item(row_index, 0)
+        if not item_0:
             return
-        row_index = selected[0].row()
-        self.selected_sale_id = int(self.tbl_sales.item(row_index, 0).text())
+        self.selected_sale_id = int(item_0.text())
 
         with self.db.get_connection() as conn:
             sale = conn.execute(
@@ -5313,6 +5358,7 @@ class MainWindow(QMainWindow):
             # ۱ و ۱۱. گزارش کامل تمام فروش‌ها / تخفیف‌ها و تشدیدها
             elif rep_type.startswith("۱.") or rep_type.startswith("۱۱."):
                 headers = [
+                    "شماره سریال",
                     "شماره فاکتور",
                     "تاریخ و ساعت فروش",
                     "کد کالا",
@@ -5336,7 +5382,6 @@ class MainWindow(QMainWindow):
                     "وضعیت تسویه",
                     "شرکت گارانتی",
                     "انقضای گارانتی",
-                    "شماره سریال",
                     "مشخصات فنی",
                 ]
                 q = conn.execute("""
@@ -5386,6 +5431,7 @@ class MainWindow(QMainWindow):
                     rows_data.append(
                         [
                             r["updated_at"] or r["sale_datetime"] or "",
+                            r["serial_number"] or "-",
                             r["invoice_number"],
                             r["sale_datetime"],
                             r["code"],
@@ -5409,7 +5455,6 @@ class MainWindow(QMainWindow):
                             r["settlement_status"],
                             r["warranty_company"] or "-",
                             r["warranty_end"] or "-",
-                            r["serial_number"] or "-",
                             r["specifications"] or r["final_specs"] or r["initial_specs"] or "-",
                         ]
                     )
@@ -5428,6 +5473,7 @@ class MainWindow(QMainWindow):
                 or rep_type.startswith("۹.")
             ):
                 headers = [
+                    "شماره سریال",
                     "کد محموله",
                     "شماره فاکتور خرید",
                     "تاریخ خرید",
@@ -5495,6 +5541,7 @@ class MainWindow(QMainWindow):
                     rows_data.append(
                         [
                             r["updated_at"] or r["purchase_date"] or "",
+                            r["serial_numbers"] or "-",
                             r["batch_code"],
                             r["invoice_number"] or "-",
                             r["purchase_date"],
@@ -5518,7 +5565,7 @@ class MainWindow(QMainWindow):
                             f"{debt:,}",
                             f"{int(r['batch_profit']):,}",
                             r["settlement_status"],
-                            f"{r['final_specs']} {r['serial_numbers']}".strip() or "-",
+                            r["final_specs"] or r["initial_specs"] or "-",
                         ]
                     )
                 summary_text = (
@@ -5534,7 +5581,9 @@ class MainWindow(QMainWindow):
                 or rep_type.startswith("۸.")
             ):
                 headers = [
+                    "شماره سریال",
                     "کد کالا",
+                    "نام کالا",
                     "دسته‌بندی",
                     "زیرمجموعه",
                     "برند",
@@ -5563,7 +5612,7 @@ class MainWindow(QMainWindow):
                     sale_owner_filter = " AND 0=1"
                     product_scope_params = ()
                 q = conn.execute(f"""
-                    SELECT p.id, p.code, p.name, p.category, p.sub_category, p.brand, p.model,
+                    SELECT p.id, p.serial_number, p.code, p.name, p.category, p.sub_category, p.brand, p.model,
                            p.specs_json, p.description, p.reorder_point, p.default_profit_pct,
                            p.is_active, p.created_at, p.updated_at,
                            COALESCE((SELECT SUM(initial_qty) FROM batches b WHERE b.product_id=p.id{batch_owner_filter}), 0) as init_qty,
@@ -5583,7 +5632,7 @@ class MainWindow(QMainWindow):
                         continue
                     specs = json.loads(r["specs_json"] or "{}")
                     specs_str = self._format_specs_for_display(specs, r["category"])
-                    search_pool = f"{r['code']} {r['category']} {r['sub_category']} {r['brand']} {r['model']} {specs_str}".lower()
+                    search_pool = f"{r['code']} {r['serial_number'] or ''} {r['name'] or ''} {r['category']} {r['sub_category']} {r['brand']} {r['model']} {specs_str}".lower()
                     if q_txt and q_txt not in search_pool:
                         continue
 
@@ -5597,7 +5646,9 @@ class MainWindow(QMainWindow):
                     rows_data.append(
                         [
                             r["updated_at"] or "",
+                            r["serial_number"] or "-",
                             r["code"],
+                            r["name"] or "-",
                             r["category"],
                             r["sub_category"],
                             r["brand"] or "-",
@@ -6284,10 +6335,12 @@ class MainWindow(QMainWindow):
         type_row.addWidget(lbl_type)
         type_row.addWidget(self.cb_report_export_type, 1)
 
-        btn_add_custom_rep = QPushButton("➕ گزارش جدید…")
+        btn_add_custom_rep = QPushButton("➕ گزارش جدید")
+        btn_add_custom_rep.setToolTip("ایجاد گزارش سفارشی جدید بر اساس نام واردشده در فیلد زیر")
         btn_add_custom_rep.clicked.connect(self._add_custom_report_profile)
-        btn_rename_custom_rep = QPushButton("✏️ تغییر نام…")
+        btn_rename_custom_rep = QPushButton("✏️ تغییر نام")
         btn_rename_custom_rep.setObjectName("btnSecondary")
+        btn_rename_custom_rep.setToolTip("تغییر نام گزارش سفارشی جاری به نام واردشده در فیلد زیر")
         btn_rename_custom_rep.clicked.connect(self._rename_custom_report_profile)
         btn_del_custom_rep = QPushButton("🗑️ حذف")
         btn_del_custom_rep.setObjectName("btnDanger")
@@ -6297,13 +6350,23 @@ class MainWindow(QMainWindow):
         type_row.addWidget(btn_del_custom_rep)
         gb_layout.addLayout(type_row)
 
+        name_row = QHBoxLayout()
+        name_row.setSpacing(8)
+        lbl_name = QLabel("نام گزارش:")
+        lbl_name.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        self.ed_report_name = SmartLineEdit("نام گزارش سفارشی جدید یا ویرایش نام...")
+        self.ed_report_name.setToolTip("برای ایجاد یا تغییر نام گزارش سفارشی، نام موردنظر را در اینجا تایپ کنید.")
+        name_row.addWidget(lbl_name)
+        name_row.addWidget(self.ed_report_name, 1)
+        gb_layout.addLayout(name_row)
+
         cols_container = QHBoxLayout()
         cols_container.setSpacing(10)
 
         self.lst_report_export_columns = SmoothScrollListWidget()
         self.lst_report_export_columns.setMinimumHeight(240)
         self.lst_report_export_columns.setMaximumHeight(350)
-        self.lst_report_export_columns.itemClicked.connect(self._toggle_report_export_col_item)
+        self.lst_report_export_columns.setItemDelegate(FullRowCheckDelegate(self.lst_report_export_columns))
         cols_container.addWidget(self.lst_report_export_columns, 1)
 
         btn_box = QVBoxLayout()
@@ -6363,13 +6426,15 @@ class MainWindow(QMainWindow):
             item.setCheckState(new_state)
 
     def _add_custom_report_profile(self):
-        from PySide6.QtWidgets import QInputDialog
-        name, ok = QInputDialog.getText(
-            self, "ایجاد گزارش سفارشی", "نام گزارش سفارشی جدید را وارد کنید:"
-        )
-        clean_name = name.strip() if name else ""
-        if not ok or not clean_name:
-            return
+        clean_name = self.ed_report_name.text().strip() if hasattr(self, "ed_report_name") else ""
+        if not clean_name:
+            from PySide6.QtWidgets import QInputDialog
+            name, ok = QInputDialog.getText(
+                self, "ایجاد گزارش سفارشی", "نام گزارش سفارشی جدید را وارد کنید:"
+            )
+            clean_name = name.strip() if name else ""
+            if not ok or not clean_name:
+                return
         if clean_name in REPORT_AVAILABLE_COLUMNS:
             QMessageBox.warning(self, "خطا", "گزارشی با این نام از قبل وجود دارد.")
             return
@@ -6388,10 +6453,11 @@ class MainWindow(QMainWindow):
 
         self.cb_report_export_type.addItem(clean_name)
         self.cb_report_export_type.setCurrentText(clean_name)
+        if hasattr(self, "ed_report_name"):
+            self.ed_report_name.clear()
         QMessageBox.information(self, "موفقیت", f"گزارش سفارشی «{clean_name}» ایجاد شد.")
 
     def _rename_custom_report_profile(self):
-        from PySide6.QtWidgets import QInputDialog
         current = self.cb_report_export_type.currentText()
         try:
             custom_reports = json.loads(self.db.get_setting("custom_report_profiles", "[]") or "[]")
@@ -6400,12 +6466,15 @@ class MainWindow(QMainWindow):
         if current not in custom_reports:
             QMessageBox.warning(self, "خطا", "فقط گزارش‌های سفارشی ایجادشده قابل تغییر نام هستند.")
             return
-        name, ok = QInputDialog.getText(
-            self, "تغییر نام گزارش سفارشی", "نام جدید گزارش را وارد کنید:", text=current
-        )
-        clean_name = name.strip() if name else ""
-        if not ok or not clean_name or clean_name == current:
-            return
+        clean_name = self.ed_report_name.text().strip() if hasattr(self, "ed_report_name") else ""
+        if not clean_name or clean_name == current:
+            from PySide6.QtWidgets import QInputDialog
+            name, ok = QInputDialog.getText(
+                self, "تغییر نام گزارش سفارشی", "نام جدید گزارش را وارد کنید:", text=current
+            )
+            clean_name = name.strip() if name else ""
+            if not ok or not clean_name or clean_name == current:
+                return
         if clean_name in REPORT_AVAILABLE_COLUMNS:
             QMessageBox.warning(self, "خطا", "گزارشی با این نام از قبل وجود دارد.")
             return
@@ -6427,6 +6496,8 @@ class MainWindow(QMainWindow):
         if idx >= 0:
             self.cb_report_export_type.setItemText(idx, clean_name)
             self.cb_report_export_type.setCurrentIndex(idx)
+        if hasattr(self, "ed_report_name"):
+            self.ed_report_name.clear()
         QMessageBox.information(self, "موفقیت", f"نام گزارش به «{clean_name}» تغییر یافت.")
 
     def _delete_custom_report_profile(self):
@@ -6455,6 +6526,8 @@ class MainWindow(QMainWindow):
         idx = self.cb_report_export_type.findText(current)
         if idx >= 0:
             self.cb_report_export_type.removeItem(idx)
+        if hasattr(self, "ed_report_name"):
+            self.ed_report_name.clear()
         QMessageBox.information(self, "موفقیت", f"گزارش سفارشی «{current}» حذف شد.")
 
     def _load_report_export_columns_ui(self, report_type=None):
@@ -6462,6 +6535,16 @@ class MainWindow(QMainWindow):
             report_type = self.cb_report_export_type.currentText()
         if not report_type:
             return
+
+        try:
+            custom_reports = json.loads(self.db.get_setting("custom_report_profiles", "[]") or "[]")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            custom_reports = []
+        if hasattr(self, "ed_report_name"):
+            if report_type in custom_reports:
+                self.ed_report_name.setText(report_type)
+            else:
+                self.ed_report_name.clear()
 
         all_columns = REPORT_AVAILABLE_COLUMNS.get(report_type, [])
         try:
@@ -9098,7 +9181,7 @@ class MainWindow(QMainWindow):
     def _refresh_combos(self):
         with self.db.get_connection() as conn:
             prods = conn.execute(
-                """SELECT id, code, name, category, sub_category, brand, model, specs_json, description,
+                """SELECT id, serial_number, code, name, category, sub_category, brand, model, specs_json, description,
                       reorder_point, default_profit_pct, is_active, created_at, updated_at FROM products WHERE is_active=1 ORDER BY updated_at DESC, id DESC"""
             ).fetchall()
             emps = conn.execute(
@@ -9139,7 +9222,8 @@ class MainWindow(QMainWindow):
                        b.unit_cost_price, b.suggested_sell_price, b.profit_pct, b.paid_amount,
                        b.settlement_status, b.serial_numbers, b.colors_json, b.initial_specs,
                        b.final_specs, b.supplier_name_snapshot, b.notes, b.created_at, b.updated_at,
-                       p.code AS p_code, p.category, p.sub_category, p.brand, p.model
+                       p.code AS p_code, p.category, p.sub_category, p.brand, p.model,
+                       p.serial_number AS product_serial_number
                 FROM batches b
                 JOIN products p ON b.product_id=p.id
                 ORDER BY b.updated_at DESC, b.id DESC
@@ -9340,7 +9424,7 @@ class MainWindow(QMainWindow):
         for r in rows:
             specs = json.loads(r["specs_json"] or "{}")
             specs_str = self._format_specs_for_display(specs, r["category"])
-            search_pool = f"{r['code']} {r['serial_number'] or ''} {r['category']} {r['sub_category']} {r['brand']} {r['model']} {specs_str} {r['description']}".lower()
+            search_pool = f"{r['code']} {r['serial_number'] or ''} {r['name'] or ''} {r['category']} {r['sub_category']} {r['brand']} {r['model']} {specs_str} {r['description']}".lower()
             if q and q not in search_pool:
                 continue
             rem = int(r["rem_qty"])
@@ -9354,6 +9438,7 @@ class MainWindow(QMainWindow):
                     r["id"],
                     r["serial_number"] or "-",
                     r["code"],
+                    r["name"] or "-",
                     r["category"],
                     r["sub_category"],
                     r["brand"],
@@ -9367,7 +9452,7 @@ class MainWindow(QMainWindow):
                     r["description"],
                 ]
             )
-        self._populate_table_safely(self.tbl_products, data, highlight_col=12)
+        self._populate_table_safely(self.tbl_products, data, highlight_col=13)
 
     def _refresh_batches_table(self):
         with self.db.get_connection() as conn:
@@ -9397,8 +9482,8 @@ class MainWindow(QMainWindow):
             data.append(
                 [
                     r["id"],
-                    r["batch_code"],
                     batch_serial,
+                    r["batch_code"],
                     r["p_code"],
                     prod_title,
                     r["sup_name"] or "-",
@@ -9417,7 +9502,7 @@ class MainWindow(QMainWindow):
                     r["settlement_status"],
                     f"{r['paid_amount']:,}",
                     f"{debt:,}",
-                    f"{r['initial_specs']} {r['serial_numbers']}".strip(),
+                    r["initial_specs"] or "-",
                     f"{tot_bill:,}",
                     "، ".join(self._decode_colors(r["colors_json"])) or "-",
                 ]
@@ -9465,6 +9550,7 @@ class MainWindow(QMainWindow):
             data.append(
                 [
                     r["id"],
+                    r["serial_number"] or "",
                     r["invoice_number"],
                     r["sale_datetime"],
                     r["p_code"],
@@ -9484,12 +9570,11 @@ class MainWindow(QMainWindow):
                     f"{r['paid_amount']:,}",
                     r["settlement_status"],
                     war_str,
-                    r["serial_number"] or "",
                     r["specifications"] or r["final_specs"] or r["initial_specs"] or "-",
                     "، ".join(self._decode_colors(r["colors_json"])) or "-",
                 ]
             )
-        self._populate_table_safely(self.tbl_sales, data, highlight_col=12)
+        self._populate_table_safely(self.tbl_sales, data, highlight_col=13)
 
     def _refresh_upgrades_table(self):
         with self.db.get_connection() as conn:
