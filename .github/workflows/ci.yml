@@ -21,6 +21,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   validate-and-test:
     name: Validate and Test
@@ -46,6 +49,8 @@ jobs:
         run: python -m compileall -q .
 
       - name: Run PyTest suite
+        env:
+          QT_QPA_PLATFORM: offscreen
         run: python -m pytest -q
 
   build-executable:
@@ -74,13 +79,13 @@ jobs:
         shell: pwsh
         run: |
           $ver = (Get-Content VERSION).Trim()
-          if (-not $ver) { $ver = "4.1.0" }
+          if (-not $ver) { $ver = "4.4.0" }
           Write-Output "APP_VERSION=$ver" >> $env:GITHUB_ENV
           Write-Output "Building for version: $ver"
 
       - name: Build Executable with PyInstaller
         run: |
-          pyinstaller --noconfirm --onefile --windowed --name "Daqiq_${{ env.APP_VERSION }}" main.py
+          pyinstaller --noconfirm --onefile --windowed --name "Daqiq_${{ env.APP_VERSION }}" --add-data "default_taxonomy.json;." main.py
 
       - name: Validate Built Binary
         shell: pwsh
@@ -116,7 +121,7 @@ jobs:
         shell: pwsh
         run: |
           $ver = (Get-Content VERSION).Trim()
-          if (-not $ver) { $ver = "4.1.0" }
+          if (-not $ver) { $ver = "4.4.0" }
           Write-Output "APP_VERSION=$ver" >> $env:GITHUB_ENV
 
       - name: Download Build Artifact
@@ -125,7 +130,7 @@ jobs:
           name: Daqiq-Windows-${{ env.APP_VERSION }}
           path: dist
 
-      - name: Create Open Pull Request (Feature Branches)
+      - name: Create Open Pull Request (Release/Feature Branches)
         if: github.ref != 'refs/heads/main'
         shell: pwsh
         env:
@@ -137,21 +142,21 @@ jobs:
           gh pr create `
             --base main `
             --head $currentBranch `
-            --title "Release v${{ env.APP_VERSION }}: Comprehensive Enterprise Upgrade" `
-            --body "Automated CI/CD build package for v${{ env.APP_VERSION }}. This PR contains all refactored modules, database schema v410 normalization, barcode scanner workflows, dynamic openpyxl export engine, and decoupled state management. Registered solely for human code review and validation (auto-merge disabled)." 2>$null || Write-Output "Pull request already exists."
+            --title "Release v${{ env.APP_VERSION }}: Comprehensive Retail Production Upgrade" `
+            --body "Comprehensive production release v${{ env.APP_VERSION }}. This PR contains all architectural refinements, greenfield database schema v440 normalization, bilingual international taxonomy engine, phone number tracking, robust timer overflow prevention, and database password management. Registered solely for human code review and validation (auto-merge disabled)." 2>$null || Write-Output "Pull request already exists."
 
-      - name: Publish Draft Release Tagged as Latest
+      - name: Publish Release Tagged as v4.4.0 and Marked as Latest
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $tag = "Latest"
-          $title = "Daqiq v${{ env.APP_VERSION }} (Release Latest)"
+          $tag = "v${{ env.APP_VERSION }}"
+          $title = "Daqiq v${{ env.APP_VERSION }} (Retail Production Release)"
           $exePath = "dist/Daqiq_${{ env.APP_VERSION }}.exe"
-          Write-Output "Publishing draft release tagged $tag..."
+          Write-Output "Publishing release tagged $tag marked as Latest..."
           gh release create $tag $exePath `
             --title $title `
-            --notes "Daqiq v${{ env.APP_VERSION }} official release build. Executable packaged with PyInstaller." `
-            --draft `
+            --notes "Daqiq v${{ env.APP_VERSION }} official retail production release. Executable packaged with PyInstaller." `
+            --latest `
             --prerelease=false 2>$null || `
           gh release upload $tag $exePath --clobber

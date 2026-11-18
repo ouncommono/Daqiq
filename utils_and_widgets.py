@@ -519,6 +519,23 @@ class CollapsibleSection(QWidget):
             self.content.hide()
             self.header.setText("▸  " + title)
 
+    def collapse(self):
+        if self._expanded:
+            self._expanded = False
+            title = self.header.text().lstrip("▸▾ ").strip()
+            self.content.hide()
+            self.header.setText("▸  " + title)
+
+    def expand(self):
+        if not self._expanded:
+            self._expanded = True
+            title = self.header.text().lstrip("▸▾ ").strip()
+            self.content.show()
+            self.header.setText("▾  " + title)
+
+    def is_expanded(self) -> bool:
+        return self._expanded
+
 
 class SmartLineEdit(QLineEdit):
     """فیلد متنی که اعداد را انگلیسی و تمام حروف انگلیسی را به طور واقعی بزرگ (UPPERCASE) ذخیره می‌کند"""
@@ -631,8 +648,9 @@ class _ComboSearchProxyModel(QSortFilterProxyModel):
         index = source.index(source_row, self.filterKeyColumn(), source_parent)
         visible = source.data(index, Qt.DisplayRole) or ""
         searchable = source.data(index, self.search_role) or ""
-        haystack = auto_capitalize_english(f"{visible} {searchable}")
-        return self.query in haystack
+        q = self.query.casefold().strip()
+        haystack = f"{visible} {searchable}".casefold()
+        return q in haystack or auto_capitalize_english(self.query) in auto_capitalize_english(f"{visible} {searchable}")
 
 
 class SearchableComboBox(QComboBox):
@@ -1135,7 +1153,9 @@ class DynamicSpecsWidget(QGroupBox):
         self.form_scroll.setWidget(self.form_widget)
         self.form_scroll.setWidgetResizable(True)
         self.form_scroll.setMinimumHeight(150)
-        self.form_scroll.setMaximumHeight(285)
+        self.form_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.form_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.form_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.main_layout.addWidget(self.form_scroll)
         self.current_category = "لپ‌تاپ"
         self.fields = {}
@@ -1231,7 +1251,9 @@ class DynamicSpecsWidget(QGroupBox):
         self.cb_sub.setEditable(0)
         self.cb_sub.setToolTip("زیرمجموعه را از فهرست انتخاب کنید")
 
-        if self.current_category == "لپ‌تاپ":
+        cat_key = normalize_catalog_label(self.current_category)
+
+        if cat_key == normalize_catalog_label("لپ تاپ"):
             self.cb_sub.currentTextChanged.connect(self._notify_custom_field_callback)
             self.cb_sub.addItems(
                 [
@@ -1285,7 +1307,7 @@ class DynamicSpecsWidget(QGroupBox):
             self.form_layout.addRow("کارت گرافیک (GPU):", cb_gpu)
             self.form_layout.addRow("صفحه‌نمایش:", cb_screen)
 
-        elif self.current_category == "قطعات":
+        elif cat_key == normalize_catalog_label("قطعات"):
             self.cb_sub.addItems(
                 [
                     "سایر موارد",
@@ -1316,7 +1338,7 @@ class DynamicSpecsWidget(QGroupBox):
             self.form_layout.addRow(self.sub_container)
             self._rebuild_part_subfields("سایر موارد")
 
-        elif self.current_category == "لوازم جانبی":
+        elif cat_key == normalize_catalog_label("لوازم جانبی"):
             self.cb_sub.currentTextChanged.connect(self._notify_custom_field_callback)
             self.cb_sub.addItems(
                 [
@@ -1362,7 +1384,7 @@ class DynamicSpecsWidget(QGroupBox):
             self.form_layout.addRow("نوع اتصال / پورت:", cb_conn)
             self.form_layout.addRow("مشخصات تکمیلی:", ed_extra)
 
-        elif self.current_category == "مانیتور":
+        elif cat_key in (normalize_catalog_label("مانیتور"), normalize_catalog_label("مانیتور و نمایشگر")):
             self.cb_sub.currentTextChanged.connect(self._notify_custom_field_callback)
             self.cb_sub.addItems(
                 [
@@ -1388,7 +1410,7 @@ class DynamicSpecsWidget(QGroupBox):
             self.form_layout.addRow("نرخ تصویر (Hz):", cb_hz)
             self.form_layout.addRow("پورت‌های ورودی:", cb_ports)
 
-        elif self.current_category == "کیس و مینی‌کیس":
+        elif cat_key in (normalize_catalog_label("کیس و مینی‌کیس"), normalize_catalog_label("کامپیوتر و کیس اسمبل شده")):
             self.cb_sub.currentTextChanged.connect(self._notify_custom_field_callback)
             self.cb_sub.addItems(
                 [
@@ -1419,7 +1441,7 @@ class DynamicSpecsWidget(QGroupBox):
             self.form_layout.addRow("حافظه (Storage):", cb_st)
             self.form_layout.addRow("گرافیک (GPU):", cb_gpu)
 
-        elif self.current_category == "آداپتور و تغذیه":
+        elif cat_key in (normalize_catalog_label("آداپتور و تغذیه"), normalize_catalog_label("آداپتور")):
             self.cb_sub.currentTextChanged.connect(self._notify_custom_field_callback)
             self.cb_sub.addItems(
                 [
@@ -1537,29 +1559,41 @@ class DynamicSpecsWidget(QGroupBox):
             )
             existing_widget = self.fields.get(existing_key) if existing_key is not None else None
             if existing_widget is not None:
-                # A custom Persian spelling (for example «صفحه نمایش») may be the
-                # same feature as a built-in spelling with ZWNJ («صفحه‌نمایش»).
-                # Reuse that widget and rename its storage key instead of showing a
-                # duplicate control in the product form.
-                if existing_key != field_name:
+                try:
+                    _ = existing_widget.parent()
+                except RuntimeError:
                     self.fields.pop(existing_key, None)
-                    self.fields[field_name] = existing_widget
-                if isinstance(existing_widget, QComboBox):
-                    current_value = existing_widget.currentText()
-                    existing_widget.blockSignals(True)
-                    existing_widget.clear()
-                    existing_widget.addItem("")
-                    existing_widget.addItems(list(dict.fromkeys(values)))
-                    if current_value in values:
-                        existing_widget.setCurrentText(current_value)
-                    existing_widget.blockSignals(False)
-                field_label = self.form_layout.labelForField(existing_widget)
-                if field_label is None:
-                    field_label = self.sub_layout.labelForField(existing_widget)
-                if isinstance(field_label, QLabel):
-                    field_label.setText(f"{form_label}:")
-                existing_widget.setToolTip(f"مشخصه سفارشی: {form_label}")
-                continue
+                    existing_widget = None
+
+            if existing_widget is not None:
+                try:
+                    # A custom Persian spelling (for example «صفحه نمایش») may be the
+                    # same feature as a built-in spelling with ZWNJ («صفحه‌نمایش»).
+                    # Reuse that widget and rename its storage key instead of showing a
+                    # duplicate control in the product form.
+                    if existing_key != field_name:
+                        self.fields.pop(existing_key, None)
+                        self.fields[field_name] = existing_widget
+                    if isinstance(existing_widget, QComboBox):
+                        current_value = existing_widget.currentText()
+                        existing_widget.blockSignals(True)
+                        existing_widget.clear()
+                        existing_widget.addItem("")
+                        existing_widget.addItems(list(dict.fromkeys(values)))
+                        if current_value in values:
+                            existing_widget.setCurrentText(current_value)
+                        existing_widget.blockSignals(False)
+                    field_label = self.form_layout.labelForField(existing_widget)
+                    if field_label is None and hasattr(self, "sub_layout") and self.sub_layout:
+                        field_label = self.sub_layout.labelForField(existing_widget)
+                    if isinstance(field_label, QLabel):
+                        field_label.setText(f"{form_label}:")
+                    existing_widget.setToolTip(f"مشخصه سفارشی: {form_label}")
+                    continue
+                except RuntimeError:
+                    self.fields.pop(field_name, None)
+                    self.fields.pop(existing_key, None)
+                    existing_widget = None
 
             if values:
                 widget = SearchableComboBox()
@@ -1571,6 +1605,22 @@ class DynamicSpecsWidget(QGroupBox):
             self.fields[field_name] = widget
             self._custom_field_widgets[field_name] = widget
             self.form_layout.addRow(f"{form_label}:", widget)
+
+        # Guarantee universal "مشخصات" is strictly the very last field in self.fields and layout
+        specs_key = next((k for k in list(self.fields.keys()) if normalize_catalog_label(k) == normalize_catalog_label("مشخصات")), None)
+        if specs_key is not None:
+            spec_widget = self.fields.pop(specs_key)
+            self.fields[specs_key] = spec_widget
+            try:
+                row, _ = self.form_layout.getWidgetPosition(spec_widget)
+                if row >= 0 and row < self.form_layout.rowCount() - 1:
+                    res = self.form_layout.takeRow(row)
+                    if res.labelItem and res.labelItem.widget():
+                        self.form_layout.addRow(res.labelItem.widget(), spec_widget)
+                    else:
+                        self.form_layout.addRow(spec_widget)
+            except Exception:
+                pass
 
         self._apply_compact_form_layouts()
 
@@ -1631,9 +1681,7 @@ class DynamicSpecsWidget(QGroupBox):
             self.sub_layout.addRow("استاندارد / کابل‌کشی:", cb_cert)
 
         else:
-            ed_custom = SmartLineEdit("مشخصه فنی قطعه (مثلاً سوکت، ولتاژ، سایز پنل...)")
-            self.fields = {"مشخصه فنی": ed_custom}
-            self.sub_layout.addRow("مشخصات فنی قطعه:", ed_custom)
+            self.fields = {}
 
         self._apply_compact_form_layouts()
         # Run only after the built-in fields for the newly selected part type exist.

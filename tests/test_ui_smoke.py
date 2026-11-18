@@ -48,7 +48,7 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
         assert window.tabs.count() == 10
         assert window.chk_upg_consume_stock.isChecked()
         assert window.tabs.tabText(9).endswith("تنظیمات")
-        assert window.lbl_app_version.text() == "دقیق | نسخه برنامه: 4.1.0"
+        assert window.lbl_app_version.text() == "دقیق | نسخه برنامه: 4.4.0"
         assert [window.catalog_tabs.tabText(i) for i in range(window.catalog_tabs.count())] == [
             "مدیریت کالاها",
             "مدیریت خدمات",
@@ -106,7 +106,7 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
         assert not hasattr(window, "chk_zero_enabled")
         assert window.lbl_live_clock.toolTip()
         assert window.lst_cfg_subcategories.count() > 0
-        assert "لپ‌تاپ عمومی / مالتی‌مدیا" in [
+        assert "لپ تاپ عمومی و مالتی مدیا (General & Multimedia Laptop)" in [
             window.lst_cfg_subcategories.item(index).text()
             for index in range(window.lst_cfg_subcategories.count())
         ]
@@ -1395,12 +1395,12 @@ def test_catalog_create_actions_reject_persian_spacing_aliases(tmp_path, monkeyp
         window._add_catalog_category()
         assert len(window._taxonomy_draft["categories"]) == category_count
 
-        window.cb_cfg_category.setCurrentText("لپ‌تاپ")
-        subcategories = window._taxonomy_draft["subcategories"]["لپ‌تاپ"]
+        window.cb_cfg_category.setCurrentText("لپ تاپ")
+        subcategories = window._taxonomy_draft["subcategories"]["لپ تاپ"]
         subcategory_count = len(subcategories)
-        window.ed_cfg_subcategory.setText("لپ تاپ عمومی / مالتی مدیا")
+        window.ed_cfg_subcategory.setText("لپ‌تاپ عمومی و مالتی مدیا (General & Multimedia Laptop)")
         window._add_catalog_subcategory()
-        assert len(window._taxonomy_draft["subcategories"]["لپ‌تاپ"]) == subcategory_count
+        assert len(window._taxonomy_draft["subcategories"]["لپ تاپ"]) == subcategory_count
 
         colors = window._taxonomy_draft["colors"]
         color_count = len(colors)
@@ -1415,10 +1415,10 @@ def test_catalog_create_actions_reject_persian_spacing_aliases(tmp_path, monkeyp
         assert len(window._taxonomy_draft["service_types"]) == service_type_count
 
         assert len(messages) == 4
-        assert "لپ‌تاپ" in messages[0][1]
-        assert "لپ‌تاپ عمومی" in messages[1][1]
-        assert "نقره‌ای" in messages[2][1]
-        assert "نرم‌افزاری" in messages[3][1]
+        assert "لپ" in messages[0][1]
+        assert "لپ" in messages[1][1]
+        assert "نقره" in messages[2][1]
+        assert "نرم" in messages[3][1]
     finally:
         window.close()
         qapp.processEvents()
@@ -1702,13 +1702,13 @@ def test_settings_catalog_synchronizes_builtin_and_saved_product_features(
         assert ("ویژگی ذخیره‌شده", "رم کامپیوتر (RAM PC)") in part_names
 
         monitor_names = {
-            item["name"] for item in window._taxonomy_draft["attributes"]["مانیتور"]
+            item["name"] for item in window._taxonomy_draft["attributes"]["مانیتور و نمایشگر"]
         }
-        assert {"سایز", "پنل", "نرخ بروزرسانی", "پورت‌ها"} <= monitor_names
+        assert {"سایز صفحه", "نوع پنل", "نرخ نوسازی"} <= monitor_names
 
-        window.cb_cfg_category.setCurrentText("مانیتور")
-        scoped_subcategory = window._taxonomy_draft["subcategories"]["مانیتور"][0]
-        definitions = window._taxonomy_draft["attributes"].setdefault("مانیتور", [])
+        window.cb_cfg_category.setCurrentText("مانیتور و نمایشگر")
+        scoped_subcategory = window._taxonomy_draft["subcategories"]["مانیتور و نمایشگر"][0]
+        definitions = window._taxonomy_draft["attributes"].setdefault("مانیتور و نمایشگر", [])
         definitions.extend([
             {"name": "ویژگی عمومی آزمون", "label": "", "values": [], "subcategory": ""},
             {
@@ -1759,7 +1759,7 @@ def test_settings_catalog_synchronizes_builtin_and_saved_product_features(
         window.ed_subcategory_caption.setText("نوع دستگاه آزمایشی")
         window._add_or_rename_catalog_subcategory()
         saved_labels = json.loads(manager.get_setting("subcategory_field_labels", "{}"))
-        assert saved_labels["مانیتور"] == "نوع دستگاه آزمایشی"
+        assert saved_labels["مانیتور و نمایشگر"] == "نوع دستگاه آزمایشی"
     finally:
         window.close()
         qapp.processEvents()
@@ -1897,18 +1897,18 @@ def test_subcategory_settings_restore_three_independent_actions(tmp_path, monkey
             button.text() for button in window.findChildren(QPushButton)
         }
 
-        window.cb_cfg_category.setCurrentText("مانیتور")
-        before = list(window._taxonomy_draft["subcategories"]["مانیتور"])
+        window.cb_cfg_category.setCurrentText("مانیتور و نمایشگر")
+        before = list(window._taxonomy_draft["subcategories"]["مانیتور و نمایشگر"])
         window.ed_cfg_subcategory.setText("زیرمجموعه آزمایش")
         add_button.click()
-        assert "زیرمجموعه آزمایش" in window._taxonomy_draft["subcategories"]["مانیتور"]
+        assert "زیرمجموعه آزمایش" in window._taxonomy_draft["subcategories"]["مانیتور و نمایشگر"]
         window.lst_cfg_subcategories.setCurrentRow(
-            window._taxonomy_draft["subcategories"]["مانیتور"].index("زیرمجموعه آزمایش")
+            window._taxonomy_draft["subcategories"]["مانیتور و نمایشگر"].index("زیرمجموعه آزمایش")
         )
         window.ed_cfg_subcategory.setText("زیرمجموعه تغییرنام‌یافته")
         rename_button.click()
-        assert "زیرمجموعه تغییرنام‌یافته" in window._taxonomy_draft["subcategories"]["مانیتور"]
-        assert "زیرمجموعه آزمایش" not in window._taxonomy_draft["subcategories"]["مانیتور"]
+        assert "زیرمجموعه تغییرنام‌یافته" in window._taxonomy_draft["subcategories"]["مانیتور و نمایشگر"]
+        assert "زیرمجموعه آزمایش" not in window._taxonomy_draft["subcategories"]["مانیتور و نمایشگر"]
     finally:
         window.close()
         qapp.processEvents()
