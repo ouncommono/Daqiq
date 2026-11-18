@@ -8,8 +8,8 @@ import time
 import hashlib
 from decimal import Decimal, ROUND_HALF_EVEN
 
-APP_VERSION = "4.4.0"
-SCHEMA_VERSION = 440
+APP_VERSION = "4.5.0"
+SCHEMA_VERSION = 450
 
 SQLITE_INTEGER_MIN = -(1 << 63)
 SQLITE_INTEGER_MAX = (1 << 63) - 1
@@ -43,7 +43,7 @@ def validate_schema_column_order(conn):
         )
         if actual_columns != expected_columns:
             raise RuntimeError(
-                f"ساختار ستون‌های جدول {table_name} با قرارداد نسخه 4.4.0 سازگار نیست."
+                f"ساختار ستون‌های جدول {table_name} با قرارداد نسخه {APP_VERSION} سازگار نیست."
             )
 
 
@@ -871,9 +871,12 @@ class DatabaseManager:
                         )),
                         "subcategory": str(item.get("subcategory", "") or "").strip(),
                     }
-                    label = str(item.get("label", "") or "").strip()
-                    if label:
-                        normalized_item["label"] = label
+                    display_name = str(item.get("display_name", "") or item.get("label", "") or "").strip()
+                    if display_name:
+                        normalized_item["display_name"] = display_name
+                        normalized_item["label"] = display_name
+                    elif str(item.get("label", "") or "").strip():
+                        normalized_item["label"] = str(item.get("label", "") or "").strip()
                     normalized_items.append(normalized_item)
                 attributes[str(category)] = normalized_items
 

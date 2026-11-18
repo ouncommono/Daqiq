@@ -1,3 +1,19 @@
+# Daqiq 4.5.0
+
+## Release Summary & Architectural Enhancements
+
+- **Greenfield Database Schema & Canonical Column Architecture (Schema Version 450)**: Clean-slate production release with fully validated physical column ordering across all SQLite tables. Positioned `serial_number` immediately following `code` in `products`, `serial_numbers` immediately following `product_id` in `batches`, and `serial_number` immediately following `batch_id` with `customer_phone` following `customer_name` in `sales`. Strict 64-bit integer support for massive financial figures in Tomans.
+- **Recent Databases Deduplication & Physical File Filtering**: Enhanced startup database resolution (`_resolve_database_path`) and recent databases manager (`_refresh_recent_database_list`) to deduplicate paths using case-normalized paths (`os.path.normcase`) and strictly exclude non-existent physical database files, preventing phantom default database entries.
+- **First-Class Serial Number Auto-Fill & Clearing**: In "ثبت خرید و محموله ها" and "ثبت فروش", selecting a product with a registered serial number automatically populates the serial number input field (`ed_batch_serial_number` and `ed_sale_serial`), and selecting a product without a serial cleanly clears the field.
+- **Canonical Column Ordering & Customer Phone Persistence**: Synchronized physical column sequence across sales forms, sales tables (`tbl_sales`), and comprehensive reports (`tbl_report`). Reordered "شماره سریال" immediately after "کد کالا", and persisted and rendered "شماره تماس مشتری" across sales entry, live reports, search filters, and invoices.
+- **Custom Report Synchronization & Execution in Reports Tab**: Dynamically synchronized user-defined custom report profiles with `cb_rep_type` in the Reports tab. Selecting a custom report executes a multi-table joined query across sales, products, batches, suppliers, and employees, rendering the exact combination of columns chosen by the user in `tbl_report` with instant search filtering, date ranges, and Excel export.
+- **Full-Row Checklist Toggling (Zero Double-Toggle)**: Enhanced `SmoothScrollListWidget` with full-row toggling (`enable_row_toggle = True`), allowing users to toggle column checkboxes in Settings by clicking anywhere on the item row or label without double-toggling.
+- **Staged Database Password Architecture**: Decoupled database password dialogs (Set, Change, Remove, and Startup Prompt Toggle) from immediate disk/database mutations. All actions are staged in memory (`_staged_db_password_action`, `_staged_db_startup_prompt`) with visual pending status indicators, and committed atomically only when clicking "ذخیره تنظیمات". Clicking "انصراف" (Cancel) completely rolls back all staged password changes.
+- **CI/CD Pipeline & GitHub Actions**: Updated GitHub Actions workflow (`ci.yml`) to version 4.5.0, enforcing `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"`, PyInstaller single-file packaging with `default_taxonomy.json`, and automatic GitHub Release creation tagged as `v4.5.0` and marked as Latest.
+- **Quality Assurance**: Comprehensive unit and GUI smoke test suite covering schema v450, custom report execution, password staging, and canonical column ordering with 100% pass rate in headless mode (`$env:QT_QPA_PLATFORM="offscreen"`).
+
+---
+
 # Daqiq 4.4.0
 
 ## Release Summary & Architectural Enhancements

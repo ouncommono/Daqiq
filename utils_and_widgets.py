@@ -475,8 +475,21 @@ class SmoothScrollListWidget(QListWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._wheel_animation = None
+        self.enable_row_toggle = False
         self.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.verticalScrollBar().setSingleStep(18)
+
+    def mousePressEvent(self, event):
+        if getattr(self, "enable_row_toggle", False) and event.button() == Qt.LeftButton:
+            pos = event.position().toPoint() if hasattr(event, "position") else event.pos()
+            item = self.itemAt(pos)
+            if item is not None and (item.flags() & Qt.ItemIsUserCheckable):
+                new_state = Qt.Unchecked if item.checkState() == Qt.Checked else Qt.Checked
+                item.setCheckState(new_state)
+                self.setCurrentItem(item)
+                event.accept()
+                return
+        super().mousePressEvent(event)
 
     def wheelEvent(self, event):
         amount = _wheel_amount(event, horizontal=False)

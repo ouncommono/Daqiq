@@ -79,7 +79,7 @@ jobs:
         shell: pwsh
         run: |
           $ver = (Get-Content VERSION).Trim()
-          if (-not $ver) { $ver = "4.4.0" }
+          if (-not $ver) { $ver = "4.5.0" }
           Write-Output "APP_VERSION=$ver" >> $env:GITHUB_ENV
           Write-Output "Building for version: $ver"
 
@@ -121,7 +121,7 @@ jobs:
         shell: pwsh
         run: |
           $ver = (Get-Content VERSION).Trim()
-          if (-not $ver) { $ver = "4.4.0" }
+          if (-not $ver) { $ver = "4.5.0" }
           Write-Output "APP_VERSION=$ver" >> $env:GITHUB_ENV
 
       - name: Download Build Artifact
@@ -143,9 +143,9 @@ jobs:
             --base main `
             --head $currentBranch `
             --title "Release v${{ env.APP_VERSION }}: Comprehensive Retail Production Upgrade" `
-            --body "Comprehensive production release v${{ env.APP_VERSION }}. This PR contains all architectural refinements, greenfield database schema v440 normalization, bilingual international taxonomy engine, phone number tracking, robust timer overflow prevention, and database password management. Registered solely for human code review and validation (auto-merge disabled)." 2>$null || Write-Output "Pull request already exists."
+            --body "Comprehensive production release v${{ env.APP_VERSION }}. This PR contains all architectural refinements, greenfield database schema v450 normalization, bilingual international taxonomy engine, phone number tracking, robust timer overflow prevention, custom report builder synchronization, full-row checklist toggling, and staged database password management. Registered solely for human code review and validation (auto-merge disabled)." 2>$null || Write-Output "Pull request already exists."
 
-      - name: Publish Release Tagged as v4.4.0 and Marked as Latest
+      - name: Publish Release Tagged as v4.5.0 and Marked as Latest
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
