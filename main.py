@@ -49,6 +49,7 @@ from database import (
     DatabaseManager, load_app_config, save_app_config, hash_password,
     receivable_balance, service_financial_breakdown,
     app_config_has_database_selection, get_default_database_path,
+    generate_timestamped_database_filename,
     SCHEMA_VERSION, round_integer_division, round_percentage_amount,
 )
 from utils_and_widgets import (
@@ -77,7 +78,7 @@ from exporter import (
     get_next_excel_filename,
 )
 
-APP_VERSION = "4.6.0"
+APP_VERSION = "4.7.0"
 
 REPORT_AVAILABLE_COLUMNS = {
     "همه (گزارش جامع خرید، فروش و خدمات)": [
@@ -734,6 +735,10 @@ def _is_valid_sqlite_database_file(path):
     """Validate both SQLite integrity and the minimum accounting schema."""
     if not path or not os.path.isfile(path):
         return False
+    if os.path.getsize(path) == 0:
+        return False
+    if DatabaseManager.is_database_file_encrypted(path):
+        return True
     conn = None
     try:
         # Opening a verified existing file to inspect schema does not mutate it.
@@ -897,15 +902,10 @@ def select_startup_database_path(parent=None):
 
     default_path = configured_path or get_default_database_path()
     if os.path.isfile(default_path) and not _is_valid_sqlite_database_file(default_path):
-        base_dir = os.path.dirname(default_path) or "."
-        stem, extension = os.path.splitext(os.path.basename(default_path))
-        extension = extension or ".db"
-        suffix = 1
-        proposed = os.path.join(base_dir, f"{stem}_v4{extension}")
-        while os.path.exists(proposed):
-            suffix += 1
-            proposed = os.path.join(base_dir, f"{stem}_v4_{suffix}{extension}")
-        default_path = proposed
+        base_dir = os.path.dirname(default_path) or get_default_database_path()
+        if os.path.isfile(base_dir):
+            base_dir = os.path.dirname(base_dir)
+        default_path = generate_timestamped_database_filename(base_dir, prefix="Daqiq", extension=".db")
 
     dialog = DatabaseBootstrapDialog(default_path, parent)
     if _is_valid_sqlite_database_file(default_path):
@@ -4061,7 +4061,7 @@ class MainWindow(QMainWindow):
         f_cat = QFormLayout()
         self.cb_srv_type = QComboBox()
         self.cb_srv_type.addItems(
-            self.catalog_config.get("service_types") or ["نرم‌افزاری", "سخت‌افزاری"]
+            self.catalog_config.get("service_types") or []
         )
         self.ed_srv_code = SmartLineEdit("")
         self.ed_srv_code.setToolTip("در صورت خالی بودن، کد خدمت بعدی خودکار تخصیص می‌یابد.")
@@ -6753,7 +6753,7 @@ class MainWindow(QMainWindow):
         db_pwd_layout.setSpacing(12)
 
         self.lbl_db_pwd_status = QLabel()
-        self.lbl_db_pwd_status.setWordWrap(True)
+        self.lbl_db_pwd_status.setWordWrap(False)
         self.lbl_db_pwd_status.setStyleSheet("font-weight: bold; font-size: 11pt;")
         self.lbl_db_pwd_status.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
@@ -6776,6 +6776,7 @@ class MainWindow(QMainWindow):
         self.btn_remove_db_pwd.setMinimumWidth(140)
         self.btn_remove_db_pwd.clicked.connect(self._on_remove_db_password_clicked)
 
+        db_pwd_btn_row.addStretch()
         db_pwd_btn_row.addWidget(self.btn_set_db_pwd)
         db_pwd_btn_row.addWidget(self.btn_change_db_pwd)
         db_pwd_btn_row.addWidget(self.btn_remove_db_pwd)
@@ -6963,8 +6964,8 @@ class MainWindow(QMainWindow):
         self.lst_cfg_subcategories = SmoothScrollListWidget()
         self.lst_cfg_subcategories.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.lst_cfg_subcategories.verticalScrollBar().setSingleStep(18)
-        self.lst_cfg_subcategories.setMinimumHeight(200)
-        self.lst_cfg_subcategories.setMaximumHeight(260)
+        self.lst_cfg_subcategories.setMinimumHeight(174)
+        self.lst_cfg_subcategories.setMaximumHeight(234)
         self.ed_cfg_subcategory = QLineEdit()
         self.ed_cfg_subcategory.setPlaceholderText("نام زیرمجموعه را وارد کنید؛ مثلاً صفحه‌نمایش یا پردازنده...")
         self.ed_cfg_subcategory.textChanged.connect(
@@ -7007,8 +7008,8 @@ class MainWindow(QMainWindow):
         self.lst_cfg_attributes = SmoothScrollListWidget()
         self.lst_cfg_attributes.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.lst_cfg_attributes.verticalScrollBar().setSingleStep(18)
-        self.lst_cfg_attributes.setMinimumHeight(220)
-        self.lst_cfg_attributes.setMaximumHeight(280)
+        self.lst_cfg_attributes.setMinimumHeight(192)
+        self.lst_cfg_attributes.setMaximumHeight(252)
         self.lst_cfg_attributes.setSizePolicy(
             QSizePolicy.Expanding, QSizePolicy.Fixed
         )
@@ -7111,8 +7112,8 @@ class MainWindow(QMainWindow):
         self.lst_cfg_colors = SmoothScrollListWidget()
         self.lst_cfg_colors.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.lst_cfg_colors.verticalScrollBar().setSingleStep(18)
-        self.lst_cfg_colors.setMinimumHeight(200)
-        self.lst_cfg_colors.setMaximumHeight(260)
+        self.lst_cfg_colors.setMinimumHeight(174)
+        self.lst_cfg_colors.setMaximumHeight(234)
         self.ed_cfg_color = QLineEdit()
         self.ed_cfg_color.setPlaceholderText("نام رنگ را وارد کنید؛ مثلاً سبز، ذغالی یا نقره‌ای...")
         self.ed_cfg_color.textChanged.connect(
@@ -7964,7 +7965,7 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def _enforce_other_subcategory_attribute_contract(config):
-        """Deduplicate subcategories and keep «سایر موارد» last if present."""
+        """Deduplicate subcategories and categories, keeping «سایر موارد» strictly last."""
         if not isinstance(config, dict):
             return config
         categories = list(config.get("categories") or [])
@@ -7977,9 +7978,27 @@ class MainWindow(QMainWindow):
             normalize_catalog_label("specification"),
             normalize_catalog_label("specifications"),
         }
+
+        # Keep «سایر موارد» strictly last in categories list
+        clean_categories = []
+        has_other_category = False
+        other_category_label = "سایر موارد"
+        for cat in categories:
+            cat_key = normalize_catalog_label(cat)
+            if cat_key == other_key:
+                has_other_category = True
+                other_category_label = cat
+            elif cat and cat not in clean_categories:
+                clean_categories.append(cat)
+        if has_other_category:
+            clean_categories.append(other_category_label)
+        config["categories"] = clean_categories
+        categories = clean_categories
+
         for category in categories:
             values = subcategories.setdefault(category, [])
             has_other = False
+            other_label = "سایر موارد"
             unique_values = []
             seen = set()
             for value in values:
@@ -7987,12 +8006,13 @@ class MainWindow(QMainWindow):
                 if not key or key in seen:
                     continue
                 seen.add(key)
-                if key == other_key:
+                if key == other_key or "سایرموارد" in key:
                     has_other = True
+                    other_label = value
                 else:
                     unique_values.append(value)
             if has_other:
-                unique_values.append("سایر موارد")
+                unique_values.append(other_label)
             subcategories[category] = unique_values
 
             if has_other:
@@ -8002,7 +8022,8 @@ class MainWindow(QMainWindow):
                 for item in definitions:
                     if not isinstance(item, dict):
                         continue
-                    if normalize_catalog_label(item.get("subcategory") or "") != other_key:
+                    item_sub_key = normalize_catalog_label(item.get("subcategory") or "")
+                    if item_sub_key != other_key and "سایرموارد" not in item_sub_key:
                         retained.append(item)
                         continue
                     if normalize_catalog_label(item.get("name") or "") in spec_keys:
@@ -8014,7 +8035,7 @@ class MainWindow(QMainWindow):
                         str(value).strip() for value in spec_values
                         if str(value).strip()
                     )),
-                    "subcategory": "سایر موارد",
+                    "subcategory": other_label,
                 })
                 attributes[category] = retained
 
@@ -8345,12 +8366,6 @@ class MainWindow(QMainWindow):
         if not selected:
             return
         name = selected.text()
-        if len(self._taxonomy_draft.get("service_types", [])) <= 1:
-            QMessageBox.information(
-                self, "آخرین نوع خدمت",
-                "حداقل یک نوع خدمت باید در فهرست باقی بماند."
-            )
-            return
         source_names = [name]
         current_name = name
         for old_name, new_name in reversed(self._pending_service_type_renames):
@@ -8810,7 +8825,7 @@ class MainWindow(QMainWindow):
             self.cb_srv_type.blockSignals(True)
             self.cb_srv_type.clear()
             self.cb_srv_type.addItems(
-                self.catalog_config.get("service_types") or ["نرم‌افزاری", "سخت‌افزاری"]
+                self.catalog_config.get("service_types") or []
             )
             if current_type and self.cb_srv_type.findText(current_type) >= 0:
                 self.cb_srv_type.setCurrentText(current_type)
@@ -8886,25 +8901,32 @@ class MainWindow(QMainWindow):
             self.specs_widget.apply_custom_catalog(subcategories, [])
 
             combo = self.specs_widget.cb_sub
-            if combo is not None and combo.count():
-                target_index = -1
-                if (
-                    normalize_catalog_label(previous_category)
-                    == normalize_catalog_label(category)
-                    and normalize_catalog_label(previous_subcategory)
-                ):
-                    previous_key = normalize_catalog_label(previous_subcategory)
-                    target_index = next(
-                        (
-                            index for index in range(combo.count())
-                            if normalize_catalog_label(combo.itemText(index)) == previous_key
-                        ),
-                        -1,
-                    )
-                if target_index < 0:
-                    target_index = 0
-                if combo.currentIndex() != target_index:
-                    combo.setCurrentIndex(target_index)
+            is_other_category = (normalize_catalog_label(category) == normalize_catalog_label("سایر موارد"))
+            if combo is not None:
+                combo.setEditable(is_other_category)
+                if is_other_category:
+                    combo.setToolTip("زیرمجموعه را انتخاب کنید یا نام دلخواه را تایپ کنید")
+                else:
+                    combo.setToolTip("زیرمجموعه را از فهرست انتخاب کنید")
+                if combo.count():
+                    target_index = -1
+                    if (
+                        normalize_catalog_label(previous_category)
+                        == normalize_catalog_label(category)
+                        and normalize_catalog_label(previous_subcategory)
+                    ):
+                        previous_key = normalize_catalog_label(previous_subcategory)
+                        target_index = next(
+                            (
+                                index for index in range(combo.count())
+                                if normalize_catalog_label(combo.itemText(index)) == previous_key
+                            ),
+                            -1,
+                        )
+                    if target_index < 0:
+                        target_index = 0
+                    if combo.currentIndex() != target_index:
+                        combo.setCurrentIndex(target_index)
 
             self._apply_custom_specs_for_subcategory()
 
@@ -8917,11 +8939,13 @@ class MainWindow(QMainWindow):
         # such as "Graphic Card" remain compatible with the visible "GRAPHIC CARD".
         subcategory = QComboBox.currentText(self.specs_widget.cb_sub).strip()
         definitions = self.catalog_config.get("attributes", {}).get(category, [])
-        is_other = (
+        is_other_category = (normalize_catalog_label(category) == normalize_catalog_label("سایر موارد"))
+        is_other_subcategory = (
             normalize_catalog_label(subcategory) == normalize_catalog_label("سایر موارد")
             or "سایر موارد" in subcategory
             or "(other)" in subcategory.lower()
         )
+        is_other = is_other_category or is_other_subcategory
         if is_other:
             for k in list(self.specs_widget.fields.keys()):
                 if normalize_catalog_label(k) != normalize_catalog_label("مشخصات"):
@@ -9158,9 +9182,8 @@ class MainWindow(QMainWindow):
         )
 
     def _create_and_connect_new_db(self):
-        default_path = os.path.join(
-            os.path.dirname(os.path.abspath(self.db.db_path)), "NewDaqiq.db"
-        )
+        base_dir = os.path.dirname(os.path.abspath(self.db.db_path)) if self.db and self.db.db_path else None
+        default_path = generate_timestamped_database_filename(base_dir, prefix="Daqiq", extension=".db")
         new_path, _ = QFileDialog.getSaveFileName(
             self, "ایجاد فایل پایگاه دادهٔ جدید", default_path,
             "پایگاه داده SQLite (*.db)"
@@ -9344,6 +9367,20 @@ class MainWindow(QMainWindow):
                         (new_type, old_type),
                     )
                 self.db.save_product_catalog_config(self._taxonomy_draft, conn=conn)
+
+                shop_name = self.ed_shop_name.text().strip() or "فروشگاه من"
+                selected_export_columns = [
+                    key for key, checkbox in self.inventory_export_column_checks.items()
+                    if checkbox.isChecked()
+                ]
+                if not selected_export_columns:
+                    raise ValueError("برای خروجی موجودی همکار دست‌کم یک ستون را انتخاب کنید.")
+                self.db.set_setting("shop_name", shop_name, conn=conn)
+                self.db.set_setting(
+                    "colleague_inventory_export_columns",
+                    json.dumps(selected_export_columns, ensure_ascii=False),
+                    conn=conn,
+                )
                 conn.commit()
 
             self.db.cfg["default_profit_pct"] = self.sp_set_profit.value()
@@ -9352,19 +9389,6 @@ class MainWindow(QMainWindow):
             self.db.cfg["zero_append_count"] = int(self.cb_zero_count.currentData())
             self.db.cfg["default_window_maximized"] = self.cb_win_mode.currentData() == "1"
             self.db.cfg["require_login_password"] = effective_password_policy
-
-            shop_name = self.ed_shop_name.text().strip() or "فروشگاه من"
-            self.db.set_setting("shop_name", shop_name)
-            selected_export_columns = [
-                key for key, checkbox in self.inventory_export_column_checks.items()
-                if checkbox.isChecked()
-            ]
-            if not selected_export_columns:
-                raise ValueError("برای خروجی موجودی همکار دست‌کم یک ستون را انتخاب کنید.")
-            self.db.set_setting(
-                "colleague_inventory_export_columns",
-                json.dumps(selected_export_columns, ensure_ascii=False),
-            )
             self._save_report_export_config_internal()
             self.db.cfg["auto_backup_enabled"] = self.chk_auto_bk.isChecked()
             self.db.cfg["auto_backup_interval_min"] = self.sp_bk_interval.value()

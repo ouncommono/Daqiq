@@ -342,7 +342,7 @@ def export_table_to_excel(
     title: str, headers: list, data_rows: list, file_path: str, summary_text: str = "",
     shop_name: str = "",
 ):
-    """مورد ۱: خروجی اکسل کامل و استایل‌دهی شده برای گزارش‌های جامع"""
+    """خروجی اکسل کامل و استایل‌دهی شده برای گزارش‌های جامع با پالت رنگی حرفه‌ای و هماهنگ"""
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "گزارش جامع"
@@ -351,28 +351,28 @@ def export_table_to_excel(
     col_count = max(1, len(headers))
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=col_count)
     report_title = _rtl_report_title(shop_name, title)
-    ws.cell(1, 1, report_title).font = Font(name="Tahoma", size=13, bold=True, color="FFFFFF")
-    ws.cell(1, 1).fill = PatternFill("solid", fgColor="1E3A8A")
-    ws.cell(1, 1).alignment = Alignment(horizontal="center", vertical="center", readingOrder=2)
-    ws.row_dimensions[1].height = 28
+    title_cell = ws.cell(1, 1, report_title)
+    title_cell.font = Font(name="Tahoma", size=13, bold=True, color="FFFFFF")
+    title_cell.fill = PatternFill("solid", fgColor="1E3A8A")
+    title_cell.alignment = Alignment(horizontal="center", vertical="center", readingOrder=2)
+    ws.row_dimensions[1].height = 32
 
     start_data_row = 3
     if summary_text:
         ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=col_count)
-        ws.cell(2, 1, _clean_excel_value(summary_text)).font = Font(name="Tahoma", size=10, bold=True, color="1E3A8A")
-        ws.cell(2, 1).fill = PatternFill("solid", fgColor="DBEAFE")
-        ws.cell(2, 1).alignment = Alignment(horizontal="center", vertical="center", readingOrder=2)
+        sum_cell = ws.cell(2, 1, _clean_excel_value(summary_text))
+        sum_cell.font = Font(name="Tahoma", size=10, bold=True, color="1E3A8A")
+        sum_cell.fill = PatternFill("solid", fgColor="DBEAFE")
+        sum_cell.alignment = Alignment(horizontal="center", vertical="center", readingOrder=2)
         ws.row_dimensions[2].height = 22
         start_data_row = 4
 
-    ws.append([_clean_excel_value(value) for value in headers])
     header_row_idx = start_data_row - 1
-    for c_idx in range(1, col_count + 1):
-        cell = ws.cell(header_row_idx, c_idx)
-        cell.font = Font(name="Tahoma", size=10, bold=True, color="FFFFFF")
-        cell.fill = PatternFill("solid", fgColor="334155")
-        cell.alignment = Alignment(horizontal="center", vertical="center")
+    ws.append([_clean_excel_value(value) for value in headers])
+    ws.row_dimensions[header_row_idx].height = 25
 
+    header_fill = PatternFill("solid", fgColor="1E293B")
+    header_font = Font(name="Tahoma", size=10, bold=True, color="FFFFFF")
     thin_border = Border(
         left=Side(style="thin", color="CBD5E1"),
         right=Side(style="thin", color="CBD5E1"),
@@ -380,27 +380,36 @@ def export_table_to_excel(
         bottom=Side(style="thin", color="CBD5E1"),
     )
 
-    for r_vals in data_rows:
-        ws.append([_clean_excel_value(value) for value in r_vals])
+    for c_idx in range(1, col_count + 1):
+        cell = ws.cell(header_row_idx, c_idx)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        cell.border = thin_border
 
-    zebra_fill = PatternFill("solid", fgColor="F8FAFC")
-    white_fill = PatternFill("solid", fgColor="FFFFFF")
-    for row_idx, row in enumerate(ws.iter_rows(min_row=start_data_row, max_row=ws.max_row, max_col=col_count), start=0):
-        fill = zebra_fill if row_idx % 2 == 1 else white_fill
-        for cell in row:
-            cell.font = Font(name="Tahoma", size=10)
-            # Signed values remain centered like every other comprehensive-report cell.
+    even_fill = PatternFill("solid", fgColor="F8FAFC")
+    odd_fill = PatternFill("solid", fgColor="FFFFFF")
+    body_font = Font(name="Tahoma", size=10, color="0F172A")
+
+    for r_idx, r_vals in enumerate(data_rows, start=start_data_row):
+        clean_values = [_clean_excel_value(value) for value in r_vals]
+        ws.append(clean_values)
+        ws.row_dimensions[r_idx].height = 22
+        row_fill = even_fill if (r_idx - start_data_row) % 2 == 1 else odd_fill
+        for c_idx in range(1, col_count + 1):
+            cell = ws.cell(row=r_idx, column=c_idx)
+            cell.font = body_font
+            cell.fill = row_fill
             cell.alignment = Alignment(horizontal="center", vertical="center", readingOrder=0)
             cell.border = thin_border
-            cell.fill = fill
 
-    for col in range(1, col_count + 1):
-        col_letter = openpyxl.utils.get_column_letter(col)
-        max_len = 12
-        for cell in ws[col_letter]:
-            val_str = str(cell.value or "")
-            if cell.row > (2 if summary_text else 1):
-                max_len = max(max_len, len(val_str))
-        ws.column_dimensions[col_letter].width = min(40, max(16, max_len + 4))
+    for col_idx in range(1, col_count + 1):
+        max_len = len(str(headers[col_idx - 1]))
+        for r_idx in range(start_data_row, ws.max_row + 1):
+            val_str = str(ws.cell(r_idx, col_idx).value or "")
+            if len(val_str) > max_len:
+                max_len = len(val_str)
+        col_letter = openpyxl.utils.get_column_letter(col_idx)
+        ws.column_dimensions[col_letter].width = min(max(max_len + 5, 13), 42)
 
     wb.save(file_path)
