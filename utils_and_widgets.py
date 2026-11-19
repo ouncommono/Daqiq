@@ -98,70 +98,9 @@ def _unique_catalog_labels(values):
     return result
 
 # فهرست جامع دسته‌بندی‌های اصلی فروشگاه (بند ۱ و ۲)
-MAIN_CATEGORIES = [
-    "لپ‌تاپ",
-    "قطعات",
-    "لوازم جانبی",
-    "مانیتور",
-    "کیس و مینی‌کیس",
-    "آداپتور و تغذیه",
-    "شبکه و مودم",
-    "ماشین‌های اداری",
-    "سایر موارد",
-]
-
-# زیرمجموعه‌های پیش‌فرض برای شروع؛ پس از ذخیره قابل تغییر توسط هر فروشگاه هستند.
-DEFAULT_SUBCATEGORIES = {
-    "لپ‌تاپ": [
-        "لپ‌تاپ عمومی / مالتی‌مدیا", "لپ‌تاپ گیمینگ (Gaming)",
-        "لپ‌تاپ مهندسی و رندرینگ", "لپ‌تاپ استوک / صنعتی",
-        "اولترابوک / تبلت‌شو", "مک‌بوک (MacBook)", "سایر موارد",
-    ],
-    "قطعات": [
-        "پردازنده (CPU)", "رم کامپیوتر (RAM PC)",
-        "رم لپ‌تاپ (RAM Laptop)", "حافظه اس‌اس‌دی (SSD)",
-        "هارد دیسک اینترنال (HDD)", "کارت گرافیک (Graphic Card)",
-        "مادربرد (Motherboard)", "پاور / منبع تغذیه کیس (Power)",
-        "فن و خنک‌کننده (Cooling / Fan)", "صفحه‌نمایش لپ‌تاپ (LED / LCD Panel)",
-        "باتری لپ‌تاپ (Laptop Battery)", "کیبورد تعمیراتی لپ‌تاپ (Internal Keyboard)",
-        "قاب، لولا و فلت لپ‌تاپ", "کارت شبکه و صدا اینترنال",
-        "درایو نوری (DVD RW / Caddy)", "سایر موارد",
-    ],
-    "لوازم جانبی": [
-        "ماوس (Mouse)", "کیبورد (Keyboard)",
-        "پک کمبو ماوس و کیبورد", "هدست، هدفون و هندزفری", "اسپیکر (Speaker)",
-        "فلش مموری (Flash Memory)", "هارد اکسترنال (External HDD)",
-        "اس‌اس‌دی اکسترنال (External SSD)", "کول‌پد لپ‌تاپ (Coolpad)",
-        "کیف و کوله‌پشتی لپ‌تاپ", "هاب USB و Type-C",
-        "کابل تصویر (HDMI / DisplayPort / VGA)", "کابل برق، شبکه و افزایش طول",
-        "مبدل و دانگل (Converter / Dongle)", "ماوس‌پد (Mouse Pad)",
-        "وب‌کم و میکروفون (Webcam / Mic)", "گیم‌پد و دسته بازی (Gamepad)",
-        "خمیر سیلیکون و اسپری تمیزکننده", "سایر موارد",
-    ],
-    "مانیتور": [
-        "مانیتور اداری و خانگی", "مانیتور گیمینگ (Gaming)",
-        "مانیتور طراحی و صنعتی", "مانیتور استوک", "مانیتور منحنی (Curved)",
-    ],
-    "کیس و مینی‌کیس": [
-        "مینی‌کیس استوک (Mini Case)", "کیس کامل اسمبل‌شده (PC)",
-        "آل‌این‌وان (All-in-One)", "تین‌کلاینت (Thin Client)",
-        "پوسته کیس خالی (Case Chassis)",
-    ],
-    "آداپتور و تغذیه": [
-        "شارژر و آداپتور لپ‌تاپ", "آداپتور مانیتور و مینی‌کیس",
-        "آداپتور مودم و سوئیچ (9V/12V)", "محافظ برق و چندراهی",
-        "برق اضطراری (UPS) و باتری UPS", "کابل برق سهند / سه‌پین / دوپین",
-    ],
-    "شبکه و مودم": [
-        "مودم ADSL / VDSL", "مودم سیم‌کارتی 4G / 5G / TD-LTE",
-        "روتر و اکسس‌پوینت بی‌سیم", "سوئیچ شبکه (5/8/16/24 پورت)",
-        "کارت شبکه USB / PCIe", "سایر موارد",
-    ],
-    "ماشین‌های اداری": [
-        "پرینتر و چندکاره", "اسکنر", "کارتریج و تونر", "سایر موارد",
-    ],
-    "سایر موارد": ["سایر موارد"],
-}
+# نسخه ۴.۷: کاتالوگ صرفاً از فایل خارجی default_taxonomy.json بارگذاری می‌شود
+MAIN_CATEGORIES = []
+DEFAULT_SUBCATEGORIES = {}
 
 # فهرست جامع پردازنده‌های قدیمی و جدید (بند ۲)
 # Broad CPU families and suffix patterns. The editable search field lets the user
@@ -262,63 +201,8 @@ DEFAULT_COLORS = [
 
 
 # فهرست ویژگی‌های فنی اولیه؛ هر فروشگاه می‌تواند مقادیر و محدودهٔ زیرمجموعه را تغییر دهد.
-DEFAULT_ATTRIBUTES = {
-    "لپ‌تاپ": [
-        {"name": "پردازنده", "label": "CPU", "values": CPU_LIST[1:]},
-        {"name": "ظرفیت رم", "label": "RAM", "values": RAM_CAPACITIES[1:]},
-        {"name": "نسل رم", "label": "RAM Type", "values": ["DDR3 / DDR3L", "DDR4", "DDR5", "LPDDR4 / LPDDR5"]},
-        {"name": "حافظه داخلی", "label": "Storage", "values": STORAGE_LIST[1:]},
-        {"name": "پردازنده گرافیکی", "label": "GPU", "values": GPU_LIST[1:]},
-        {"name": "صفحه‌نمایش", "label": "Display", "values": [
-            "13.3 inch", "14 inch HD / FHD", "15.6 inch HD",
-            "15.6 inch FHD IPS", "15.6 inch 144Hz / 165Hz",
-            "16 inch FHD+ / 2K", "17.3 inch FHD",
-        ]},
-    ],
-    "قطعات": [
-        {"name": "ظرفیت", "label": "Capacity", "values": RAM_CAPACITIES[1:], "subcategory": "رم کامپیوتر (RAM PC)"},
-        {"name": "ظرفیت", "label": "Capacity", "values": RAM_CAPACITIES[1:], "subcategory": "رم لپ‌تاپ (RAM Laptop)"},
-        {"name": "نوع رابط", "label": "Interface", "values": ["SATA", "NVMe", "PCIe"], "subcategory": "حافظه اس‌اس‌دی (SSD)"},
-        {"name": "ظرفیت", "label": "Capacity", "values": [], "subcategory": "هارد دیسک اینترنال (HDD)"},
-        {"name": "نوع سوکت", "label": "Socket", "values": [], "subcategory": "پردازنده (CPU)"},
-    ],
-    "لوازم جانبی": [
-        {"name": "نوع اتصال / پورت", "label": "Connectivity", "values": [
-            "Wired USB", "2.4GHz Wireless", "Bluetooth",
-            "Tri-mode (Wired / Wireless / Bluetooth)", "USB Type-C",
-            "3.5mm Audio Jack", "HDMI / DisplayPort / VGA",
-        ]},
-        {"name": "مشخصات", "label": "Specifications", "values": []},
-    ],
-    "مانیتور": [
-        {"name": "سایز", "label": "Size", "values": ["19 inch", "20 inch", "22 inch", "24 inch", "27 inch", "32 inch", "34 inch"]},
-        {"name": "نوع پنل", "label": "Panel", "values": ["IPS", "VA", "TN", "OLED", "Nano IPS"]},
-        {"name": "نرخ نوسازی", "label": "Refresh Rate", "values": ["60Hz", "75Hz", "100Hz", "144Hz", "165Hz", "180Hz", "240Hz"]},
-        {"name": "درگاه‌ها", "label": "Ports", "values": ["HDMI + VGA", "HDMI + DisplayPort", "HDMI + DP + Type-C", "VGA + DVI"]},
-    ],
-    "کیس و مینی‌کیس": [
-        {"name": "پردازنده", "label": "CPU", "values": CPU_LIST[1:]},
-        {"name": "ظرفیت رم", "label": "RAM", "values": RAM_CAPACITIES[1:]},
-        {"name": "حافظه داخلی", "label": "Storage", "values": STORAGE_LIST[1:]},
-        {"name": "پردازنده گرافیکی", "label": "GPU", "values": GPU_LIST[1:]},
-    ],
-    "آداپتور و تغذیه": [
-        {"name": "ولتاژ", "label": "Voltage", "values": ["5V", "9V", "12V", "19V", "19.5V", "20V", "220V AC"]},
-        {"name": "آمپر و توان", "label": "Current / Power", "values": ["1A / 1.5A / 2A", "2.31A (45W)", "3.25A (65W)", "4.5A (90W)", "6.75A / 7.7A (135W-150W)"]},
-        {"name": "نوع سوکت", "label": "Connector", "values": ["5.5x2.5mm", "HP / Dell Barrel", "Lenovo Rectangular", "USB Type-C PD"]},
-    ],
-    "شبکه و مودم": [
-        {"name": "استاندارد شبکه", "label": "Network Standard", "values": ["Wi-Fi 4", "Wi-Fi 5", "Wi-Fi 6", "Wi-Fi 6E", "Wi-Fi 7", "4G", "5G"]},
-        {"name": "تعداد درگاه", "label": "Ports", "values": []},
-    ],
-    "ماشین‌های اداری": [
-        {"name": "فناوری چاپ", "label": "Print Technology", "values": ["Laser", "Inkjet", "Thermal", "Dot Matrix"]},
-        {"name": "نوع چاپ", "label": "Print Color", "values": ["Monochrome", "Color"]},
-    ],
-    "سایر موارد": [
-        {"name": "مشخصات", "label": "Specifications", "values": []},
-    ],
-}
+# نسخه ۴.۷: ویژگی‌ها صرفاً از فایل خارجی default_taxonomy.json بارگذاری می‌شود
+DEFAULT_ATTRIBUTES = {}
 
 
 def normalize_digits(text: str) -> str:
@@ -1392,7 +1276,7 @@ class DynamicSpecsWidget(QGroupBox):
                 ]
             )
             ed_extra = SmartLineEdit("ویژگی تکمیلی (مثلاً طول کابل، ظرفیت، رنگ...)")
-            self.fields = {"نوع اتصال / پورت": cb_conn, "مشخصه": ed_extra}
+            self.fields = {"نوع اتصال / پورت": cb_conn, "مشخصات": ed_extra}
             self.form_layout.addRow("نوع لوازم جانبی:", self.cb_sub)
             self.form_layout.addRow("نوع اتصال / پورت:", cb_conn)
             self.form_layout.addRow("مشخصات تکمیلی:", ed_extra)
@@ -1601,7 +1485,7 @@ class DynamicSpecsWidget(QGroupBox):
                         field_label = self.sub_layout.labelForField(existing_widget)
                     if isinstance(field_label, QLabel):
                         field_label.setText(f"{form_label}:")
-                    existing_widget.setToolTip(f"مشخصه سفارشی: {form_label}")
+                    existing_widget.setToolTip(f"ویژگی سفارشی: {form_label}")
                     continue
                 except RuntimeError:
                     self.fields.pop(field_name, None)
@@ -1614,7 +1498,7 @@ class DynamicSpecsWidget(QGroupBox):
                 widget.addItems(list(dict.fromkeys(values)))
             else:
                 widget = SmartLineEdit(f"{field_name}...")
-            widget.setToolTip(f"مشخصه سفارشی: {form_label}")
+            widget.setToolTip(f"ویژگی سفارشی: {form_label}")
             self.fields[field_name] = widget
             self._custom_field_widgets[field_name] = widget
             self.form_layout.addRow(f"{form_label}:", widget)
@@ -1781,8 +1665,8 @@ class DynamicAttributeValuesWidget(QWidget):
 
         self.scroll_area = SmoothScrollArea(self)
         self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setMinimumHeight(90)
-        self.scroll_area.setMaximumHeight(150)
+        self.scroll_area.setMinimumHeight(240)
+        self.scroll_area.setMaximumHeight(400)
 
         self.container = QWidget()
         self.rows_layout = QVBoxLayout(self.container)

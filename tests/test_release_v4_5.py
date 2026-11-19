@@ -100,17 +100,17 @@ class ReleaseV45Tests(unittest.TestCase):
     # ITEM 0: Greenfield Database Schema & Version 4.5.0 / 450
     # -------------------------------------------------------------------------
     def test_schema_and_app_version_v450(self):
-        """Item 0: Database version is 4.5.0 and schema_version is 450."""
-        self.assertEqual(APP_VERSION, "4.5.0")
-        self.assertEqual(UI_APP_VERSION, "4.5.0")
-        self.assertEqual(SCHEMA_VERSION, 450)
+        """Item 0: Database version is 4.6.0 and schema_version is 460."""
+        self.assertEqual(APP_VERSION, "4.6.0")
+        self.assertEqual(UI_APP_VERSION, "4.6.0")
+        self.assertEqual(SCHEMA_VERSION, 460)
         with self.db.get_connection() as conn:
             user_ver = conn.execute("PRAGMA user_version").fetchone()[0]
-            self.assertEqual(user_ver, 450)
+            self.assertEqual(user_ver, 460)
             app_ver = conn.execute("SELECT value FROM settings WHERE key='app_version'").fetchone()[0]
-            self.assertEqual(app_ver, "4.5.0")
+            self.assertEqual(app_ver, "4.6.0")
             schema_ver = conn.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone()[0]
-            self.assertEqual(schema_ver, "450")
+            self.assertEqual(schema_ver, "460")
 
     def test_missing_default_taxonomy_returns_empty_dict(self):
         """Item 0: Missing default_taxonomy.json leaves taxonomy empty without fallback."""

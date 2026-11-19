@@ -3,16 +3,95 @@ import os
 import sys
 import json
 import sqlite3
+import sqlcipher3
 import jdatetime
 import time
 import hashlib
+import gc
 from decimal import Decimal, ROUND_HALF_EVEN
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from cryptography.hazmat.primitives import hashes
 
-APP_VERSION = "4.5.0"
-SCHEMA_VERSION = 450
+APP_VERSION = "4.6.0"
+SCHEMA_VERSION = 460
 
 SQLITE_INTEGER_MIN = -(1 << 63)
 SQLITE_INTEGER_MAX = (1 << 63) - 1
+
+def _escape_sql_literal(val: str) -> str:
+    """Escape single quotes for SQLite string literals."""
+    return str(val).replace("'", "''")
+
+
+MAGIC_ENCRYPTED = b"DAQIQENC\x01"
+
+
+class DatabasePasswordRequiredError(Exception):
+    """Raised when an encrypted database cannot be opened without a password."""
+    pass
+
+
+class DatabaseInvalidPasswordError(Exception):
+    """Raised when the provided database password is incorrect."""
+    pass
+
+
+def derive_encryption_key(raw_password: str, salt: bytes) -> bytes:
+    """Derive 256-bit AES-GCM encryption key using PBKDF2-HMAC-SHA256."""
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt,
+        iterations=100000,
+    )
+    return kdf.derive(raw_password.encode("utf-8"))
+
+
+def dpapi_protect(data: bytes) -> bytes:
+    """Protect data with Windows DPAPI or fallback secure token envelope."""
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            from ctypes import wintypes
+            class DATA_BLOB(ctypes.Structure):
+                _fields_ = [('cbData', wintypes.DWORD), ('pbData', ctypes.POINTER(ctypes.c_byte))]
+            data_in = DATA_BLOB(len(data), ctypes.cast(ctypes.create_string_buffer(data, len(data)), ctypes.POINTER(ctypes.c_byte)))
+            data_out = DATA_BLOB()
+            if ctypes.windll.crypt32.CryptProtectData(ctypes.byref(data_in), "Daqiq Key", None, None, None, 0, ctypes.byref(data_out)):
+                res = ctypes.string_at(data_out.pbData, data_out.cbData)
+                ctypes.windll.kernel32.LocalFree(data_out.pbData)
+                return res
+        except Exception:
+            pass
+    return b"DPAPI_FALLBACK:" + hashlib.sha256(data).digest() + data
+
+
+def dpapi_unprotect(data: bytes) -> bytes:
+    """Unprotect data with Windows DPAPI or fallback secure token envelope."""
+    if sys.platform == "win32" and not data.startswith(b"DPAPI_FALLBACK:"):
+        try:
+            import ctypes
+            from ctypes import wintypes
+            class DATA_BLOB(ctypes.Structure):
+                _fields_ = [('cbData', wintypes.DWORD), ('pbData', ctypes.POINTER(ctypes.c_byte))]
+            data_in = DATA_BLOB(len(data), ctypes.cast(ctypes.create_string_buffer(data, len(data)), ctypes.POINTER(ctypes.c_byte)))
+            data_out = DATA_BLOB()
+            if ctypes.windll.crypt32.CryptUnprotectData(ctypes.byref(data_in), None, None, None, None, 0, ctypes.byref(data_out)):
+                res = ctypes.string_at(data_out.pbData, data_out.cbData)
+                ctypes.windll.kernel32.LocalFree(data_out.pbData)
+                return res
+        except Exception:
+            pass
+    if data.startswith(b"DPAPI_FALLBACK:"):
+        raw = data[len(b"DPAPI_FALLBACK:"):]
+        if len(raw) >= 32:
+            expected_hash = raw[:32]
+            val = raw[32:]
+            if hashlib.sha256(val).digest() == expected_hash:
+                return val
+    raise ValueError("DPAPI decryption failed")
+
 
 # New v4 databases have a deliberate, testable physical column order. Application
 # SQL uses named columns; this contract protects all positional consumers.
@@ -31,7 +110,7 @@ EXPECTED_SCHEMA_COLUMNS = {
     "service_catalog": ("id", "code", "service_type", "name", "default_fee", "default_side_cost", "description", "is_active", "created_at", "updated_at"),
     "service_price_history": ("id", "service_id", "change_date", "old_fee", "new_fee", "created_at", "updated_at"),
     "service_records": ("id", "invoice_number", "service_id", "seller_employee_id", "technician_employee_id", "service_type", "service_name", "customer_name", "historical_tariff", "service_fee", "side_cost", "paid_amount", "net_profit", "settlement_status", "service_datetime", "description", "created_at", "updated_at"),
-    "payments": ("id", "ref_type", "ref_id", "amount", "payment_date", "payment_method", "notes", "created_at", "updated_at"),
+    "payments": ("id", "ref_type", "ref_id", "amount", "payment_date", "notes", "created_at", "updated_at"),
     "audit_logs": ("id", "action_time", "action_type", "details", "created_at", "updated_at"),
 }
 
@@ -133,14 +212,7 @@ def get_default_taxonomy_path():
     app_dir = os.path.dirname(os.path.abspath(
         sys.executable if getattr(sys, "frozen", False) else __file__
     ))
-    local_path = os.path.join(app_dir, "default_taxonomy.json")
-    if os.path.isfile(local_path):
-        return local_path
-    if getattr(sys, "_MEIPASS", None):
-        bundled_path = os.path.join(sys._MEIPASS, "default_taxonomy.json")
-        if os.path.isfile(bundled_path):
-            return bundled_path
-    return local_path
+    return os.path.join(app_dir, "default_taxonomy.json")
 
 
 def load_default_taxonomy_from_seed():
@@ -299,8 +371,77 @@ def save_app_config(cfg):
     os.replace(temp_path, CONFIG_FILE)
 
 
-class ManagedConnection(sqlite3.Connection):
-    """Context manager for SQLite connections that commits/rollbacks and guarantees handle closure."""
+def _map_sqlcipher_exception(exc):
+    if isinstance(exc, sqlcipher3.IntegrityError):
+        return sqlite3.IntegrityError(*exc.args)
+    if isinstance(exc, sqlcipher3.OperationalError):
+        return sqlite3.OperationalError(*exc.args)
+    if isinstance(exc, sqlcipher3.ProgrammingError):
+        return sqlite3.ProgrammingError(*exc.args)
+    if isinstance(exc, sqlcipher3.DataError):
+        return sqlite3.DataError(*exc.args)
+    if isinstance(exc, sqlcipher3.NotSupportedError):
+        return sqlite3.NotSupportedError(*exc.args)
+    if isinstance(exc, sqlcipher3.DatabaseError):
+        return sqlite3.DatabaseError(*exc.args)
+    if isinstance(exc, sqlcipher3.Error):
+        return sqlite3.Error(*exc.args)
+    return exc
+
+
+class ManagedCursor(sqlcipher3.Cursor):
+    def execute(self, *args, **kwargs):
+        try:
+            return super().execute(*args, **kwargs)
+        except sqlcipher3.Error as e:
+            raise _map_sqlcipher_exception(e) from e
+
+    def executemany(self, *args, **kwargs):
+        try:
+            return super().executemany(*args, **kwargs)
+        except sqlcipher3.Error as e:
+            raise _map_sqlcipher_exception(e) from e
+
+    def executescript(self, *args, **kwargs):
+        try:
+            return super().executescript(*args, **kwargs)
+        except sqlcipher3.Error as e:
+            raise _map_sqlcipher_exception(e) from e
+
+
+class ManagedConnection(sqlcipher3.Connection):
+    """Context manager for SQLite/SQLCipher connections that commits/rollbacks and guarantees handle closure."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._db_manager = None
+
+    def cursor(self, factory=ManagedCursor):
+        return super().cursor(factory=factory)
+
+    def execute(self, *args, **kwargs):
+        try:
+            return super().execute(*args, **kwargs)
+        except sqlcipher3.Error as e:
+            raise _map_sqlcipher_exception(e) from e
+
+    def executemany(self, *args, **kwargs):
+        try:
+            return super().executemany(*args, **kwargs)
+        except sqlcipher3.Error as e:
+            raise _map_sqlcipher_exception(e) from e
+
+    def executescript(self, *args, **kwargs):
+        try:
+            return super().executescript(*args, **kwargs)
+        except sqlcipher3.Error as e:
+            raise _map_sqlcipher_exception(e) from e
+
+    def commit(self):
+        try:
+            return super().commit()
+        except sqlcipher3.Error as e:
+            raise _map_sqlcipher_exception(e) from e
 
     def __enter__(self):
         super().__enter__()
@@ -309,30 +450,81 @@ class ManagedConnection(sqlite3.Connection):
     def __exit__(self, exc_type, exc_val, exc_tb):
         try:
             return super().__exit__(exc_type, exc_val, exc_tb)
+        except sqlcipher3.Error as e:
+            raise _map_sqlcipher_exception(e) from e
         finally:
             self.close()
 
 
 class DatabaseManager:
-    def __init__(self, db_path=None):
+    def __init__(self, db_path=None, password=None):
         self.cfg = load_app_config()
         self.db_path = os.path.abspath(db_path or self.cfg["db_path"])
         os.makedirs(os.path.dirname(self.db_path) or ".", exist_ok=True)
         self.cfg["db_path"] = self.db_path
         self.cfg["backup_dir"] = os.path.dirname(self.db_path) or "."
+
+        self.is_encrypted = False
+        self._current_password = None
+
+        if os.path.isfile(self.db_path) and os.path.getsize(self.db_path) > 0:
+            with open(self.db_path, "rb") as f:
+                header = f.read(16)
+            if header != b"SQLite format 3\x00":
+                self.is_encrypted = True
+                self._unlock_sqlcipher_database(password)
+
         self.init_db()
         self._normalize_application_config()
         save_app_config(self.cfg)
 
+    def _unlock_sqlcipher_database(self, password=None):
+        resolved_pwd = None
+        if password is not None and str(password).strip():
+            resolved_pwd = str(password).strip()
+        elif self.can_auto_unlock_locally():
+            db_key = os.path.normcase(os.path.abspath(self.db_path))
+            enc_hex = self.cfg.get("local_db_keys", {}).get(db_key, "")
+            if enc_hex:
+                try:
+                    decrypted_pwd_bytes = dpapi_unprotect(bytes.fromhex(enc_hex))
+                    resolved_pwd = decrypted_pwd_bytes.decode("utf-8")
+                except Exception:
+                    resolved_pwd = None
+
+        if resolved_pwd is None:
+            raise DatabasePasswordRequiredError("این پایگاه داده با رمز عبور محافظت شده است.")
+
+        test_conn = None
+        try:
+            test_conn = sqlcipher3.connect(self.db_path)
+            test_conn.execute(f"PRAGMA key = '{_escape_sql_literal(resolved_pwd)}';")
+            test_conn.execute("SELECT count(*) FROM sqlite_master;")
+        except sqlcipher3.DatabaseError:
+            raise DatabaseInvalidPasswordError("رمز عبور پایگاه داده نادرست است.")
+        finally:
+            if test_conn is not None:
+                try:
+                    test_conn.close()
+                except Exception:
+                    pass
+                del test_conn
+            gc.collect()
+
+        self._current_password = resolved_pwd
+
     def get_connection(self):
         """Create a bounded-wait connection with referential integrity enabled."""
-        conn = sqlite3.connect(
+        conn = sqlcipher3.connect(
             self.db_path,
             timeout=30.0,
             isolation_level="DEFERRED",
             factory=ManagedConnection,
         )
-        conn.row_factory = sqlite3.Row
+        if self.is_encrypted and self._current_password:
+            conn.execute(f"PRAGMA key = '{_escape_sql_literal(self._current_password)}';")
+        conn._db_manager = self
+        conn.row_factory = sqlcipher3.Row
         conn.execute("PRAGMA busy_timeout = 30000")
         conn.execute("PRAGMA foreign_keys = ON")
         return conn
@@ -342,6 +534,10 @@ class DatabaseManager:
         with self.get_connection() as conn:
             conn.execute("PRAGMA wal_checkpoint(FULL);")
             conn.commit()
+
+    def close(self):
+        """Flush pending state and close connections."""
+        pass
 
     def init_db(self):
         with self.get_connection() as conn:
@@ -630,7 +826,6 @@ class DatabaseManager:
                     ref_id INTEGER NOT NULL,
                     amount INTEGER NOT NULL CHECK (amount >= 0),
                     payment_date TEXT NOT NULL,
-                    payment_method TEXT DEFAULT 'کارت‌خوان',
                     notes TEXT DEFAULT '',
                     created_at TEXT NOT NULL DEFAULT '',
                     updated_at TEXT NOT NULL DEFAULT ''
@@ -1612,8 +1807,8 @@ class DatabaseManager:
                 conn.execute(
                     """
                     INSERT INTO payments
-                        (ref_type, ref_id, amount, payment_date, payment_method, notes)
-                    VALUES ('batch', ?, ?, ?, 'حواله/کارت',
+                        (ref_type, ref_id, amount, payment_date, notes)
+                    VALUES ('batch', ?, ?, ?,
                             'پرداخت اولیه هنگام ثبت خرید')
                     """,
                     (batch_id, paid_amount, purchase_date),
@@ -1771,8 +1966,8 @@ class DatabaseManager:
                 conn.execute(
                     """
                     INSERT INTO payments
-                        (ref_type, ref_id, amount, payment_date, payment_method, notes)
-                    VALUES ('batch', ?, ?, ?, 'حواله/کارت',
+                        (ref_type, ref_id, amount, payment_date, notes)
+                    VALUES ('batch', ?, ?, ?,
                             'پرداخت اصلاح‌شده هنگام ویرایش محموله')
                     """,
                     (batch_id, paid_amount, purchase_date),
@@ -2201,8 +2396,8 @@ class DatabaseManager:
             if paid_amount > 0:
                 cur.execute(
                     """
-                    INSERT INTO payments (ref_type, ref_id, amount, payment_date, payment_method, notes)
-                    VALUES ('sale', ?, ?, ?, 'کارت‌خوان', 'دریافت وجه هنگام فروش')
+                    INSERT INTO payments (ref_type, ref_id, amount, payment_date, notes)
+                    VALUES ('sale', ?, ?, ?, 'دریافت وجه هنگام فروش')
                 """,
                     (sale_id, paid_amount, sale_datetime.split(" ")[0]),
                 )
@@ -2809,28 +3004,59 @@ class DatabaseManager:
             # sqlite3.Connection as a context manager commits/rolls back but
             # does not close the OS file handle. Explicit close is essential on
             # Windows before rotation or rollback attempts to delete/rename files.
-            source = sqlite3.connect(database_path, timeout=30)
-            destination = None
-            try:
-                source.execute("PRAGMA busy_timeout=30000")
-                destination = sqlite3.connect(write_file, timeout=30)
-                destination.execute("PRAGMA busy_timeout=30000")
-                source.backup(destination, pages=256, sleep=0.25)
-                destination.commit()
-            finally:
-                if destination is not None:
-                    destination.close()
-                source.close()
+            if self.is_encrypted:
+                source = sqlcipher3.connect(database_path, timeout=30)
+                destination = None
+                try:
+                    source.execute(f"PRAGMA key = '{_escape_sql_literal(self._current_password)}';")
+                    source.execute("PRAGMA busy_timeout=30000")
+                    destination = sqlcipher3.connect(write_file, timeout=30)
+                    destination.execute(f"PRAGMA key = '{_escape_sql_literal(self._current_password)}';")
+                    destination.execute("PRAGMA busy_timeout=30000")
+                    source.backup(destination, pages=256, sleep=0.25)
+                    destination.commit()
+                finally:
+                    if destination is not None:
+                        destination.close()
+                    source.close()
+                    del source, destination
+                    gc.collect()
 
-            check_db = sqlite3.connect(write_file, timeout=30)
-            try:
-                check_result = check_db.execute("PRAGMA quick_check").fetchone()
-            finally:
-                check_db.close()
-            if not check_result or check_result[0] != "ok":
-                raise sqlite3.DatabaseError(
-                    "نسخه پشتیبان از آزمون یکپارچگی پایگاه داده SQLite عبور نکرد."
-                )
+                check_db = sqlcipher3.connect(write_file, timeout=30)
+                try:
+                    check_db.execute(f"PRAGMA key = '{_escape_sql_literal(self._current_password)}';")
+                    check_result = check_db.execute("PRAGMA quick_check").fetchone()
+                finally:
+                    check_db.close()
+                    del check_db
+                    gc.collect()
+                if not check_result or check_result[0] != "ok":
+                    raise sqlite3.DatabaseError(
+                        "نسخه پشتیبان از آزمون یکپارچگی پایگاه داده SQLCipher عبور نکرد."
+                    )
+            else:
+                source = sqlite3.connect(database_path, timeout=30)
+                destination = None
+                try:
+                    source.execute("PRAGMA busy_timeout=30000")
+                    destination = sqlite3.connect(write_file, timeout=30)
+                    destination.execute("PRAGMA busy_timeout=30000")
+                    source.backup(destination, pages=256, sleep=0.25)
+                    destination.commit()
+                finally:
+                    if destination is not None:
+                        destination.close()
+                    source.close()
+
+                check_db = sqlite3.connect(write_file, timeout=30)
+                try:
+                    check_result = check_db.execute("PRAGMA quick_check").fetchone()
+                finally:
+                    check_db.close()
+                if not check_result or check_result[0] != "ok":
+                    raise sqlite3.DatabaseError(
+                        "نسخه پشتیبان از آزمون یکپارچگی پایگاه داده SQLite عبور نکرد."
+                    )
 
             if replace_manual_target:
                 os.replace(write_file, backup_file)
@@ -2842,9 +3068,6 @@ class DatabaseManager:
                     backup_dir, database_name
                 )
                 if pruning_warnings:
-                    # The retention cap is a hard invariant: do not keep the
-                    # just-created N+1 copy when an older locked file cannot be
-                    # removed. Roll back the new copy and retry at the next timer.
                     try:
                         os.remove(backup_file)
                         created_backup = False
@@ -2888,83 +3111,200 @@ class DatabaseManager:
         return backup_file
 
 
-    def restore_backup(self, backup_file_path):
+    def restore_backup(self, backup_file_path, password=None):
         self.create_backup()
-        with sqlite3.connect(backup_file_path) as source:
-            with sqlite3.connect(self.db_path) as destination:
-                source.backup(destination)
+        with open(backup_file_path, "rb") as bf:
+            b_head = bf.read(16)
+        backup_is_enc = (b_head != b"SQLite format 3\x00")
+        backup_pwd = password or self._current_password
+
+        if backup_is_enc:
+            if not backup_pwd:
+                raise DatabasePasswordRequiredError("برای بازیابی پشتیبان رمزگذاری‌شده، رمز عبور پایگاه داده الزامی است.")
+            v_conn = sqlcipher3.connect(backup_file_path)
+            try:
+                v_conn.execute(f"PRAGMA key = '{_escape_sql_literal(backup_pwd)}';")
+                v_conn.execute("SELECT count(*) FROM sqlite_master;")
+            except sqlcipher3.DatabaseError:
+                raise DatabaseInvalidPasswordError("رمز عبور پایگاه داده برای بازگشایی نسخه پشتیبان همخوانی ندارد.")
+            finally:
+                v_conn.close()
+
+        src = sqlcipher3.connect(backup_file_path, timeout=30)
+        dst = None
+        try:
+            if backup_is_enc:
+                src.execute(f"PRAGMA key = '{_escape_sql_literal(backup_pwd)}';")
+            dst = sqlcipher3.connect(self.db_path, timeout=30)
+            if self.is_encrypted:
+                dst.execute(f"PRAGMA key = '{_escape_sql_literal(self._current_password)}';")
+            src.backup(dst)
+            dst.commit()
+        finally:
+            if dst is not None:
+                dst.close()
+            src.close()
 
     # =========================================================================
     # مدیریت رمز و امنیت پایگاه داده (Item 13)
     # =========================================================================
     def is_password_protected(self) -> bool:
         """Return True if this database has password protection enabled."""
-        return str(self.get_setting("db_password_enabled", "0")).strip() == "1"
+        if getattr(self, "is_encrypted", False):
+            return True
+        if os.path.isfile(self.db_path) and os.path.getsize(self.db_path) > 0:
+            try:
+                with open(self.db_path, "rb") as f:
+                    header = f.read(16)
+                if header != b"SQLite format 3\x00":
+                    return True
+            except Exception:
+                pass
+        try:
+            return str(self.get_setting("db_password_enabled", "0")).strip() == "1"
+        except Exception:
+            return False
 
     def is_startup_password_prompt_required(self) -> bool:
         """Return True if password prompt is strictly required on startup."""
-        return str(self.get_setting("db_require_startup_password", "1")).strip() == "1"
+        if not self.is_password_protected():
+            return False
+        db_key = os.path.normcase(os.path.abspath(self.db_path))
+        enc_hex = self.cfg.get("local_db_keys", {}).get(db_key, "")
+        if not enc_hex:
+            return True
+        try:
+            return str(self.get_setting("db_require_startup_password", "1")).strip() == "1"
+        except Exception:
+            return True
 
     def verify_database_password(self, raw_password: str) -> bool:
-        """Verify provided password against database salt and hash."""
+        """Verify provided password against SQLCipher database."""
         if not self.is_password_protected():
             return True
-        stored_hash = self.get_setting("db_password_hash", "")
-        stored_salt_hex = self.get_setting("db_password_salt", "")
-        if not stored_hash or not stored_salt_hex:
+        if not raw_password:
             return False
+        conn = None
         try:
-            salt_bytes = bytes.fromhex(stored_salt_hex)
-        except (ValueError, TypeError):
+            conn = sqlcipher3.connect(self.db_path)
+            conn.execute(f"PRAGMA key = '{_escape_sql_literal(raw_password)}';")
+            conn.execute("SELECT count(*) FROM sqlite_master;")
+            return True
+        except Exception:
             return False
-        computed = hash_database_password(str(raw_password or ""), salt_bytes)
-        return computed == stored_hash
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+                del conn
+            gc.collect()
 
     def can_auto_unlock_locally(self) -> bool:
         """Return True if this database can be unlocked on this machine without interactive prompt."""
         if not self.is_password_protected():
             return True
-        if self.is_startup_password_prompt_required():
-            return False
-        stored_token = str(self.get_setting("db_local_unlock_token", "") or "").strip()
-        if not stored_token:
-            return False
-        local_tokens = self.cfg.get("local_db_unlock_tokens", {})
-        if not isinstance(local_tokens, dict):
-            return False
         db_key = os.path.normcase(os.path.abspath(self.db_path))
-        local_token = str(local_tokens.get(db_key, "") or "").strip()
-        return bool(local_token and local_token == stored_token)
+        enc_hex = self.cfg.get("local_db_keys", {}).get(db_key, "")
+        if not enc_hex:
+            return False
+        try:
+            pwd = dpapi_unprotect(bytes.fromhex(enc_hex)).decode("utf-8")
+            return bool(pwd)
+        except Exception:
+            return False
 
     def set_database_password(self, new_password: str, require_startup_prompt: bool = True):
-        """Set a new password on an unprotected database with transactional safety."""
+        """Set a new password on an unprotected database using standard SQLCipher 4."""
         clean_password = str(new_password or "").strip()
         if not clean_password:
             raise ValueError("رمز عبور پایگاه داده نمی‌تواند خالی باشد.")
-        salt = os.urandom(16)
-        pw_hash = hash_database_password(clean_password, salt)
-        unlock_token = os.urandom(32).hex()
+        if self.is_password_protected():
+            raise ValueError("این پایگاه داده از قبل دارای رمز عبور است.")
 
-        settings_to_apply = {
-            "db_password_enabled": "1",
-            "db_password_hash": pw_hash,
-            "db_password_salt": salt.hex(),
-            "db_require_startup_password": "1" if require_startup_prompt else "0",
-            "db_local_unlock_token": unlock_token,
-        }
-        self._atomic_apply_database_settings(settings_to_apply)
+        unlock_token = os.urandom(32).hex()
+        tmp_enc = self.db_path + ".enc.tmp"
+        if os.path.exists(tmp_enc):
+            try:
+                os.remove(tmp_enc)
+            except Exception:
+                pass
+
+        conn = sqlcipher3.connect(self.db_path)
+        try:
+            uv = int(conn.execute("PRAGMA user_version").fetchone()[0])
+            conn.execute("PRAGMA wal_checkpoint(FULL);")
+            conn.execute("PRAGMA journal_mode = DELETE;")
+            conn.execute(f"ATTACH DATABASE '{_escape_sql_literal(tmp_enc)}' AS encrypted KEY '{_escape_sql_literal(clean_password)}';")
+            conn.execute("SELECT sqlcipher_export('encrypted');")
+            conn.execute(f"PRAGMA encrypted.user_version = {uv};")
+            conn.execute("INSERT INTO encrypted.settings (key, value) VALUES ('db_password_enabled', '1') ON CONFLICT(key) DO UPDATE SET value='1';")
+            req_val = '1' if require_startup_prompt else '0'
+            conn.execute(f"INSERT INTO encrypted.settings (key, value) VALUES ('db_require_startup_password', '{req_val}') ON CONFLICT(key) DO UPDATE SET value='{req_val}';")
+            conn.execute(f"INSERT INTO encrypted.settings (key, value) VALUES ('db_local_unlock_token', '{unlock_token}') ON CONFLICT(key) DO UPDATE SET value='{unlock_token}';")
+            conn.commit()
+            conn.execute("DETACH DATABASE encrypted;")
+        finally:
+            conn.close()
+            del conn
+            gc.collect()
+
+        # Verify tmp_enc
+        v_conn = sqlcipher3.connect(tmp_enc)
+        try:
+            v_conn.execute(f"PRAGMA key = '{_escape_sql_literal(clean_password)}';")
+            v_conn.execute("SELECT count(*) FROM sqlite_master;")
+            check_res = v_conn.execute("PRAGMA quick_check;").fetchone()
+            if not check_res or check_res[0] != "ok":
+                raise sqlite3.DatabaseError("آزمون یکپارچگی فایل رمزگذاری‌شده ناموفق بود.")
+        finally:
+            v_conn.close()
+            del v_conn
+            gc.collect()
+
+        # Clean up sidecars
+        for ext in ("-wal", "-shm"):
+            sidecar = self.db_path + ext
+            if os.path.exists(sidecar):
+                try:
+                    os.remove(sidecar)
+                except Exception:
+                    pass
+
+        replaced = False
+        for _ in range(5):
+            try:
+                gc.collect()
+                os.replace(tmp_enc, self.db_path)
+                replaced = True
+                break
+            except PermissionError:
+                time.sleep(0.1)
+        if not replaced:
+            os.replace(tmp_enc, self.db_path)
+        self.is_encrypted = True
+        self._current_password = clean_password
 
         db_key = os.path.normcase(os.path.abspath(self.db_path))
         if not isinstance(self.cfg.get("local_db_unlock_tokens"), dict):
             self.cfg["local_db_unlock_tokens"] = {}
+        if not isinstance(self.cfg.get("local_db_keys"), dict):
+            self.cfg["local_db_keys"] = {}
+
         if not require_startup_prompt:
             self.cfg["local_db_unlock_tokens"][db_key] = unlock_token
+            try:
+                self.cfg["local_db_keys"][db_key] = dpapi_protect(clean_password.encode("utf-8")).hex()
+            except Exception:
+                pass
         else:
             self.cfg["local_db_unlock_tokens"].pop(db_key, None)
+            self.cfg["local_db_keys"].pop(db_key, None)
         save_app_config(self.cfg)
 
     def change_database_password(self, old_password: str, new_password: str, require_startup_prompt: bool = None):
-        """Change the password on a password-protected database after verifying the old password."""
+        """Change the password on a password-protected database using standard SQLCipher 4 PRAGMA rekey."""
         if not self.is_password_protected():
             raise ValueError("این پایگاه داده رمز ندارد؛ از گزینه تعیین رمز استفاده کنید.")
         if not self.verify_database_password(old_password):
@@ -2973,51 +3313,134 @@ class DatabaseManager:
         if not clean_new:
             raise ValueError("رمز عبور جدید پایگاه داده نمی‌تواند خالی باشد.")
 
-        salt = os.urandom(16)
-        pw_hash = hash_database_password(clean_new, salt)
-        unlock_token = os.urandom(32).hex()
-
         if require_startup_prompt is None:
             require_startup_prompt = self.is_startup_password_prompt_required()
 
+        unlock_token = os.urandom(32).hex()
         settings_to_apply = {
             "db_password_enabled": "1",
-            "db_password_hash": pw_hash,
-            "db_password_salt": salt.hex(),
             "db_require_startup_password": "1" if require_startup_prompt else "0",
             "db_local_unlock_token": unlock_token,
         }
         self._atomic_apply_database_settings(settings_to_apply)
 
+        conn = sqlcipher3.connect(self.db_path)
+        try:
+            conn.execute(f"PRAGMA key = '{_escape_sql_literal(old_password)}';")
+            conn.execute("SELECT count(*) FROM sqlite_master;")
+            conn.execute(f"PRAGMA rekey = '{_escape_sql_literal(clean_new)}';")
+        finally:
+            conn.close()
+            del conn
+            gc.collect()
+
+        # Verify reopening with new key
+        v_conn = sqlcipher3.connect(self.db_path)
+        try:
+            v_conn.execute(f"PRAGMA key = '{_escape_sql_literal(clean_new)}';")
+            v_conn.execute("SELECT count(*) FROM sqlite_master;")
+        finally:
+            v_conn.close()
+            del v_conn
+            gc.collect()
+
+        self._current_password = clean_new
+
         db_key = os.path.normcase(os.path.abspath(self.db_path))
         if not isinstance(self.cfg.get("local_db_unlock_tokens"), dict):
             self.cfg["local_db_unlock_tokens"] = {}
+        if not isinstance(self.cfg.get("local_db_keys"), dict):
+            self.cfg["local_db_keys"] = {}
+
         if not require_startup_prompt:
             self.cfg["local_db_unlock_tokens"][db_key] = unlock_token
+            try:
+                self.cfg["local_db_keys"][db_key] = dpapi_protect(clean_new.encode("utf-8")).hex()
+            except Exception:
+                pass
         else:
             self.cfg["local_db_unlock_tokens"].pop(db_key, None)
+            self.cfg["local_db_keys"].pop(db_key, None)
         save_app_config(self.cfg)
 
     def remove_database_password(self, current_password: str):
-        """Remove password protection after verifying the current password."""
+        """Remove password protection by exporting encrypted SQLCipher to standard plaintext SQLite."""
         if not self.is_password_protected():
             return
         if not self.verify_database_password(current_password):
             raise ValueError("رمز عبور فعلی پایگاه داده نادرست است.")
 
-        settings_to_apply = {
-            "db_password_enabled": "0",
-            "db_password_hash": "",
-            "db_password_salt": "",
-            "db_require_startup_password": "0",
-            "db_local_unlock_token": "",
-        }
-        self._atomic_apply_database_settings(settings_to_apply)
+        tmp_plain = self.db_path + ".plain.tmp"
+        if os.path.exists(tmp_plain):
+            try:
+                os.remove(tmp_plain)
+            except Exception:
+                pass
+
+        conn = sqlcipher3.connect(self.db_path)
+        try:
+            conn.execute(f"PRAGMA key = '{_escape_sql_literal(current_password)}';")
+            uv = int(conn.execute("PRAGMA user_version").fetchone()[0])
+            conn.execute("PRAGMA wal_checkpoint(FULL);")
+            conn.execute("PRAGMA journal_mode = DELETE;")
+            conn.execute(f"ATTACH DATABASE '{_escape_sql_literal(tmp_plain)}' AS plaintext KEY '';")
+            conn.execute("SELECT sqlcipher_export('plaintext');")
+            conn.execute(f"PRAGMA plaintext.user_version = {uv};")
+            conn.execute("INSERT INTO plaintext.settings (key, value) VALUES ('db_password_enabled', '0') ON CONFLICT(key) DO UPDATE SET value='0';")
+            conn.execute("INSERT INTO plaintext.settings (key, value) VALUES ('db_require_startup_password', '0') ON CONFLICT(key) DO UPDATE SET value='0';")
+            conn.execute("INSERT INTO plaintext.settings (key, value) VALUES ('db_local_unlock_token', '') ON CONFLICT(key) DO UPDATE SET value='';")
+            conn.commit()
+            conn.execute("DETACH DATABASE plaintext;")
+        finally:
+            conn.close()
+            del conn
+            gc.collect()
+
+        # Verify tmp_plain with standard sqlite3
+        v_conn = sqlite3.connect(tmp_plain)
+        try:
+            v_conn.execute("SELECT count(*) FROM sqlite_master;")
+            check_res = v_conn.execute("PRAGMA quick_check;").fetchone()
+            if not check_res or check_res[0] != "ok":
+                raise sqlite3.DatabaseError("آزمون یکپارچگی فایل رمزگشایی‌شده ناموفق بود.")
+        finally:
+            v_conn.close()
+            del v_conn
+            gc.collect()
+
+        with open(tmp_plain, "rb") as f:
+            if f.read(16) != b"SQLite format 3\x00":
+                raise sqlite3.DatabaseError("هدر پایگاه داده رمزگشایی‌شده با SQLite سازگار نیست.")
+
+        for ext in ("-wal", "-shm"):
+            sidecar = self.db_path + ext
+            if os.path.exists(sidecar):
+                try:
+                    os.remove(sidecar)
+                except Exception:
+                    pass
+
+        replaced = False
+        for _ in range(5):
+            try:
+                gc.collect()
+                os.replace(tmp_plain, self.db_path)
+                replaced = True
+                break
+            except PermissionError:
+                time.sleep(0.1)
+        if not replaced:
+            os.replace(tmp_plain, self.db_path)
+        self.is_encrypted = False
+        self._current_password = None
 
         db_key = os.path.normcase(os.path.abspath(self.db_path))
         if isinstance(self.cfg.get("local_db_unlock_tokens"), dict):
             self.cfg["local_db_unlock_tokens"].pop(db_key, None)
-            save_app_config(self.cfg)
+        if isinstance(self.cfg.get("local_db_keys"), dict):
+            self.cfg["local_db_keys"].pop(db_key, None)
+        save_app_config(self.cfg)
+
 
     def set_startup_password_prompt_required(self, required: bool):
         """Toggle whether password is required on application startup."""
@@ -3026,14 +3449,22 @@ class DatabaseManager:
         db_key = os.path.normcase(os.path.abspath(self.db_path))
         if not isinstance(self.cfg.get("local_db_unlock_tokens"), dict):
             self.cfg["local_db_unlock_tokens"] = {}
+        if not isinstance(self.cfg.get("local_db_keys"), dict):
+            self.cfg["local_db_keys"] = {}
         if required:
             self.cfg["local_db_unlock_tokens"].pop(db_key, None)
+            self.cfg["local_db_keys"].pop(db_key, None)
         else:
             token = self.get_setting("db_local_unlock_token", "")
             if not token:
                 token = os.urandom(32).hex()
                 self.set_setting("db_local_unlock_token", token)
             self.cfg["local_db_unlock_tokens"][db_key] = token
+            if self._current_password:
+                try:
+                    self.cfg["local_db_keys"][db_key] = dpapi_protect(self._current_password.encode("utf-8")).hex()
+                except Exception:
+                    pass
         save_app_config(self.cfg)
 
     def _atomic_apply_database_settings(self, settings_dict: dict):
@@ -3051,7 +3482,7 @@ class DatabaseManager:
                 raise RuntimeError(f"خطای اعتبارسنجی یکپارچگی دیتابیس: {row}")
             conn.commit()
 
-        if os.path.isfile(self.db_path):
+        if os.path.isfile(self.db_path) and not self.is_encrypted:
             with open(self.db_path, "rb") as f:
                 header = f.read(16)
             if not header.startswith(b"SQLite format 3\x00"):

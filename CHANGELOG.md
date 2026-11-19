@@ -1,3 +1,49 @@
+# Daqiq 4.6.0
+
+## Release Summary & Architectural Enhancements
+
+- **Strict 1-to-1 Database-to-UI Schema Parity (Eliminate Orphan/Phantom Columns)**:
+  - Removed unexposed `payment_method` (`"روش پرداخت"`) from SQLite schema v460 (`payments` table), schema contract definitions, internal queries, and Excel report export options. All persisted database columns strictly correspond to user-facing and user-editable controls.
+  - Strict 64-bit signed integer monetary bounds across all transaction and financial columns.
+- **Hardware Taxonomy Rebuild & External Seed Loading (`default_taxonomy.json`)**:
+  - Completely decoupled data-driven architecture: zero hardcoded category, subcategory, or technical specification fallbacks in Python source code.
+  - `default_taxonomy.json` is the sole seed source used only when initializing a brand-new database. If absent prior to creation, the application initializes strictly with 0 categories, 0 subcategories, and 0 attributes.
+  - Complete international hardware coverage:
+    - Motherboards, RAM, Laptops, Desktops feature comprehensive memory generations from `DDR2`, `DDR3`, `DDR3L`, `DDR4`, `DDR5` through `LPDDR4`, `LPDDR4X`, `LPDDR5`, `LPDDR5X`.
+    - Processor families fully enumerated: `Intel Celeron`, `Intel Pentium`, `Core i3/i5/i7/i9`, `Core Ultra 5/7/9`, `Xeon`, `AMD Athlon`, `AMD Ryzen 3/5/7/9`, `Threadripper`, sockets (`LGA775`, `LGA1150`, `LGA1151`, `LGA1200`, `LGA1700`, `LGA1851`, `AM4`, `AM5`).
+    - Displays/Monitors feature separate, distinct attributes: `"اندازه صفحه نمایش"` (Screen Size), `"رزولوشن"` (Display Resolution), `"نوع پنل"` (Panel Type), `"نرخ تازه سازی"` (Refresh Rate), and `"درگاه ها"` (Ports).
+    - Universal `"مشخصات"` (Display Name: `Specifications`) is strictly enforced as the terminal attribute of every subcategory.
+    - Exactly one `"سایر موارد (Other)"` subcategory per category, containing exclusively the `"مشخصات"` attribute.
+    - 100% Persian category names, strictly `"فارسی (انگلیسی)"` subcategories, 100% Persian attribute names, 100% English attribute display names, and 100% English suggested option values.
+- **Authentic Standard SQLCipher 4 Database Encryption (`sqlcipher3`)**:
+  - Replaced custom binary wrapper with standard, authentic **SQLCipher 4** on-disk encryption (`sqlcipher3` binding with AES-256-CBC, PBKDF2-HMAC-SHA512, 256,000 rounds, 4096-byte page size).
+  - 100% external tool interoperability: files open and decrypt flawlessly using standard passwords in **DB Browser for SQLite (SQLCipher)**.
+  - Plaintext SQLite header (`SQLite format 3`) is absent when encrypted; direct opening via `sqlite3.connect` fails cleanly.
+  - Atomic password enable, dynamic rekeying (`PRAGMA rekey`), and clean plaintext re-export (`sqlcipher_export('plaintext')`) upon password removal.
+  - Transparent DBAPI error bridging in `ManagedConnection` and `ManagedCursor` translating `sqlcipher3` exceptions into standard `sqlite3` exceptions.
+  - Secure Windows DPAPI local key envelope for seamless background authentication when startup prompt is disabled.
+  - Interactive startup password prompt with up to 3 authentication attempts and graceful exit.
+- **Sales Form Reset Bug Fix (`"پاک کردن فرم"`)**:
+  - Fixed reset handler in `"ثبت فروش"`: clicking `"پاک کردن فرم"` restores product selection to `"همه کالاها"` (index 0) and immediately repopulates `"محموله موجود"` (`cb_sale_batch`) with all currently available in-stock shipments, eliminating empty dropdown deadlocks.
+- **Transactional Excel Report Export Settings & Definition Workflow**:
+  - Staged all changes in `"تنظیمات خروجی اکسل گزارش ها"` strictly in-memory; changes commit to configuration only upon clicking `"ذخیره تنظیمات"` and are cleanly discarded on `"انصراف"`.
+  - Added `"تعریف گزارش جدید"` as fixed index 0 in the report types dropdown, instantly displaying all database columns for drafting new custom reports in a single step.
+  - Comprehensive Reports selector (`cb_rep_type`) defaults to `"همه"` on initial load and form/filter resets.
+- **UI/UX Ergonomics & Two-Column Layout in Catalog Settings**:
+  - Generously expanded visible scroll areas and minimum heights in `"تنظیمات مدیریت کالاها"` for minimal-to-zero scrolling: `lst_cfg_subcategories` (min 260px), `lst_cfg_attributes` (min 320px), `lst_cfg_colors` (min 240px), and `attr_values_widget` (min 240px) with `QSizePolicy.Expanding`.
+  - Audited database password settings UI: all status labels, checkboxes, and buttons render 100% legibly without truncation.
+- **Exact Form Field Swaps**:
+  - In `"ثبت خرید و محموله ها"`: Swapped `"شماره سریال"` (`ed_batch_serial_number`) and `"تأمین کننده"` (`cb_batch_supplier`), placing serial number directly underneath `"کد محموله"` at grid `(1, 1)` with natural keyboard tab navigation.
+  - In `"ثبت فروش"`: Swapped `"شماره سریال"` (`ed_sale_serial`) and `"محموله موجود"` (`cb_sale_batch`).
+- **Permanent Node 20 GitHub Actions Deprecation Elimination**:
+  - Upgraded `.github/workflows/ci.yml` to native Node 24 actions (`actions/checkout@v7`, `actions/setup-python@v7`, `actions/upload-artifact@v7`, `actions/download-artifact@v8`).
+  - PyInstaller single-file packaging bundled with native SQLCipher DLLs alongside companion `default_taxonomy.json`.
+  - Automated release publishing via native GitHub CLI (`gh release create v4.6.0 --latest`).
+- **Quality Assurance**:
+  - Comprehensive automated non-blocking headless test suite `tests/test_release_v4_6.py` covering schema parity, taxonomy decoupling, sales form reset, Excel settings, exact field swaps, UI geometry, and SQLCipher 4 encryption roundtrip. 100% pass rate.
+
+---
+
 # Daqiq 4.5.0
 
 ## Release Summary & Architectural Enhancements
