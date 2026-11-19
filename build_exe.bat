@@ -1,12 +1,12 @@
 @echo off
 chcp 65001 >nul
-set "APP_VERSION=4.6.0"
+set "APP_VERSION=4.7.0"
 echo Building Daqiq %APP_VERSION%...
 echo Installing required libraries...
 pip install -r requirements.txt
 
 echo Building standalone Windows Executable (EXE)...
-pyinstaller --noconfirm --onefile --windowed --name "Daqiq_%APP_VERSION%" main.py
+pyinstaller --noconfirm --onefile --windowed --hidden-import sqlcipher3 --name "Daqiq_%APP_VERSION%" main.py
 
 echo Copying companion default_taxonomy.json beside executable...
 if not exist "dist" mkdir "dist"

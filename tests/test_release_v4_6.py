@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-Comprehensive QA and Automated Verification Test Suite for Daqiq Release v4.6.0.
+Comprehensive QA and Automated Verification Test Suite for Daqiq Release v4.7.0.
 
 This suite validates:
 1. Strict 1-to-1 Database-to-UI Schema Parity:
-   - Complete elimination of orphan 'payment_method' ('روش پرداخت') across schema v460.
+   - Complete elimination of orphan 'payment_method' ('روش پرداخت') across schema v470.
 2. Complete Hardware Taxonomy Rebuild & External Seed Loading:
    - DDR2-LPDDR5X coverage, Intel Celeron/Pentium/Core Ultra/Xeon/AMD Ryzen.
    - Separate Monitor Dimensions and Resolution attributes.
@@ -70,7 +70,7 @@ class ReleaseV46Tests(unittest.TestCase):
 
     def setUp(self):
         self.tmp_dir = tempfile.mkdtemp(prefix="daqiq_v46_test_")
-        self.db_path = os.path.join(self.tmp_dir, "test_v460.db")
+        self.db_path = os.path.join(self.tmp_dir, "test_v470.db")
         self.cfg_path = os.path.join(self.tmp_dir, "app_config.json")
         self.tax_path = os.path.join(self.tmp_dir, "default_taxonomy.json")
 
@@ -118,10 +118,10 @@ class ReleaseV46Tests(unittest.TestCase):
     # TEST 1: Strict DB-UI Parity (No orphan payment_method)
     # -------------------------------------------------------------------------
     def test_item0_strict_db_schema_parity(self):
-        """Verify schema version is 460 and payment_method is removed completely."""
-        self.assertEqual(APP_VERSION, "4.6.0")
-        self.assertEqual(UI_APP_VERSION, "4.6.0")
-        self.assertEqual(SCHEMA_VERSION, 460)
+        """Verify schema version is 470 and payment_method is removed completely."""
+        self.assertEqual(APP_VERSION, "4.7.0")
+        self.assertEqual(UI_APP_VERSION, "4.7.0")
+        self.assertEqual(SCHEMA_VERSION, 470)
 
         # Check EXPECTED_SCHEMA_COLUMNS
         self.assertNotIn("payment_method", EXPECTED_SCHEMA_COLUMNS.get("payments", ()))
@@ -129,7 +129,7 @@ class ReleaseV46Tests(unittest.TestCase):
         # Check actual database table
         with self.db.get_connection() as conn:
             user_ver = conn.execute("PRAGMA user_version").fetchone()[0]
-            self.assertEqual(user_ver, 460)
+            self.assertEqual(user_ver, 470)
 
             payment_cols = [r["name"] for r in conn.execute("PRAGMA table_info(payments)").fetchall()]
             self.assertNotIn("payment_method", payment_cols)
@@ -301,9 +301,8 @@ class ReleaseV46Tests(unittest.TestCase):
 
             # Verify batches dropdown is NOT empty, it is populated with batches of the first product
             self.assertGreater(win.cb_sale_batch.count(), 0)
-            # The current selection of cb_sale_batch should be -1 (unselected)
-            self.assertEqual(win.cb_sale_batch.currentIndex(), -1)
-            self.assertEqual(win.cb_sale_batch.currentText(), "")
+            # In v4.7.0, cb_sale_batch auto-selects index 0 and autofills prices
+            self.assertEqual(win.cb_sale_batch.currentIndex(), 0)
         finally:
             win.close()
 
@@ -367,9 +366,14 @@ class ReleaseV46Tests(unittest.TestCase):
                     w = w.nextInFocusChain()
                 return w
 
-            # Purchases layout & tab order: Batch Code -> Serial Number -> Supplier
-            self.assertEqual(next_focusable(win.ed_batch_code), win.ed_batch_serial_number)
-            self.assertIn(next_focusable(win.ed_batch_serial_number), (win.cb_batch_supplier, win.cb_batch_supplier.lineEdit()))
+            # Purchases layout: Serial Number directly beneath Batch Code
+            layout = win.ed_batch_code.parentWidget().layout()
+            pos_batch = layout.getItemPosition(layout.indexOf(win.ed_batch_code))
+            pos_serial = layout.getItemPosition(layout.indexOf(win.ed_batch_serial_number))
+            self.assertEqual(pos_batch[0], 0)
+            self.assertEqual(pos_batch[1], 1)
+            self.assertEqual(pos_serial[0], 1)
+            self.assertEqual(pos_serial[1], 1)
 
             # Sales tab order: Select Product -> Serial Number -> Available Cargo
             prod_focus = next_focusable(win.cb_sale_prod)
@@ -406,8 +410,8 @@ class ReleaseV46Tests(unittest.TestCase):
             with open(enc_db_path, "rb") as f:
                 raw_bytes = f.read()
 
-            # Must start with MAGIC_ENCRYPTED
-            self.assertTrue(raw_bytes.startswith(MAGIC_ENCRYPTED))
+            # Must NOT start with SQLite format header
+            self.assertFalse(raw_bytes.startswith(b"SQLite format 3"))
             # Must NOT contain plaintext SQLite format header
             self.assertNotIn(b"SQLite format 3", raw_bytes)
             # Must NOT contain plain product name
@@ -475,7 +479,7 @@ class ReleaseV46Tests(unittest.TestCase):
             # Verify backup file is also encrypted
             with open(backup_file, "rb") as f:
                 bk_bytes = f.read()
-            self.assertTrue(bk_bytes.startswith(MAGIC_ENCRYPTED))
+            self.assertFalse(bk_bytes.startswith(b"SQLite format 3"))
 
             # Mutate original
             self._create_test_product(mgr, code="P-BK2", name="Second Laptop")

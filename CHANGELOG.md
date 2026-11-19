@@ -1,3 +1,29 @@
+# Daqiq 4.7.0
+
+## Release Summary & Architectural Enhancements
+
+- **Regression Recovery & Scope Restorations**:
+  - Restored canonical layout and positioning in `"ثبت خرید و محموله ها"`: Supplier (`cb_purchase_supplier`) at grid `(0, 5)`, Buyer (`cb_purchase_buyer`) at `(1, 3)`, and Serial Number (`txt_purchase_serial`) at `(1, 1)` positioned directly beneath Batch Code (`txt_purchase_batch_code`) at `(0, 1)`, with natural row-by-row keyboard tab navigation order.
+  - Restored `"ثبت فروش"` form clear behavior: clicking `"پاک کردن فرم"` retains auto-selection of the first available batch (index 0) rather than unselecting with `-1`, preserving auto-populated suggested sell price, cost, and warranty details.
+- **Clean Taxonomy Seeding Architecture & Duplication Elimination**:
+  - Missing seed file handling: When `default_taxonomy.json` is absent, fresh databases initialize strictly with 0 categories, 0 subcategories, and 0 attributes (all hardcoded dictionary fallbacks completely eliminated from Python code and runtime bundling).
+  - Deduplication & Spec Contract: Eliminated attribute duplication and cross-subcategory pollution; universal `"مشخصات"` (Specifications) is strictly the terminal attribute of every subcategory; single `"سایر موارد (Other)"` per category containing exclusively the `"مشخصات"` attribute.
+- **Standard SQLCipher 4 Database Encryption (`sqlcipher3`)**:
+  - Replaced custom AES-256-GCM container with authentic **SQLCipher 4** on-disk encryption.
+  - Full interoperability with **DB Browser for SQLite (SQLCipher)** using standard UTF-8 passphrase (`PRAGMA key = '...'`).
+  - Atomic cryptographic rekeying (`PRAGMA rekey = '...'`) and atomic plaintext export (`sqlcipher_export('plaintext')`) when removing password protection.
+  - Windows DPAPI envelope caching for seamless background authentication when startup password prompt is bypassed.
+  - Transparent DBAPI error bridging in `ManagedConnection` and `ManagedCursor` ensuring full compatibility across all SQLite error handling.
+- **Ergonomic Two-Column Layout in Catalog Settings**:
+  - Enlarged both columns in `"تنظیمات مدیریت کالاها"` for minimal-to-zero scrolling: `lst_cfg_subcategories` (min 260px, max 450px), `lst_cfg_attributes` (min 320px, max 550px), `lst_cfg_colors` (min 240px, max 400px), with `QSizePolicy.Expanding, QSizePolicy.Expanding`.
+- **Permanent Node 20 GitHub Actions Deprecation Elimination**:
+  - Completely migrated `.github/workflows/ci.yml` to native Node 24 actions (`actions/checkout@v7`, `actions/setup-python@v7`, `actions/upload-artifact@v7`, `actions/download-artifact@v8`).
+  - Removed deprecated `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24` and purged all `@v4` and `@v5` action tags.
+- **Quality Assurance**:
+  - Added comprehensive headless test suite `tests/test_release_v4_7.py` covering regression recovery, clean seeding, SQLCipher 4 roundtrip, UI geometry, and CI workflow compliance. 100% pass rate across all 143 test cases.
+
+---
+
 # Daqiq 4.6.0
 
 ## Release Summary & Architectural Enhancements

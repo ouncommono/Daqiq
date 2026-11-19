@@ -21,9 +21,6 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-
 jobs:
   validate-and-test:
     name: Validate and Test
@@ -31,10 +28,10 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
@@ -60,10 +57,10 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
@@ -79,13 +76,13 @@ jobs:
         shell: pwsh
         run: |
           $ver = (Get-Content VERSION).Trim()
-          if (-not $ver) { $ver = "4.6.0" }
+          if (-not $ver) { $ver = "4.7.0" }
           Write-Output "APP_VERSION=$ver" >> $env:GITHUB_ENV
           Write-Output "Building for version: $ver"
 
       - name: Build Executable with PyInstaller
         run: |
-          pyinstaller --noconfirm --onefile --windowed --name "Daqiq_${{ env.APP_VERSION }}" main.py
+          pyinstaller --noconfirm --onefile --windowed --hidden-import sqlcipher3 --name "Daqiq_${{ env.APP_VERSION }}" main.py
 
       - name: Copy Companion Taxonomy File
         shell: pwsh
@@ -104,7 +101,7 @@ jobs:
           Write-Output "Executable built successfully: $target ($bytes bytes)"
 
       - name: Upload Windows Executable Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Daqiq-Windows-${{ env.APP_VERSION }}
           path: |
@@ -119,7 +116,7 @@ jobs:
     if: github.event_name != 'pull_request'
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -128,11 +125,11 @@ jobs:
         shell: pwsh
         run: |
           $ver = (Get-Content VERSION).Trim()
-          if (-not $ver) { $ver = "4.6.0" }
+          if (-not $ver) { $ver = "4.7.0" }
           Write-Output "APP_VERSION=$ver" >> $env:GITHUB_ENV
 
       - name: Download Build Artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: Daqiq-Windows-${{ env.APP_VERSION }}
           path: dist
@@ -149,10 +146,10 @@ jobs:
           gh pr create `
             --base main `
             --head $currentBranch `
-            --title "Release v${{ env.APP_VERSION }}: Precision Architectural Hardening, Cryptographic DB Encryption, and Retail UI/UX Overhaul" `
-            --body "Comprehensive production release v${{ env.APP_VERSION }}. This PR contains all architectural refinements, greenfield database schema v460 normalization (100% DB-to-UI parity, eliminated unexposed payment_method), international retail hardware taxonomy rebuild (DDR2-LPDDR5X, Celeron/Pentium/Core Ultra/Xeon/Ryzen, universal Specifications last, single Other), true cryptographic SQLite on-disk encryption (AES-256-GCM / PBKDF2), sales form reset bug fix, transactional report export configuration staging, expanded vertical list views, ergonomic form field ordering, and Node 24 CI/CD packaging. Registered solely for human code review and validation (auto-merge disabled)." 2>$null || Write-Output "Pull request already exists."
+            --title "Release v${{ env.APP_VERSION }}: Standard SQLCipher 4 Encryption, Clean Taxonomy Architecture, and Retail UI/UX Polish" `
+            --body "Comprehensive retail production release v${{ env.APP_VERSION }}. This PR contains standard SQLCipher 4 encryption (100% out-of-the-box compatibility with DB Browser for SQLite with plain UTF-8 passphrase), robust taxonomy initialization (0 categories/subcategories/attributes when default_taxonomy.json is missing, clean deduplication without cross-contamination when present), enlarged two-column catalog management UI with minimal scrolling, surgical rollback of unrequested v4.4.6 behavioral drifts, and native Node 24 GitHub Actions workflows with zero deprecation warnings. Registered solely for human code review and validation (auto-merge disabled)." 2>$null || Write-Output "Pull request already exists."
 
-      - name: Publish Release Tagged as v4.6.0 and Marked as Latest
+      - name: Publish Release Tagged as v4.7.0 and Marked as Latest
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

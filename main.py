@@ -51,11 +51,9 @@ from database import (
     app_config_has_database_selection, get_default_database_path,
     SCHEMA_VERSION, round_integer_division, round_percentage_amount,
     DatabasePasswordRequiredError, DatabaseInvalidPasswordError,
+    load_default_taxonomy_from_seed,
 )
 from utils_and_widgets import (
-    MAIN_CATEGORIES,
-    DEFAULT_SUBCATEGORIES,
-    DEFAULT_ATTRIBUTES,
     DEFAULT_COLORS,
     normalize_catalog_label,
     SmartLineEdit,
@@ -82,7 +80,7 @@ from exporter import (
     get_next_excel_filename,
 )
 
-APP_VERSION = "4.6.0"
+APP_VERSION = "4.7.0"
 
 REPORT_AVAILABLE_COLUMNS = {
     "همه (گزارش جامع خرید، فروش و خدمات)": [
@@ -2533,7 +2531,7 @@ class MainWindow(QMainWindow):
         self.ed_prod_serial.setToolTip("شماره سریال یا بارکد کالا را وارد کنید یا با بارکدخوان اسکن نمایید.")
         self.cb_prod_cat = SearchableComboBox()
         self.cb_prod_cat.setEditable(0)
-        product_categories = self.catalog_config.get("categories") or list(MAIN_CATEGORIES)
+        product_categories = self.catalog_config.get("categories") or []
         self.cb_prod_cat.addItems(list(dict.fromkeys(product_categories)))
         self.cb_prod_cat.setToolTip("دسته‌بندی اصلی را از فهرست انتخاب کنید.")
 
@@ -2830,20 +2828,20 @@ class MainWindow(QMainWindow):
         grid.addWidget(self.ed_batch_code, 0, 1)
         grid.addWidget(QLabel("انتخاب کالا *:"), 0, 2)
         grid.addWidget(self.cb_batch_prod, 0, 3)
-        grid.addWidget(QLabel("مسئول خرید:"), 0, 4)
-        grid.addWidget(self.cb_batch_buyer, 0, 5)
+        grid.addWidget(QLabel("تأمین‌کننده:"), 0, 4)
+        grid.addWidget(self.cb_batch_supplier, 0, 5)
 
         grid.addWidget(QLabel("شماره سریال / بارکد:"), 1, 0)
         grid.addWidget(self.ed_batch_serial_number, 1, 1)
-        grid.addWidget(QLabel("تأمین‌کننده:"), 1, 2)
-        grid.addWidget(self.cb_batch_supplier, 1, 3)
+        grid.addWidget(QLabel("مسئول خرید:"), 1, 2)
+        grid.addWidget(self.cb_batch_buyer, 1, 3)
         grid.addWidget(QLabel("شماره فاکتور:"), 1, 4)
         grid.addWidget(self.ed_batch_inv, 1, 5)
 
-        self.setTabOrder(self.ed_batch_code, self.ed_batch_serial_number)
-        self.setTabOrder(self.ed_batch_serial_number, self.cb_batch_supplier)
-        self.setTabOrder(self.cb_batch_supplier, self.cb_batch_prod)
-        self.setTabOrder(self.cb_batch_prod, self.cb_batch_buyer)
+        self.setTabOrder(self.ed_batch_code, self.cb_batch_prod)
+        self.setTabOrder(self.cb_batch_prod, self.cb_batch_supplier)
+        self.setTabOrder(self.cb_batch_supplier, self.ed_batch_serial_number)
+        self.setTabOrder(self.ed_batch_serial_number, self.cb_batch_buyer)
         self.setTabOrder(self.cb_batch_buyer, self.ed_batch_inv)
         self.setTabOrder(self.ed_batch_inv, self.dt_batch_date)
 
@@ -3762,15 +3760,11 @@ class MainWindow(QMainWindow):
         self.cb_sale_prod.setCurrentIndex(0 if self.cb_sale_prod.count() else -1)
         self.cb_sale_prod.blockSignals(False)
         self._on_sale_prod_changed()
-        self.cb_sale_batch.setCurrentIndex(-1)
-        self.cb_sale_batch.clearEditText()
         self.cb_sale_seller.setCurrentIndex(-1)
         self.cb_sale_seller.clearEditText()
         self.ed_sale_customer.clear()
         self.ed_sale_phone.clear()
         self.ed_sale_specs.clear()
-        self.pr_sale_actual.set_value(0)
-        self.pr_sale_paid.set_value(0)
         self.cb_sale_status.setCurrentIndex(0)
         self.ed_war_company.clear()
         self.cb_war_months.setCurrentIndex(0)
@@ -4969,7 +4963,7 @@ class MainWindow(QMainWindow):
         self.cb_rep_cat = SearchableComboBox()
         self.cb_rep_cat.setEditable(False)
         report_categories = (
-            self.catalog_config.get("categories") or list(MAIN_CATEGORIES)
+            self.catalog_config.get("categories") or []
         )
         self.cb_rep_cat.addItems(["همه دسته‌ها"] + report_categories)
         self.ed_rep_search = SmartLineEdit(
@@ -6979,8 +6973,11 @@ class MainWindow(QMainWindow):
         self.lst_cfg_subcategories = SmoothScrollListWidget()
         self.lst_cfg_subcategories.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.lst_cfg_subcategories.verticalScrollBar().setSingleStep(18)
-        self.lst_cfg_subcategories.setMinimumHeight(200)
-        self.lst_cfg_subcategories.setMaximumHeight(320)
+        self.lst_cfg_subcategories.setMinimumHeight(260)
+        self.lst_cfg_subcategories.setMaximumHeight(450)
+        self.lst_cfg_subcategories.setSizePolicy(
+            QSizePolicy.Expanding, QSizePolicy.Expanding
+        )
         self.ed_cfg_subcategory = QLineEdit()
         self.ed_cfg_subcategory.setPlaceholderText("نام زیرمجموعه را وارد کنید؛ مثلاً صفحه‌نمایش یا پردازنده...")
         self.ed_cfg_subcategory.textChanged.connect(
@@ -7023,8 +7020,8 @@ class MainWindow(QMainWindow):
         self.lst_cfg_attributes = SmoothScrollListWidget()
         self.lst_cfg_attributes.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.lst_cfg_attributes.verticalScrollBar().setSingleStep(18)
-        self.lst_cfg_attributes.setMinimumHeight(220)
-        self.lst_cfg_attributes.setMaximumHeight(350)
+        self.lst_cfg_attributes.setMinimumHeight(320)
+        self.lst_cfg_attributes.setMaximumHeight(550)
         self.lst_cfg_attributes.setSizePolicy(
             QSizePolicy.Expanding, QSizePolicy.Expanding
         )
@@ -7127,8 +7124,11 @@ class MainWindow(QMainWindow):
         self.lst_cfg_colors = SmoothScrollListWidget()
         self.lst_cfg_colors.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.lst_cfg_colors.verticalScrollBar().setSingleStep(18)
-        self.lst_cfg_colors.setMinimumHeight(200)
-        self.lst_cfg_colors.setMaximumHeight(320)
+        self.lst_cfg_colors.setMinimumHeight(240)
+        self.lst_cfg_colors.setMaximumHeight(400)
+        self.lst_cfg_colors.setSizePolicy(
+            QSizePolicy.Expanding, QSizePolicy.Expanding
+        )
         self.ed_cfg_color = QLineEdit()
         self.ed_cfg_color.setPlaceholderText("نام رنگ را وارد کنید؛ مثلاً سبز، ذغالی یا نقره‌ای...")
         self.ed_cfg_color.textChanged.connect(
@@ -7841,17 +7841,23 @@ class MainWindow(QMainWindow):
     @staticmethod
     def _merge_default_catalog_subcategories(config):
         merged = copy.deepcopy(config) if isinstance(config, dict) else {}
-        categories = list(merged.get("categories") or MAIN_CATEGORIES)
+        categories = list(merged.get("categories") or [])
         subcategories = merged.setdefault("subcategories", {})
-        attributes = merged.get("attributes", {})
+        attributes = merged.setdefault("attributes", {})
+        if not categories and not subcategories and not attributes:
+            return {
+                "categories": [],
+                "subcategories": {},
+                "attributes": {},
+                "colors": list(merged.get("colors") or []),
+                "service_types": list(merged.get("service_types") or ["نرم‌افزاری", "سخت‌افزاری"]),
+            }
         for category in list(subcategories) + list(attributes):
             if category and category not in categories:
                 categories.append(category)
         merged["categories"] = categories
         removed = merged.setdefault("removed_default_subcategories", {})
 
-        # A surviving feature definition is also authoritative evidence that its
-        # subcategory exists, even when the taxonomy list was previously incomplete.
         for category, definitions in attributes.items():
             if not isinstance(definitions, list):
                 continue
@@ -7949,34 +7955,29 @@ class MainWindow(QMainWindow):
         other_key = normalize_catalog_label("سایر موارد")
         for category in categories:
             current = subcategories.setdefault(category, [])
-            removed_keys = {
-                normalize_catalog_label(value)
-                for value in removed.get(category, [])
-            }
-            known = {
-                normalize_catalog_label(value)
-                for value in current if normalize_catalog_label(value)
-            }
-            for default_value in DEFAULT_SUBCATEGORIES.get(category, []):
-                key = normalize_catalog_label(default_value)
-                if key and key not in removed_keys and key not in known:
-                    current.append(default_value)
-                    known.add(key)
-            current[:] = [
-                value for value in current
-                if normalize_catalog_label(value) != other_key
-            ] + ["سایر موارد"]
+            if current:
+                has_other = any(
+                    normalize_catalog_label(value).startswith(other_key)
+                    for value in current
+                )
+                if not has_other:
+                    current.append("سایر موارد (Other)")
+                else:
+                    other_items = [v for v in current if normalize_catalog_label(v).startswith(other_key)]
+                    non_other = [v for v in current if not normalize_catalog_label(v).startswith(other_key)]
+                    current[:] = non_other + [other_items[0]]
 
-            definitions = attributes.setdefault(category, [])
-            definitions[:] = [
-                item for item in definitions
-                if not isinstance(item, dict)
-                or normalize_catalog_label(item.get("subcategory") or "") != other_key
-            ]
-            definitions.append({
-                "name": "مشخصات", "label": "Specifications",
-                "values": [], "subcategory": "سایر موارد",
-            })
+                other_name = current[-1]
+                definitions = attributes.setdefault(category, [])
+                has_other_attr = any(
+                    isinstance(item, dict) and normalize_catalog_label(item.get("subcategory") or "").startswith(other_key)
+                    for item in definitions
+                )
+                if not has_other_attr:
+                    definitions.append({
+                        "name": "مشخصات", "label": "Specifications",
+                        "values": [], "subcategory": other_name,
+                    })
         merged["attributes"] = attributes
         return merged
 
@@ -7997,11 +7998,12 @@ class MainWindow(QMainWindow):
         }
         for category in categories:
             values = subcategories.setdefault(category, [])
-            values[:] = [
-                value for value in values
-                if normalize_catalog_label(value) != other_key
-            ]
-            values.append("سایر موارد")
+            if not values:
+                continue
+            other_items = [v for v in values if normalize_catalog_label(v).startswith(other_key)]
+            non_other = [v for v in values if not normalize_catalog_label(v).startswith(other_key)]
+            target_other_name = other_items[0] if other_items else "سایر موارد (Other)"
+            values[:] = non_other + [target_other_name]
 
             definitions = attributes.setdefault(category, [])
             retained = []
@@ -8009,7 +8011,7 @@ class MainWindow(QMainWindow):
             for item in definitions:
                 if not isinstance(item, dict):
                     continue
-                if normalize_catalog_label(item.get("subcategory") or "") != other_key:
+                if not normalize_catalog_label(item.get("subcategory") or "").startswith(other_key):
                     retained.append(item)
                     continue
                 if normalize_catalog_label(item.get("name") or "") in spec_keys:
@@ -8021,7 +8023,7 @@ class MainWindow(QMainWindow):
                     str(value).strip() for value in spec_values
                     if str(value).strip()
                 )),
-                "subcategory": "سایر موارد",
+                "subcategory": target_other_name,
             }]
         config["attributes"] = attributes
         config["subcategories"] = subcategories
@@ -8029,9 +8031,11 @@ class MainWindow(QMainWindow):
 
     def _set_default_subcategory_removed(self, category, value, removed=True):
         key = normalize_catalog_label(value)
+        seed_tax = load_default_taxonomy_from_seed() or {}
+        seed_subcats = seed_tax.get("subcategories", {}).get(category, [])
         if not key or not any(
             normalize_catalog_label(item) == key
-            for item in DEFAULT_SUBCATEGORIES.get(category, [])
+            for item in seed_subcats
         ):
             return
         removed_map = self._taxonomy_draft.setdefault(
@@ -8195,12 +8199,13 @@ class MainWindow(QMainWindow):
 
     def _load_catalog_customization_form(self):
         stored = self.db.get_product_catalog_config()
+        seed_tax = load_default_taxonomy_from_seed() or {}
         defaults = {
-            "categories": list(MAIN_CATEGORIES),
-            "subcategories": copy.deepcopy(DEFAULT_SUBCATEGORIES),
+            "categories": list(seed_tax.get("categories", [])),
+            "subcategories": copy.deepcopy(seed_tax.get("subcategories", {})),
             "removed_default_subcategories": {},
-            "attributes": copy.deepcopy(DEFAULT_ATTRIBUTES),
-            "colors": list(DEFAULT_COLORS),
+            "attributes": copy.deepcopy(seed_tax.get("attributes", {})),
+            "colors": list(seed_tax.get("colors", DEFAULT_COLORS)),
             "service_types": ["نرم‌افزاری", "سخت‌افزاری"],
         }
         has_saved_catalog = bool(self.db.get_setting("product_catalog_config", ""))
@@ -8867,7 +8872,7 @@ class MainWindow(QMainWindow):
 
     def _apply_product_catalog_config(self):
         self.catalog_config = self._effective_product_catalog_config()
-        categories = self.catalog_config.get("categories") or list(MAIN_CATEGORIES)
+        categories = self.catalog_config.get("categories") or []
         categories = list(dict.fromkeys(categories))
         colors = self.catalog_config.get("colors") or DEFAULT_COLORS
         current_category = self.cb_prod_cat.currentText() if hasattr(self, "cb_prod_cat") else ""
@@ -8906,17 +8911,7 @@ class MainWindow(QMainWindow):
     def _effective_product_catalog_config(self):
         """Return the configured catalogue plus all active standard subcategories."""
         stored = self.db.get_product_catalog_config()
-        if self.db.get_setting("product_catalog_config", ""):
-            normalized = self._merge_default_catalog_subcategories(stored)
-        else:
-            normalized = self._merge_default_catalog_subcategories({
-                "categories": list(MAIN_CATEGORIES),
-                "subcategories": copy.deepcopy(DEFAULT_SUBCATEGORIES),
-                "removed_default_subcategories": {},
-                "attributes": copy.deepcopy(DEFAULT_ATTRIBUTES),
-                "colors": list(DEFAULT_COLORS),
-                "service_types": ["نرم‌افزاری", "سخت‌افزاری"],
-            })
+        normalized = self._merge_default_catalog_subcategories(stored)
         # Keep persisted names intact until the settings form can queue the
         # matching product-spec JSON-key renames. The UI uses localized names
         # immediately; explicit Save commits catalogue and product data together.
