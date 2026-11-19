@@ -126,10 +126,12 @@ jobs:
           $bytes = (Get-Item $target).Length
           Write-Output "Executable built successfully: $target ($bytes bytes)"
           Write-Output "Running noninteractive binary self-test..."
-          & $target --self-test
-          if ($LASTEXITCODE -ne 0) {
-            Write-Error "Binary self-test failed with exit code $LASTEXITCODE"
-            exit $LASTEXITCODE
+          $p = Start-Process -FilePath $target -ArgumentList "--self-test" -Wait -PassThru -RedirectStandardOutput "dist/selftest_stdout.log" -RedirectStandardError "dist/selftest_stderr.log"
+          if (Test-Path "dist/selftest_stdout.log") { Get-Content "dist/selftest_stdout.log" }
+          if (Test-Path "dist/selftest_stderr.log") { Get-Content "dist/selftest_stderr.log" }
+          if ($p.ExitCode -ne 0) {
+            Write-Error "Binary self-test failed with exit code $($p.ExitCode)"
+            exit $p.ExitCode
           }
           Write-Output "Binary self-test passed successfully."
 
