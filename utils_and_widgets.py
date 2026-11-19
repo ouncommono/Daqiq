@@ -1485,7 +1485,7 @@ class DynamicSpecsWidget(QGroupBox):
                         field_label = self.sub_layout.labelForField(existing_widget)
                     if isinstance(field_label, QLabel):
                         field_label.setText(f"{form_label}:")
-                    existing_widget.setToolTip(f"ویژگی سفارشی: {form_label}")
+                    existing_widget.setToolTip(f"مشخصه سفارشی: {form_label}")
                     continue
                 except RuntimeError:
                     self.fields.pop(field_name, None)
@@ -1498,7 +1498,7 @@ class DynamicSpecsWidget(QGroupBox):
                 widget.addItems(list(dict.fromkeys(values)))
             else:
                 widget = SmartLineEdit(f"{field_name}...")
-            widget.setToolTip(f"ویژگی سفارشی: {form_label}")
+            widget.setToolTip(f"مشخصه سفارشی: {form_label}")
             self.fields[field_name] = widget
             self._custom_field_widgets[field_name] = widget
             self.form_layout.addRow(f"{form_label}:", widget)
