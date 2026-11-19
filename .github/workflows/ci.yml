@@ -31,10 +31,10 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
@@ -60,10 +60,10 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
@@ -105,7 +105,7 @@ jobs:
           Write-Output "Executable built successfully: $target ($bytes bytes)"
 
       - name: Upload Windows Executable Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Daqiq-Windows-${{ env.APP_VERSION }}
           path: |
@@ -120,7 +120,7 @@ jobs:
     if: github.event_name != 'pull_request'
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -133,7 +133,7 @@ jobs:
           Write-Output "APP_VERSION=$ver" >> $env:GITHUB_ENV
 
       - name: Download Build Artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: Daqiq-Windows-${{ env.APP_VERSION }}
           path: dist
@@ -146,12 +146,21 @@ jobs:
         run: |
           # Rule: Do NOT auto-merge this PR in the workflow. Register it solely as an open PR ready for final human code review and validation.
           $currentBranch = (git branch --show-current).Trim()
-          Write-Output "Creating or checking open PR from $currentBranch to main..."
-          gh pr create `
-            --base main `
-            --head $currentBranch `
-            --title "Release v${{ env.APP_VERSION }}: Final Production Release" `
-            --body "Final production release v${{ env.APP_VERSION }}. Features clean-slate schema v460, total purge of hardcoded taxonomy, external seed architecture, deep bilingual hardware taxonomy, true SQLCipher AES-256 database encryption, sales form reset fix, transactional Excel export settings staging, and expanded ergonomic UI layout. Auto-merge is strictly prohibited." 2>$null || Write-Output "Pull request already exists."
+          if (-not $currentBranch) {
+            $currentBranch = "${{ github.ref_name }}"
+          }
+          Write-Output "Checking for existing PR from $currentBranch to main..."
+          $existingPr = gh pr list --head $currentBranch --base main --json number --jq '.[0].number'
+          if ($existingPr) {
+            Write-Output "Pull request #$existingPr already exists."
+          } else {
+            Write-Output "Creating open PR from $currentBranch to main..."
+            gh pr create `
+              --base main `
+              --head $currentBranch `
+              --title "Release v${{ env.APP_VERSION }}: Final Production Release" `
+              --body "Final production release v${{ env.APP_VERSION }}. Features clean-slate schema v460, total purge of hardcoded taxonomy, external seed architecture, deep bilingual hardware taxonomy, true SQLCipher AES-256 database encryption, sales form reset fix, transactional Excel export settings staging, and expanded ergonomic UI layout. Auto-merge is strictly prohibited."
+          }
 
       - name: Publish Release Tagged as v4.6.0 and Marked as Latest
         shell: pwsh
@@ -162,10 +171,16 @@ jobs:
           $title = "Daqiq v${{ env.APP_VERSION }} (Final Production Release)"
           $exePath = "dist/Daqiq_${{ env.APP_VERSION }}.exe"
           $taxPath = "dist/default_taxonomy.json"
-          Write-Output "Publishing release tagged $tag marked as Latest with executable and taxonomy attached..."
-          gh release create $tag $exePath $taxPath `
-            --title $title `
-            --notes "Daqiq v${{ env.APP_VERSION }} official retail store management production release. Includes standalone executable and external default_taxonomy.json." `
-            --latest `
-            --prerelease=false 2>$null || `
-          gh release upload $tag $exePath $taxPath --clobber
+          Write-Output "Checking release $tag..."
+          $existingRel = gh release view $tag 2>$null
+          if ($existingRel) {
+            Write-Output "Release $tag already exists, uploading assets..."
+            gh release upload $tag $exePath $taxPath --clobber
+          } else {
+            Write-Output "Creating release $tag marked as Latest with executable and taxonomy attached..."
+            gh release create $tag $exePath $taxPath `
+              --title $title `
+              --notes "Daqiq v${{ env.APP_VERSION }} official retail store management production release. Includes standalone executable and external default_taxonomy.json." `
+              --latest `
+              --prerelease=false
+          }
