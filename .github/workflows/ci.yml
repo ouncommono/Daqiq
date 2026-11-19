@@ -142,12 +142,21 @@ jobs:
         run: |
           # Rule: Do NOT auto-merge this PR in the workflow. Register it solely as an open PR ready for final human code review and validation.
           $currentBranch = (git branch --show-current).Trim()
-          Write-Output "Creating or checking open PR from $currentBranch to main..."
-          gh pr create `
-            --base main `
-            --head $currentBranch `
-            --title "Release v${{ env.APP_VERSION }}: Standard SQLCipher 4 Encryption, Clean Taxonomy Architecture, and Retail UI/UX Polish" `
-            --body "Comprehensive retail production release v${{ env.APP_VERSION }}. This PR contains standard SQLCipher 4 encryption (100% out-of-the-box compatibility with DB Browser for SQLite with plain UTF-8 passphrase), robust taxonomy initialization (0 categories/subcategories/attributes when default_taxonomy.json is missing, clean deduplication without cross-contamination when present), enlarged two-column catalog management UI with minimal scrolling, surgical rollback of unrequested v4.4.6 behavioral drifts, and native Node 24 GitHub Actions workflows with zero deprecation warnings. Registered solely for human code review and validation (auto-merge disabled)." 2>$null || Write-Output "Pull request already exists."
+          Write-Output "Checking open PR from $currentBranch to main..."
+          $existingPr = $null
+          try {
+            $existingPr = gh pr list --head $currentBranch --base main --state open --json number --jq '.[0].number' 2>$null
+          } catch {}
+          if (-not $existingPr) {
+            Write-Output "Creating open PR from $currentBranch to main..."
+            gh pr create `
+              --base main `
+              --head $currentBranch `
+              --title "Release v${{ env.APP_VERSION }}: Standard SQLCipher 4 Encryption, Clean Taxonomy Architecture, and Retail UI/UX Polish" `
+              --body "Comprehensive retail production release v${{ env.APP_VERSION }}. This PR contains standard SQLCipher 4 encryption (100% out-of-the-box compatibility with DB Browser for SQLite with plain UTF-8 passphrase), robust taxonomy initialization (0 categories/subcategories/attributes when default_taxonomy.json is missing, clean deduplication without cross-contamination when present), enlarged two-column catalog management UI with minimal scrolling, surgical rollback of unrequested v4.4.6 behavioral drifts, and native Node 24 GitHub Actions workflows with zero deprecation warnings. Registered solely for human code review and validation (auto-merge disabled)."
+          } else {
+            Write-Output "Pull request already exists: #$existingPr"
+          }
 
       - name: Publish Release Tagged as v4.6.0 and Marked as Latest
         shell: pwsh
@@ -158,10 +167,20 @@ jobs:
           $title = "Daqiq v${{ env.APP_VERSION }} (Retail Production Release)"
           $exePath = "dist/Daqiq_${{ env.APP_VERSION }}.exe"
           $taxPath = "dist/default_taxonomy.json"
-          Write-Output "Publishing release tagged $tag marked as Latest..."
-          gh release create $tag $exePath $taxPath `
-            --title $title `
-            --notes "Daqiq v${{ env.APP_VERSION }} official retail production release. Executable packaged with PyInstaller alongside companion default_taxonomy.json." `
-            --latest `
-            --prerelease=false 2>$null || `
-          gh release upload $tag $exePath $taxPath --clobber
+          Write-Output "Checking release status for tag $tag..."
+          $relExists = $false
+          try {
+            $null = gh release view $tag 2>$null
+            if ($LASTEXITCODE -eq 0) { $relExists = $true }
+          } catch {}
+          if (-not $relExists) {
+            Write-Output "Publishing release tagged $tag marked as Latest..."
+            gh release create $tag $exePath $taxPath `
+              --title $title `
+              --notes "Daqiq v${{ env.APP_VERSION }} official retail production release. Executable packaged with PyInstaller alongside companion default_taxonomy.json." `
+              --latest `
+              --prerelease=false
+          } else {
+            Write-Output "Release $tag already exists. Uploading assets..."
+            gh release upload $tag $exePath $taxPath --clobber
+          }
