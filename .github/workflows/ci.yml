@@ -43,7 +43,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest openpyxl pyinstaller
+          pip install pytest pytest-timeout openpyxl pyinstaller
 
       - name: Compile Python bytecode
         run: python -m compileall -q .
@@ -51,7 +51,7 @@ jobs:
       - name: Run PyTest suite
         env:
           QT_QPA_PLATFORM: offscreen
-        run: python -m pytest -q
+        run: python -m pytest --timeout=60 -v
 
   build-executable:
     name: Build Standalone Executable
@@ -79,13 +79,19 @@ jobs:
         shell: pwsh
         run: |
           $ver = (Get-Content VERSION).Trim()
-          if (-not $ver) { $ver = "4.5.0" }
+          if (-not $ver) { $ver = "4.6.0" }
           Write-Output "APP_VERSION=$ver" >> $env:GITHUB_ENV
           Write-Output "Building for version: $ver"
 
       - name: Build Executable with PyInstaller
         run: |
-          pyinstaller --noconfirm --onefile --windowed --name "Daqiq_${{ env.APP_VERSION }}" --add-data "default_taxonomy.json;." main.py
+          pyinstaller --noconfirm --onefile --windowed --name "Daqiq_${{ env.APP_VERSION }}" main.py
+
+      - name: Copy External Standalone Taxonomy
+        shell: pwsh
+        run: |
+          Copy-Item default_taxonomy.json dist/default_taxonomy.json
+          Write-Output "External default_taxonomy.json placed in dist alongside executable."
 
       - name: Validate Built Binary
         shell: pwsh
@@ -102,7 +108,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Daqiq-Windows-${{ env.APP_VERSION }}
-          path: dist/Daqiq_${{ env.APP_VERSION }}.exe
+          path: |
+            dist/Daqiq_${{ env.APP_VERSION }}.exe
+            dist/default_taxonomy.json
           if-no-files-found: error
 
   draft-release-or-pr:
@@ -121,7 +129,7 @@ jobs:
         shell: pwsh
         run: |
           $ver = (Get-Content VERSION).Trim()
-          if (-not $ver) { $ver = "4.5.0" }
+          if (-not $ver) { $ver = "4.6.0" }
           Write-Output "APP_VERSION=$ver" >> $env:GITHUB_ENV
 
       - name: Download Build Artifact
@@ -142,21 +150,22 @@ jobs:
           gh pr create `
             --base main `
             --head $currentBranch `
-            --title "Release v${{ env.APP_VERSION }}: Comprehensive Retail Production Upgrade" `
-            --body "Comprehensive production release v${{ env.APP_VERSION }}. This PR contains all architectural refinements, greenfield database schema v450 normalization, bilingual international taxonomy engine, phone number tracking, robust timer overflow prevention, custom report builder synchronization, full-row checklist toggling, and staged database password management. Registered solely for human code review and validation (auto-merge disabled)." 2>$null || Write-Output "Pull request already exists."
+            --title "Release v${{ env.APP_VERSION }}: Final Production Release" `
+            --body "Final production release v${{ env.APP_VERSION }}. Features clean-slate schema v460, total purge of hardcoded taxonomy, external seed architecture, deep bilingual hardware taxonomy, true SQLCipher AES-256 database encryption, sales form reset fix, transactional Excel export settings staging, and expanded ergonomic UI layout. Auto-merge is strictly prohibited." 2>$null || Write-Output "Pull request already exists."
 
-      - name: Publish Release Tagged as v4.5.0 and Marked as Latest
+      - name: Publish Release Tagged as v4.6.0 and Marked as Latest
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $tag = "v${{ env.APP_VERSION }}"
-          $title = "Daqiq v${{ env.APP_VERSION }} (Retail Production Release)"
+          $title = "Daqiq v${{ env.APP_VERSION }} (Final Production Release)"
           $exePath = "dist/Daqiq_${{ env.APP_VERSION }}.exe"
-          Write-Output "Publishing release tagged $tag marked as Latest..."
-          gh release create $tag $exePath `
+          $taxPath = "dist/default_taxonomy.json"
+          Write-Output "Publishing release tagged $tag marked as Latest with executable and taxonomy attached..."
+          gh release create $tag $exePath $taxPath `
             --title $title `
-            --notes "Daqiq v${{ env.APP_VERSION }} official retail production release. Executable packaged with PyInstaller." `
+            --notes "Daqiq v${{ env.APP_VERSION }} official retail store management production release. Includes standalone executable and external default_taxonomy.json." `
             --latest `
             --prerelease=false 2>$null || `
-          gh release upload $tag $exePath --clobber
+          gh release upload $tag $exePath $taxPath --clobber

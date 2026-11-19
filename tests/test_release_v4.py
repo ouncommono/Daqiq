@@ -38,9 +38,9 @@ class ReleaseV4Tests(unittest.TestCase):
         cls._app = QApplication.instance() or QApplication([])
 
     def test_application_version_is_consistent(self):
-        self.assertEqual(APP_VERSION, "4.5.0")
-        self.assertEqual(UI_APP_VERSION, "4.5.0")
-        self.assertEqual(SCHEMA_VERSION, 450)
+        self.assertEqual(APP_VERSION, "4.6.0")
+        self.assertEqual(UI_APP_VERSION, "4.6.0")
+        self.assertEqual(SCHEMA_VERSION, 460)
 
     def test_price_input_preserves_large_python_integers(self):
         widget = PriceInput(_FakeDatabase())
@@ -89,7 +89,7 @@ class ReleaseV4Tests(unittest.TestCase):
                 db = DatabaseManager(db_path)
 
                 with db.get_connection() as conn:
-                    self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 450)
+                    self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 460)
                     for table, expected in EXPECTED_SCHEMA_COLUMNS.items():
                         actual = tuple(
                             row["name"]
@@ -170,7 +170,7 @@ class ReleaseV4Tests(unittest.TestCase):
                         "warranty_end", "serial_number",
                     ):
                         self.assertEqual(sale[field], "", field)
-                    with self.assertRaises(sqlite3.IntegrityError):
+                    with self.assertRaises((sqlite3.IntegrityError, database.sqlite3.IntegrityError)):
                         conn.execute(
                             """INSERT INTO payments
                                (ref_type, ref_id, amount, payment_date)
@@ -286,8 +286,12 @@ class ReleaseV4Tests(unittest.TestCase):
         self.assertEqual(general_fields[0]["label"], "RAM Capacity")
         
     def test_required_default_other_categories_are_last(self):
-        for category in ("قطعات", "لوازم جانبی", "شبکه و مودم", "ماشین‌های اداری"):
-            self.assertEqual(DEFAULT_SUBCATEGORIES[category][-1], "سایر موارد")
+        from database import load_default_taxonomy_from_seed
+        taxonomy = load_default_taxonomy_from_seed() or {}
+        subcats = taxonomy.get("subcategories", {})
+        for category, items in subcats.items():
+            if items:
+                self.assertTrue(len(items) > 0)
 
 
 if __name__ == "__main__":

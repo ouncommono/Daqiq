@@ -48,7 +48,7 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
         assert window.tabs.count() == 10
         assert window.chk_upg_consume_stock.isChecked()
         assert window.tabs.tabText(9).endswith("تنظیمات")
-        assert window.lbl_app_version.text() == "دقیق | نسخه برنامه: 4.5.0"
+        assert window.lbl_app_version.text() == "دقیق | نسخه برنامه: 4.6.0"
         assert [window.catalog_tabs.tabText(i) for i in range(window.catalog_tabs.count())] == [
             "مدیریت کالاها",
             "مدیریت خدمات",
@@ -106,7 +106,7 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
         assert not hasattr(window, "chk_zero_enabled")
         assert window.lbl_live_clock.toolTip()
         assert window.lst_cfg_subcategories.count() > 0
-        assert "لپ تاپ عمومی و مالتی مدیا (General & Multimedia Laptop)" in [
+        assert "پردازنده (CPU)" in [
             window.lst_cfg_subcategories.item(index).text()
             for index in range(window.lst_cfg_subcategories.count())
         ]
@@ -599,7 +599,7 @@ def test_custom_attribute_name_is_form_label_and_title_is_output_label(tmp_path,
     try:
         assert "پردازنده" in window.specs_widget.fields
         field_widget = window.specs_widget.fields["پردازنده"]
-        assert field_widget.toolTip() == "مشخصه سفارشی: پردازنده"
+        assert field_widget.toolTip() == "مشخصات فنی: پردازنده"
         field_label = window.specs_widget.form_layout.labelForField(field_widget)
         assert field_label.text() == "پردازنده:"
         assert window._format_specs_for_display({"پردازنده": "Core i7"}, "قطعات") == (
@@ -1391,16 +1391,16 @@ def test_catalog_create_actions_reject_persian_spacing_aliases(tmp_path, monkeyp
         )
 
         category_count = len(window._taxonomy_draft["categories"])
-        window.ed_cfg_category.setText("لپ تاپ")
+        window.ed_cfg_category.setText("لپ تاپ و سیستم های آماده")
         window._add_catalog_category()
         assert len(window._taxonomy_draft["categories"]) == category_count
 
-        window.cb_cfg_category.setCurrentText("لپ تاپ")
-        subcategories = window._taxonomy_draft["subcategories"]["لپ تاپ"]
+        window.cb_cfg_category.setCurrentText("لپ‌تاپ و سیستم‌های آماده")
+        subcategories = window._taxonomy_draft["subcategories"]["لپ‌تاپ و سیستم‌های آماده"]
         subcategory_count = len(subcategories)
-        window.ed_cfg_subcategory.setText("لپ‌تاپ عمومی و مالتی مدیا (General & Multimedia Laptop)")
+        window.ed_cfg_subcategory.setText("لپ تاپ گیمینگ (Gaming Laptop)")
         window._add_catalog_subcategory()
-        assert len(window._taxonomy_draft["subcategories"]["لپ تاپ"]) == subcategory_count
+        assert len(window._taxonomy_draft["subcategories"]["لپ‌تاپ و سیستم‌های آماده"]) == subcategory_count
 
         colors = window._taxonomy_draft["colors"]
         color_count = len(colors)
@@ -1685,26 +1685,26 @@ def test_settings_catalog_synchronizes_builtin_and_saved_product_features(
     monkeypatch.setattr(database_module, "CONFIG_FILE", str(tmp_path / "app_config.json"))
     manager = DatabaseManager(str(tmp_path / "shop.db"))
     manager.add_product(
-        "P-CATALOG-SYNC", "", "قطعات", "رم کامپیوتر (RAM PC)",
+        "P-CATALOG-SYNC", "", "قطعات اصلی کامپیوتر", "رم کامپیوتر (Desktop RAM)",
         "TestBrand", "TestModel",
         {"فرکانس": "3200MHz", "ویژگی ذخیره‌شده": "مقدار آزمایشی"},
         "", 2, 20,
     )
     window = MainWindow(manager, active_employee=None)
     try:
-        parts = window._taxonomy_draft["attributes"]["قطعات"]
+        parts = window._taxonomy_draft["attributes"]["قطعات اصلی کامپیوتر"]
         part_names = {
             (item["name"], item.get("subcategory", ""))
             for item in parts
         }
-        assert ("فرکانس", "رم کامپیوتر (RAM PC)") in part_names
-        assert ("نسخه DDR", "رم کامپیوتر (RAM PC)") in part_names
-        assert ("ویژگی ذخیره‌شده", "رم کامپیوتر (RAM PC)") in part_names
+        assert ("فرکانس", "رم کامپیوتر (Desktop RAM)") in part_names
+        assert ("نسل رم", "رم کامپیوتر (Desktop RAM)") in part_names
+        assert ("ویژگی ذخیره‌شده", "رم کامپیوتر (Desktop RAM)") in part_names
 
         monitor_names = {
             item["name"] for item in window._taxonomy_draft["attributes"]["مانیتور و نمایشگر"]
         }
-        assert {"سایز صفحه", "نوع پنل", "نرخ نوسازی"} <= monitor_names
+        assert {"ابعاد صفحه نمایش", "نوع پنل", "نرخ تازه‌سازی"} <= monitor_names
 
         window.cb_cfg_category.setCurrentText("مانیتور و نمایشگر")
         scoped_subcategory = window._taxonomy_draft["subcategories"]["مانیتور و نمایشگر"][0]

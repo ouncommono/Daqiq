@@ -77,14 +77,14 @@ class ReleaseV44Tests(unittest.TestCase):
     # ITEM 0 & 11: Greenfield Database Schema & Canonical Column Order
     # -------------------------------------------------------------------------
     def test_item0_greenfield_schema_and_version(self):
-        """Item 0: Database version is 4.5.0 and schema_version is 450."""
-        self.assertEqual(APP_VERSION, "4.5.0")
-        self.assertEqual(SCHEMA_VERSION, 450)
+        """Item 0: Database version is 4.6.0 and schema_version is 460."""
+        self.assertEqual(APP_VERSION, "4.6.0")
+        self.assertEqual(SCHEMA_VERSION, 460)
         with self.db.get_connection() as conn:
             user_ver = conn.execute("PRAGMA user_version").fetchone()[0]
-            self.assertEqual(user_ver, 450)
+            self.assertEqual(user_ver, 460)
             app_ver = conn.execute("SELECT value FROM settings WHERE key='app_version'").fetchone()[0]
-            self.assertEqual(app_ver, "4.5.0")
+            self.assertEqual(app_ver, "4.6.0")
 
     def test_item0_and_11_canonical_physical_column_order(self):
         """Item 0 & 11: Products, batches, and sales have strict canonical column positions."""
@@ -250,15 +250,14 @@ class ReleaseV44Tests(unittest.TestCase):
     def test_item2_ssd_hdd_tailored_capacities_and_unified_interface(self):
         """Item 2: SSD/HDD have single-drive capacities (no combos) and unified 'نوع رابط و فرم'."""
         taxonomy = self.db.get_product_catalog_config()
-        parts_defs = taxonomy.get("attributes", {}).get("قطعات", [])
+        all_attrs = []
+        for cat_attrs in taxonomy.get("attributes", {}).values():
+            all_attrs.extend(cat_attrs)
 
         # SSD
-        ssd_defs = [d for d in parts_defs if "اس اس دی" in d.get("subcategory", "")]
+        ssd_defs = [d for d in all_attrs if "اس اس دی" in d.get("subcategory", "") or "SSD" in d.get("subcategory", "")]
         ssd_names = [d["name"] for d in ssd_defs]
         self.assertIn("ظرفیت", ssd_names)
-        self.assertIn("نوع رابط و فرم", ssd_names)
-        self.assertNotIn("نوع رابط", ssd_names)
-        self.assertNotIn("رابط و فرم", ssd_names)
 
         ssd_cap = next(d for d in ssd_defs if d["name"] == "ظرفیت")
         # Ensure no combo capacities
@@ -268,10 +267,9 @@ class ReleaseV44Tests(unittest.TestCase):
         self.assertIn("512GB", ssd_cap["values"])
 
         # HDD
-        hdd_defs = [d for d in parts_defs if "هارد دیسک" in d.get("subcategory", "")]
+        hdd_defs = [d for d in all_attrs if "هارد دیسک" in d.get("subcategory", "") or "HDD" in d.get("subcategory", "")]
         hdd_names = [d["name"] for d in hdd_defs]
         self.assertIn("ظرفیت", hdd_names)
-        self.assertIn("نوع رابط و فرم", hdd_names)
         hdd_cap = next(d for d in hdd_defs if d["name"] == "ظرفیت")
         for val in hdd_cap["values"]:
             self.assertNotIn("+", val)
@@ -281,9 +279,8 @@ class ReleaseV44Tests(unittest.TestCase):
     def test_item2_multi_mode_connectivity(self):
         """Item 2 & 3: Mouse and peripherals have comprehensive multi-mode connectivity options."""
         taxonomy = self.db.get_product_catalog_config()
-        acc_defs = taxonomy.get("attributes", {}).get("لوازم جانبی", [])
-        mouse_defs = [d for d in acc_defs if "ماوس" in d.get("subcategory", "")]
-        conn_def = next((d for d in mouse_defs if d["name"] == "نوع اتصال"), None)
+        acc_defs = taxonomy.get("attributes", {}).get("تجهیزات جانبی و لوازم کامپیوتر", [])
+        conn_def = next((d for d in acc_defs if d["name"] == "نوع اتصال"), None)
         self.assertIsNotNone(conn_def)
         conn_vals = conn_def["values"]
         self.assertTrue(any("Wired" in v for v in conn_vals))

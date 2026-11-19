@@ -1,210 +1,136 @@
 {
   "categories": [
-    "لپ تاپ",
-    "قطعات",
-    "لوازم جانبی",
+    "قطعات اصلی کامپیوتر",
+    "لپ‌تاپ و سیستم‌های آماده",
     "مانیتور و نمایشگر",
-    "تجهیزات شبکه",
-    "کامپیوتر و کیس اسمبل شده",
-    "ماشین های اداری",
-    "سایر موارد"
+    "ذخیره‌سازی اکسترنال و فلش",
+    "تجهیزات جانبی و لوازم کامپیوتر",
+    "تجهیزات شبکه و ارتباطات",
+    "کابل، مبدل و اتصالات",
+    "ماشین‌های اداری و مصرفی"
   ],
   "subcategories": {
-    "لپ تاپ": [
-      "لپ تاپ عمومی و مالتی مدیا (General & Multimedia Laptop)",
-      "لپ تاپ گیمینگ (Gaming Laptop)",
-      "لپ تاپ مهندسی و اداری (Workstation & Office Laptop)",
-      "لپ تاپ استوک و صنعتی (Refurbished & Industrial Laptop)",
-      "اولترابوک و تبلت شو (Ultrabook & 2-in-1)",
-      "مک بوک (MacBook)",
-      "سایر موارد (Other)"
-    ],
-    "قطعات": [
+    "قطعات اصلی کامپیوتر": [
       "پردازنده (CPU)",
-      "رم کامپیوتر (Desktop RAM)",
-      "رم لپ تاپ (Laptop RAM)",
-      "حافظه اس اس دی (SSD)",
-      "هارد دیسک اینترنال (Internal HDD)",
-      "کارت گرافیک (GPU)",
       "مادربرد (Motherboard)",
-      "منبع تغذیه (Power Supply)",
-      "خنک کننده و فن (Cooling & Fan)",
-      "صفحه نمایش لپ تاپ (Laptop Display Panel)",
-      "باتری لپ تاپ (Laptop Battery)",
-      "کیبورد اینترنال لپ تاپ (Internal Keyboard)",
-      "درایو نوری اینترنال (Internal Optical Drive)",
-      "سایر موارد (Other)"
+      "رم کامپیوتر (Desktop RAM)",
+      "رم لپ‌تاپ (Laptop RAM)",
+      "کارت گرافیک (GPU)",
+      "حافظه اس‌اس‌دی (SSD)",
+      "هارد دیسک اینترنال (Internal HDD)",
+      "منبع تغذیه (PSU)",
+      "خنک‌کننده پردازنده (CPU Cooler)",
+      "فن و تجهیزات خنک‌کننده (Case Fan & Cooling)",
+      "پوسته کیس (PC Case)",
+      "درایو نوری اینترنال (Internal ODD)",
+      "سایر قطعات (Other Components)"
     ],
-    "لوازم جانبی": [
-      "ماوس (Mouse)",
-      "کیبورد (Keyboard)",
-      "کمبو ماوس و کیبورد (Mouse & Keyboard Combo)",
-      "هدست و هدفون (Headset & Headphone)",
-      "اسپیکر (Speaker)",
-      "فلش مموری (Flash Memory)",
-      "هارد اکسترنال (External HDD)",
-      "اس اس دی اکسترنال (External SSD)",
-      "کیف و کوله پشتی (Bag & Backpack)",
-      "پد ماوس (Mouse Pad)",
-      "پایه خنک کننده و کول پد (Coolpad)",
-      "هاب و مبدل (Hub & Adapter)",
-      "کابل و تبدیل (Cables & Converters)",
-      "وب کم و میکروفون (Webcam & Microphone)",
-      "دسته بازی (Gamepad)",
-      "سایر موارد (Other)"
+    "لپ‌تاپ و سیستم‌های آماده": [
+      "لپ‌تاپ گیمینگ (Gaming Laptop)",
+      "لپ‌تاپ مهندسی و اداری (Workstation & Office Laptop)",
+      "اولترابوک و باریک (Ultrabook & Slim)",
+      "لپ‌تاپ استوک و صنعتی (Refurbished & Industrial Laptop)",
+      "مک‌بوک (Apple MacBook)",
+      "کامپیوتر همه کاره (All-in-One PC)",
+      "کیس آماده و مینی کیس (Desktop & Mini PC)",
+      "سایر سیستم‌ها (Other Systems)"
     ],
     "مانیتور و نمایشگر": [
       "مانیتور اداری و خانگی (Office & Home Monitor)",
       "مانیتور گیمینگ (Gaming Monitor)",
-      "مانیتور طراحی و ادیت (Design & Creative Monitor)",
+      "مانیتور طراحی و گرافیک (Design & Creative Monitor)",
       "مانیتور پرتابل (Portable Monitor)",
-      "سایر موارد (Other)"
+      "پنل صفحه نمایش لپ‌تاپ (Laptop Screen Panel)",
+      "سایر نمایشگرها (Other Displays)"
     ],
-    "تجهیزات شبکه": [
+    "ذخیره‌سازی اکسترنال و فلش": [
+      "هارد اکسترنال (External HDD)",
+      "اس‌اس‌دی اکسترنال (External SSD)",
+      "فلش مموری (USB Flash Drive)",
+      "کارت حافظه (Memory Card)",
+      "باکس و قاب هارد (HDD & SSD Enclosure)",
+      "سایر تجهیزات ذخیره‌سازی (Other Storage)"
+    ],
+    "تجهیزات جانبی و لوازم کامپیوتر": [
+      "ماوس (Mouse)",
+      "کیبورد (Keyboard)",
+      "ماوس و کیبورد کمبو (Mouse & Keyboard Combo)",
+      "پد ماوس (Mouse Pad)",
+      "هدست و هدفون (Headset & Headphone)",
+      "اسپیکر (Speaker)",
+      "وب‌کم (Webcam)",
+      "پایه خنک‌کننده لپ‌تاپ (Laptop Coolpad)",
+      "آداپتور و شارژر لپ‌تاپ (Laptop Charger & Adapter)",
+      "باتری لپ‌تاپ (Laptop Battery)",
+      "کیبورد لپ‌تاپ (Laptop Replacement Keyboard)",
+      "کیف و کوله‌پشتی لپ‌تاپ (Laptop Bag & Backpack)",
+      "هاب یو‌اس‌بی و داک‌استیشن (USB Hub & Docking Station)",
+      "سایر لوازم جانبی (Other Accessories)"
+    ],
+    "تجهیزات شبکه و ارتباطات": [
       "مودم و روتر (Modem & Router)",
       "سوییچ شبکه (Network Switch)",
-      "کارت شبکه و دانگل وای فای (Network Card & Wi-Fi Dongle)",
-      "اکسس پوینت (Access Point)",
-      "کابل و پچ کورد شبکه (Network Patch Cord & Cable)",
-      "سایر موارد (Other)"
+      "اکسس پوینت و توسعه‌دهنده (Access Point & Extender)",
+      "کارت شبکه و دانگل وای‌فای (Network Card & Wi-Fi Dongle)",
+      "کابل و پچ‌کورد شبکه (Network Cable & Patch Cord)",
+      "رک و تجهیزات پسیو (Rack & Passive Equipment)",
+      "سایر تجهیزات شبکه (Other Network Equipment)"
     ],
-    "کامپیوتر و کیس اسمبل شده": [
-      "کیس کامل گیمینگ (Gaming PC)",
-      "کیس مهندسی و اداری (Workstation & Office PC)",
-      "مینی کیس استوک (Mini PC & Tiny Case)",
-      "کامپیوتر همه کاره (All-in-One PC)",
-      "تین کلاینت و زیرو کلاینت (Thin & Zero Client)",
-      "پوسته کیس خالی (PC Case Chassis)",
-      "سایر موارد (Other)"
+    "کابل، مبدل و اتصالات": [
+      "کابل تصویر (HDMI, DisplayPort, VGA)",
+      "کابل برق و پاور (Power Cable)",
+      "کابل یو‌اس‌بی و تبدیل (USB & Type-C Cable)",
+      "مبدل‌های ویدیویی و تصویری (Video Converters)",
+      "سایر اتصالات (Other Cables & Adapters)"
     ],
-    "ماشین های اداری": [
-      "پرینتر تک کاره و چندکاره (Printer & Multi-Function)",
+    "ماشین‌های اداری و مصرفی": [
+      "پرینتر تک‌کاره و چندکاره (Printer & Multi-Function)",
       "اسکنر (Scanner)",
-      "کارتریج و مواد مصرفی (Cartridge & Consumables)",
-      "سایر موارد (Other)"
-    ],
-    "سایر موارد": [
-      "سایر موارد (Other)"
+      "کارتریج و جوهر (Toner & Ink Cartridge)",
+      "بارکدخوان و فیش‌پرینتر (Barcode Scanner & POS Printer)",
+      "سایر ماشین‌های اداری (Other Office Equipment)"
     ]
   },
   "attributes": {
-    "لپ تاپ": [
-      {
-        "name": "پردازنده",
-        "label": "CPU",
-        "values": [
-          "Intel Core i3",
-          "Intel Core i5",
-          "Intel Core i7",
-          "Intel Core i9",
-          "Intel Core Ultra 5",
-          "Intel Core Ultra 7",
-          "Intel Core Ultra 9",
-          "AMD Ryzen 3",
-          "AMD Ryzen 5",
-          "AMD Ryzen 7",
-          "AMD Ryzen 9",
-          "Apple M1",
-          "Apple M2",
-          "Apple M3",
-          "Apple M4"
-        ]
-      },
-      {
-        "name": "ظرفیت رم",
-        "label": "RAM",
-        "values": [
-          "4GB",
-          "8GB",
-          "12GB",
-          "16GB",
-          "24GB",
-          "32GB",
-          "48GB",
-          "64GB",
-          "128GB"
-        ]
-      },
-      {
-        "name": "نسل رم",
-        "label": "RAM Generation",
-        "values": [
-          "DDR3 / DDR3L",
-          "DDR4",
-          "DDR5",
-          "LPDDR4 / LPDDR4X",
-          "LPDDR5 / LPDDR5X"
-        ]
-      },
-      {
-        "name": "حافظه داخلی",
-        "label": "Storage",
-        "values": [
-          "128GB SSD",
-          "256GB SSD",
-          "512GB SSD",
-          "1TB SSD",
-          "2TB SSD",
-          "4TB SSD",
-          "500GB HDD",
-          "1TB HDD",
-          "1TB HDD + 128GB SSD",
-          "1TB HDD + 256GB SSD",
-          "1TB HDD + 512GB SSD"
-        ]
-      },
-      {
-        "name": "پردازنده گرافیکی",
-        "label": "GPU",
-        "values": [
-          "Intel Integrated Graphics",
-          "AMD Radeon Graphics",
-          "Apple M-Series GPU",
-          "NVIDIA GeForce GTX 1650",
-          "NVIDIA GeForce RTX 2050",
-          "NVIDIA GeForce RTX 3050",
-          "NVIDIA GeForce RTX 3060",
-          "NVIDIA GeForce RTX 4050",
-          "NVIDIA GeForce RTX 4060",
-          "NVIDIA GeForce RTX 4070",
-          "NVIDIA GeForce RTX 4080",
-          "NVIDIA GeForce RTX 4090"
-        ]
-      },
-      {
-        "name": "صفحه نمایش",
-        "label": "Display",
-        "values": [
-          "13.3\" FHD",
-          "14.0\" FHD",
-          "14.0\" 2.8K OLED",
-          "15.6\" HD",
-          "15.6\" FHD IPS",
-          "15.6\" FHD 144Hz",
-          "15.6\" FHD 165Hz",
-          "16.0\" WQXGA 165Hz",
-          "17.3\" FHD 144Hz",
-          "17.3\" QHD 240Hz"
-        ]
-      },
-      {
-        "name": "مشخصات",
-        "label": "Specifications",
-        "values": []
-      }
-    ],
-    "قطعات": [
+    "قطعات اصلی کامپیوتر": [
       {
         "name": "سوکت",
         "label": "Socket",
         "subcategory": "پردازنده (CPU)",
         "values": [
+          "LGA 775",
+          "LGA 1155",
+          "LGA 1150",
           "LGA 1151",
           "LGA 1200",
           "LGA 1700",
           "LGA 1851",
+          "AM3+",
           "AM4",
           "AM5"
+        ]
+      },
+      {
+        "name": "سری پردازنده",
+        "label": "CPU Series",
+        "subcategory": "پردازنده (CPU)",
+        "values": [
+          "Celeron",
+          "Pentium",
+          "Core i3",
+          "Core i5",
+          "Core i7",
+          "Core i9",
+          "Core Ultra 5",
+          "Core Ultra 7",
+          "Core Ultra 9",
+          "Xeon",
+          "Athlon",
+          "Ryzen 3",
+          "Ryzen 5",
+          "Ryzen 7",
+          "Ryzen 9",
+          "Threadripper"
         ]
       },
       {
@@ -216,169 +142,12 @@
           "4 Cores",
           "6 Cores",
           "8 Cores",
+          "10 Cores",
           "12 Cores",
+          "14 Cores",
           "16 Cores",
+          "20 Cores",
           "24 Cores"
-        ]
-      },
-      {
-        "name": "ظرفیت",
-        "label": "Capacity",
-        "subcategory": "رم کامپیوتر (Desktop RAM)",
-        "values": [
-          "4GB",
-          "8GB",
-          "16GB",
-          "32GB",
-          "64GB"
-        ]
-      },
-      {
-        "name": "نسخه DDR",
-        "label": "DDR Generation",
-        "subcategory": "رم کامپیوتر (Desktop RAM)",
-        "values": [
-          "DDR3",
-          "DDR4",
-          "DDR5"
-        ]
-      },
-      {
-        "name": "فرکانس",
-        "label": "Frequency",
-        "subcategory": "رم کامپیوتر (Desktop RAM)",
-        "values": [
-          "1600MHz",
-          "2400MHz",
-          "2666MHz",
-          "3200MHz",
-          "3600MHz",
-          "4800MHz",
-          "5200MHz",
-          "5600MHz",
-          "6000MHz"
-        ]
-      },
-      {
-        "name": "ظرفیت",
-        "label": "Capacity",
-        "subcategory": "رم لپ تاپ (Laptop RAM)",
-        "values": [
-          "4GB",
-          "8GB",
-          "16GB",
-          "32GB"
-        ]
-      },
-      {
-        "name": "نسخه DDR",
-        "label": "DDR Generation",
-        "subcategory": "رم لپ تاپ (Laptop RAM)",
-        "values": [
-          "DDR3L",
-          "DDR4",
-          "DDR5"
-        ]
-      },
-      {
-        "name": "فرکانس",
-        "label": "Frequency",
-        "subcategory": "رم لپ تاپ (Laptop RAM)",
-        "values": [
-          "1600MHz",
-          "2400MHz",
-          "2666MHz",
-          "3200MHz",
-          "4800MHz",
-          "5600MHz"
-        ]
-      },
-      {
-        "name": "ظرفیت",
-        "label": "Capacity",
-        "subcategory": "حافظه اس اس دی (SSD)",
-        "values": [
-          "120GB",
-          "128GB",
-          "240GB",
-          "256GB",
-          "480GB",
-          "500GB",
-          "512GB",
-          "1TB",
-          "2TB",
-          "4TB",
-          "8TB"
-        ]
-      },
-      {
-        "name": "نوع رابط و فرم",
-        "label": "Interface & Form Factor",
-        "subcategory": "حافظه اس اس دی (SSD)",
-        "values": [
-          "M.2 NVMe PCIe 3.0",
-          "M.2 NVMe PCIe 4.0",
-          "M.2 NVMe PCIe 5.0",
-          "M.2 SATA",
-          "2.5\" SATA III",
-          "PCIe Add-in Card (AIC)",
-          "mSATA",
-          "U.2"
-        ]
-      },
-      {
-        "name": "ظرفیت",
-        "label": "Capacity",
-        "subcategory": "هارد دیسک اینترنال (Internal HDD)",
-        "values": [
-          "500GB",
-          "1TB",
-          "2TB",
-          "4TB",
-          "6TB",
-          "8TB",
-          "10TB",
-          "12TB",
-          "16TB",
-          "18TB",
-          "20TB"
-        ]
-      },
-      {
-        "name": "نوع رابط و فرم",
-        "label": "Interface & Form Factor",
-        "subcategory": "هارد دیسک اینترنال (Internal HDD)",
-        "values": [
-          "3.5\" SATA III (7200 RPM)",
-          "3.5\" SATA III (5400 RPM)",
-          "2.5\" SATA III (5400 RPM)",
-          "2.5\" SATA III (7200 RPM)",
-          "3.5\" SAS Enterprise"
-        ]
-      },
-      {
-        "name": "حافظه VRAM",
-        "label": "VRAM Capacity",
-        "subcategory": "کارت گرافیک (GPU)",
-        "values": [
-          "2GB",
-          "4GB",
-          "6GB",
-          "8GB",
-          "10GB",
-          "12GB",
-          "16GB",
-          "24GB"
-        ]
-      },
-      {
-        "name": "نوع حافظه گرافیک",
-        "label": "Memory Type",
-        "subcategory": "کارت گرافیک (GPU)",
-        "values": [
-          "GDDR5",
-          "GDDR6",
-          "GDDR6X"
         ]
       },
       {
@@ -386,8 +155,14 @@
         "label": "Socket",
         "subcategory": "مادربرد (Motherboard)",
         "values": [
+          "LGA 775",
+          "LGA 1155",
+          "LGA 1150",
+          "LGA 1151",
           "LGA 1200",
           "LGA 1700",
+          "LGA 1851",
+          "AM3+",
           "AM4",
           "AM5"
         ]
@@ -404,14 +179,197 @@
         ]
       },
       {
+        "name": "نسل رم پشتیبانی‌شده",
+        "label": "DDR Version",
+        "subcategory": "مادربرد (Motherboard)",
+        "values": [
+          "DDR2",
+          "DDR3",
+          "DDR4",
+          "DDR5"
+        ]
+      },
+      {
+        "name": "ظرفیت",
+        "label": "Capacity",
+        "subcategory": "رم کامپیوتر (Desktop RAM)",
+        "values": [
+          "2GB",
+          "4GB",
+          "8GB",
+          "16GB",
+          "32GB",
+          "64GB"
+        ]
+      },
+      {
+        "name": "نسل رم",
+        "label": "DDR Version",
+        "subcategory": "رم کامپیوتر (Desktop RAM)",
+        "values": [
+          "DDR2",
+          "DDR3",
+          "DDR4",
+          "DDR5"
+        ]
+      },
+      {
+        "name": "فرکانس",
+        "label": "Frequency",
+        "subcategory": "رم کامپیوتر (Desktop RAM)",
+        "values": [
+          "800MHz",
+          "1333MHz",
+          "1600MHz",
+          "2400MHz",
+          "2666MHz",
+          "3000MHz",
+          "3200MHz",
+          "3600MHz",
+          "4800MHz",
+          "5200MHz",
+          "5600MHz",
+          "6000MHz"
+        ]
+      },
+      {
+        "name": "ظرفیت",
+        "label": "Capacity",
+        "subcategory": "رم لپ‌تاپ (Laptop RAM)",
+        "values": [
+          "2GB",
+          "4GB",
+          "8GB",
+          "16GB",
+          "32GB"
+        ]
+      },
+      {
+        "name": "نسل رم",
+        "label": "DDR Version",
+        "subcategory": "رم لپ‌تاپ (Laptop RAM)",
+        "values": [
+          "DDR2",
+          "DDR3",
+          "DDR3L",
+          "DDR4",
+          "DDR5"
+        ]
+      },
+      {
+        "name": "فرکانس",
+        "label": "Frequency",
+        "subcategory": "رم لپ‌تاپ (Laptop RAM)",
+        "values": [
+          "800MHz",
+          "1333MHz",
+          "1600MHz",
+          "2400MHz",
+          "2666MHz",
+          "3200MHz",
+          "4800MHz",
+          "5200MHz",
+          "5600MHz"
+        ]
+      },
+      {
+        "name": "ظرفیت حافظه گرافیکی",
+        "label": "VRAM Capacity",
+        "subcategory": "کارت گرافیک (GPU)",
+        "values": [
+          "1GB",
+          "2GB",
+          "4GB",
+          "6GB",
+          "8GB",
+          "10GB",
+          "12GB",
+          "16GB",
+          "24GB"
+        ]
+      },
+      {
+        "name": "نوع حافظه گرافیک",
+        "label": "VRAM Type",
+        "subcategory": "کارت گرافیک (GPU)",
+        "values": [
+          "DDR3",
+          "GDDR5",
+          "GDDR6",
+          "GDDR6X"
+        ]
+      },
+      {
+        "name": "ظرفیت",
+        "label": "Capacity",
+        "subcategory": "حافظه اس‌اس‌دی (SSD)",
+        "values": [
+          "120GB",
+          "128GB",
+          "240GB",
+          "256GB",
+          "480GB",
+          "500GB",
+          "512GB",
+          "1TB",
+          "2TB",
+          "4TB"
+        ]
+      },
+      {
+        "name": "نوع رابط",
+        "label": "Interface",
+        "subcategory": "حافظه اس‌اس‌دی (SSD)",
+        "values": [
+          "NVMe PCIe 3.0",
+          "NVMe PCIe 4.0",
+          "NVMe PCIe 5.0",
+          "2.5\" SATA III",
+          "M.2 SATA",
+          "mSATA"
+        ]
+      },
+      {
+        "name": "ظرفیت",
+        "label": "Capacity",
+        "subcategory": "هارد دیسک اینترنال (Internal HDD)",
+        "values": [
+          "500GB",
+          "1TB",
+          "2TB",
+          "3TB",
+          "4TB",
+          "6TB",
+          "8TB",
+          "10TB",
+          "12TB",
+          "16TB"
+        ]
+      },
+      {
+        "name": "نوع رابط و فرم فاکتور",
+        "label": "Interface & Form Factor",
+        "subcategory": "هارد دیسک اینترنال (Internal HDD)",
+        "values": [
+          "3.5\" SATA III (7200 RPM)",
+          "3.5\" SATA III (5400 RPM)",
+          "2.5\" SATA III (5400 RPM)",
+          "3.5\" SAS Enterprise"
+        ]
+      },
+      {
         "name": "توان خروجی",
         "label": "Wattage",
-        "subcategory": "منبع تغذیه (Power Supply)",
+        "subcategory": "منبع تغذیه (PSU)",
         "values": [
           "300W",
+          "350W",
           "400W",
+          "450W",
           "500W",
+          "550W",
           "600W",
+          "650W",
           "700W",
           "750W",
           "850W",
@@ -422,280 +380,225 @@
       {
         "name": "استاندارد بازدهی",
         "label": "Efficiency Rating",
-        "subcategory": "منبع تغذیه (Power Supply)",
+        "subcategory": "منبع تغذیه (PSU)",
         "values": [
           "Standard",
           "80 Plus Bronze",
+          "80 Plus Silver",
           "80 Plus Gold",
-          "80 Plus Platinum"
+          "80 Plus Platinum",
+          "80 Plus Titanium"
         ]
       },
       {
-        "name": "نوع خنک کننده",
+        "name": "نوع خنک‌کننده",
         "label": "Cooler Type",
-        "subcategory": "خنک کننده و فن (Cooling & Fan)",
+        "subcategory": "خنک‌کننده پردازنده (CPU Cooler)",
         "values": [
-          "Air Cooler",
-          "Liquid Cooler 120mm",
-          "Liquid Cooler 240mm",
-          "Liquid Cooler 360mm",
-          "Case Fan 120mm",
-          "Case Fan 140mm"
+          "Air Cooler (Single Tower)",
+          "Air Cooler (Dual Tower)",
+          "Liquid AIO 120mm",
+          "Liquid AIO 240mm",
+          "Liquid AIO 360mm",
+          "Stock Cooler"
+        ]
+      },
+      {
+        "name": "فرم فاکتور کیس",
+        "label": "Case Form Factor",
+        "subcategory": "پوسته کیس (PC Case)",
+        "values": [
+          "Mid Tower",
+          "Full Tower",
+          "Mini Tower (mATX)",
+          "Small Form Factor (ITX)"
         ]
       },
       {
         "name": "مشخصات",
         "label": "Specifications",
+        "subcategory": null,
         "values": []
       }
     ],
-    "لوازم جانبی": [
+    "لپ‌تاپ و سیستم‌های آماده": [
       {
-        "name": "نوع اتصال",
-        "label": "Connectivity",
-        "subcategory": "ماوس (Mouse)",
+        "name": "سری پردازنده",
+        "label": "CPU Series",
+        "subcategory": null,
         "values": [
-          "Wired (USB)",
-          "Wireless (2.4GHz Dongle)",
-          "Bluetooth",
-          "Dual-Mode (Wired + 2.4GHz Wireless)",
-          "Dual-Mode (Wired + Bluetooth)",
-          "Dual-Mode (2.4GHz Wireless + Bluetooth)",
-          "Tri-Mode (Wired + 2.4GHz + Bluetooth)",
-          "USB Type-C"
+          "Celeron",
+          "Pentium",
+          "Core i3",
+          "Core i5",
+          "Core i7",
+          "Core i9",
+          "Core Ultra 5",
+          "Core Ultra 7",
+          "Core Ultra 9",
+          "Ryzen 3",
+          "Ryzen 5",
+          "Ryzen 7",
+          "Ryzen 9",
+          "Apple M1",
+          "Apple M2",
+          "Apple M3",
+          "Apple M4"
         ]
       },
       {
-        "name": "دقت حسگر",
-        "label": "Sensor DPI",
-        "subcategory": "ماوس (Mouse)",
+        "name": "ظرفیت رم",
+        "label": "RAM Capacity",
+        "subcategory": null,
         "values": [
-          "1000 DPI",
-          "1600 DPI",
-          "3200 DPI",
-          "6400 DPI",
-          "12000+ DPI"
-        ]
-      },
-      {
-        "name": "نوع اتصال",
-        "label": "Connectivity",
-        "subcategory": "کیبورد (Keyboard)",
-        "values": [
-          "Wired (USB)",
-          "Wireless (2.4GHz Dongle)",
-          "Bluetooth",
-          "Dual-Mode (Wired + 2.4GHz Wireless)",
-          "Dual-Mode (Wired + Bluetooth)",
-          "Dual-Mode (2.4GHz Wireless + Bluetooth)",
-          "Tri-Mode (Wired + 2.4GHz + Bluetooth)",
-          "USB Type-C"
-        ]
-      },
-      {
-        "name": "نوع سوییچ",
-        "label": "Switch Type",
-        "subcategory": "کیبورد (Keyboard)",
-        "values": [
-          "Membrane",
-          "Mechanical Blue",
-          "Mechanical Red",
-          "Mechanical Brown",
-          "Optical Switch"
-        ]
-      },
-      {
-        "name": "نوع اتصال",
-        "label": "Connectivity",
-        "subcategory": "هدست و هدفون (Headset & Headphone)",
-        "values": [
-          "Wired (3.5mm Audio Jack)",
-          "Wired (USB)",
-          "Bluetooth",
-          "Wireless (2.4GHz Dongle)",
-          "Dual-Mode (Wired + Bluetooth)",
-          "Tri-Mode (Wired + 2.4GHz + Bluetooth)"
-        ]
-      },
-      {
-        "name": "نوع اتصال",
-        "label": "Connectivity",
-        "subcategory": "اسپیکر (Speaker)",
-        "values": [
-          "Wired (3.5mm AUX)",
-          "Bluetooth",
-          "USB",
-          "Optical",
-          "Dual-Mode (AUX + Bluetooth)"
-        ]
-      },
-      {
-        "name": "ظرفیت",
-        "label": "Capacity",
-        "subcategory": "فلش مموری (Flash Memory)",
-        "values": [
+          "4GB",
+          "8GB",
+          "12GB",
           "16GB",
+          "24GB",
           "32GB",
-          "64GB",
-          "128GB",
-          "256GB",
-          "512GB"
+          "64GB"
         ]
       },
       {
-        "name": "نوع رابط",
-        "label": "Interface",
-        "subcategory": "فلش مموری (Flash Memory)",
+        "name": "نسل رم",
+        "label": "DDR Version",
+        "subcategory": null,
         "values": [
-          "USB 2.0",
-          "USB 3.2 Gen 1",
-          "USB Type-C",
-          "Dual OTG (USB-A + Type-C)"
+          "DDR3 / DDR3L",
+          "DDR4",
+          "DDR5",
+          "LPDDR4 / LPDDR4X",
+          "LPDDR5 / LPDDR5X"
         ]
       },
       {
-        "name": "ظرفیت",
-        "label": "Capacity",
-        "subcategory": "هارد اکسترنال (External HDD)",
+        "name": "ظرفیت حافظه داخلی",
+        "label": "Storage Capacity",
+        "subcategory": null,
         "values": [
-          "1TB",
-          "2TB",
-          "4TB",
-          "5TB"
+          "128GB SSD",
+          "256GB SSD",
+          "512GB SSD",
+          "1TB SSD",
+          "2TB SSD",
+          "1TB HDD + 256GB SSD"
         ]
       },
       {
-        "name": "ظرفیت",
-        "label": "Capacity",
-        "subcategory": "اس اس دی اکسترنال (External SSD)",
+        "name": "پردازنده گرافیکی",
+        "label": "GPU",
+        "subcategory": null,
         "values": [
-          "250GB",
-          "500GB",
-          "1TB",
-          "2TB",
-          "4TB"
+          "Intel Iris Xe / Integrated",
+          "AMD Radeon Integrated",
+          "Apple M-Series GPU",
+          "NVIDIA GeForce GTX 1650",
+          "NVIDIA GeForce RTX 2050",
+          "NVIDIA GeForce RTX 3050",
+          "NVIDIA GeForce RTX 4050",
+          "NVIDIA GeForce RTX 4060",
+          "NVIDIA GeForce RTX 4070",
+          "NVIDIA GeForce RTX 4080",
+          "NVIDIA GeForce RTX 4090"
         ]
       },
       {
-        "name": "اندازه قابل حمل",
-        "label": "Compatible Size",
-        "subcategory": "کیف و کوله پشتی (Bag & Backpack)",
+        "name": "ابعاد صفحه نمایش",
+        "label": "Screen Size",
+        "subcategory": null,
         "values": [
-          "Up to 13.3\"",
-          "Up to 14.0\"",
-          "Up to 15.6\"",
-          "Up to 17.3\""
+          "13.3\"",
+          "14.0\"",
+          "15.6\"",
+          "16.0\"",
+          "17.3\""
         ]
       },
       {
-        "name": "اندازه",
-        "label": "Dimensions",
-        "subcategory": "پد ماوس (Mouse Pad)",
+        "name": "رزولوشن",
+        "label": "Resolution",
+        "subcategory": null,
         "values": [
-          "Small (25x20cm)",
-          "Medium (32x27cm)",
-          "Large (45x40cm)",
-          "Extended Desk Mat (90x40cm)"
-        ]
-      },
-      {
-        "name": "تعداد فن",
-        "label": "Fan Count",
-        "subcategory": "پایه خنک کننده و کول پد (Coolpad)",
-        "values": [
-          "1 Fan",
-          "2 Fans",
-          "4 Fans",
-          "5+ Fans"
-        ]
-      },
-      {
-        "name": "رابط ورودی",
-        "label": "Input Interface",
-        "subcategory": "هاب و مبدل (Hub & Adapter)",
-        "values": [
-          "USB Type-C",
-          "USB Type-A",
-          "Thunderbolt"
-        ]
-      },
-      {
-        "name": "نوع کابل",
-        "label": "Cable Type",
-        "subcategory": "کابل و تبدیل (Cables & Converters)",
-        "values": [
-          "HDMI",
-          "DisplayPort",
-          "VGA",
-          "USB Type-C to Type-C",
-          "USB-A to Type-C",
-          "LAN RJ45",
-          "Power Cable"
-        ]
-      },
-      {
-        "name": "نوع اتصال / پورت",
-        "label": "Connectivity",
-        "values": [
-          "Wired (USB)",
-          "Wireless (2.4GHz Dongle)",
-          "Bluetooth",
-          "Dual-Mode (Wired + 2.4GHz Wireless)",
-          "Dual-Mode (Wired + Bluetooth)",
-          "Dual-Mode (2.4GHz Wireless + Bluetooth)",
-          "Tri-Mode (Wired + 2.4GHz + Bluetooth)",
-          "USB Type-C",
-          "3.5mm Audio Jack",
-          "HDMI / DisplayPort"
+          "1366x768 (HD)",
+          "1920x1080 (FHD)",
+          "1920x1200 (WUXGA)",
+          "2560x1440 (2K QHD)",
+          "2880x1800 (OLED)",
+          "3840x2160 (4K UHD)"
         ]
       },
       {
         "name": "مشخصات",
         "label": "Specifications",
+        "subcategory": null,
         "values": []
       }
     ],
     "مانیتور و نمایشگر": [
       {
-        "name": "سایز صفحه",
+        "name": "ابعاد صفحه نمایش",
         "label": "Screen Size",
+        "subcategory": null,
         "values": [
-          "19\"",
-          "20\"",
+          "14.0\"",
+          "15.6\"",
+          "18.5\"",
+          "19.5\"",
           "21.5\"",
           "23.8\" / 24\"",
           "27\"",
-          "32\"",
-          "34\" Curved"
+          "31.5\" / 32\"",
+          "34\" Ultrawide"
+        ]
+      },
+      {
+        "name": "رزولوشن",
+        "label": "Resolution",
+        "subcategory": null,
+        "values": [
+          "1366x768 (HD)",
+          "1600x900 (HD+)",
+          "1920x1080 (FHD)",
+          "1920x1200 (WUXGA)",
+          "2560x1440 (2K QHD)",
+          "3440x1440 (UWQHD)",
+          "3840x2160 (4K UHD)"
         ]
       },
       {
         "name": "نوع پنل",
         "label": "Panel Type",
+        "subcategory": null,
         "values": [
           "IPS",
+          "Fast IPS",
           "VA",
           "TN",
           "OLED",
-          "Fast IPS"
+          "Mini LED"
         ]
       },
       {
-        "name": "نرخ نوسازی",
+        "name": "نرخ تازه‌سازی",
         "label": "Refresh Rate",
+        "subcategory": null,
         "values": [
           "60Hz",
           "75Hz",
           "100Hz",
+          "120Hz",
           "144Hz",
           "165Hz",
           "180Hz",
-          "240Hz"
+          "240Hz",
+          "360Hz"
         ]
       },
       {
-        "name": "درگاه های ورودی",
+        "name": "درگاه‌های ورودی",
         "label": "Input Ports",
+        "subcategory": null,
         "values": [
           "HDMI + VGA",
           "HDMI + DisplayPort",
@@ -706,17 +609,100 @@
       {
         "name": "مشخصات",
         "label": "Specifications",
+        "subcategory": null,
         "values": []
       }
     ],
-    "تجهیزات شبکه": [
+    "ذخیره‌سازی اکسترنال و فلش": [
+      {
+        "name": "ظرفیت",
+        "label": "Capacity",
+        "subcategory": null,
+        "values": [
+          "32GB",
+          "64GB",
+          "128GB",
+          "256GB",
+          "512GB",
+          "1TB",
+          "2TB",
+          "4TB",
+          "5TB"
+        ]
+      },
+      {
+        "name": "نوع رابط",
+        "label": "Interface",
+        "subcategory": null,
+        "values": [
+          "USB 2.0",
+          "USB 3.2 Gen 1 (USB 3.0)",
+          "USB 3.2 Gen 2 (Type-C)",
+          "Thunderbolt 3/4",
+          "Dual OTG (USB-A + Type-C)"
+        ]
+      },
+      {
+        "name": "مشخصات",
+        "label": "Specifications",
+        "subcategory": null,
+        "values": []
+      }
+    ],
+    "تجهیزات جانبی و لوازم کامپیوتر": [
+      {
+        "name": "نوع اتصال",
+        "label": "Connectivity",
+        "subcategory": null,
+        "values": [
+          "Wired (USB)",
+          "Wireless (2.4GHz Dongle)",
+          "Bluetooth",
+          "Dual-Mode (Wired + Wireless)",
+          "Tri-Mode (USB + 2.4GHz + BT)"
+        ]
+      },
+      {
+        "name": "نوع حسگر / کلید",
+        "label": "Switch / Sensor Type",
+        "subcategory": null,
+        "values": [
+          "Optical",
+          "Laser",
+          "Membrane",
+          "Mechanical Blue Switch",
+          "Mechanical Red Switch",
+          "Mechanical Brown Switch"
+        ]
+      },
+      {
+        "name": "نورپردازی",
+        "label": "Lighting",
+        "subcategory": null,
+        "values": [
+          "None",
+          "Single Backlight",
+          "RGB",
+          "ARGB Customizable"
+        ]
+      },
+      {
+        "name": "مشخصات",
+        "label": "Specifications",
+        "subcategory": null,
+        "values": []
+      }
+    ],
+    "تجهیزات شبکه و ارتباطات": [
       {
         "name": "استاندارد شبکه",
         "label": "Network Standard",
+        "subcategory": null,
         "values": [
           "Wi-Fi 4 (802.11n)",
           "Wi-Fi 5 (802.11ac)",
           "Wi-Fi 6 (802.11ax)",
+          "Wi-Fi 6E",
           "Wi-Fi 7",
           "4G LTE",
           "5G"
@@ -725,89 +711,90 @@
       {
         "name": "سرعت پورت",
         "label": "Port Speed",
+        "subcategory": null,
         "values": [
           "10/100 Fast Ethernet",
           "Gigabit (10/100/1000)",
-          "2.5 Gigabit"
+          "2.5 Gigabit",
+          "10 Gigabit"
+        ]
+      },
+      {
+        "name": "تعداد پورت",
+        "label": "Port Count",
+        "subcategory": null,
+        "values": [
+          "1 Port",
+          "4 Ports",
+          "5 Ports",
+          "8 Ports",
+          "16 Ports",
+          "24 Ports",
+          "48 Ports"
         ]
       },
       {
         "name": "مشخصات",
         "label": "Specifications",
+        "subcategory": null,
         "values": []
       }
     ],
-    "کامپیوتر و کیس اسمبل شده": [
+    "کابل، مبدل و اتصالات": [
       {
-        "name": "پردازنده",
-        "label": "CPU",
+        "name": "نوع کابل / رابط",
+        "label": "Cable Type",
+        "subcategory": null,
         "values": [
-          "Intel Core i3",
-          "Intel Core i5",
-          "Intel Core i7",
-          "Intel Core i9",
-          "AMD Ryzen 3",
-          "AMD Ryzen 5",
-          "AMD Ryzen 7",
-          "AMD Ryzen 9"
+          "HDMI 2.0 / 2.1",
+          "DisplayPort 1.4",
+          "VGA",
+          "USB Type-C to Type-C",
+          "USB-A to Type-C",
+          "Power Cable 3-Pin",
+          "AUX 3.5mm",
+          "CAT6 Network Cable"
         ]
       },
       {
-        "name": "ظرفیت رم",
-        "label": "RAM",
+        "name": "طول کابل",
+        "label": "Cable Length",
+        "subcategory": null,
         "values": [
-          "8GB",
-          "16GB",
-          "32GB",
-          "64GB",
-          "128GB"
-        ]
-      },
-      {
-        "name": "حافظه داخلی",
-        "label": "Storage",
-        "values": [
-          "256GB SSD",
-          "512GB SSD",
-          "1TB SSD",
-          "1TB HDD + 256GB SSD",
-          "2TB HDD + 512GB SSD"
-        ]
-      },
-      {
-        "name": "کارت گرافیک",
-        "label": "GPU",
-        "values": [
-          "Intel UHD Graphics (Onboard)",
-          "AMD Radeon Graphics (Onboard)",
-          "NVIDIA GeForce GTX 1650",
-          "NVIDIA GeForce RTX 3050",
-          "NVIDIA GeForce RTX 3060",
-          "NVIDIA GeForce RTX 4060",
-          "NVIDIA GeForce RTX 4070",
-          "NVIDIA GeForce RTX 4080"
+          "0.5m",
+          "1m",
+          "1.5m",
+          "2m",
+          "3m",
+          "5m",
+          "10m",
+          "15m",
+          "20m"
         ]
       },
       {
         "name": "مشخصات",
         "label": "Specifications",
+        "subcategory": null,
         "values": []
       }
     ],
-    "ماشین های اداری": [
+    "ماشین‌های اداری و مصرفی": [
       {
         "name": "فناوری چاپ",
         "label": "Print Technology",
+        "subcategory": null,
         "values": [
           "Laser Monochrome",
           "Laser Color",
           "Inkjet Color",
-          "Thermal"
+          "Thermal POS"
         ]
       },
       {
         "name": "نوع کاربری",
         "label": "Function Type",
+        "subcategory": null,
         "values": [
           "Single-Function",
           "Multi-Function 3-in-1",
@@ -815,15 +802,20 @@
         ]
       },
       {
-        "name": "مشخصات",
-        "label": "Specifications",
-        "values": []
-      }
-    ],
-    "سایر موارد": [
+        "name": "نوع اتصال",
+        "label": "Connectivity",
+        "subcategory": null,
+        "values": [
+          "USB Only",
+          "USB + Network (LAN)",
+          "USB + Wi-Fi",
+          "USB + Network + Wi-Fi"
+        ]
+      },
       {
         "name": "مشخصات",
         "label": "Specifications",
+        "subcategory": null,
         "values": []
       }
     ]
@@ -831,24 +823,12 @@
   "colors": [
     "مشکی",
     "سفید",
-    "نقره‌ای",
     "خاکستری",
-    "ذغالی",
-    "سرمه‌ای",
+    "نقره‌ای",
     "آبی",
     "قرمز",
-    "زرشکی",
-    "سبز",
-    "زیتونی",
     "طلایی",
-    "رزگلد",
-    "صورتی",
-    "بنفش",
-    "قهوه‌ای",
-    "بژ",
-    "شفاف",
-    "چند‌رنگ",
-    "سایر"
+    "سرمه‌ای"
   ],
   "service_types": [
     "نرم‌افزاری",
