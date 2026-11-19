@@ -97,228 +97,15 @@ def _unique_catalog_labels(values):
             result.append(label)
     return result
 
-# فهرست جامع دسته‌بندی‌های اصلی فروشگاه (بند ۱ و ۲)
-MAIN_CATEGORIES = [
-    "لپ‌تاپ",
-    "قطعات",
-    "لوازم جانبی",
-    "مانیتور",
-    "کیس و مینی‌کیس",
-    "آداپتور و تغذیه",
-    "شبکه و مودم",
-    "ماشین‌های اداری",
-    "سایر موارد",
-]
-
-# زیرمجموعه‌های پیش‌فرض برای شروع؛ پس از ذخیره قابل تغییر توسط هر فروشگاه هستند.
-DEFAULT_SUBCATEGORIES = {
-    "لپ‌تاپ": [
-        "لپ‌تاپ عمومی / مالتی‌مدیا", "لپ‌تاپ گیمینگ (Gaming)",
-        "لپ‌تاپ مهندسی و رندرینگ", "لپ‌تاپ استوک / صنعتی",
-        "اولترابوک / تبلت‌شو", "مک‌بوک (MacBook)", "سایر موارد",
-    ],
-    "قطعات": [
-        "پردازنده (CPU)", "رم کامپیوتر (RAM PC)",
-        "رم لپ‌تاپ (RAM Laptop)", "حافظه اس‌اس‌دی (SSD)",
-        "هارد دیسک اینترنال (HDD)", "کارت گرافیک (Graphic Card)",
-        "مادربرد (Motherboard)", "پاور / منبع تغذیه کیس (Power)",
-        "فن و خنک‌کننده (Cooling / Fan)", "صفحه‌نمایش لپ‌تاپ (LED / LCD Panel)",
-        "باتری لپ‌تاپ (Laptop Battery)", "کیبورد تعمیراتی لپ‌تاپ (Internal Keyboard)",
-        "قاب، لولا و فلت لپ‌تاپ", "کارت شبکه و صدا اینترنال",
-        "درایو نوری (DVD RW / Caddy)", "سایر موارد",
-    ],
-    "لوازم جانبی": [
-        "ماوس (Mouse)", "کیبورد (Keyboard)",
-        "پک کمبو ماوس و کیبورد", "هدست، هدفون و هندزفری", "اسپیکر (Speaker)",
-        "فلش مموری (Flash Memory)", "هارد اکسترنال (External HDD)",
-        "اس‌اس‌دی اکسترنال (External SSD)", "کول‌پد لپ‌تاپ (Coolpad)",
-        "کیف و کوله‌پشتی لپ‌تاپ", "هاب USB و Type-C",
-        "کابل تصویر (HDMI / DisplayPort / VGA)", "کابل برق، شبکه و افزایش طول",
-        "مبدل و دانگل (Converter / Dongle)", "ماوس‌پد (Mouse Pad)",
-        "وب‌کم و میکروفون (Webcam / Mic)", "گیم‌پد و دسته بازی (Gamepad)",
-        "خمیر سیلیکون و اسپری تمیزکننده", "سایر موارد",
-    ],
-    "مانیتور": [
-        "مانیتور اداری و خانگی", "مانیتور گیمینگ (Gaming)",
-        "مانیتور طراحی و صنعتی", "مانیتور استوک", "مانیتور منحنی (Curved)",
-    ],
-    "کیس و مینی‌کیس": [
-        "مینی‌کیس استوک (Mini Case)", "کیس کامل اسمبل‌شده (PC)",
-        "آل‌این‌وان (All-in-One)", "تین‌کلاینت (Thin Client)",
-        "پوسته کیس خالی (Case Chassis)",
-    ],
-    "آداپتور و تغذیه": [
-        "شارژر و آداپتور لپ‌تاپ", "آداپتور مانیتور و مینی‌کیس",
-        "آداپتور مودم و سوئیچ (9V/12V)", "محافظ برق و چندراهی",
-        "برق اضطراری (UPS) و باتری UPS", "کابل برق سهند / سه‌پین / دوپین",
-    ],
-    "شبکه و مودم": [
-        "مودم ADSL / VDSL", "مودم سیم‌کارتی 4G / 5G / TD-LTE",
-        "روتر و اکسس‌پوینت بی‌سیم", "سوئیچ شبکه (5/8/16/24 پورت)",
-        "کارت شبکه USB / PCIe", "سایر موارد",
-    ],
-    "ماشین‌های اداری": [
-        "پرینتر و چندکاره", "اسکنر", "کارتریج و تونر", "سایر موارد",
-    ],
-    "سایر موارد": ["سایر موارد"],
-}
-
-# فهرست جامع پردازنده‌های قدیمی و جدید (بند ۲)
-# Broad CPU families and suffix patterns. The editable search field lets the user
-# replace xxx with the exact SKU digits without maintaining an endless model catalogue.
-CPU_LIST = [
-    "",
-    "Intel Celeron N4xxx / N5xxx",
-    "Intel Celeron 4xxxU / 5xxxU",
-    "Intel Pentium N5xxx / N6xxx",
-    "Intel Pentium 6xxxU / 7xxxU",
-    "Intel Processor N100 / N200 / N300",
-    "Intel Core i3 Xxxx U / H / HQ",
-    "Intel Core i5 Xxxx U / H / HQ / HK",
-    "Intel Core i7 Xxxx U / H / HQ / HK / HX",
-    "Intel Core i9 Xxxx H / HK / HX",
-    "Intel Core Ultra 5 XxxV / XxxU / XxxH",
-    "Intel Core Ultra 7 XxxV / XxxU / XxxH",
-    "Intel Core Ultra 9 XxxV / XxxU / XxxH",
-    "Intel Xeon E-Series",
-    "Intel Xeon W-Series",
-    "AMD Athlon 3xxxU / 3xxxG",
-    "AMD Ryzen 3 XxxxU / XxxxG",
-    "AMD Ryzen 5 XxxxU / XxxxH / XxxxHS / XxxxHX / XxxxG",
-    "AMD Ryzen 7 XxxxU / XxxxH / XxxxHS / XxxxHX / XxxxG",
-    "AMD Ryzen 9 XxxxHS / XxxxHX",
-    "AMD Ryzen AI 5 / 7 / 9",
-    "AMD Ryzen Threadripper Xxxx",
-    "Apple M1",
-    "Apple M2",
-    "Apple M3",
-    "Apple M4",
-
-]
-
-RAM_CAPACITIES = [
-    "",
-    "2GB",
-    "4GB",
-    "6GB",
-    "8GB",
-    "12GB",
-    "16GB",
-    "20GB",
-    "24GB",
-    "32GB",
-    "48GB",
-    "64GB",
-    "128GB",
-]
-
-STORAGE_LIST = [
-    "",
-    "120GB SSD",
-    "128GB SSD",
-    "240GB SSD",
-    "256GB SSD",
-    "480GB SSD",
-    "512GB SSD",
-    "1TB SSD NVMe",
-    "2TB SSD NVMe",
-    "4TB SSD",
-    "320GB HDD",
-    "500GB HDD",
-    "1TB HDD",
-    "2TB HDD",
-    "4TB HDD",
-    "1TB HDD + 128GB SSD",
-    "1TB HDD + 256GB SSD",
-    "1TB HDD + 512GB SSD",
-]
-
-GPU_LIST = [
-    "",
-    "Intel HD / UHD Graphics (Onboard)",
-    "Intel Iris Xe Graphics",
-    "AMD Radeon Vega / Integrated",
-    "NVIDIA GeForce MX110 / MX130 / MX150",
-    "NVIDIA GeForce MX230 / MX250 / MX330 / MX350 / MX450 / MX550",
-    "NVIDIA GeForce GT 710 / 730 / 1030",
-    "NVIDIA GeForce GTX 1050 / 1050Ti / 1060 / 1070 / 1080",
-    "NVIDIA GeForce GTX 1650 / 1650Ti / 1660 / 1660Ti / 1660 Super",
-    "NVIDIA GeForce RTX 2050 / 2060 / 2070 / 2080",
-    "NVIDIA GeForce RTX 3050 / 3050Ti / 3060 / 3070 / 3080 / 3090",
-    "NVIDIA GeForce RTX 4050 / 4060 / 4070 / 4080 / 4090",
-    "AMD Radeon RX 550 / 560 / 570 / 580 / 590",
-    "AMD Radeon RX 5500 / 5600 / 5700 XT",
-    "AMD Radeon RX 6500 / 6600 / 6700 / 6800 / 6900 XT",
-    "AMD Radeon RX 7600 / 7700 / 7800 / 7900 XT",
-]
-
-
-DEFAULT_COLORS = [
-    "مشکی", "سفید", "نقره‌ای", "خاکستری", "ذغالی", "سرمه‌ای",
-    "آبی", "قرمز", "زرشکی", "سبز", "زیتونی", "طلایی",
-    "رزگلد", "صورتی", "بنفش", "قهوه‌ای", "بژ", "شفاف",
-    "چند‌رنگ", "سایر",
-]
-
-
-# فهرست ویژگی‌های فنی اولیه؛ هر فروشگاه می‌تواند مقادیر و محدودهٔ زیرمجموعه را تغییر دهد.
-DEFAULT_ATTRIBUTES = {
-    "لپ‌تاپ": [
-        {"name": "پردازنده", "label": "CPU", "values": CPU_LIST[1:]},
-        {"name": "ظرفیت رم", "label": "RAM", "values": RAM_CAPACITIES[1:]},
-        {"name": "نسل رم", "label": "RAM Type", "values": ["DDR3 / DDR3L", "DDR4", "DDR5", "LPDDR4 / LPDDR5"]},
-        {"name": "حافظه داخلی", "label": "Storage", "values": STORAGE_LIST[1:]},
-        {"name": "پردازنده گرافیکی", "label": "GPU", "values": GPU_LIST[1:]},
-        {"name": "صفحه‌نمایش", "label": "Display", "values": [
-            "13.3 inch", "14 inch HD / FHD", "15.6 inch HD",
-            "15.6 inch FHD IPS", "15.6 inch 144Hz / 165Hz",
-            "16 inch FHD+ / 2K", "17.3 inch FHD",
-        ]},
-    ],
-    "قطعات": [
-        {"name": "ظرفیت", "label": "Capacity", "values": RAM_CAPACITIES[1:], "subcategory": "رم کامپیوتر (RAM PC)"},
-        {"name": "ظرفیت", "label": "Capacity", "values": RAM_CAPACITIES[1:], "subcategory": "رم لپ‌تاپ (RAM Laptop)"},
-        {"name": "نوع رابط", "label": "Interface", "values": ["SATA", "NVMe", "PCIe"], "subcategory": "حافظه اس‌اس‌دی (SSD)"},
-        {"name": "ظرفیت", "label": "Capacity", "values": [], "subcategory": "هارد دیسک اینترنال (HDD)"},
-        {"name": "نوع سوکت", "label": "Socket", "values": [], "subcategory": "پردازنده (CPU)"},
-    ],
-    "لوازم جانبی": [
-        {"name": "نوع اتصال / پورت", "label": "Connectivity", "values": [
-            "Wired USB", "2.4GHz Wireless", "Bluetooth",
-            "Tri-mode (Wired / Wireless / Bluetooth)", "USB Type-C",
-            "3.5mm Audio Jack", "HDMI / DisplayPort / VGA",
-        ]},
-        {"name": "مشخصات", "label": "Specifications", "values": []},
-    ],
-    "مانیتور": [
-        {"name": "سایز", "label": "Size", "values": ["19 inch", "20 inch", "22 inch", "24 inch", "27 inch", "32 inch", "34 inch"]},
-        {"name": "نوع پنل", "label": "Panel", "values": ["IPS", "VA", "TN", "OLED", "Nano IPS"]},
-        {"name": "نرخ نوسازی", "label": "Refresh Rate", "values": ["60Hz", "75Hz", "100Hz", "144Hz", "165Hz", "180Hz", "240Hz"]},
-        {"name": "درگاه‌ها", "label": "Ports", "values": ["HDMI + VGA", "HDMI + DisplayPort", "HDMI + DP + Type-C", "VGA + DVI"]},
-    ],
-    "کیس و مینی‌کیس": [
-        {"name": "پردازنده", "label": "CPU", "values": CPU_LIST[1:]},
-        {"name": "ظرفیت رم", "label": "RAM", "values": RAM_CAPACITIES[1:]},
-        {"name": "حافظه داخلی", "label": "Storage", "values": STORAGE_LIST[1:]},
-        {"name": "پردازنده گرافیکی", "label": "GPU", "values": GPU_LIST[1:]},
-    ],
-    "آداپتور و تغذیه": [
-        {"name": "ولتاژ", "label": "Voltage", "values": ["5V", "9V", "12V", "19V", "19.5V", "20V", "220V AC"]},
-        {"name": "آمپر و توان", "label": "Current / Power", "values": ["1A / 1.5A / 2A", "2.31A (45W)", "3.25A (65W)", "4.5A (90W)", "6.75A / 7.7A (135W-150W)"]},
-        {"name": "نوع سوکت", "label": "Connector", "values": ["5.5x2.5mm", "HP / Dell Barrel", "Lenovo Rectangular", "USB Type-C PD"]},
-    ],
-    "شبکه و مودم": [
-        {"name": "استاندارد شبکه", "label": "Network Standard", "values": ["Wi-Fi 4", "Wi-Fi 5", "Wi-Fi 6", "Wi-Fi 6E", "Wi-Fi 7", "4G", "5G"]},
-        {"name": "تعداد درگاه", "label": "Ports", "values": []},
-    ],
-    "ماشین‌های اداری": [
-        {"name": "فناوری چاپ", "label": "Print Technology", "values": ["Laser", "Inkjet", "Thermal", "Dot Matrix"]},
-        {"name": "نوع چاپ", "label": "Print Color", "values": ["Monochrome", "Color"]},
-    ],
-    "سایر موارد": [
-        {"name": "مشخصات", "label": "Specifications", "values": []},
-    ],
-}
+# Taxonomy constants are dynamically populated from external seed or database config; no hardcoded taxonomy in source.
+MAIN_CATEGORIES = []
+DEFAULT_SUBCATEGORIES = {}
+CPU_LIST = []
+RAM_CAPACITIES = []
+STORAGE_LIST = []
+GPU_LIST = []
+DEFAULT_COLORS = []
+DEFAULT_ATTRIBUTES = {}
 
 
 def normalize_digits(text: str) -> str:
@@ -475,8 +262,21 @@ class SmoothScrollListWidget(QListWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._wheel_animation = None
+        self.enable_row_toggle = False
         self.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.verticalScrollBar().setSingleStep(18)
+
+    def mousePressEvent(self, event):
+        if getattr(self, "enable_row_toggle", False) and event.button() == Qt.LeftButton:
+            pos = event.position().toPoint() if hasattr(event, "position") else event.pos()
+            item = self.itemAt(pos)
+            if item is not None and (item.flags() & Qt.ItemIsUserCheckable):
+                new_state = Qt.Unchecked if item.checkState() == Qt.Checked else Qt.Checked
+                item.setCheckState(new_state)
+                self.setCurrentItem(item)
+                event.accept()
+                return
+        super().mousePressEvent(event)
 
     def wheelEvent(self, event):
         amount = _wheel_amount(event, horizontal=False)
@@ -518,6 +318,23 @@ class CollapsibleSection(QWidget):
         else:
             self.content.hide()
             self.header.setText("▸  " + title)
+
+    def collapse(self):
+        if self._expanded:
+            self._expanded = False
+            title = self.header.text().lstrip("▸▾ ").strip()
+            self.content.hide()
+            self.header.setText("▸  " + title)
+
+    def expand(self):
+        if not self._expanded:
+            self._expanded = True
+            title = self.header.text().lstrip("▸▾ ").strip()
+            self.content.show()
+            self.header.setText("▾  " + title)
+
+    def is_expanded(self) -> bool:
+        return self._expanded
 
 
 class SmartLineEdit(QLineEdit):
@@ -631,8 +448,9 @@ class _ComboSearchProxyModel(QSortFilterProxyModel):
         index = source.index(source_row, self.filterKeyColumn(), source_parent)
         visible = source.data(index, Qt.DisplayRole) or ""
         searchable = source.data(index, self.search_role) or ""
-        haystack = auto_capitalize_english(f"{visible} {searchable}")
-        return self.query in haystack
+        q = self.query.casefold().strip()
+        haystack = f"{visible} {searchable}".casefold()
+        return q in haystack or auto_capitalize_english(self.query) in auto_capitalize_english(f"{visible} {searchable}")
 
 
 class SearchableComboBox(QComboBox):
@@ -1116,8 +934,7 @@ class JalaliDateEdit(QWidget):
 
 class DynamicSpecsWidget(QGroupBox):
     """
-    بند ۱ و ۲: ویجت جامع زیرمجموعه‌ها و مشخصات فنی با قابلیت تایپ دستی زیرمجموعه
-    و پوشش کامل لپ‌تاپ، قطعات، لوازم جانبی، مانیتور، کیس/مینی‌کیس، آداپتور و...
+    ویجت زیرمجموعه‌ها و مشخصات فنی کالا مبتنی بر تنظیمات پویای پایگاه داده (فاقد هرگونه ساختار هاردکدشده در سورس)
     """
 
     def __init__(self, parent=None):
@@ -1135,17 +952,18 @@ class DynamicSpecsWidget(QGroupBox):
         self.form_scroll.setWidget(self.form_widget)
         self.form_scroll.setWidgetResizable(True)
         self.form_scroll.setMinimumHeight(150)
-        self.form_scroll.setMaximumHeight(285)
+        self.form_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.form_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.form_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.main_layout.addWidget(self.form_scroll)
-        self.current_category = "لپ‌تاپ"
+        self.current_category = ""
         self.fields = {}
         self._custom_field_widgets = {}
         self.cb_sub = None
         self._custom_field_callback = None
-        self.set_category("لپ‌تاپ")
 
     def set_custom_field_callback(self, callback):
-        """Store bound callbacks weakly to avoid a MainWindow <-> widget cycle."""
+        """Store bound callbacks weakly to avoid cycle."""
         if not callable(callback):
             self._custom_field_callback = None
         elif getattr(callback, "__self__", None) is not None:
@@ -1172,13 +990,6 @@ class DynamicSpecsWidget(QGroupBox):
     def _apply_compact_form_layouts(self):
         """Keep RTL field captions compact while giving editors consistent spacing."""
         layouts = [self.form_layout]
-        sub_layout = getattr(self, "sub_layout", None)
-        if sub_layout is not None:
-            try:
-                layouts.append(sub_layout)
-            except RuntimeError:
-                pass
-
         for form_layout in layouts:
             try:
                 form_layout.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
@@ -1212,7 +1023,6 @@ class DynamicSpecsWidget(QGroupBox):
                             QSizePolicy.Expanding, QSizePolicy.Fixed
                         )
             except RuntimeError:
-                # A category rebuild may have just scheduled this layout for deletion.
                 continue
 
     def set_subcategory_label(self, label: str):
@@ -1224,246 +1034,14 @@ class DynamicSpecsWidget(QGroupBox):
             label_widget.setText(f"{str(label or 'زیرمجموعه').strip()}:")
 
     def set_category(self, category: str):
-        self.current_category = category.strip()
+        self.current_category = str(category or "").strip()
         self._clear_form()
 
         self.cb_sub = SearchableComboBox()
         self.cb_sub.setEditable(0)
         self.cb_sub.setToolTip("زیرمجموعه را از فهرست انتخاب کنید")
-
-        if self.current_category == "لپ‌تاپ":
-            self.cb_sub.currentTextChanged.connect(self._notify_custom_field_callback)
-            self.cb_sub.addItems(
-                [
-                    "لپ‌تاپ عمومی / مالتی‌مدیا",
-                    "لپ‌تاپ گیمینگ (Gaming)",
-                    "لپ‌تاپ مهندسی و رندرینگ",
-                    "لپ‌تاپ استوک / صنعتی",
-                    "اولترابوک / تبلت‌شو",
-                    "مک‌بوک (MacBook)",
-                    "سایر موارد",
-                ]
-            )
-            self.form_layout.addRow("زیرمجموعه لپ‌تاپ:", self.cb_sub)
-
-            cb_cpu = SearchableComboBox()
-            cb_cpu.addItems(CPU_LIST)
-            cb_ram = SearchableComboBox()
-            cb_ram.addItems(RAM_CAPACITIES)
-            cb_ram_type = SearchableComboBox()
-            cb_ram_type.addItems(["", "DDR3 / DDR3L", "DDR4", "DDR5", "LPDDR4 / LPDDR5"])
-            cb_storage = SearchableComboBox()
-            cb_storage.addItems(STORAGE_LIST)
-            cb_gpu = SearchableComboBox()
-            cb_gpu.addItems(GPU_LIST)
-            cb_screen = SearchableComboBox()
-            cb_screen.addItems(
-                [
-                    "",
-                    "13.3 اینچ",
-                    "14 اینچ HD/FHD",
-                    "15.6 اینچ HD",
-                    "15.6 اینچ FHD IPS",
-                    "15.6 اینچ 144Hz/165Hz",
-                    "16 اینچ FHD+/2K",
-                    "17.3 اینچ FHD",
-                ]
-            )
-
-            self.fields = {
-                "پردازنده": cb_cpu,
-                "ظرفیت رم": cb_ram,
-                "نسل رم": cb_ram_type,
-                "حافظه داخلی": cb_storage,
-                "پردازنده گرافیکی": cb_gpu,
-                "صفحه‌نمایش": cb_screen,
-            }
-            self.form_layout.addRow("پردازنده (CPU):", cb_cpu)
-            self.form_layout.addRow("ظرفیت رم (RAM):", cb_ram)
-            self.form_layout.addRow("نسخه رم:", cb_ram_type)
-            self.form_layout.addRow("حافظه داخلی (Storage):", cb_storage)
-            self.form_layout.addRow("کارت گرافیک (GPU):", cb_gpu)
-            self.form_layout.addRow("صفحه‌نمایش:", cb_screen)
-
-        elif self.current_category == "قطعات":
-            self.cb_sub.addItems(
-                [
-                    "سایر موارد",
-                    "پردازنده (CPU)",
-                    "رم کامپیوتر (RAM PC)",
-                    "رم لپ‌تاپ (RAM Laptop)",
-                    "حافظه اس‌اس‌دی (SSD)",
-                    "هارد دیسک اینترنال (HDD)",
-                    "کارت گرافیک (Graphic Card)",
-                    "مادربرد (Motherboard)",
-                    "پاور / منبع تغذیه کیس (Power)",
-                    "فن و خنک‌کننده (Cooling / Fan)",
-                    "صفحه‌نمایش لپ‌تاپ (LED / LCD Panel)",
-                    "باتری لپ‌تاپ (Laptop Battery)",
-                    "کیبورد تعمیراتی لپ‌تاپ (Internal Keyboard)",
-                    "قاب، لولا و فلت لپ‌تاپ",
-                    "کارت شبکه و صدا اینترنال",
-                    "درایو نوری (DVD RW / Caddy)",
-                ]
-            )
-            self.cb_sub.setCurrentText("سایر موارد")
-            self.cb_sub.currentTextChanged.connect(self._rebuild_part_subfields)
-            self.form_layout.addRow("نوع قطعه:", self.cb_sub)
-
-            self.sub_container = QWidget()
-            self.sub_layout = QFormLayout(self.sub_container)
-            self.sub_layout.setContentsMargins(0, 0, 0, 0)
-            self.form_layout.addRow(self.sub_container)
-            self._rebuild_part_subfields("سایر موارد")
-
-        elif self.current_category == "لوازم جانبی":
-            self.cb_sub.currentTextChanged.connect(self._notify_custom_field_callback)
-            self.cb_sub.addItems(
-                [
-                    "سایر موارد",
-                    "ماوس (Mouse)",
-                    "کیبورد (Keyboard)",
-                    "پک کمبو ماوس و کیبورد",
-                    "هدست، هدفون و هندزفری",
-                    "اسپیکر (Speaker)",
-                    "فلش مموری (Flash Memory)",
-                    "هارد اکسترنال (External HDD)",
-                    "اس‌اس‌دی اکسترنال (External SSD)",
-                    "کول‌پد لپ‌تاپ (Coolpad)",
-                    "کیف و کوله‌پشتی لپ‌تاپ",
-                    "هاب USB و Type-C",
-                    "کابل تصویر (HDMI / DisplayPort / VGA)",
-                    "کابل برق، شبکه و افزایش طول",
-                    "مبدل و دانگل (Converter / Dongle)",
-                    "ماوس‌پد (Mouse Pad)",
-                    "وب‌کم و میکروفون (Webcam / Mic)",
-                    "گیم‌پد و دسته بازی (Gamepad)",
-                    "خمیر سیلیکون و اسپری تمیزکننده",
-                ]
-            )
-            self.cb_sub.setCurrentText("سایر موارد")
-            cb_conn = SearchableComboBox()
-            cb_conn.addItems(
-                [
-                    "",
-                    "باسیم (USB)",
-                    "بی‌سیم ( دانگل 2.4GHz)",
-                    "بلوتوث (Bluetooth)",
-                    "دوحالته و سه‌حالته (باسیم + بی‌سیم + بلوتوث)",
-                    "Type-C",
-                    "جک ۳.۵ میلی‌متری صدا",
-                    "HDMI / DisplayPort / VGA",
-                    "بدون پورت (فیزیکی)",
-                ]
-            )
-            ed_extra = SmartLineEdit("ویژگی تکمیلی (مثلاً طول کابل، ظرفیت، رنگ...)")
-            self.fields = {"نوع اتصال / پورت": cb_conn, "مشخصه": ed_extra}
-            self.form_layout.addRow("نوع لوازم جانبی:", self.cb_sub)
-            self.form_layout.addRow("نوع اتصال / پورت:", cb_conn)
-            self.form_layout.addRow("مشخصات تکمیلی:", ed_extra)
-
-        elif self.current_category == "مانیتور":
-            self.cb_sub.currentTextChanged.connect(self._notify_custom_field_callback)
-            self.cb_sub.addItems(
-                [
-                    "مانیتور اداری و خانگی",
-                    "مانیتور گیمینگ (Gaming)",
-                    "مانیتور طراحی و صنعتی",
-                    "مانیتور استوک",
-                    "مانیتور منحنی (Curved)",
-                ]
-            )
-            cb_size = SearchableComboBox()
-            cb_size.addItems(["", "19 اینچ", "20 اینچ", "22 اینچ", "24 اینچ", "27 اینچ", "32 اینچ", "34 اینچ"])
-            cb_panel = SearchableComboBox()
-            cb_panel.addItems(["", "IPS", "VA", "TN", "OLED", "Nano IPS"])
-            cb_hz = SearchableComboBox()
-            cb_hz.addItems(["", "60Hz", "75Hz", "100Hz", "144Hz", "165Hz", "180Hz", "240Hz"])
-            cb_ports = SearchableComboBox()
-            cb_ports.addItems(["", "HDMI + VGA", "HDMI + DisplayPort", "HDMI + DP + Type-C", "VGA + DVI"])
-            self.fields = {"سایز": cb_size, "پنل": cb_panel, "نرخ بروزرسانی": cb_hz, "پورت‌ها": cb_ports}
-            self.form_layout.addRow("زیرمجموعه مانیتور:", self.cb_sub)
-            self.form_layout.addRow("سایز صفحه:", cb_size)
-            self.form_layout.addRow("نوع پنل:", cb_panel)
-            self.form_layout.addRow("نرخ تصویر (Hz):", cb_hz)
-            self.form_layout.addRow("پورت‌های ورودی:", cb_ports)
-
-        elif self.current_category == "کیس و مینی‌کیس":
-            self.cb_sub.currentTextChanged.connect(self._notify_custom_field_callback)
-            self.cb_sub.addItems(
-                [
-                    "مینی‌کیس استوک (Mini Case)",
-                    "کیس کامل اسمبل‌شده (PC)",
-                    "آل‌این‌وان (All-in-One)",
-                    "تین‌کلاینت (Thin Client)",
-                    "پوسته کیس خالی (Case Chassis)",
-                ]
-            )
-            cb_cpu = SearchableComboBox()
-            cb_cpu.addItems(CPU_LIST)
-            cb_ram = SearchableComboBox()
-            cb_ram.addItems(RAM_CAPACITIES)
-            cb_st = SearchableComboBox()
-            cb_st.addItems(STORAGE_LIST)
-            cb_gpu = SearchableComboBox()
-            cb_gpu.addItems(GPU_LIST)
-            self.fields = {
-                "پردازنده": cb_cpu,
-                "ظرفیت رم": cb_ram,
-                "حافظه داخلی": cb_st,
-                "پردازنده گرافیکی": cb_gpu,
-            }
-            self.form_layout.addRow("نوع دستگاه:", self.cb_sub)
-            self.form_layout.addRow("پردازنده (CPU):", cb_cpu)
-            self.form_layout.addRow("رم (RAM):", cb_ram)
-            self.form_layout.addRow("حافظه (Storage):", cb_st)
-            self.form_layout.addRow("گرافیک (GPU):", cb_gpu)
-
-        elif self.current_category == "آداپتور و تغذیه":
-            self.cb_sub.currentTextChanged.connect(self._notify_custom_field_callback)
-            self.cb_sub.addItems(
-                [
-                    "شارژر و آداپتور لپ‌تاپ",
-                    "آداپتور مانیتور و مینی‌کیس",
-                    "آداپتور مودم و سوئیچ (9V/12V)",
-                    "محافظ برق و چندراهی",
-                    "برق اضطراری (UPS) و باتری UPS",
-                    "کابل برق سهند / سه‌پین / دوپین",
-                ]
-            )
-            cb_volt = SearchableComboBox()
-            cb_volt.addItems(["", "19V", "19.5V", "20V", "12V", "9V", "5V", "220V AC"])
-            cb_amp = SearchableComboBox()
-            cb_amp.addItems(["", "1A / 1.5A / 2A", "2.31A (45W)", "3.25A (65W)", "3.42A (65W)", "4.5A (90W)", "4.74A (90W)", "6.15A (120W)", "6.75A / 7.7A (135W-150W)", "9A / 10A (180W-240W)"])
-            cb_tip = SearchableComboBox()
-            cb_tip.addItems(["", "سوکت معمولی (5.5x2.5)", "سوکت سوزنی آبی/مشکی HP/Dell", "سوکت USB / مستطیلی Lenovo", "سوکت Type-C PD", "سوکت ریز Asus/Acer"])
-            self.fields = {"ولتاژ": cb_volt, "آمپر و توان": cb_amp, "نوع سوکت": cb_tip}
-            self.form_layout.addRow("نوع آداپتور / تغذیه:", self.cb_sub)
-            self.form_layout.addRow("ولتاژ خروجی:", cb_volt)
-            self.form_layout.addRow("آمپر / توان (وات):", cb_amp)
-            self.form_layout.addRow("نوع سری / سوکت:", cb_tip)
-
-        else:
-            # شبکه و مودم، ماشین‌های اداری و سایر موارد
-            self.cb_sub.currentTextChanged.connect(self._notify_custom_field_callback)
-            self.cb_sub.addItems(
-                [
-                    "سایر موارد",
-                    "مودم ADSL / VDSL",
-                    "مودم سیم‌کارتی 4G / 5G / TD-LTE",
-                    "روتر و اکسس‌پوینت بی‌سیم",
-                    "سوئیچ شبکه (5/8/16/24 پورت)",
-                    "کارت شبکه USB / PCIe",
-                    "پرینتر و چندکاره",
-                    "اسکنر",
-                    "کارتریج و تونر",
-                ]
-            )
-            ed_spec = SmartLineEdit("مشخصات فنی، پورت‌ها یا توضیحات تخصصی...")
-            self.fields = {"مشخصات": ed_spec}
-            self.form_layout.addRow("زیرمجموعه:", self.cb_sub)
-            self.form_layout.addRow("مشخصات فنی:", ed_spec)
-
+        self.cb_sub.currentTextChanged.connect(self._notify_custom_field_callback)
+        self.form_layout.addRow("زیرمجموعه:", self.cb_sub)
         self._apply_compact_form_layouts()
 
     def apply_custom_catalog(self, subcategories=None, custom_fields=None):
@@ -1488,23 +1066,15 @@ class DynamicSpecsWidget(QGroupBox):
             else:
                 self.cb_sub.setCurrentText("")
             self.cb_sub.blockSignals(False)
-            if self.current_category == "قطعات":
-                self._rebuild_part_subfields(self.cb_sub.currentText())
 
-        # Remove custom widgets from the previously selected subcategory before
-        # adding the next set. Built-in fields remain in place and can be reconfigured.
         for field_name, widget in list(self._custom_field_widgets.items()):
             if self.fields.get(field_name) is widget:
                 self.fields.pop(field_name, None)
-            # QFormLayout.removeRow(row) owns and destroys the row widgets. Calling
-            # deleteLater() afterwards can target an already-deleted Shiboken wrapper.
             try:
                 row, _role = self.form_layout.getWidgetPosition(widget)
                 if row >= 0:
                     self.form_layout.removeRow(row)
             except RuntimeError:
-                # The Qt parent may already have destroyed this widget during a
-                # category rebuild; clearing the Python reference is sufficient.
                 pass
         self._custom_field_widgets.clear()
 
@@ -1515,12 +1085,12 @@ class DynamicSpecsWidget(QGroupBox):
             if not isinstance(definition, dict):
                 continue
             field_name = str(definition.get("name", "")).strip()
+            if normalize_catalog_label(field_name) == normalize_catalog_label("مشخصه"):
+                field_name = "مشخصات"
             normalized_name = normalize_catalog_label(field_name)
             if not field_name or not normalized_name or normalized_name in seen_custom_names:
                 continue
             seen_custom_names.add(normalized_name)
-            # The feature name is always the form label. "label" is a storage/output
-            # title and may contain @reference syntax, not a widget caption.
             form_label = field_name
             raw_values = definition.get("values", [])
             values = [
@@ -1537,29 +1107,28 @@ class DynamicSpecsWidget(QGroupBox):
             )
             existing_widget = self.fields.get(existing_key) if existing_key is not None else None
             if existing_widget is not None:
-                # A custom Persian spelling (for example «صفحه نمایش») may be the
-                # same feature as a built-in spelling with ZWNJ («صفحه‌نمایش»).
-                # Reuse that widget and rename its storage key instead of showing a
-                # duplicate control in the product form.
-                if existing_key != field_name:
+                try:
+                    if existing_key != field_name:
+                        self.fields.pop(existing_key, None)
+                        self.fields[field_name] = existing_widget
+                    if isinstance(existing_widget, QComboBox):
+                        current_value = existing_widget.currentText()
+                        existing_widget.blockSignals(True)
+                        existing_widget.clear()
+                        existing_widget.addItem("")
+                        existing_widget.addItems(list(dict.fromkeys(values)))
+                        if current_value in values:
+                            existing_widget.setCurrentText(current_value)
+                        existing_widget.blockSignals(False)
+                    field_label = self.form_layout.labelForField(existing_widget)
+                    if isinstance(field_label, QLabel):
+                        field_label.setText(f"{form_label}:")
+                    existing_widget.setToolTip(f"مشخصات فنی: {form_label}")
+                    continue
+                except RuntimeError:
+                    self.fields.pop(field_name, None)
                     self.fields.pop(existing_key, None)
-                    self.fields[field_name] = existing_widget
-                if isinstance(existing_widget, QComboBox):
-                    current_value = existing_widget.currentText()
-                    existing_widget.blockSignals(True)
-                    existing_widget.clear()
-                    existing_widget.addItem("")
-                    existing_widget.addItems(list(dict.fromkeys(values)))
-                    if current_value in values:
-                        existing_widget.setCurrentText(current_value)
-                    existing_widget.blockSignals(False)
-                field_label = self.form_layout.labelForField(existing_widget)
-                if field_label is None:
-                    field_label = self.sub_layout.labelForField(existing_widget)
-                if isinstance(field_label, QLabel):
-                    field_label.setText(f"{form_label}:")
-                existing_widget.setToolTip(f"مشخصه سفارشی: {form_label}")
-                continue
+                    existing_widget = None
 
             if values:
                 widget = SearchableComboBox()
@@ -1567,82 +1136,32 @@ class DynamicSpecsWidget(QGroupBox):
                 widget.addItems(list(dict.fromkeys(values)))
             else:
                 widget = SmartLineEdit(f"{field_name}...")
-            widget.setToolTip(f"مشخصه سفارشی: {form_label}")
+            widget.setToolTip(f"مشخصات فنی: {form_label}")
             self.fields[field_name] = widget
             self._custom_field_widgets[field_name] = widget
             self.form_layout.addRow(f"{form_label}:", widget)
 
-        self._apply_compact_form_layouts()
-
-    def _rebuild_part_subfields(self, part_type: str):
-        while self.sub_layout.count():
-            it = self.sub_layout.takeAt(0)
-            if it.widget():
-                it.widget().deleteLater()
-        self.fields.clear()
-
-        if "CPU" in part_type or "پردازنده" in part_type:
-            cb_title = SearchableComboBox()
-            cb_title.addItems(CPU_LIST)
-            cb_sock = SearchableComboBox()
-            cb_sock.addItems(["", "LGA 775 / 1155 / 1150", "LGA 1151", "LGA 1200", "LGA 1700", "AM4", "AM5"])
-            self.fields = {"سری پردازنده": cb_title, "سوکت": cb_sock}
-            self.sub_layout.addRow("عنوان و نسل CPU:", cb_title)
-            self.sub_layout.addRow("سوکت پردازنده:", cb_sock)
-
-        elif "RAM" in part_type or "رم" in part_type:
-            cb_cap = SearchableComboBox()
-            cb_cap.addItems(RAM_CAPACITIES)
-            cb_ddr = SearchableComboBox()
-            # Start blank so DDR2 is never silently assigned to an unspecified module.
-            cb_ddr.addItems(["", "DDR2", "DDR3 / DDR3L", "DDR4", "DDR5"])
-            cb_bus = SearchableComboBox()
-            cb_bus.addItems(["", "1333MHz", "1600MHz", "2400MHz", "2666MHz", "3200MHz", "3600MHz", "4800MHz", "5600MHz", "6000MHz"])
-            self.fields = {"ظرفیت": cb_cap, "نسخه DDR": cb_ddr, "فرکانس": cb_bus}
-            self.sub_layout.addRow("ظرفیت رم:", cb_cap)
-            self.sub_layout.addRow("نسخه DDR:", cb_ddr)
-            self.sub_layout.addRow("فرکانس (Bus):", cb_bus)
-
-        elif "SSD" in part_type or "HDD" in part_type or "هارد" in part_type:
-            cb_cap = SearchableComboBox()
-            cb_cap.addItems(STORAGE_LIST)
-            cb_iface = SearchableComboBox()
-            cb_iface.addItems(["NVMe M.2 PCIe", "M.2 SATA", "SATA 2.5 اینچ", "SATA 3.5 اینچ (کیس)"])
-            self.fields = {"ظرفیت": cb_cap, "رابط و فرم": cb_iface}
-            self.sub_layout.addRow("ظرفیت حافظه:", cb_cap)
-            self.sub_layout.addRow("نوع رابط و سایز:", cb_iface)
-
-        elif "گرافیک" in part_type or "Graphic" in part_type:
-            cb_gpu = SearchableComboBox()
-            cb_gpu.addItems(GPU_LIST)
-            cb_vram = SearchableComboBox()
-            cb_vram.addItems(["", "1GB", "2GB", "4GB", "6GB", "8GB", "12GB", "16GB", "24GB"])
-            self.fields = {"چیپست گرافیک": cb_gpu, "حافظه VRAM": cb_vram}
-            self.sub_layout.addRow("مدل چیپ گرافیک:", cb_gpu)
-            self.sub_layout.addRow("ظرفیت حافظه گرافیک:", cb_vram)
-
-        elif "پاور" in part_type or "Power" in part_type:
-            cb_watt = SearchableComboBox()
-            cb_watt.addItems(["", "250W - 330W", "380W - 430W", "480W - 550W", "600W - 700W", "750W - 850W", "1000W+"])
-            cb_cert = SearchableComboBox()
-            cb_cert.addItems(["", "معمولی", "80Plus Standard/White", "80Plus Bronze", "80Plus Gold", "Full Modular"])
-            self.fields = {"توان پاور": cb_watt, "استاندارد": cb_cert}
-            self.sub_layout.addRow("توان خروجی (Watt):", cb_watt)
-            self.sub_layout.addRow("استاندارد / کابل‌کشی:", cb_cert)
-
-        else:
-            ed_custom = SmartLineEdit("مشخصه فنی قطعه (مثلاً سوکت، ولتاژ، سایز پنل...)")
-            self.fields = {"مشخصه فنی": ed_custom}
-            self.sub_layout.addRow("مشخصات فنی قطعه:", ed_custom)
+        specs_key = next((k for k in list(self.fields.keys()) if normalize_catalog_label(k) == normalize_catalog_label("مشخصات")), None)
+        if specs_key is not None:
+            spec_widget = self.fields.pop(specs_key)
+            self.fields[specs_key] = spec_widget
+            try:
+                row, _ = self.form_layout.getWidgetPosition(spec_widget)
+                if row >= 0 and row < self.form_layout.rowCount() - 1:
+                    res = self.form_layout.takeRow(row)
+                    if res.labelItem and res.labelItem.widget():
+                        self.form_layout.addRow(res.labelItem.widget(), spec_widget)
+                    else:
+                        self.form_layout.addRow(spec_widget)
+            except Exception:
+                pass
 
         self._apply_compact_form_layouts()
-        # Run only after the built-in fields for the newly selected part type exist.
-        self._notify_custom_field_callback()
 
     def get_sub_category(self) -> str:
         if self.cb_sub:
-            return self.cb_sub.currentText().strip() or "سایر موارد"
-        return "سایر موارد"
+            return self.cb_sub.currentText().strip()
+        return ""
 
     def set_sub_category(self, sub_text: str):
         if self.cb_sub and sub_text:
@@ -1660,8 +1179,9 @@ class DynamicSpecsWidget(QGroupBox):
         if not isinstance(data, dict):
             return
         for k, val in data.items():
-            if k in self.fields:
-                w = self.fields[k]
+            target_key = next((f_key for f_key in self.fields if normalize_catalog_label(f_key) == normalize_catalog_label(k)), k)
+            if target_key in self.fields:
+                w = self.fields[target_key]
                 if isinstance(w, QComboBox):
                     w.setCurrentText(str(val))
                 else:
@@ -1720,8 +1240,8 @@ class DynamicAttributeValuesWidget(QWidget):
 
         self.scroll_area = SmoothScrollArea(self)
         self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setMinimumHeight(90)
-        self.scroll_area.setMaximumHeight(150)
+        self.scroll_area.setMinimumHeight(220)
+        self.scroll_area.setMaximumHeight(280)
 
         self.container = QWidget()
         self.rows_layout = QVBoxLayout(self.container)

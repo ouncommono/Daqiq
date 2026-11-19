@@ -131,7 +131,7 @@ def test_colleague_inventory_export_honors_selected_columns(manager, tmp_path):
 def test_purchase_batch_crud_is_atomic_and_foreign_key_safe(manager):
     product_id = create_product(manager, "P-PURCHASE-ATOMIC")
 
-    with pytest.raises(sqlite3.IntegrityError):
+    with pytest.raises((sqlite3.IntegrityError, database_module.sqlite3.IntegrityError)):
         manager.add_batch(
             "C-FAILED-ATOMIC", 999999, None, None, "PO-FAIL", "1405/01/01",
             2, 100, 20, 150, 20, supplier_name="تأمین‌کننده تراکنش ناموفق",
@@ -339,7 +339,7 @@ def test_v3_schema_initialization_is_idempotent_and_keeps_upgrade_column_order(m
         "added_cost_unit", "upgrade_date", "serial_number", "manual_part_description",
         "old_specs", "new_specs", "notes", "created_at", "updated_at",
     ]
-    assert version == 410
+    assert version == 460
 
 
 def test_upgrade_backend_rejects_unconfirmed_insufficient_inventory(manager):
@@ -630,8 +630,8 @@ def test_v3_application_config_records_release_and_preserves_current_preferences
     assert manager.cfg["zero_append_count"] == 4
     assert manager.cfg["default_window_maximized"] is False
     assert manager.cfg["require_login_password"] is True
-    assert manager.cfg["app_version"] == "4.1.0"
-    assert manager.cfg["schema_version"] == 410
+    assert manager.cfg["app_version"] == "4.6.0"
+    assert manager.cfg["schema_version"] == 460
     assert manager.cfg["config_schema_version"] == 2
 
 
@@ -1011,16 +1011,16 @@ def test_fresh_schema_has_v3_physical_column_order_and_metadata(manager):
             "password", "created_at", "updated_at",
         ],
         "products": [
-            "id", "code", "name", "category", "sub_category", "brand", "model",
+            "id", "code", "serial_number", "name", "category", "sub_category", "brand", "model",
             "specs_json", "description", "reorder_point", "default_profit_pct",
-            "is_active", "serial_number", "created_at", "updated_at",
+            "is_active", "created_at", "updated_at",
         ],
         "batches": [
-            "id", "batch_code", "product_id", "supplier_id", "buyer_employee_id",
+            "id", "batch_code", "product_id", "serial_numbers", "supplier_id", "buyer_employee_id",
             "invoice_number", "purchase_date", "initial_qty", "sold_qty",
             "returned_qty", "remaining_qty", "unit_purchase_price", "extra_cost_total",
             "upgrade_cost_unit", "unit_cost_price", "suggested_sell_price", "profit_pct",
-            "paid_amount", "settlement_status", "serial_numbers", "colors_json",
+            "paid_amount", "settlement_status", "colors_json",
             "initial_specs", "final_specs", "supplier_name_snapshot", "notes",
             "created_at", "updated_at",
         ],
@@ -1031,13 +1031,13 @@ def test_fresh_schema_has_v3_physical_column_order_and_metadata(manager):
             "old_specs", "new_specs", "notes", "created_at", "updated_at",
         ],
         "sales": [
-            "id", "invoice_number", "product_id", "batch_id", "seller_employee_id",
-            "customer_name", "qty", "returned_qty", "suggested_unit_price",
+            "id", "invoice_number", "product_id", "batch_id", "serial_number", "seller_employee_id",
+            "customer_name", "customer_phone", "qty", "returned_qty", "suggested_unit_price",
             "actual_unit_price", "unit_cost_price", "unit_discount", "total_discount",
             "price_Markup_unit", "unit_profit", "total_profit", "total_amount",
             "paid_amount", "settlement_status", "sale_datetime", "warranty_company",
             "warranty_start", "warranty_months", "warranty_days", "warranty_end",
-            "serial_number", "specifications", "colors_json", "notes",
+            "specifications", "colors_json", "notes",
             "created_at", "updated_at",
         ],
         "service_records": [
@@ -1055,14 +1055,14 @@ def test_fresh_schema_has_v3_physical_column_order_and_metadata(manager):
                 for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
             ]
             assert columns == expected, table_name
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 410
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 460
         product_indexes = {
             row["name"] for row in conn.execute("PRAGMA index_list(products)")
         }
         assert "idx_products_taxonomy" in product_indexes
         metadata = dict(conn.execute("SELECT key, value FROM settings").fetchall())
-        assert metadata["app_version"] == "4.1.0"
-        assert metadata["schema_version"] == "410"
+        assert metadata["app_version"] == "4.6.0"
+        assert metadata["schema_version"] == "460"
 
 
 def test_v3_schema_creates_normalized_access_scope_tables(manager):
@@ -1083,7 +1083,7 @@ def test_v3_schema_creates_normalized_access_scope_tables(manager):
             ).fetchall()
         ]
         assert scope_columns == ["access_level_name", "mode"]
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 410
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 460
 
 
 def test_v3_rejects_pre_v3_database_without_attempting_migration(tmp_path, monkeypatch):
@@ -1097,7 +1097,7 @@ def test_v3_rejects_pre_v3_database_without_attempting_migration(tmp_path, monke
     finally:
         conn.close()
 
-    with pytest.raises(RuntimeError, match="نسخه 4.1.0"):
+    with pytest.raises(RuntimeError, match="نسخه 4.6.0"):
         DatabaseManager(str(legacy_path))
 
 
@@ -1269,16 +1269,16 @@ def test_v330_greenfield_schema_contracts_and_stock_balance_constraints(manager)
             "id", "name", "phone", "notes", "created_at", "updated_at",
         ],
         "products": [
-            "id", "code", "name", "category", "sub_category", "brand", "model",
+            "id", "code", "serial_number", "name", "category", "sub_category", "brand", "model",
             "specs_json", "description", "reorder_point", "default_profit_pct",
-            "is_active", "serial_number", "created_at", "updated_at",
+            "is_active", "created_at", "updated_at",
         ],
         "batches": [
-            "id", "batch_code", "product_id", "supplier_id", "buyer_employee_id",
+            "id", "batch_code", "product_id", "serial_numbers", "supplier_id", "buyer_employee_id",
             "invoice_number", "purchase_date", "initial_qty", "sold_qty",
             "returned_qty", "remaining_qty", "unit_purchase_price", "extra_cost_total",
             "upgrade_cost_unit", "unit_cost_price", "suggested_sell_price", "profit_pct",
-            "paid_amount", "settlement_status", "serial_numbers", "colors_json",
+            "paid_amount", "settlement_status", "colors_json",
             "initial_specs", "final_specs", "supplier_name_snapshot", "notes",
             "created_at", "updated_at",
         ],
@@ -1289,13 +1289,13 @@ def test_v330_greenfield_schema_contracts_and_stock_balance_constraints(manager)
             "old_specs", "new_specs", "notes", "created_at", "updated_at",
         ],
         "sales": [
-            "id", "invoice_number", "product_id", "batch_id", "seller_employee_id",
-            "customer_name", "qty", "returned_qty", "suggested_unit_price",
+            "id", "invoice_number", "product_id", "batch_id", "serial_number", "seller_employee_id",
+            "customer_name", "customer_phone", "qty", "returned_qty", "suggested_unit_price",
             "actual_unit_price", "unit_cost_price", "unit_discount", "total_discount",
             "price_Markup_unit", "unit_profit", "total_profit", "total_amount",
             "paid_amount", "settlement_status", "sale_datetime", "warranty_company",
             "warranty_start", "warranty_months", "warranty_days", "warranty_end",
-            "serial_number", "specifications", "colors_json", "notes",
+            "specifications", "colors_json", "notes",
             "created_at", "updated_at",
         ],
         "service_catalog": [
@@ -1314,7 +1314,7 @@ def test_v330_greenfield_schema_contracts_and_stock_balance_constraints(manager)
             "updated_at",
         ],
         "payments": [
-            "id", "ref_type", "ref_id", "amount", "payment_date", "payment_method",
+            "id", "ref_type", "ref_id", "amount", "payment_date",
             "notes", "created_at", "updated_at",
         ],
         "audit_logs": [
@@ -1349,11 +1349,11 @@ def test_v330_greenfield_schema_contracts_and_stock_balance_constraints(manager)
 
         assert conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 410
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 460
 
         # A stock row cannot represent a quantity that disagrees with its
         # initial, sold and supplier-returned aggregates.
-        with pytest.raises(sqlite3.IntegrityError):
+        with pytest.raises((sqlite3.IntegrityError, database_module.sqlite3.IntegrityError)):
             conn.execute(
                 "UPDATE batches SET remaining_qty=remaining_qty-1 WHERE id=?",
                 (batch_id,),

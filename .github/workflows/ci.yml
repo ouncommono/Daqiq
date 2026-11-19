@@ -21,6 +21,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   validate-and-test:
     name: Validate and Test
@@ -28,10 +31,10 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
@@ -40,13 +43,15 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest openpyxl pyinstaller
+          pip install pytest pytest-timeout openpyxl pyinstaller
 
       - name: Compile Python bytecode
         run: python -m compileall -q .
 
       - name: Run PyTest suite
-        run: python -m pytest -q
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest --timeout=60 -v
 
   build-executable:
     name: Build Standalone Executable
@@ -55,10 +60,10 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
@@ -74,13 +79,19 @@ jobs:
         shell: pwsh
         run: |
           $ver = (Get-Content VERSION).Trim()
-          if (-not $ver) { $ver = "4.1.0" }
+          if (-not $ver) { $ver = "4.6.0" }
           Write-Output "APP_VERSION=$ver" >> $env:GITHUB_ENV
           Write-Output "Building for version: $ver"
 
       - name: Build Executable with PyInstaller
         run: |
           pyinstaller --noconfirm --onefile --windowed --name "Daqiq_${{ env.APP_VERSION }}" main.py
+
+      - name: Copy External Standalone Taxonomy
+        shell: pwsh
+        run: |
+          Copy-Item default_taxonomy.json dist/default_taxonomy.json
+          Write-Output "External default_taxonomy.json placed in dist alongside executable."
 
       - name: Validate Built Binary
         shell: pwsh
@@ -94,10 +105,12 @@ jobs:
           Write-Output "Executable built successfully: $target ($bytes bytes)"
 
       - name: Upload Windows Executable Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Daqiq-Windows-${{ env.APP_VERSION }}
-          path: dist/Daqiq_${{ env.APP_VERSION }}.exe
+          path: |
+            dist/Daqiq_${{ env.APP_VERSION }}.exe
+            dist/default_taxonomy.json
           if-no-files-found: error
 
   draft-release-or-pr:
@@ -107,7 +120,7 @@ jobs:
     if: github.event_name != 'pull_request'
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -116,16 +129,16 @@ jobs:
         shell: pwsh
         run: |
           $ver = (Get-Content VERSION).Trim()
-          if (-not $ver) { $ver = "4.1.0" }
+          if (-not $ver) { $ver = "4.6.0" }
           Write-Output "APP_VERSION=$ver" >> $env:GITHUB_ENV
 
       - name: Download Build Artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: Daqiq-Windows-${{ env.APP_VERSION }}
           path: dist
 
-      - name: Create Open Pull Request (Feature Branches)
+      - name: Create Open Pull Request (Release/Feature Branches)
         if: github.ref != 'refs/heads/main'
         shell: pwsh
         env:
@@ -133,25 +146,41 @@ jobs:
         run: |
           # Rule: Do NOT auto-merge this PR in the workflow. Register it solely as an open PR ready for final human code review and validation.
           $currentBranch = (git branch --show-current).Trim()
-          Write-Output "Creating or checking open PR from $currentBranch to main..."
-          gh pr create `
-            --base main `
-            --head $currentBranch `
-            --title "Release v${{ env.APP_VERSION }}: Comprehensive Enterprise Upgrade" `
-            --body "Automated CI/CD build package for v${{ env.APP_VERSION }}. This PR contains all refactored modules, database schema v410 normalization, barcode scanner workflows, dynamic openpyxl export engine, and decoupled state management. Registered solely for human code review and validation (auto-merge disabled)." 2>$null || Write-Output "Pull request already exists."
+          if (-not $currentBranch) {
+            $currentBranch = "${{ github.ref_name }}"
+          }
+          Write-Output "Checking for existing PR from $currentBranch to main..."
+          $existingPr = gh pr list --head $currentBranch --base main --json number --jq '.[0].number'
+          if ($existingPr) {
+            Write-Output "Pull request #$existingPr already exists."
+          } else {
+            Write-Output "Creating open PR from $currentBranch to main..."
+            gh pr create `
+              --base main `
+              --head $currentBranch `
+              --title "Release v${{ env.APP_VERSION }}: Final Production Release" `
+              --body "Final production release v${{ env.APP_VERSION }}. Features clean-slate schema v460, total purge of hardcoded taxonomy, external seed architecture, deep bilingual hardware taxonomy, true SQLCipher AES-256 database encryption, sales form reset fix, transactional Excel export settings staging, and expanded ergonomic UI layout. Auto-merge is strictly prohibited."
+          }
 
-      - name: Publish Draft Release Tagged as Latest
+      - name: Publish Release Tagged as v4.6.0 and Marked as Latest
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $tag = "Latest"
-          $title = "Daqiq v${{ env.APP_VERSION }} (Release Latest)"
+          $tag = "v${{ env.APP_VERSION }}"
+          $title = "Daqiq v${{ env.APP_VERSION }} (Final Production Release)"
           $exePath = "dist/Daqiq_${{ env.APP_VERSION }}.exe"
-          Write-Output "Publishing draft release tagged $tag..."
-          gh release create $tag $exePath `
-            --title $title `
-            --notes "Daqiq v${{ env.APP_VERSION }} official release build. Executable packaged with PyInstaller." `
-            --draft `
-            --prerelease=false 2>$null || `
-          gh release upload $tag $exePath --clobber
+          $taxPath = "dist/default_taxonomy.json"
+          Write-Output "Checking release $tag..."
+          $existingRel = gh release view $tag 2>$null
+          if ($existingRel) {
+            Write-Output "Release $tag already exists, uploading assets..."
+            gh release upload $tag $exePath $taxPath --clobber
+          } else {
+            Write-Output "Creating release $tag marked as Latest with executable and taxonomy attached..."
+            gh release create $tag $exePath $taxPath `
+              --title $title `
+              --notes "Daqiq v${{ env.APP_VERSION }} official retail store management production release. Includes standalone executable and external default_taxonomy.json." `
+              --latest `
+              --prerelease=false
+          }
