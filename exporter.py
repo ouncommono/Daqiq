@@ -35,9 +35,16 @@ def _rtl_report_title(shop_name: str, title: str) -> str:
     return f"{clean_shop_name} — {clean_title}" if clean_shop_name else clean_title
 
 
-def _format_catalog_specs(specs: dict, category: str, catalog_config: dict) -> str:
+def _format_catalog_specs(specs: dict, category: str, catalog_config: dict, subcategory: str = "") -> str:
     """Use the catalog's @reference rule in inventory exports as in the UI."""
-    definitions = catalog_config.get("attributes", {}).get(category or "", [])
+    raw_defs = catalog_config.get("attributes", {}).get(category or "", [])
+    scoped_defs = [
+        item for item in raw_defs
+        if isinstance(item, dict) and (
+            not subcategory or not item.get("subcategory") or item.get("subcategory") == subcategory
+        )
+    ]
+    definitions = scoped_defs if scoped_defs else [item for item in raw_defs if isinstance(item, dict)]
     by_name = {
         str(item.get("name") or "").strip(): item
         for item in definitions
@@ -272,8 +279,9 @@ def export_safe_inventory_excel(
             product_specs = {}
         if not isinstance(product_specs, dict):
             product_specs = {}
+        sub_cat = row["sub_category"] if "sub_category" in row.keys() else ""
         product_specs_text = _format_catalog_specs(
-            product_specs, row["category"], catalog_config
+            product_specs, row["category"], catalog_config, subcategory=sub_cat
         )
         shipment_specs = str(row["final_specs"] or row["initial_specs"] or "").strip()
         try:
@@ -282,7 +290,7 @@ def export_safe_inventory_excel(
             shipment_spec_data = None
         if isinstance(shipment_spec_data, dict):
             shipment_specs = _format_catalog_specs(
-                shipment_spec_data, row["category"], catalog_config
+                shipment_spec_data, row["category"], catalog_config, subcategory=sub_cat
             )
         try:
             colors = json.loads(row["colors_json"] or "[]")

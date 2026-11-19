@@ -29,17 +29,17 @@ class ReleaseV41Tests(unittest.TestCase):
         cls._app = QApplication.instance() or QApplication([])
 
     def test_greenfield_database_schema_and_version(self):
-        """Requirement 0 & 6: Verify clean greenfield DB initialization with 4.1.0/410 schema."""
-        self.assertEqual(APP_VERSION, "4.5.0")
-        self.assertEqual(SCHEMA_VERSION, 450)
+        """Requirement 0 & 6: Verify clean greenfield DB initialization with schema version."""
+        self.assertEqual(APP_VERSION, "4.6.0")
+        self.assertEqual(SCHEMA_VERSION, 460)
         with tempfile.TemporaryDirectory() as tmp:
             db_path = os.path.join(tmp, "test_v410.db")
             config_path = os.path.join(tmp, "app_config.json")
             with patch.object(database, "CONFIG_FILE", config_path):
                 db = DatabaseManager(db_path)
                 with db.get_connection() as conn:
-                    # User version matches 450
-                    self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 450)
+                    # User version matches 460
+                    self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 460)
                     
                     # Columns match contract
                     prod_cols = tuple(r["name"] for r in conn.execute("PRAGMA table_info(products)"))

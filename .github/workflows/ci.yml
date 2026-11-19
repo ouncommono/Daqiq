@@ -14,27 +14,25 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
-
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   validate-and-test:
     name: Validate and Test
     runs-on: windows-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (node24)
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0 (node24)
         with:
           python-version: "3.11"
           cache: pip
@@ -58,12 +56,14 @@ jobs:
     needs: validate-and-test
     runs-on: windows-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (node24)
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0 (node24)
         with:
           python-version: "3.11"
           cache: pip
@@ -79,15 +79,43 @@ jobs:
         shell: pwsh
         run: |
           $ver = (Get-Content VERSION).Trim()
-          if (-not $ver) { $ver = "4.5.0" }
+          if (-not $ver) { $ver = "4.6.0" }
           Write-Output "APP_VERSION=$ver" >> $env:GITHUB_ENV
           Write-Output "Building for version: $ver"
 
       - name: Build Executable with PyInstaller
         run: |
-          pyinstaller --noconfirm --onefile --windowed --name "Daqiq_${{ env.APP_VERSION }}" --add-data "default_taxonomy.json;." main.py
+          pyinstaller --noconfirm --onefile --windowed --hidden-import sqlcipher3 --name "Daqiq_${{ env.APP_VERSION }}" main.py
 
-      - name: Validate Built Binary
+      - name: Copy Companion Taxonomy File & Build Portable Bundle
+        shell: pwsh
+        run: |
+          Copy-Item default_taxonomy.json dist/default_taxonomy.json -Force
+          $readme = @"
+          Daqiq Retail Management System v${{ env.APP_VERSION }}
+          =============================================
+          Portable Distribution Layout:
+          - Daqiq_${{ env.APP_VERSION }}.exe : Application standalone binary (PyInstaller)
+          - default_taxonomy.json   : Editable external catalog taxonomy sidecar
+          - SHA256SUMS.txt          : Cryptographic asset checksums
+
+          Catalog Behavior:
+          - If default_taxonomy.json is present beside the executable when creating a new database,
+            it seeds the standard hardware taxonomy.
+          - If default_taxonomy.json is missing when creating a new database, Daqiq initializes
+            with strictly zero categories, zero subcategories, and zero custom technical specifications.
+          "@
+          Set-Content -Path "dist/README.txt" -Value $readme -Encoding utf8
+          
+          # Generate SHA256SUMS.txt
+          Get-FileHash -Path "dist/Daqiq_${{ env.APP_VERSION }}.exe", "dist/default_taxonomy.json" -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash.ToLower())  $([System.IO.Path]::GetFileName($_.Path))" } |
+            Set-Content -Path "dist/SHA256SUMS.txt" -Encoding utf8
+          
+          # Package portable zip
+          Compress-Archive -Path "dist/Daqiq_${{ env.APP_VERSION }}.exe", "dist/default_taxonomy.json", "dist/README.txt", "dist/SHA256SUMS.txt" -DestinationPath "dist/Daqiq_${{ env.APP_VERSION }}_Portable.zip" -Force
+
+      - name: Validate Built Binary via Self-Test
         shell: pwsh
         run: |
           $target = "dist/Daqiq_${{ env.APP_VERSION }}.exe"
@@ -97,22 +125,36 @@ jobs:
           }
           $bytes = (Get-Item $target).Length
           Write-Output "Executable built successfully: $target ($bytes bytes)"
+          Write-Output "Running noninteractive binary self-test..."
+          & $target --self-test
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Binary self-test failed with exit code $LASTEXITCODE"
+            exit $LASTEXITCODE
+          }
+          Write-Output "Binary self-test passed successfully."
 
       - name: Upload Windows Executable Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (node24)
         with:
           name: Daqiq-Windows-${{ env.APP_VERSION }}
-          path: dist/Daqiq_${{ env.APP_VERSION }}.exe
+          path: |
+            dist/Daqiq_${{ env.APP_VERSION }}.exe
+            dist/default_taxonomy.json
+            dist/Daqiq_${{ env.APP_VERSION }}_Portable.zip
+            dist/SHA256SUMS.txt
+            dist/README.txt
           if-no-files-found: error
 
-  draft-release-or-pr:
-    name: Draft Release and Open PR
+  publish-release:
+    name: Publish Release (Tags Only)
     needs: build-executable
     runs-on: windows-latest
-    if: github.event_name != 'pull_request'
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0 (node24)
         with:
           fetch-depth: 0
 
@@ -121,31 +163,16 @@ jobs:
         shell: pwsh
         run: |
           $ver = (Get-Content VERSION).Trim()
-          if (-not $ver) { $ver = "4.5.0" }
+          if (-not $ver) { $ver = "4.6.0" }
           Write-Output "APP_VERSION=$ver" >> $env:GITHUB_ENV
 
       - name: Download Build Artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0 (node24)
         with:
           name: Daqiq-Windows-${{ env.APP_VERSION }}
           path: dist
 
-      - name: Create Open Pull Request (Release/Feature Branches)
-        if: github.ref != 'refs/heads/main'
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # Rule: Do NOT auto-merge this PR in the workflow. Register it solely as an open PR ready for final human code review and validation.
-          $currentBranch = (git branch --show-current).Trim()
-          Write-Output "Creating or checking open PR from $currentBranch to main..."
-          gh pr create `
-            --base main `
-            --head $currentBranch `
-            --title "Release v${{ env.APP_VERSION }}: Comprehensive Retail Production Upgrade" `
-            --body "Comprehensive production release v${{ env.APP_VERSION }}. This PR contains all architectural refinements, greenfield database schema v450 normalization, bilingual international taxonomy engine, phone number tracking, robust timer overflow prevention, custom report builder synchronization, full-row checklist toggling, and staged database password management. Registered solely for human code review and validation (auto-merge disabled)." 2>$null || Write-Output "Pull request already exists."
-
-      - name: Publish Release Tagged as v4.5.0 and Marked as Latest
+      - name: Publish Release Tagged as v4.6.0 and Marked as Latest
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -153,10 +180,13 @@ jobs:
           $tag = "v${{ env.APP_VERSION }}"
           $title = "Daqiq v${{ env.APP_VERSION }} (Retail Production Release)"
           $exePath = "dist/Daqiq_${{ env.APP_VERSION }}.exe"
+          $taxPath = "dist/default_taxonomy.json"
+          $zipPath = "dist/Daqiq_${{ env.APP_VERSION }}_Portable.zip"
+          $sumPath = "dist/SHA256SUMS.txt"
           Write-Output "Publishing release tagged $tag marked as Latest..."
-          gh release create $tag $exePath `
+          gh release create $tag $exePath $taxPath $zipPath $sumPath `
             --title $title `
-            --notes "Daqiq v${{ env.APP_VERSION }} official retail production release. Executable packaged with PyInstaller." `
+            --notes "Daqiq v${{ env.APP_VERSION }} official retail production release. Full SQLCipher 4 encryption, clean taxonomy architecture, transactional report settings, form field swaps, and native Node 24 immutable build provenance." `
             --latest `
-            --prerelease=false 2>$null || `
-          gh release upload $tag $exePath --clobber
+            --verify-tag `
+            --prerelease=false

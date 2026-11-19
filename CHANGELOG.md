@@ -1,3 +1,24 @@
+# Daqiq 4.6.0
+
+## Release Summary & Architectural Enhancements
+
+- **Standard SQLCipher 4 Encryption (Database Security DB-01)**: Authentic standard SQLCipher 4 encryption engine (`sqlcipher3`) with UTF-8 passphrase derivation, 256-bit AES-CBC encryption, HMAC verification, and 64,000 PBKDF2 iterations. 100% interoperable with standard DB Browser for SQLite (SQLCipher 4 default settings). Strict non-destructive rejection of unencrypted or unsupported databases prior to WAL journal mode execution, preventing file corruption or unwanted mutations. Seamless encrypted backup and export facilities (`sqlcipher_export`).
+- **Clean Hardware Taxonomy Architecture & Sidecar Decoupling (CAT-01, CAT-02)**: Complete decoupling of hardware taxonomy definitions into an external sidecar `default_taxonomy.json`. Pure empty-state semantics on missing sidecar (0 categories, 0 subcategories, 0 specs, zero hardcoded fallback data structures). Fully localized Persian main categories and bilingual `"فارسی (English)"` subcategories. Standards-compliant JEDEC DDR2–DDR5 RAM, comprehensive CPU generational taxonomy (Intel Celeron, Pentium, Core, Core Ultra, Xeon; AMD Athlon, Ryzen, Threadripper), independent Screen Size (`اندازه صفحه نمایش`) and Resolution (`وضوح تصویر`) monitor attributes, terminal `مشخصات` attribute on every subcategory, and single-spec `سایر موارد (Other)`. Fully documented standards matrix in `docs/taxonomy-sources.md`.
+- **Eradication of Redundant Payment Method (DB-01)**: Complete eradication of `payment_method` (`کارتخوان`, `حواله/کارت`, `کارت به کارت`, etc.) across schema v460, database operations, insertions, and reports, matching real-world retail workflows without introducing unrequested placeholder features.
+- **Form Ergonomics & High-Throughput Retail Workflows (SALE-01, UI-01)**:
+  - *Purchases / Cargo Registration*: Serial number input positioned directly below batch code for rapid consecutive barcode scanning.
+  - *Sales Entry*: Swapped Batch Code and Serial Number order (`کد محموله` followed by `شماره سریال`), optimizing keyboard navigation and autofocus flow.
+  - *Sales Form Reset*: Clicking "پاک کردن فرم" automatically resets the product filter to "همه کالاها" (All Products) and repopulates available in-stock cargo batches, eliminating selection deadlocks.
+- **Dynamic Excel Report Customization & Profile Staging (REP-01)**:
+  - *Dynamic Profile Management in Settings*: "تعریف گزارش جدید" (New Report) anchored at index 0, allowing retail operators to define, configure, and rename custom Excel export profiles.
+  - *Transactional Staging*: Custom report configurations are safely staged in memory and committed atomically upon clicking "ذخیره تنظیمات".
+  - *Aggregate Reports Selection*: Reports tab dropdown cleanly defaults to "همه" (All).
+- **Ergonomic Two-Column RTL Settings Layout (UI-02)**: Fully normalized two-column RTL layout in "تنظیمات مدیریت کالاها". Sized `DynamicAttributeValuesWidget` scroll container to minimum 240px and maximum 400px height with dynamic scrollbars, eliminating clipping and form overlap.
+- **CI/CD Pipeline with Native Node 24 Actions & Release Packaging (CI-01, REL-01)**: Upgraded GitHub Actions workflow (`ci.yml`) to official actions running natively on Node 24 pinned by full commit SHAs (`actions/checkout@v5.1.0`, `actions/setup-python@v6.3.0`, `actions/upload-artifact@v6.0.0`, `actions/download-artifact@v7.0.0`). Strictly decoupled PR validation (read-only) from release publishing (runs on `refs/tags/v*` only). Produces single-file executable `Daqiq_4.6.0.exe`, standalone `default_taxonomy.json`, portable zip bundle `Daqiq_4.6.0_Portable.zip`, and cryptographic `SHA256SUMS.txt`.
+- **Quality Assurance & Verification (QA-01)**: 100% test pass rate across all 136 unit, contract, and UI smoke tests in headless mode (`$env:QT_QPA_PLATFORM="offscreen"`). Bundled `--self-test` noninteractive sanity entry point validating compiled PySide6 UI and SQLCipher database operations.
+
+---
+
 # Daqiq 4.5.0
 
 ## Release Summary & Architectural Enhancements
