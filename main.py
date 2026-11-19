@@ -50,6 +50,7 @@ from database import (
     receivable_balance, service_financial_breakdown,
     app_config_has_database_selection, get_default_database_path,
     SCHEMA_VERSION, round_integer_division, round_percentage_amount,
+    DatabasePasswordRequiredError, DatabaseInvalidPasswordError,
 )
 from utils_and_widgets import (
     MAIN_CATEGORIES,
@@ -81,7 +82,7 @@ from exporter import (
     get_next_excel_filename,
 )
 
-APP_VERSION = "4.5.0"
+APP_VERSION = "4.6.0"
 
 REPORT_AVAILABLE_COLUMNS = {
     "همه (گزارش جامع خرید، فروش و خدمات)": [
@@ -2320,7 +2321,11 @@ class MainWindow(QMainWindow):
         """Rollback all settings to initial snapshot (Memento pattern), collapse sections, and navigate to Dashboard."""
         self._staged_db_password_action = None
         self._staged_db_startup_prompt = None
+        self._staged_custom_report_definitions = None
+        self._staged_report_export_configs = None
         self._refresh_db_password_status()
+        if hasattr(self, "cb_report_export_type"):
+            self._refresh_report_export_types_combo()
         if hasattr(self, "_settings_snapshot") and self._settings_snapshot is not None:
             self._settings_snapshot.restore(self)
             self._settings_snapshot = None
@@ -2825,15 +2830,22 @@ class MainWindow(QMainWindow):
         grid.addWidget(self.ed_batch_code, 0, 1)
         grid.addWidget(QLabel("انتخاب کالا *:"), 0, 2)
         grid.addWidget(self.cb_batch_prod, 0, 3)
-        grid.addWidget(QLabel("شماره سریال / بارکد:"), 0, 4)
-        grid.addWidget(self.ed_batch_serial_number, 0, 5)
+        grid.addWidget(QLabel("مسئول خرید:"), 0, 4)
+        grid.addWidget(self.cb_batch_buyer, 0, 5)
 
-        grid.addWidget(QLabel("تأمین‌کننده:"), 1, 0)
-        grid.addWidget(self.cb_batch_supplier, 1, 1)
-        grid.addWidget(QLabel("مسئول خرید:"), 1, 2)
-        grid.addWidget(self.cb_batch_buyer, 1, 3)
+        grid.addWidget(QLabel("شماره سریال / بارکد:"), 1, 0)
+        grid.addWidget(self.ed_batch_serial_number, 1, 1)
+        grid.addWidget(QLabel("تأمین‌کننده:"), 1, 2)
+        grid.addWidget(self.cb_batch_supplier, 1, 3)
         grid.addWidget(QLabel("شماره فاکتور:"), 1, 4)
         grid.addWidget(self.ed_batch_inv, 1, 5)
+
+        self.setTabOrder(self.ed_batch_code, self.ed_batch_serial_number)
+        self.setTabOrder(self.ed_batch_serial_number, self.cb_batch_supplier)
+        self.setTabOrder(self.cb_batch_supplier, self.cb_batch_prod)
+        self.setTabOrder(self.cb_batch_prod, self.cb_batch_buyer)
+        self.setTabOrder(self.cb_batch_buyer, self.ed_batch_inv)
+        self.setTabOrder(self.ed_batch_inv, self.dt_batch_date)
 
         grid.addWidget(QLabel("تاریخ خرید:"), 2, 0)
         grid.addWidget(self.dt_batch_date, 2, 1)
@@ -3372,6 +3384,13 @@ class MainWindow(QMainWindow):
         grid.addWidget(QLabel("تعداد فروش *:"), 1, 4)
         grid.addWidget(self.cb_sale_qty, 1, 5)
 
+        self.setTabOrder(self.ed_sale_inv, self.cb_sale_prod)
+        self.setTabOrder(self.cb_sale_prod, self.ed_sale_serial)
+        self.setTabOrder(self.ed_sale_serial, self.cb_sale_batch)
+        self.setTabOrder(self.cb_sale_batch, self.cb_sale_seller)
+        self.setTabOrder(self.cb_sale_seller, self.cb_sale_qty)
+        self.setTabOrder(self.cb_sale_qty, self.pr_sale_actual)
+
         grid.addWidget(QLabel("قیمت فروش واحد:"), 2, 0)
         grid.addWidget(self.pr_sale_actual, 2, 1)
         grid.addWidget(QLabel("قیمت پیشنهادی واحد:"), 2, 2)
@@ -3742,9 +3761,9 @@ class MainWindow(QMainWindow):
         self.cb_sale_prod.blockSignals(True)
         self.cb_sale_prod.setCurrentIndex(0 if self.cb_sale_prod.count() else -1)
         self.cb_sale_prod.blockSignals(False)
-        self.cb_sale_batch.blockSignals(True)
-        self.cb_sale_batch.clear()
-        self.cb_sale_batch.blockSignals(False)
+        self._on_sale_prod_changed()
+        self.cb_sale_batch.setCurrentIndex(-1)
+        self.cb_sale_batch.clearEditText()
         self.cb_sale_seller.setCurrentIndex(-1)
         self.cb_sale_seller.clearEditText()
         self.ed_sale_customer.clear()
@@ -3760,11 +3779,7 @@ class MainWindow(QMainWindow):
         self.ed_sale_serial.clear()
         self.tbl_sales.clearSelection()
         self.cb_sale_qty.setCurrentText("1")
-        self._on_sale_batch_changed()
         self._populate_color_checklist(self.btn_sale_colors, [], selected=[])
-        self.pr_sale_actual.set_value(0)
-        self.pr_sale_paid.set_value(0)
-        self.ed_sale_specs.clear()
         self._recalc_sale_live()
 
     def _on_sale_status_changed(self, st):
@@ -5078,9 +5093,12 @@ class MainWindow(QMainWindow):
             for name in custom_defs.keys():
                 self.cb_rep_type.addItem(name)
 
-        idx = self.cb_rep_type.findText(current_rep)
-        if idx >= 0:
-            self.cb_rep_type.setCurrentIndex(idx)
+        if current_rep:
+            idx = self.cb_rep_type.findText(current_rep)
+            if idx >= 0 and self.cb_rep_type.itemText(idx).strip():
+                self.cb_rep_type.setCurrentIndex(idx)
+            else:
+                self.cb_rep_type.setCurrentIndex(0)
         else:
             self.cb_rep_type.setCurrentIndex(0)
         self.cb_rep_type.blockSignals(False)
@@ -6372,6 +6390,7 @@ class MainWindow(QMainWindow):
         lbl_type.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
         self.cb_report_export_type = QComboBox()
         self.cb_report_export_type.setMinimumHeight(32)
+        self.cb_report_export_type.addItem("تعریف گزارش جدید")
         for report_type in REPORT_AVAILABLE_COLUMNS.keys():
             self.cb_report_export_type.addItem(report_type)
         custom_defs = self._get_custom_report_definitions()
@@ -6447,18 +6466,29 @@ class MainWindow(QMainWindow):
             item.setCheckState(Qt.Unchecked if item.checkState() == Qt.Checked else Qt.Checked)
 
     def _get_custom_report_definitions(self):
-        try:
-            return json.loads(self.db.get_setting("custom_report_definitions", "{}") or "{}")
-        except Exception:
-            return {}
+        if not hasattr(self, "_staged_custom_report_definitions") or self._staged_custom_report_definitions is None:
+            try:
+                self._staged_custom_report_definitions = json.loads(self.db.get_setting("custom_report_definitions", "{}") or "{}")
+            except Exception:
+                self._staged_custom_report_definitions = {}
+        return self._staged_custom_report_definitions
 
     def _save_custom_report_definitions(self, defs: dict):
-        self.db.set_setting("custom_report_definitions", json.dumps(defs, ensure_ascii=False))
+        self._staged_custom_report_definitions = dict(defs)
+
+    def _get_report_export_configs(self):
+        if not hasattr(self, "_staged_report_export_configs") or self._staged_report_export_configs is None:
+            try:
+                self._staged_report_export_configs = json.loads(self.db.get_setting("report_excel_export_configs", "{}") or "{}")
+            except Exception:
+                self._staged_report_export_configs = {}
+        return self._staged_report_export_configs
 
     def _refresh_report_export_types_combo(self):
         current = self.cb_report_export_type.currentText()
         self.cb_report_export_type.blockSignals(True)
         self.cb_report_export_type.clear()
+        self.cb_report_export_type.addItem("تعریف گزارش جدید")
         for report_type in REPORT_AVAILABLE_COLUMNS.keys():
             self.cb_report_export_type.addItem(report_type)
         custom_defs = self._get_custom_report_definitions()
@@ -6466,6 +6496,8 @@ class MainWindow(QMainWindow):
             self.cb_report_export_type.addItem(name)
         if current and self.cb_report_export_type.findText(current) >= 0:
             self.cb_report_export_type.setCurrentText(current)
+        else:
+            self.cb_report_export_type.setCurrentIndex(0)
         self.cb_report_export_type.blockSignals(False)
         self._load_report_export_columns_ui(self.cb_report_export_type.currentText())
         self._sync_reports_tab_combo()
@@ -6475,23 +6507,34 @@ class MainWindow(QMainWindow):
         if not name:
             QMessageBox.warning(self, "نام گزارش", "لطفاً نام گزارش را وارد کنید.")
             return
-        if name in REPORT_AVAILABLE_COLUMNS:
+        if name == "تعریف گزارش جدید" or name in REPORT_AVAILABLE_COLUMNS:
             QMessageBox.warning(self, "نام تکراری", "این نام متعلق به یکی از گزارش‌های سیستمی است.")
             return
         custom_defs = self._get_custom_report_definitions()
         if name in custom_defs:
             QMessageBox.warning(self, "نام تکراری", "گزارشی با این نام قبلاً ایجاد شده است.")
             return
-        custom_defs[name] = list(ALL_SYSTEM_COLUMNS)
-        self._save_custom_report_definitions(custom_defs)
+        ordered_enabled = []
+        if hasattr(self, "lst_report_export_columns"):
+            for i in range(self.lst_report_export_columns.count()):
+                item = self.lst_report_export_columns.item(i)
+                if item.checkState() == Qt.Checked:
+                    ordered_enabled.append(item.text())
+        if not ordered_enabled:
+            ordered_enabled = list(ALL_SYSTEM_COLUMNS)
+
+        custom_defs[name] = ordered_enabled
+        exp_cfgs = self._get_report_export_configs()
+        exp_cfgs[name] = ordered_enabled
+
         self.ed_custom_report_name.clear()
         self._refresh_report_export_types_combo()
         self.cb_report_export_type.setCurrentText(name)
-        QMessageBox.information(self, "گزارش جدید", f"گزارش سفارشی «{name}» با موفقیت ایجاد شد.")
+        QMessageBox.information(self, "گزارش جدید", f"گزارش سفارشی «{name}» در پیش‌نویس تنظیمات ایجاد شد (برای ذخیره دائمی دکمه «ذخیره تنظیمات» را بزنید).")
 
     def _rename_custom_report(self):
         current_name = self.cb_report_export_type.currentText()
-        if current_name in REPORT_AVAILABLE_COLUMNS:
+        if current_name == "تعریف گزارش جدید" or current_name in REPORT_AVAILABLE_COLUMNS:
             QMessageBox.warning(self, "عدم امکان تغییر نام", "گزارش‌های پیش‌فرض سیستمی قابل تغییر نام نیستند.")
             return
         new_name = self.ed_custom_report_name.text().strip()
@@ -6500,7 +6543,7 @@ class MainWindow(QMainWindow):
             return
         if new_name == current_name:
             return
-        if new_name in REPORT_AVAILABLE_COLUMNS:
+        if new_name == "تعریف گزارش جدید" or new_name in REPORT_AVAILABLE_COLUMNS:
             QMessageBox.warning(self, "نام تکراری", "این نام متعلق به گزارش‌های سیستمی است.")
             return
         custom_defs = self._get_custom_report_definitions()
@@ -6508,42 +6551,42 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "نام تکراری", "گزارشی با این نام از قبل وجود دارد.")
             return
         custom_defs[new_name] = custom_defs.pop(current_name, list(ALL_SYSTEM_COLUMNS))
-        self._save_custom_report_definitions(custom_defs)
-        try:
-            exp_cfgs = json.loads(self.db.get_setting("report_excel_export_configs", "{}") or "{}")
-            if current_name in exp_cfgs:
-                exp_cfgs[new_name] = exp_cfgs.pop(current_name)
-                self.db.set_setting("report_excel_export_configs", json.dumps(exp_cfgs, ensure_ascii=False))
-        except Exception:
-            pass
+        exp_cfgs = self._get_report_export_configs()
+        if current_name in exp_cfgs:
+            exp_cfgs[new_name] = exp_cfgs.pop(current_name)
         self.ed_custom_report_name.clear()
         self._refresh_report_export_types_combo()
         self.cb_report_export_type.setCurrentText(new_name)
-        QMessageBox.information(self, "تغییر نام", f"نام گزارش به «{new_name}» تغییر یافت.")
+        QMessageBox.information(self, "تغییر نام", f"نام گزارش به «{new_name}» تغییر یافت (برای ذخیره نهایی دکمه «ذخیره تنظیمات» را بزنید).")
 
     def _delete_custom_report(self):
         current_name = self.cb_report_export_type.currentText()
-        if current_name in REPORT_AVAILABLE_COLUMNS:
+        if current_name == "تعریف گزارش جدید" or current_name in REPORT_AVAILABLE_COLUMNS:
             QMessageBox.warning(self, "عدم امکان حذف", "گزارش‌های پیش‌فرض سیستمی قابل حذف نیستند.")
             return
         if _ask_yes_no(self, "حذف گزارش", f"آیا از حذف گزارش سفارشی «{current_name}» اطمینان دارید؟") is True:
             custom_defs = self._get_custom_report_definitions()
             custom_defs.pop(current_name, None)
-            self._save_custom_report_definitions(custom_defs)
-            try:
-                exp_cfgs = json.loads(self.db.get_setting("report_excel_export_configs", "{}") or "{}")
-                exp_cfgs.pop(current_name, None)
-                self.db.set_setting("report_excel_export_configs", json.dumps(exp_cfgs, ensure_ascii=False))
-            except Exception:
-                pass
+            exp_cfgs = self._get_report_export_configs()
+            exp_cfgs.pop(current_name, None)
             self.ed_custom_report_name.clear()
             self._refresh_report_export_types_combo()
-            QMessageBox.information(self, "حذف گزارش", f"گزارش «{current_name}» حذف شد.")
+            QMessageBox.information(self, "حذف گزارش", f"گزارش «{current_name}» از پیش‌نویس حذف شد (برای ذخیره نهایی دکمه «ذخیره تنظیمات» را بزنید).")
 
     def _load_report_export_columns_ui(self, report_type=None):
         if not report_type:
             report_type = self.cb_report_export_type.currentText()
         if not report_type:
+            return
+
+        if report_type == "تعریف گزارش جدید":
+            self.ed_custom_report_name.clear()
+            self.lst_report_export_columns.clear()
+            for col in ALL_SYSTEM_COLUMNS:
+                item = QListWidgetItem(col)
+                item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+                item.setCheckState(Qt.Checked)
+                self.lst_report_export_columns.addItem(item)
             return
 
         custom_defs = self._get_custom_report_definitions()
@@ -6556,10 +6599,7 @@ class MainWindow(QMainWindow):
                 if c not in added_set:
                     all_columns.append(c)
 
-        try:
-            export_configs = json.loads(self.db.get_setting("report_excel_export_configs", "{}") or "{}")
-        except (TypeError, ValueError, json.JSONDecodeError):
-            export_configs = {}
+        export_configs = self._get_report_export_configs()
 
         self.lst_report_export_columns.clear()
         saved_enabled = None
@@ -6611,49 +6651,52 @@ class MainWindow(QMainWindow):
 
     def _reset_report_export_cols_default(self):
         report_type = self.cb_report_export_type.currentText()
-        try:
-            export_configs = json.loads(self.db.get_setting("report_excel_export_configs", "{}") or "{}")
-        except (TypeError, ValueError, json.JSONDecodeError):
-            export_configs = {}
-        if report_type in export_configs:
-            export_configs.pop(report_type, None)
-            self.db.set_setting("report_excel_export_configs", json.dumps(export_configs, ensure_ascii=False))
+        if report_type == "تعریف گزارش جدید":
+            self._load_report_export_columns_ui("تعریف گزارش جدید")
+            return
+        exp_cfgs = self._get_report_export_configs()
+        if report_type in exp_cfgs:
+            exp_cfgs.pop(report_type, None)
         custom_defs = self._get_custom_report_definitions()
         if report_type in custom_defs:
             custom_defs[report_type] = list(ALL_SYSTEM_COLUMNS)
-            self._save_custom_report_definitions(custom_defs)
         self._load_report_export_columns_ui(report_type)
         QMessageBox.information(
-            self, "بازنشانی تنظیمات", f"تنظیمات خروجی اکسل برای «{report_type}» به حالت پیش‌فرض بازگشت."
+            self, "بازنشانی تنظیمات", f"تنظیمات خروجی اکسل برای «{report_type}» به حالت پیش‌فرض بازگشت (برای ذخیره نهایی دکمه «ذخیره تنظیمات» را بزنید)."
         )
 
     def _save_report_export_config_internal(self):
         if not hasattr(self, "cb_report_export_type") or not hasattr(self, "lst_report_export_columns"):
             return
         report_type = self.cb_report_export_type.currentText()
-        if not report_type:
-            return
-        ordered_enabled = []
-        for i in range(self.lst_report_export_columns.count()):
-            item = self.lst_report_export_columns.item(i)
-            if item.checkState() == Qt.Checked:
-                ordered_enabled.append(item.text())
-        try:
-            export_configs = json.loads(self.db.get_setting("report_excel_export_configs", "{}") or "{}")
-        except (TypeError, ValueError, json.JSONDecodeError):
-            export_configs = {}
-        if ordered_enabled:
-            export_configs[report_type] = ordered_enabled
-        else:
-            export_configs.pop(report_type, None)
-        self.db.set_setting("report_excel_export_configs", json.dumps(export_configs, ensure_ascii=False))
-        custom_defs = self._get_custom_report_definitions()
-        if report_type in custom_defs:
-            custom_defs[report_type] = ordered_enabled
-            self._save_custom_report_definitions(custom_defs)
+        if report_type and report_type != "تعریف گزارش جدید":
+            ordered_enabled = []
+            for i in range(self.lst_report_export_columns.count()):
+                item = self.lst_report_export_columns.item(i)
+                if item.checkState() == Qt.Checked:
+                    ordered_enabled.append(item.text())
+            if ordered_enabled:
+                exp_cfgs = self._get_report_export_configs()
+                exp_cfgs[report_type] = ordered_enabled
+                custom_defs = self._get_custom_report_definitions()
+                if report_type in custom_defs:
+                    custom_defs[report_type] = ordered_enabled
+
+        if hasattr(self, "_staged_custom_report_definitions") and self._staged_custom_report_definitions is not None:
+            self.db.set_setting("custom_report_definitions", json.dumps(self._staged_custom_report_definitions, ensure_ascii=False))
+        if hasattr(self, "_staged_report_export_configs") and self._staged_report_export_configs is not None:
+            self.db.set_setting("report_excel_export_configs", json.dumps(self._staged_report_export_configs, ensure_ascii=False))
 
     def _save_report_export_config_ui(self):
         report_type = self.cb_report_export_type.currentText()
+        if report_type == "تعریف گزارش جدید":
+            name = self.ed_custom_report_name.text().strip()
+            if not name:
+                QMessageBox.warning(self, "نام گزارش", "لطفاً ابتدا نام گزارش سفارشی را وارد کنید.")
+                return
+            self._add_custom_report()
+            return
+
         ordered_enabled = []
         for i in range(self.lst_report_export_columns.count()):
             item = self.lst_report_export_columns.item(i)
@@ -6664,9 +6707,15 @@ class MainWindow(QMainWindow):
                 self, "خطا در تنظیم ستون‌ها", "دست‌کم یک ستون باید برای خروجی اکسل انتخاب شود."
             )
             return
-        self._save_report_export_config_internal()
+
+        exp_cfgs = self._get_report_export_configs()
+        exp_cfgs[report_type] = ordered_enabled
+        custom_defs = self._get_custom_report_definitions()
+        if report_type in custom_defs:
+            custom_defs[report_type] = ordered_enabled
+
         QMessageBox.information(
-            self, "ذخیره تنظیمات", f"تنظیمات ستون‌ها و ترتیب خروجی اکسل برای «{report_type}» ذخیره شد."
+            self, "آماده ذخیره", f"تنظیمات ستون‌ها برای «{report_type}» در حافظه ثبت شد. برای ذخیره نهایی دکمه «ذخیره تنظیمات» را بزنید."
         )
 
     # =========================================================================
@@ -6717,19 +6766,30 @@ class MainWindow(QMainWindow):
         security_layout.addWidget(self.chk_req_pass)
         security_layout.addWidget(security_hint)
 
-        # مدیریت رمز عبور پایگاه داده (بند ۱۳)
-        gb_db_pwd = QGroupBox("مدیریت رمز عبور پایگاه داده (Database Password)")
+        # مدیریت رمز و رمزنگاری پایگاه داده (بند ۱۳)
+        gb_db_pwd = QGroupBox("مدیریت رمز و رمزنگاری پایگاه داده (Database Encryption & Password)")
         db_pwd_layout = QVBoxLayout(gb_db_pwd)
+        db_pwd_layout.setContentsMargins(12, 12, 12, 12)
+        db_pwd_layout.setSpacing(10)
         self.lbl_db_pwd_status = QLabel()
         self.lbl_db_pwd_status.setWordWrap(True)
         self.lbl_db_pwd_status.setStyleSheet("font-weight: bold;")
+        self.lbl_db_pwd_status.setMinimumHeight(32)
+        self.lbl_db_pwd_status.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         db_pwd_btn_row = QHBoxLayout()
+        db_pwd_btn_row.setSpacing(8)
         self.btn_set_db_pwd = QPushButton("🔑 تعیین رمز عبور دیتابیس")
+        self.btn_set_db_pwd.setMinimumHeight(36)
+        self.btn_set_db_pwd.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.btn_set_db_pwd.clicked.connect(self._on_set_db_password_clicked)
         self.btn_change_db_pwd = QPushButton("✏️ تغییر رمز عبور")
+        self.btn_change_db_pwd.setMinimumHeight(36)
+        self.btn_change_db_pwd.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.btn_change_db_pwd.setObjectName("btnSecondary")
         self.btn_change_db_pwd.clicked.connect(self._on_change_db_password_clicked)
         self.btn_remove_db_pwd = QPushButton("🔓 حذف رمز عبور")
+        self.btn_remove_db_pwd.setMinimumHeight(36)
+        self.btn_remove_db_pwd.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.btn_remove_db_pwd.setObjectName("btnDanger")
         self.btn_remove_db_pwd.clicked.connect(self._on_remove_db_password_clicked)
         db_pwd_btn_row.addWidget(self.btn_set_db_pwd)
@@ -6737,6 +6797,7 @@ class MainWindow(QMainWindow):
         db_pwd_btn_row.addWidget(self.btn_remove_db_pwd)
 
         self.chk_db_req_startup_pass = QCheckBox("درخواست رمز دیتابیس هنگام ورود به برنامه")
+        self.chk_db_req_startup_pass.setMinimumHeight(28)
         self.chk_db_req_startup_pass.toggled.connect(self._on_db_startup_password_toggled)
         self.chk_db_req_startup_pass.setToolTip(
             "در صورت فعال بودن، در هر بار اجرای برنامه، قبل از دسترسی به اطلاعات رمز دیتابیس درخواست می‌شود."
@@ -6918,7 +6979,8 @@ class MainWindow(QMainWindow):
         self.lst_cfg_subcategories = SmoothScrollListWidget()
         self.lst_cfg_subcategories.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.lst_cfg_subcategories.verticalScrollBar().setSingleStep(18)
-        self.lst_cfg_subcategories.setMaximumHeight(125)
+        self.lst_cfg_subcategories.setMinimumHeight(200)
+        self.lst_cfg_subcategories.setMaximumHeight(320)
         self.ed_cfg_subcategory = QLineEdit()
         self.ed_cfg_subcategory.setPlaceholderText("نام زیرمجموعه را وارد کنید؛ مثلاً صفحه‌نمایش یا پردازنده...")
         self.ed_cfg_subcategory.textChanged.connect(
@@ -6961,10 +7023,10 @@ class MainWindow(QMainWindow):
         self.lst_cfg_attributes = SmoothScrollListWidget()
         self.lst_cfg_attributes.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.lst_cfg_attributes.verticalScrollBar().setSingleStep(18)
-        self.lst_cfg_attributes.setMinimumHeight(155)
-        self.lst_cfg_attributes.setMaximumHeight(190)
+        self.lst_cfg_attributes.setMinimumHeight(220)
+        self.lst_cfg_attributes.setMaximumHeight(350)
         self.lst_cfg_attributes.setSizePolicy(
-            QSizePolicy.Expanding, QSizePolicy.Fixed
+            QSizePolicy.Expanding, QSizePolicy.Expanding
         )
         self.ed_cfg_attribute_name = QLineEdit()
         self.ed_cfg_attribute_name.setMinimumHeight(32)
@@ -7065,7 +7127,8 @@ class MainWindow(QMainWindow):
         self.lst_cfg_colors = SmoothScrollListWidget()
         self.lst_cfg_colors.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.lst_cfg_colors.verticalScrollBar().setSingleStep(18)
-        self.lst_cfg_colors.setMaximumHeight(125)
+        self.lst_cfg_colors.setMinimumHeight(200)
+        self.lst_cfg_colors.setMaximumHeight(320)
         self.ed_cfg_color = QLineEdit()
         self.ed_cfg_color.setPlaceholderText("نام رنگ را وارد کنید؛ مثلاً سبز، ذغالی یا نقره‌ای...")
         self.ed_cfg_color.textChanged.connect(
@@ -10311,20 +10374,22 @@ def main():
     selected_db_path = select_startup_database_path()
     if not selected_db_path:
         sys.exit(0)
-    db = DatabaseManager(selected_db_path)
 
     # Database Password Startup Check (Item 13)
-    if db.is_password_protected() and db.is_startup_password_prompt_required() and not db.can_auto_unlock_locally():
-        from PySide6.QtWidgets import QInputDialog
+    try:
+        db = DatabaseManager(selected_db_path)
+    except DatabasePasswordRequiredError:
+        from PySide6.QtWidgets import QInputDialog, QMessageBox
         unlocked = False
         for _ in range(3):
             pwd, ok = QInputDialog.getText(None, "ورود به پایگاه داده", "رمز عبور پایگاه داده را وارد کنید:", QLineEdit.Password)
             if not ok:
                 break
-            if db.verify_database_password(pwd):
+            try:
+                db = DatabaseManager(selected_db_path, password=pwd)
                 unlocked = True
                 break
-            else:
+            except (DatabasePasswordRequiredError, DatabaseInvalidPasswordError):
                 QMessageBox.warning(None, "رمز نادرست", "رمز عبور واردشده برای پایگاه داده صحیح نیست.")
         if not unlocked:
             sys.exit(0)

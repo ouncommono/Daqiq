@@ -1,3 +1,25 @@
+# Daqiq 4.6.0
+
+## Release Summary & Architectural Enhancements
+
+- **Strict 1-to-1 Database-to-UI Schema Parity (Eliminate Orphan/Phantom Columns)**: Removed unexposed `payment_method` (`"روش پرداخت"`) from SQLite schema v460 (`payments` table), schema contract definitions, internal queries, and Excel report export options. All persisted database columns strictly correspond to user-facing and user-editable controls.
+- **Hardware Taxonomy Rebuild (`default_taxonomy.json`)**: Completely rebuilt retail hardware taxonomy matching international catalog standards:
+  - Motherboards, RAM, Laptops, Desktops feature comprehensive memory generations from `DDR2`, `DDR3`, `DDR4`, `DDR5` through `LPDDR4`, `LPDDR4X`, `LPDDR5`, `LPDDR5X`.
+  - Processor families fully enumerated: `Intel Celeron`, `Intel Pentium`, `Core Ultra`, `Xeon`, `AMD Ryzen` (AM4/AM5).
+  - Displays/Monitors feature separate, distinct attributes: `"اندازه صفحه نمایش"` (Screen Size) and `"رزولوشن"` (Display Resolution).
+  - Single-drive capacities and interfaces tailored across SSD and HDD. Peripherals feature single-mode and multi-mode connectivity options (Wired, Wireless 2.4GHz, Bluetooth, Dual-Mode, Tri-Mode).
+  - Purged obsolete `"مشخصه"` prefix. Universal `"مشخصات"` (Display Name: `Specifications`) is strictly the final attribute of every subcategory.
+  - Exactly one `"سایر موارد (Other)"` subcategory per category, containing exclusively the `"مشخصات"` attribute.
+- **True Cryptographic On-Disk Database Encryption (AES-256-GCM / PBKDF2)**: Replaced superficial password flag with authentic disk encryption. When password-protected, database on disk is written as binary ciphertext starting with `b"DAQIQENC\x01"`, encrypted via AES-256-GCM with key derived from PBKDF2-HMAC-SHA256 (100,000 rounds). The file contains zero plaintext SQLite headers (`SQLite format 3`), rendering it unreadable in standard SQLite tools (`sqlite3.connect` raises `sqlite3.DatabaseError: file is not a database`). At runtime, SQLite operations occur safely in memory with transparent commit flush and atomic writes. Supports Windows DPAPI local key envelope for seamless startup when password prompt is optional.
+- **Interactive Startup Password Authentication**: Interactive password dialog prompted on application startup if password protection is configured with prompt enabled (allowing up to 3 authentication attempts before graceful exit).
+- **Sales Form Reset Bug Fix (`"پاک کردن فرم"`)**: Fixed reset handler in `"ثبت فروش"`: clicking `"پاک کردن فرم"` immediately repopulates `"محموله موجود"` (`cb_sale_batch`) with available shipments for the newly reset product rather than clearing the dropdown to an unselectable state.
+- **Transactional Excel Report Export Settings & Definition Workflow**: Staged all changes in `"تنظیمات خروجی اکسل گزارش ها"` in-memory; changes take effect only upon clicking `"ذخیره تنظیمات"` and are cleanly discarded on `"انصراف"`. Added `"تعریف گزارش جدید"` as fixed index 0 in the report types dropdown, instantly displaying all database columns for drafting new custom reports. Reports tab (`cb_rep_type`) defaults to `"همه"`.
+- **Vertical Height Expansions in Settings Lists**: Expanded visible scroll areas and minimum heights for subcategories, colors, attributes, and suggested value lists to >= 200px (expanding up to 350px), eliminating cramped 2-item vertical truncation.
+- **Purchases & Sales Ergonomic Layout Swaps**: Swapped form fields in `"ثبت خرید و محموله ها"` to place `"شماره سریال"` directly underneath `"کد محموله"` followed by `"تأمین کننده"`. In `"ثبت فروش"`, swapped `"شماره سریال"` and `"محموله موجود"` with synchronized keyboard tab navigation.
+- **Permanent Node 20 Deprecation Elimination**: Upgraded GitHub Actions workflow (`ci.yml`) to Node 24 (`FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"`), modern action versions (`actions/checkout@v4`, `actions/setup-python@v5`, `actions/upload-artifact@v4`, `actions/download-artifact@v4`), and native `gh` CLI invocations for PR creation and Release publishing marked as `v4.6.0` / Latest.
+
+---
+
 # Daqiq 4.5.0
 
 ## Release Summary & Architectural Enhancements

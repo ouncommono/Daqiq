@@ -1781,8 +1781,8 @@ class DynamicAttributeValuesWidget(QWidget):
 
         self.scroll_area = SmoothScrollArea(self)
         self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setMinimumHeight(90)
-        self.scroll_area.setMaximumHeight(150)
+        self.scroll_area.setMinimumHeight(200)
+        self.scroll_area.setMaximumHeight(350)
 
         self.container = QWidget()
         self.rows_layout = QVBoxLayout(self.container)
