@@ -77,14 +77,14 @@ class ReleaseV44Tests(unittest.TestCase):
     # ITEM 0 & 11: Greenfield Database Schema & Canonical Column Order
     # -------------------------------------------------------------------------
     def test_item0_greenfield_schema_and_version(self):
-        """Item 0: Database version is 4.7.0 and schema_version is 470."""
-        self.assertEqual(APP_VERSION, "4.7.0")
-        self.assertEqual(SCHEMA_VERSION, 470)
+        """Item 0: Database version is 4.8.0 and schema_version is 480."""
+        self.assertEqual(APP_VERSION, "4.8.0")
+        self.assertEqual(SCHEMA_VERSION, 480)
         with self.db.get_connection() as conn:
             user_ver = conn.execute("PRAGMA user_version").fetchone()[0]
-            self.assertEqual(user_ver, 470)
+            self.assertEqual(user_ver, 480)
             app_ver = conn.execute("SELECT value FROM settings WHERE key='app_version'").fetchone()[0]
-            self.assertEqual(app_ver, "4.7.0")
+            self.assertEqual(app_ver, "4.8.0")
 
     def test_item0_and_11_canonical_physical_column_order(self):
         """Item 0 & 11: Products, batches, and sales have strict canonical column positions."""

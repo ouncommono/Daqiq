@@ -49,8 +49,8 @@ class TestReleaseV460(unittest.TestCase):
     # REQ-0: Greenfield Schema & App Parity (Zero Phantom Columns)
     # =========================================================================
     def test_req0_schema_parity_no_phantom_columns(self):
-        self.assertEqual(APP_VERSION, "4.7.0")
-        self.assertEqual(SCHEMA_VERSION, 470)
+        self.assertEqual(APP_VERSION, "4.8.0")
+        self.assertEqual(SCHEMA_VERSION, 480)
 
         # Verify payment_method phantom column is completely eliminated
         self.assertNotIn("payment_method", EXPECTED_SCHEMA_COLUMNS["payments"])
@@ -67,7 +67,7 @@ class TestReleaseV460(unittest.TestCase):
             with db.get_connection() as conn:
                 # Check user_version
                 ver = conn.execute("PRAGMA user_version").fetchone()[0]
-                self.assertEqual(ver, 470)
+                self.assertEqual(ver, 480)
 
                 # Check payments columns in database
                 cols = [row[1] for row in conn.execute("PRAGMA table_info(payments)").fetchall()]
@@ -333,11 +333,11 @@ class TestReleaseV460(unittest.TestCase):
             db = DatabaseManager(db_path)
             win = MainWindow(db)
 
-            # Check minimum heights conform to compacted v4.7.0 standard
+            # Check minimum heights conform to compacted v4.8.0 standard
             self.assertGreaterEqual(win.lst_cfg_subcategories.minimumHeight(), 174)
             self.assertGreaterEqual(win.lst_cfg_colors.minimumHeight(), 174)
             self.assertGreaterEqual(win.lst_cfg_attributes.minimumHeight(), 192)
-            self.assertGreaterEqual(win.attr_values_widget.scroll_area.minimumHeight(), 190)
+            self.assertGreaterEqual(win.attr_values_widget.scroll_area.minimumHeight(), 160)
 
             win.close()
 

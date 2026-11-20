@@ -1259,8 +1259,8 @@ class DynamicAttributeValuesWidget(QWidget):
 
         self.scroll_area = SmoothScrollArea(self)
         self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setMinimumHeight(190)
-        self.scroll_area.setMaximumHeight(250)
+        self.scroll_area.setMinimumHeight(160)
+        self.scroll_area.setMaximumHeight(220)
 
         self.container = QWidget()
         self.rows_layout = QVBoxLayout(self.container)
@@ -1270,14 +1270,6 @@ class DynamicAttributeValuesWidget(QWidget):
 
         self.scroll_area.setWidget(self.container)
         main_layout.addWidget(self.scroll_area)
-
-        btn_bar = QHBoxLayout()
-        self.btn_add_initial = QPushButton("➕ افزودن مقدار جدید")
-        self.btn_add_initial.setObjectName("btnSecondary")
-        self.btn_add_initial.clicked.connect(lambda: self.add_row(""))
-        btn_bar.addWidget(self.btn_add_initial)
-        btn_bar.addStretch()
-        main_layout.addLayout(btn_bar)
 
         self.rows = []
         self.add_row("")
@@ -1290,8 +1282,18 @@ class DynamicAttributeValuesWidget(QWidget):
                 result.append(val)
         return result
 
+    def _clear_rows(self):
+        for r in list(self.rows):
+            self.rows_layout.removeWidget(r)
+            r.deleteLater()
+        self.rows.clear()
+
+    def clear(self):
+        self._clear_rows()
+        self.add_row("")
+
     def set_values(self, values_list: list):
-        self.clear()
+        self._clear_rows()
         if not values_list:
             self.add_row("")
             return
@@ -1331,9 +1333,3 @@ class DynamicAttributeValuesWidget(QWidget):
 
     def _on_add_after(self, row):
         self.add_row("", after_row=row)
-
-    def clear(self):
-        for r in list(self.rows):
-            self.rows_layout.removeWidget(r)
-            r.deleteLater()
-        self.rows.clear()
