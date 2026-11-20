@@ -42,7 +42,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QScrollArea,
 )
-from PySide6.QtCore import Qt, QTimer, QObject, QEvent
+from PySide6.QtCore import Qt, QTimer, QObject, QEvent, QLocale
 from PySide6.QtGui import QFont, QColor, QFontMetrics
 
 from database import (
@@ -50,7 +50,7 @@ from database import (
     receivable_balance, service_financial_breakdown,
     app_config_has_database_selection, get_default_database_path,
     generate_timestamped_database_filename, resolve_new_database_filename,
-    create_and_initialize_database,
+    create_and_initialize_database, SecureCredentialStore,
     SCHEMA_VERSION, round_integer_division, round_percentage_amount,
 )
 from utils_and_widgets import (
@@ -79,7 +79,7 @@ from exporter import (
     get_next_excel_filename,
 )
 
-APP_VERSION = "4.8.0"
+APP_VERSION = "4.8.1"
 
 REPORT_AVAILABLE_COLUMNS = {
     "همه (گزارش جامع خرید، فروش و خدمات)": [
@@ -243,12 +243,18 @@ class SettingsSnapshot:
         self.attribute_label_text = win.ed_cfg_attribute_label.text() if hasattr(win, "ed_cfg_attribute_label") else ""
         self.attribute_values = win.attr_values_widget.get_values() if hasattr(win, "attr_values_widget") else []
         self.color_text = win.ed_cfg_color.text() if hasattr(win, "ed_cfg_color") else ""
+        self.staged_db_password_action = copy.deepcopy(getattr(win, "_staged_db_password_action", None))
+        self.staged_db_startup_prompt = getattr(win, "_staged_db_startup_prompt", None)
 
     def restore(self, win):
         win.db.cfg = copy.deepcopy(self.cfg)
-        win._taxonomy_draft = copy.deepcopy(self.taxonomy_draft)
         win._pending_attribute_renames = list(self.pending_attribute_renames)
+        win._staged_db_password_action = copy.deepcopy(self.staged_db_password_action)
+        win._staged_db_startup_prompt = self.staged_db_startup_prompt
+        win._refresh_db_password_status()
         win._load_general_settings_form()
+        win._taxonomy_draft = copy.deepcopy(self.taxonomy_draft)
+        win._refresh_catalog_draft_ui()
         if hasattr(win, "ed_cfg_category"):
             win.ed_cfg_category.setText(self.category_text)
         if hasattr(win, "ed_cfg_subcategory"):
@@ -906,7 +912,7 @@ def select_startup_database_path(parent=None):
         base_dir = os.path.dirname(default_path) or os.path.dirname(get_default_database_path())
         if os.path.isfile(base_dir):
             base_dir = os.path.dirname(base_dir)
-        default_path = generate_timestamped_database_filename(base_dir, prefix="Daqiq", extension=".db")
+        default_path = resolve_new_database_filename(base_dir)
 
     dialog = DatabaseBootstrapDialog(default_path, parent)
     if _is_valid_sqlite_database_file(default_path):
@@ -2043,13 +2049,12 @@ class MainWindow(QMainWindow):
 
     def _restart_backup_timer(self):
         try:
-            cfg = self.db.cfg
-            if not cfg.get("auto_backup_enabled", True):
+            if not self.db.get_db_config("auto_backup_enabled", True):
                 self.backup_timer.stop()
                 return
 
             try:
-                interval_minutes = int(cfg.get("auto_backup_interval_min", 60))
+                interval_minutes = int(self.db.get_db_config("auto_backup_interval_min", 60))
             except (TypeError, ValueError):
                 interval_minutes = 60
             interval_seconds = max(1, min(1440, interval_minutes)) * 60
@@ -3336,14 +3341,24 @@ class MainWindow(QMainWindow):
         self.cb_war_months = QComboBox()
         self.cb_war_months.setEditable(True)
         self.cb_war_months.setInsertPolicy(QComboBox.NoInsert)
+        self.cb_war_months.setLocale(QLocale.c())
+        if self.cb_war_months.lineEdit():
+            self.cb_war_months.lineEdit().setLocale(QLocale.c())
+            def _normalize_war_input(txt):
+                norm = normalize_digits(txt)
+                if norm != txt and self.cb_war_months.lineEdit():
+                    pos = self.cb_war_months.lineEdit().cursorPosition()
+                    self.cb_war_months.lineEdit().setText(norm)
+                    self.cb_war_months.lineEdit().setCursorPosition(pos)
+            self.cb_war_months.lineEdit().textEdited.connect(_normalize_war_input)
         self.cb_war_months.setCurrentText("بدون گارانتی")
         self.cb_war_months.setToolTip(
             "مدت را از فهرست انتخاب کنید یا تعداد روز/ماه را دستی وارد کنید."
         )
         warranty_options = [
-            ("بدون گارانتی", 0), ("۲ روز", 2), ("۱ هفته", 7), ("۲ هفته", 14),
-            ("۱ ماه", 30), ("۲ ماه", 60), ("۳ ماه", 90), ("۶ ماه", 180),
-            ("۱ سال", 365), ("۱۸ ماه", 540), ("۲ سال", 730), ("۳ سال", 1095),
+            ("بدون گارانتی", 0), ("2 روز", 2), ("1 هفته", 7), ("2 هفته", 14),
+            ("1 ماه", 30), ("2 ماه", 60), ("3 ماه", 90), ("6 ماه", 180),
+            ("1 سال", 365), ("18 ماه", 540), ("2 سال", 730), ("3 سال", 1095),
         ]
         for label, days in warranty_options:
             self.cb_war_months.addItem(label, days)
@@ -3797,21 +3812,32 @@ class MainWindow(QMainWindow):
         )
 
     def _get_warranty_days(self):
-        """Return warranty duration in days for preset or manually typed values."""
-        selected_days = self.cb_war_months.currentData()
-        if selected_days is not None:
-            return max(0, int(selected_days))
-        raw = normalize_digits(self.cb_war_months.currentText()).strip()
-        match = re.search(r"\d+", raw)
+        """Return warranty duration in days for preset or manually typed values (REQ-1)."""
+        curr_text = normalize_digits(self.cb_war_months.currentText()).strip()
+        if not curr_text or curr_text == "0" or curr_text == "بدون گارانتی":
+            return 0
+        # If matches an exact preset item, return its associated data
+        idx = self.cb_war_months.findText(curr_text)
+        if idx >= 0:
+            data = self.cb_war_months.itemData(idx)
+            if data is not None:
+                return max(0, int(data))
+        # Otherwise parse custom entry
+        match = re.search(r"\d+", curr_text)
         if not match:
             return 0
         amount = max(0, int(match.group(0)))
-        if "سال" in raw:
+        if "سال" in curr_text or "y" in curr_text.lower():
             return amount * 365
-        if "ماه" in raw:
+        if "ماه" in curr_text or "m" in curr_text.lower():
             return amount * 30
-        if "هفته" in raw:
+        if "هفته" in curr_text or "w" in curr_text.lower():
             return amount * 7
+        if "روز" in curr_text or "d" in curr_text.lower():
+            return amount
+        # Bare number without unit (e.g., 6, 12, 18, 24, 0)
+        if amount <= 36:
+            return amount * 30  # Months context in retail warranty
         return amount
 
     def _recalc_warranty_end(self, *_):
@@ -3848,6 +3874,7 @@ class MainWindow(QMainWindow):
             f"{jdatetime.datetime.now().strftime('%H:%M:%S')}"
         )
         try:
+            war_days = self._get_warranty_days()
             self.db.add_sale(
                 self.ed_sale_inv.text().strip(),
                 product_id,
@@ -3861,12 +3888,12 @@ class MainWindow(QMainWindow):
                 now_dt,
                 self.ed_war_company.text().strip(),
                 self.dt_war_start.get_date(),
-                0,
+                war_days // 30,
                 self.dt_war_end.get_date(),
                 self.ed_sale_serial.text().strip(),
                 "",
                 self.cb_sale_status.currentText(),
-                warranty_days=self._get_warranty_days(),
+                warranty_days=war_days,
                 specifications=self.ed_sale_specs.text().strip(),
                 colors=self._checked_colors(self.btn_sale_colors),
                 customer_phone=self.ed_sale_phone.text().strip(),
@@ -4009,6 +4036,7 @@ class MainWindow(QMainWindow):
             )
             return
         try:
+            war_days = self._get_warranty_days()
             self.db.update_sale(
                 self.selected_sale_id,
                 self.cb_sale_seller.currentData(),
@@ -4019,12 +4047,12 @@ class MainWindow(QMainWindow):
                 self.pr_sale_paid.get_value(),
                 self.ed_war_company.text().strip(),
                 self.dt_war_start.get_date(),
-                0,
+                war_days // 30,
                 self.dt_war_end.get_date(),
                 self.ed_sale_serial.text().strip(),
                 "",
                 self.cb_sale_status.currentText(),
-                warranty_days=self._get_warranty_days(),
+                warranty_days=war_days,
                 specifications=self.ed_sale_specs.text().strip(),
                 colors=selected_colors,
                 customer_phone=self.ed_sale_phone.text().strip(),
@@ -7145,9 +7173,25 @@ class MainWindow(QMainWindow):
         # ستون چپ (کانتینر اصلی ۲): مشخصات فنی سفارشی با فضای بزرگ، اسکرول نرم و اشغال کامل ارتفاع
         products_page.setLayoutDirection(Qt.RightToLeft)
         products_page.setMinimumHeight(650)
-        prod_page_layout = QHBoxLayout(products_page)
+        prod_page_layout = QVBoxLayout(products_page)
         prod_page_layout.setContentsMargins(10, 10, 10, 10)
-        prod_page_layout.setSpacing(16)
+        prod_page_layout.setSpacing(12)
+
+        prod_actions_bar = QHBoxLayout()
+        btn_clear_prod_tax = QPushButton("🗑️ پاک کردن فهرست‌های کالا")
+        btn_clear_prod_tax.setObjectName("btnDanger")
+        btn_clear_prod_tax.setToolTip("پاک کردن کلیه دسته‌بندی‌ها، زیرمجموعه‌ها، مشخصات فنی و رنگ‌های کالا از پیش‌نویس")
+        btn_clear_prod_tax.clicked.connect(self._clear_product_taxonomy)
+
+        btn_import_prod_tax = QPushButton("📥 بارگذاری کالاها از فایل JSON")
+        btn_import_prod_tax.setObjectName("btnSecondary")
+        btn_import_prod_tax.setToolTip("بارگذاری ساختار کالا از فایل taxonomy.json خارجی بدون تغییر خدمات")
+        btn_import_prod_tax.clicked.connect(self._import_product_taxonomy)
+
+        prod_actions_bar.addWidget(btn_clear_prod_tax)
+        prod_actions_bar.addWidget(btn_import_prod_tax)
+        prod_actions_bar.addStretch()
+        prod_page_layout.addLayout(prod_actions_bar)
 
         right_col_widget = QWidget()
         right_col_widget.setLayoutDirection(Qt.RightToLeft)
@@ -7175,8 +7219,12 @@ class MainWindow(QMainWindow):
         left_col_scroll.setFrameShape(QScrollArea.NoFrame)
         left_col_scroll.setMinimumWidth(480)
 
-        prod_page_layout.addWidget(right_col_scroll, 1)
-        prod_page_layout.addWidget(left_col_scroll, 1)
+        cols_layout = QHBoxLayout()
+        cols_layout.setSpacing(16)
+        cols_layout.addWidget(right_col_scroll, 1)
+        cols_layout.addWidget(left_col_scroll, 1)
+        prod_page_layout.addLayout(cols_layout, 1)
+
         self.cb_cfg_category.currentTextChanged.connect(
             self._refresh_catalog_management_lists
         )
@@ -7200,6 +7248,23 @@ class MainWindow(QMainWindow):
         # application tab. Existing service records retain their stored snapshots.
         service_page = QWidget()
         service_page_layout = QVBoxLayout(service_page)
+
+        service_actions_bar = QHBoxLayout()
+        btn_clear_serv_tax = QPushButton("🗑️ پاک کردن فهرست انواع خدمت")
+        btn_clear_serv_tax.setObjectName("btnDanger")
+        btn_clear_serv_tax.setToolTip("پاک کردن کلیه انواع خدمت از پیش‌نویس")
+        btn_clear_serv_tax.clicked.connect(self._clear_service_taxonomy)
+
+        btn_import_serv_tax = QPushButton("📥 بارگذاری خدمات از فایل JSON")
+        btn_import_serv_tax.setObjectName("btnSecondary")
+        btn_import_serv_tax.setToolTip("بارگذاری انواع خدمت از فایل taxonomy.json خارجی بدون تغییر کالاها")
+        btn_import_serv_tax.clicked.connect(self._import_service_taxonomy)
+
+        service_actions_bar.addWidget(btn_clear_serv_tax)
+        service_actions_bar.addWidget(btn_import_serv_tax)
+        service_actions_bar.addStretch()
+        service_page_layout.addLayout(service_actions_bar)
+
         gb_service_types = QGroupBox("مدیریت انواع خدمت")
         service_types_layout = QVBoxLayout(gb_service_types)
         self.lst_cfg_service_types = SmoothScrollListWidget()
@@ -7456,16 +7521,16 @@ class MainWindow(QMainWindow):
         self._load_subcategory_caption(
             self.cb_cfg_category.currentText()
         )
-        self.chk_auto_bk.setChecked(bool(cfg.get("auto_backup_enabled", True)))
+        self.chk_auto_bk.setChecked(bool(self.db.get_db_config("auto_backup_enabled", True)))
         if hasattr(self, "ed_auto_bk_dir"):
             self.ed_auto_bk_dir.setText(self.db.get_automatic_backup_directory())
         try:
-            backup_interval = int(cfg.get("auto_backup_interval_min", 60))
+            backup_interval = int(self.db.get_db_config("auto_backup_interval_min", 60))
         except (TypeError, ValueError):
             backup_interval = 60
         self.sp_bk_interval.setValue(max(1, min(1440, backup_interval)))
         self.sp_bk_retention.setValue(
-            max(1, min(100, int(cfg.get("auto_backup_retention_count", 10))))
+            max(1, min(100, int(self.db.get_db_config("auto_backup_retention_count", 10))))
         )
         last_backup = cfg.get("last_backup_time", "ثبت نشده")
         warning = cfg.get("last_backup_warning", "")
@@ -7778,15 +7843,15 @@ class MainWindow(QMainWindow):
                 self._staged_db_startup_prompt = None
             else:
                 orig_pwd = self._staged_db_password_action.get("old_pwd", p_cur) if (self._staged_db_password_action and self._staged_db_password_action.get("action") == "change") else p_cur
-                try:
-                    self.db.remove_database_password(orig_pwd)
-                except Exception as exc:
-                    QMessageBox.critical(dialog, "خطا در حذف رمز", f"عملیات حذف رمز عبور با خطا مواجه شد:\n{exc}")
-                    return
-                self._staged_db_password_action = None
+                # Stage removal instead of decrypting immediately on disk (REQ-4)
+                self._staged_db_password_action = {"action": "remove", "pwd": orig_pwd}
                 self._staged_db_startup_prompt = None
             self._refresh_db_password_status()
-            QMessageBox.information(self, "حذف رمز عبور", "رمز عبور پایگاه داده با موفقیت حذف شد.")
+            QMessageBox.information(
+                dialog,
+                "حذف رمز عبور",
+                "درخواست حذف رمز عبور ثبت شد.\nبرای اعمال نهایی روی فایل پایگاه داده، روی «ذخیره تنظیمات» کلیک کنید."
+            )
             dialog.accept()
 
         btn_ok.clicked.connect(do_remove)
@@ -8796,6 +8861,127 @@ class MainWindow(QMainWindow):
             ]
             self._refresh_catalog_management_lists()
 
+    def _refresh_catalog_draft_ui(self):
+        """Refresh UI controls directly from current in-memory self._taxonomy_draft (REQ-3)."""
+        if not hasattr(self, "_taxonomy_draft"):
+            return
+        self.catalog_config = copy.deepcopy(self._taxonomy_draft)
+        self.cb_cfg_category.blockSignals(True)
+        self.cb_cfg_category.clear()
+        self.cb_cfg_category.addItems(self._taxonomy_draft.get("categories", []))
+        self.cb_cfg_category.blockSignals(False)
+        if self.cb_cfg_category.count():
+            self.cb_cfg_category.setCurrentIndex(0)
+        self._load_subcategory_caption(self.cb_cfg_category.currentText())
+        self._refresh_catalog_management_lists()
+
+    def _clear_product_taxonomy(self):
+        """Action 1 (REQ-3): Clear all product taxonomy lists from in-memory draft (services untouched)."""
+        if not _ask_yes_no(
+            self,
+            "تأیید پاک کردن فهرست‌های کالا",
+            "آیا مطمئن هستید که می‌خواهید تمام دسته‌بندی‌ها، زیرمجموعه‌ها، مشخصات فنی و رنگ‌های کالا را از پیش‌نویس پاک کنید؟\n"
+            "این تغییر فقط در پیش‌نویس تنظیمات اعمال می‌شود و تا زمان کلیک روی «ذخیره تنظیمات» در پایگاه داده ذخیره نخواهد شد."
+        ):
+            return
+        self._taxonomy_draft["categories"] = []
+        self._taxonomy_draft["subcategories"] = {}
+        self._taxonomy_draft["attributes"] = {}
+        self._taxonomy_draft["colors"] = []
+        self._refresh_catalog_draft_ui()
+
+    def _import_product_taxonomy(self):
+        """Action 2 (REQ-3): Scoped manual JSON import for product taxonomy only (services untouched)."""
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "انتخاب فایل ساختار کالا (JSON)",
+            "",
+            "JSON Files (*.json);;All Files (*.*)",
+        )
+        if not path:
+            return
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if not isinstance(data, dict):
+                raise ValueError("محتوای فایل JSON باید یک شیء (Object) معتبر باشد.")
+
+            categories = data.get("categories", [])
+            subcategories = data.get("subcategories", {})
+            attributes = data.get("attributes", {})
+            colors = data.get("colors", [])
+
+            if not isinstance(categories, list) or not isinstance(subcategories, dict) or not isinstance(attributes, dict):
+                raise ValueError("قالب فایل ساختار کالا معتبر نیست (باید شامل categories، subcategories و attributes باشد).")
+
+            self._taxonomy_draft["categories"] = list(categories)
+            self._taxonomy_draft["subcategories"] = {k: list(v) for k, v in subcategories.items() if isinstance(v, list)}
+            self._taxonomy_draft["attributes"] = copy.deepcopy(attributes)
+            if isinstance(colors, list):
+                self._taxonomy_draft["colors"] = list(colors)
+
+            self._taxonomy_draft = self._merge_default_catalog_subcategories(self._taxonomy_draft)
+            self._taxonomy_draft = self._enforce_other_subcategory_attribute_contract(self._taxonomy_draft)
+
+            self._refresh_catalog_draft_ui()
+            QMessageBox.information(
+                self,
+                "بارگذاری ساختار کالا",
+                "ساختار کالاها با موفقیت در پیش‌نویس بارگذاری شد.\nبرای اعمال نهایی، روی «ذخیره تنظیمات» کلیک کنید."
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "خطا در بارگذاری فایل ساختار", f"فایل انتخاب‌شده نامعتبر است یا قابل خواندن نیست:\n{e}")
+
+    def _clear_service_taxonomy(self):
+        """Action 1 (REQ-3): Clear all service types from in-memory draft (products untouched)."""
+        if not _ask_yes_no(
+            self,
+            "تأیید پاک کردن فهرست انواع خدمت",
+            "آیا مطمئن هستید که می‌خواهید تمام انواع خدمت را از پیش‌نویس پاک کنید؟\n"
+            "این تغییر فقط در پیش‌نویس تنظیمات اعمال می‌شود و تا زمان کلیک روی «ذخیره تنظیمات» در پایگاه داده ذخیره نخواهد شد."
+        ):
+            return
+        self._taxonomy_draft["service_types"] = []
+        self._refresh_catalog_draft_ui()
+
+    def _import_service_taxonomy(self):
+        """Action 2 (REQ-3): Scoped manual JSON import for service types only (products untouched)."""
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "انتخاب فایل ساختار خدمات (JSON)",
+            "",
+            "JSON Files (*.json);;All Files (*.*)",
+        )
+        if not path:
+            return
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if not isinstance(data, dict):
+                raise ValueError("محتوای فایل JSON باید یک شیء (Object) معتبر باشد.")
+
+            service_types = data.get("service_types")
+            if service_types is None:
+                service_types = data.get("نوع خدمت", [])
+            if not isinstance(service_types, list):
+                raise ValueError("قالب بخش خدمات معتبر نیست (باید آرایه‌ای از نام انواع خدمت باشد).")
+
+            self._taxonomy_draft["service_types"] = [str(st).strip() for st in service_types if str(st).strip()]
+            self._refresh_catalog_draft_ui()
+            QMessageBox.information(
+                self,
+                "بارگذاری انواع خدمت",
+                "فهرست انواع خدمت با موفقیت در پیش‌نویس بارگذاری شد.\nبرای اعمال نهایی، روی «ذخیره تنظیمات» کلیک کنید."
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "خطا در بارگذاری فایل خدمات", f"فایل انتخاب‌شده نامعتبر است یا قابل خواندن نیست:\n{e}")
+
+    def _on_save_settings_clicked(self):
+        return self._save_general_settings()
+
+    def _on_cancel_settings_clicked(self):
+        return self._rollback_settings()
+
     def _apply_product_catalog_config(self):
         self.catalog_config = self._effective_product_catalog_config()
         categories = list(self.catalog_config.get("categories") or [])
@@ -9085,6 +9271,10 @@ class MainWindow(QMainWindow):
             if os.path.normcase(os.path.abspath(path)) != target
             and os.path.isfile(path)
         ]
+        dbs = self.db.cfg.get("databases", {})
+        if target in dbs:
+            dbs.pop(target, None)
+        SecureCredentialStore.purge_database_credential(database_path)
         save_app_config(self.db.cfg)
         self._refresh_recent_database_list()
 
@@ -9132,7 +9322,7 @@ class MainWindow(QMainWindow):
             else:
                 probe_db = DatabaseManager(target_path)
                 pwd = None
-                if probe_db.is_password_protected() and probe_db.is_startup_password_prompt_required() and not probe_db.can_auto_unlock_locally():
+                if probe_db.is_password_protected() and not probe_db.can_auto_unlock_locally():
                     from PySide6.QtWidgets import QInputDialog
                     unlocked = False
                     for _ in range(3):
@@ -9414,9 +9604,9 @@ class MainWindow(QMainWindow):
             self.db.cfg["default_window_maximized"] = self.cb_win_mode.currentData() == "1"
             self.db.cfg["require_login_password"] = effective_password_policy
             self._save_report_export_config_internal()
-            self.db.cfg["auto_backup_enabled"] = self.chk_auto_bk.isChecked()
-            self.db.cfg["auto_backup_interval_min"] = self.sp_bk_interval.value()
-            self.db.cfg["auto_backup_retention_count"] = self.sp_bk_retention.value()
+            self.db.set_db_config("auto_backup_enabled", self.chk_auto_bk.isChecked())
+            self.db.set_db_config("auto_backup_interval_min", self.sp_bk_interval.value())
+            self.db.set_db_config("auto_backup_retention_count", self.sp_bk_retention.value())
             if hasattr(self, "ed_auto_bk_dir") and self.ed_auto_bk_dir.text().strip():
                 try:
                     self.db.set_automatic_backup_directory(self.ed_auto_bk_dir.text().strip())
@@ -10322,8 +10512,8 @@ def main():
         sys.exit(0)
     db = DatabaseManager(selected_db_path)
 
-    # Database Password Startup Check (Item 13)
-    if db.is_password_protected() and db.is_startup_password_prompt_required() and not db.can_auto_unlock_locally():
+    # Database Password Startup Check (Item 13, REQ-5)
+    if db.is_password_protected() and not db.can_auto_unlock_locally():
         from PySide6.QtWidgets import QInputDialog
         unlocked = False
         for _ in range(3):
