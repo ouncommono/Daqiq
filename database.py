@@ -14,8 +14,8 @@ import time
 import hashlib
 from decimal import Decimal, ROUND_HALF_EVEN
 
-APP_VERSION = "4.8.0"
-SCHEMA_VERSION = 480
+APP_VERSION = "4.8.1"
+SCHEMA_VERSION = 481
 
 SQLITE_INTEGER_MIN = -(1 << 63)
 SQLITE_INTEGER_MAX = (1 << 63) - 1
@@ -134,6 +134,43 @@ def get_default_database_path():
     return os.path.join(get_default_database_dir(), "Daqiq.db")
 
 
+def resolve_new_database_filename(base_dir=None, known_paths=None) -> str:
+    """Enforce REQ-2 sequential database naming:
+    - If 'Daqiq.db' does NOT exist -> select 'Daqiq.db'.
+    - If 'Daqiq.db' EXISTS -> find the next available sequential filename:
+      'Daqiq_2.db', 'Daqiq_3.db', 'Daqiq_4.db', ...
+    Checks both disk existence and registered/known DB paths so it NEVER overwrites an existing file.
+    """
+    if base_dir is None:
+        base_dir = get_default_database_dir()
+    os.makedirs(base_dir, exist_ok=True)
+
+    registered_norms = set()
+    if known_paths:
+        for p in known_paths:
+            if p:
+                registered_norms.add(os.path.normcase(os.path.abspath(p)))
+    else:
+        try:
+            cfg = load_app_config()
+            for p in cfg.get("recent_databases", []) + [cfg.get("db_path")]:
+                if p:
+                    registered_norms.add(os.path.normcase(os.path.abspath(p)))
+        except Exception:
+            pass
+
+    cand_1 = os.path.abspath(os.path.join(base_dir, "Daqiq.db"))
+    if not os.path.exists(cand_1):
+        return cand_1
+
+    idx = 2
+    while True:
+        cand = os.path.abspath(os.path.join(base_dir, f"Daqiq_{idx}.db"))
+        if not os.path.exists(cand) and os.path.normcase(cand) not in registered_norms:
+            return cand
+        idx += 1
+
+
 def generate_timestamped_database_filename(base_dir=None, prefix="Daqiq", extension=".db"):
     """Generate a Windows-filesystem-safe, sortable timestamped database filename (Daqiq_YYYY-MM-DD_HH-MM-SS.db).
     Guarantees no colons or invalid path characters and ensures no collisions with existing files."""
@@ -148,20 +185,6 @@ def generate_timestamped_database_filename(base_dir=None, prefix="Daqiq", extens
         candidate = os.path.join(base_dir, f"{prefix}_{now_str}_{suffix}{extension}")
         suffix += 1
     return candidate
-
-
-def resolve_new_database_filename(base_dir=None) -> str:
-    """Enforce REQ-2 smart database naming rule:
-    - Case 1: If 'Daqiq.db' does NOT exist in target default directory -> automatically select 'Daqiq.db'.
-    - Case 2: If 'Daqiq.db' ALREADY exists -> automatically generate collision-safe timestamped 'Daqiq_Date_Time.db'.
-    """
-    if base_dir is None:
-        base_dir = get_default_database_dir()
-    os.makedirs(base_dir, exist_ok=True)
-    default_name = os.path.join(base_dir, "Daqiq.db")
-    if not os.path.exists(default_name):
-        return default_name
-    return generate_timestamped_database_filename(base_dir, prefix="Daqiq", extension=".db")
 
 
 def create_and_initialize_database(target_path: str, password: str = None) -> "DatabaseManager":
@@ -3019,17 +3042,54 @@ class DatabaseManager:
             conn.execute("DELETE FROM service_records WHERE id=?", (record_id,))
             conn.commit()
 
-    # --- پشتیبان‌گیری و بازیابی ---
+    # --- پشتیبان‌گیری و بازیابی (REQ-2 Per-DB Scoped Backup & Collision Guard) ---
+    def _get_db_entry_config(self) -> dict:
+        norm_key = os.path.normcase(os.path.abspath(self.db_path))
+        dbs = self.cfg.setdefault("databases", {})
+        if norm_key not in dbs:
+            default_bk_dir = os.path.join(os.path.dirname(os.path.abspath(self.db_path)), "Backups")
+            dbs[norm_key] = {
+                "auto_backup_enabled": bool(self.cfg.get("auto_backup_enabled", True)),
+                "auto_backup_dir": default_bk_dir,
+                "auto_backup_interval_min": int(self.cfg.get("auto_backup_interval_min", 60)),
+                "auto_backup_retention_count": int(self.cfg.get("auto_backup_retention_count", 10)),
+            }
+        return dbs[norm_key]
+
+    def get_db_config(self, key: str, default=None):
+        norm_key = os.path.normcase(os.path.abspath(self.db_path))
+        dbs = self.cfg.get("databases", {})
+        if norm_key in dbs and key in dbs[norm_key]:
+            return dbs[norm_key][key]
+        return self.cfg.get(key, default)
+
+    def set_db_config(self, key: str, value):
+        disk_cfg = load_app_config()
+        disk_dbs = disk_cfg.get("databases", {})
+        dbs = self.cfg.setdefault("databases", {})
+        for dbk, dbv in disk_dbs.items():
+            if dbk not in dbs:
+                dbs[dbk] = dbv
+            elif isinstance(dbv, dict):
+                for k, v in dbv.items():
+                    if k not in dbs[dbk]:
+                        dbs[dbk][k] = v
+        norm_key = os.path.normcase(os.path.abspath(self.db_path))
+        entry = dbs.setdefault(norm_key, {})
+        entry[key] = value
+        self.cfg[key] = value
+        save_app_config(self.cfg)
+
     def get_automatic_backup_directory(self):
-        """Return the configured or default Backups folder."""
-        custom = str(self.cfg.get("auto_backup_dir") or "").strip()
-        if custom:
-            return os.path.abspath(custom)
+        """Return this database's configured or default Backups folder."""
+        entry_dir = str(self.get_db_config("auto_backup_dir") or "").strip()
+        if entry_dir:
+            return os.path.abspath(entry_dir)
         database_dir = os.path.dirname(os.path.abspath(self.db_path)) or "."
         return os.path.join(database_dir, "Backups")
 
     def set_automatic_backup_directory(self, new_dir):
-        """Validate, persist and create a new automatic backup directory."""
+        """Validate, persist and create a new automatic backup directory for this database."""
         if not new_dir or not str(new_dir).strip():
             raise ValueError("مسیر ذخیره پشتیبان‌گیری نمی‌تواند خالی باشد.")
         target_path = os.path.abspath(str(new_dir).strip())
@@ -3041,36 +3101,32 @@ class DatabaseManager:
             os.remove(test_file)
         except Exception as e:
             raise PermissionError(f"دسترسی ذخیره در پوشه انتخاب‌شده وجود ندارد: {e}")
-        self.cfg["auto_backup_dir"] = target_path
+        self.set_db_config("auto_backup_dir", target_path)
         self.cfg["backup_dir"] = target_path
         save_app_config(self.cfg)
         return target_path
 
     def _automatic_backup_entries(self, directory, database_name):
-        """Return this database's automatic snapshots, ordered oldest first."""
-        prefix = f"{database_name}_"
+        """Return this database's automatic snapshots, ordered oldest first.
+        Prefix-Collision Guard (REQ-2): strictly match this database's stem, preventing
+        accidental collision/pruning between e.g. Daqiq and Daqiq_2 or Daqiq_3 in the same folder.
+        """
         candidates = []
         if not os.path.isdir(directory):
             return candidates
+        pattern = re.compile(rf"^{re.escape(database_name)}_(?:backup_)?(\d{{8}}_\d{{6}})(?:_\d+)?\.db$")
         with os.scandir(directory) as entries:
             for entry in entries:
                 if not entry.is_file() or not entry.name.endswith(".db"):
                     continue
-                if not entry.name.startswith(prefix):
+                match = pattern.match(entry.name)
+                if not match:
                     continue
-                stamp = entry.name[len(prefix):-3]
-                if (
-                    len(stamp) >= 15
-                    and stamp[:8].isdigit()
-                    and stamp[8] == "_"
-                    and stamp[9:15].isdigit()
-                    and (len(stamp) == 15 or stamp[15:].startswith("_"))
-                ):
-                    try:
-                        stat = entry.stat()
-                    except OSError:
-                        continue
-                    candidates.append((stat.st_mtime_ns, entry.name, entry.path))
+                try:
+                    stat = entry.stat()
+                except OSError:
+                    continue
+                candidates.append((stat.st_mtime_ns, entry.name, entry.path))
         candidates.sort(key=lambda item: (item[0], item[1]))
         return candidates
 
@@ -3099,9 +3155,9 @@ class DatabaseManager:
         return max(timestamp_ns for timestamp_ns, _, _ in entries) / 1_000_000_000
 
     def _prune_automatic_backups(self, directory, database_name):
-        """Keep at most N automatic copies; tolerate files held open by another app."""
+        """Keep at most N automatic copies scoped to this database stem; tolerate files held open by another app."""
         candidates = self._automatic_backup_entries(directory, database_name)
-        keep_count = max(1, int(self.cfg.get("auto_backup_retention_count", 10) or 10))
+        keep_count = max(1, int(self.get_db_config("auto_backup_retention_count", 10) or 10))
         failed_removals = []
         for _, _, old_path in candidates[:-keep_count]:
             last_error = None
@@ -3132,11 +3188,11 @@ class DatabaseManager:
             backup_dir = self.get_automatic_backup_directory()
             os.makedirs(backup_dir, exist_ok=True)
             stamp = jdatetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            backup_file = os.path.join(backup_dir, f"{database_name}_{stamp}.db")
+            backup_file = os.path.join(backup_dir, f"{database_name}_backup_{stamp}.db")
             suffix = 1
             while os.path.exists(backup_file):
                 backup_file = os.path.join(
-                    backup_dir, f"{database_name}_{stamp}_{suffix:02d}.db"
+                    backup_dir, f"{database_name}_backup_{stamp}_{suffix:02d}.db"
                 )
                 suffix += 1
         else:
@@ -3275,7 +3331,12 @@ class DatabaseManager:
         self.cfg["backup_dir"] = os.path.dirname(database_path) or "."
         if automatic:
             database_key = os.path.normcase(database_path)
+            disk_cfg = load_app_config()
+            for dbk, dbv in disk_cfg.get("databases", {}).items():
+                if dbk not in self.cfg.setdefault("databases", {}):
+                    self.cfg["databases"][dbk] = dbv
             backup_state = dict(self.cfg.get("auto_backup_last_success_by_db", {}))
+            backup_state.update(disk_cfg.get("auto_backup_last_success_by_db", {}))
             backup_state[database_key] = time.time()
             self.cfg["auto_backup_last_success_by_db"] = backup_state
             if pruning_warnings:
@@ -3331,6 +3392,26 @@ class DatabaseManager:
             return True
         return False
 
+    def self_heal_vault_credential(self, valid_password: str):
+        """Self-heal .secure_vault.dat if auto-unlock is enabled for this database (REQ-5).
+        Recreates/updates vault entry without touching other databases, even if vault was deleted/corrupted.
+        """
+        if not self.is_password_protected() or not valid_password:
+            return
+        try:
+            conn = sqlite3.connect(self.db_path, timeout=5.0)
+            esc_key = str(valid_password).replace("'", "''")
+            conn.execute(f"PRAGMA key = '{esc_key}'")
+            row = conn.execute("SELECT value FROM settings WHERE key='db_require_startup_password'").fetchone()
+            conn.close()
+            prompt_required = str(row[0]).strip() != "0" if row else True
+            if not prompt_required:
+                SecureCredentialStore.store_database_credential(self.db_path, valid_password)
+            else:
+                SecureCredentialStore.purge_database_credential(self.db_path)
+        except Exception:
+            pass
+
     def verify_database_password(self, raw_password: str) -> bool:
         """Verify provided password against SQLCipher encryption key."""
         clean_pwd = str(raw_password or "")
@@ -3344,6 +3425,7 @@ class DatabaseManager:
                 self._normalize_application_config()
             except Exception:
                 pass
+            self.self_heal_vault_credential(clean_pwd)
             return True
         return False
 
@@ -3363,12 +3445,10 @@ class DatabaseManager:
                     return True
             except Exception:
                 pass
-        if self._encryption_key and self._verify_key_on_file(self._encryption_key):
-            return not self.is_startup_password_prompt_required()
         return False
 
     def auto_unlock_if_permitted(self) -> bool:
-        """Attempt seamless auto-unlock using OS-protected credentials if permitted (REQ-4)."""
+        """Attempt seamless auto-unlock using OS-protected credentials if permitted (REQ-4, REQ-5)."""
         if not self.is_password_protected():
             return True
         stored = SecureCredentialStore.retrieve_database_credential(self.db_path)
@@ -3379,6 +3459,7 @@ class DatabaseManager:
         if self.is_startup_password_prompt_required():
             self._close_cached_conn()
             self._encryption_key = None
+            SecureCredentialStore.purge_database_credential(self.db_path)
             return False
         return True
 
