@@ -1038,8 +1038,12 @@ class DynamicSpecsWidget(QGroupBox):
         self._clear_form()
 
         self.cb_sub = SearchableComboBox()
-        self.cb_sub.setEditable(0)
-        self.cb_sub.setToolTip("زیرمجموعه را از فهرست انتخاب کنید")
+        is_other = normalize_catalog_label(self.current_category) == normalize_catalog_label("سایر موارد")
+        self.cb_sub.setEditable(is_other)
+        if is_other:
+            self.cb_sub.setToolTip("زیرمجموعه را انتخاب کنید یا نام دلخواه را تایپ کنید")
+        else:
+            self.cb_sub.setToolTip("زیرمجموعه را از فهرست انتخاب کنید")
         self.cb_sub.currentTextChanged.connect(self._notify_custom_field_callback)
         self.form_layout.addRow("زیرمجموعه:", self.cb_sub)
         self._apply_compact_form_layouts()
@@ -1053,7 +1057,12 @@ class DynamicSpecsWidget(QGroupBox):
             self.cb_sub.blockSignals(True)
             self.cb_sub.clear()
             self.cb_sub.addItems(clean_subcategories)
-            self.cb_sub.setEditable(0)
+            is_other = normalize_catalog_label(self.current_category) == normalize_catalog_label("سایر موارد")
+            self.cb_sub.setEditable(is_other)
+            if is_other:
+                self.cb_sub.setToolTip("زیرمجموعه را انتخاب کنید یا نام دلخواه را تایپ کنید")
+            else:
+                self.cb_sub.setToolTip("زیرمجموعه را از فهرست انتخاب کنید")
             selected_index = next(
                 (i for i, value in enumerate(clean_subcategories)
                  if normalize_catalog_label(value) == current_key),
@@ -1160,12 +1169,22 @@ class DynamicSpecsWidget(QGroupBox):
 
     def get_sub_category(self) -> str:
         if self.cb_sub:
+            if self.cb_sub.isEditable() and self.cb_sub.lineEdit():
+                return self.cb_sub.lineEdit().text().strip()
             return self.cb_sub.currentText().strip()
         return ""
 
     def set_sub_category(self, sub_text: str):
         if self.cb_sub and sub_text:
-            self.cb_sub.setCurrentText(sub_text)
+            idx = self.cb_sub.findText(sub_text)
+            if idx >= 0:
+                self.cb_sub.setCurrentIndex(idx)
+            else:
+                if self.cb_sub.isEditable():
+                    self.cb_sub.setEditText(sub_text)
+                else:
+                    self.cb_sub.addItem(sub_text)
+                    self.cb_sub.setCurrentText(sub_text)
 
     def get_specs_dict(self) -> dict:
         res = {}
@@ -1240,8 +1259,8 @@ class DynamicAttributeValuesWidget(QWidget):
 
         self.scroll_area = SmoothScrollArea(self)
         self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setMinimumHeight(220)
-        self.scroll_area.setMaximumHeight(280)
+        self.scroll_area.setMinimumHeight(190)
+        self.scroll_area.setMaximumHeight(250)
 
         self.container = QWidget()
         self.rows_layout = QVBoxLayout(self.container)

@@ -3,11 +3,13 @@
     "قطعات اصلی کامپیوتر",
     "لپ‌تاپ و سیستم‌های آماده",
     "مانیتور و نمایشگر",
-    "ذخیره‌سازی اکسترنال و فلش",
-    "تجهیزات جانبی و لوازم کامپیوتر",
+    "تجهیزات ذخیره‌سازی",
+    "لوازم جانبی کامپیوتر",
     "تجهیزات شبکه و ارتباطات",
     "کابل، مبدل و اتصالات",
-    "ماشین‌های اداری و مصرفی"
+    "ماشین‌های اداری",
+    "تجهیزات صوتی و تصویری",
+    "سایر موارد"
   ],
   "subcategories": {
     "قطعات اصلی کامپیوتر": [
@@ -23,7 +25,7 @@
       "فن و تجهیزات خنک‌کننده (Case Fan & Cooling)",
       "پوسته کیس (PC Case)",
       "درایو نوری اینترنال (Internal ODD)",
-      "سایر قطعات (Other Components)"
+      "سایر موارد"
     ],
     "لپ‌تاپ و سیستم‌های آماده": [
       "لپ‌تاپ گیمینگ (Gaming Laptop)",
@@ -33,7 +35,7 @@
       "مک‌بوک (Apple MacBook)",
       "کامپیوتر همه کاره (All-in-One PC)",
       "کیس آماده و مینی کیس (Desktop & Mini PC)",
-      "سایر سیستم‌ها (Other Systems)"
+      "سایر موارد"
     ],
     "مانیتور و نمایشگر": [
       "مانیتور اداری و خانگی (Office & Home Monitor)",
@@ -41,17 +43,17 @@
       "مانیتور طراحی و گرافیک (Design & Creative Monitor)",
       "مانیتور پرتابل (Portable Monitor)",
       "پنل صفحه نمایش لپ‌تاپ (Laptop Screen Panel)",
-      "سایر نمایشگرها (Other Displays)"
+      "سایر موارد"
     ],
-    "ذخیره‌سازی اکسترنال و فلش": [
+    "تجهیزات ذخیره‌سازی": [
       "هارد اکسترنال (External HDD)",
       "اس‌اس‌دی اکسترنال (External SSD)",
       "فلش مموری (USB Flash Drive)",
       "کارت حافظه (Memory Card)",
       "باکس و قاب هارد (HDD & SSD Enclosure)",
-      "سایر تجهیزات ذخیره‌سازی (Other Storage)"
+      "سایر موارد"
     ],
-    "تجهیزات جانبی و لوازم کامپیوتر": [
+    "لوازم جانبی کامپیوتر": [
       "ماوس (Mouse)",
       "کیبورد (Keyboard)",
       "ماوس و کیبورد کمبو (Mouse & Keyboard Combo)",
@@ -65,7 +67,7 @@
       "کیبورد لپ‌تاپ (Laptop Replacement Keyboard)",
       "کیف و کوله‌پشتی لپ‌تاپ (Laptop Bag & Backpack)",
       "هاب یو‌اس‌بی و داک‌استیشن (USB Hub & Docking Station)",
-      "سایر لوازم جانبی (Other Accessories)"
+      "سایر موارد"
     ],
     "تجهیزات شبکه و ارتباطات": [
       "مودم و روتر (Modem & Router)",
@@ -74,21 +76,32 @@
       "کارت شبکه و دانگل وای‌فای (Network Card & Wi-Fi Dongle)",
       "کابل و پچ‌کورد شبکه (Network Cable & Patch Cord)",
       "رک و تجهیزات پسیو (Rack & Passive Equipment)",
-      "سایر تجهیزات شبکه (Other Network Equipment)"
+      "سایر موارد"
     ],
     "کابل، مبدل و اتصالات": [
       "کابل تصویر (HDMI, DisplayPort, VGA)",
       "کابل برق و پاور (Power Cable)",
       "کابل یو‌اس‌بی و تبدیل (USB & Type-C Cable)",
       "مبدل‌های ویدیویی و تصویری (Video Converters)",
-      "سایر اتصالات (Other Cables & Adapters)"
+      "سایر موارد"
     ],
-    "ماشین‌های اداری و مصرفی": [
+    "ماشین‌های اداری": [
       "پرینتر تک‌کاره و چندکاره (Printer & Multi-Function)",
       "اسکنر (Scanner)",
       "کارتریج و جوهر (Toner & Ink Cartridge)",
       "بارکدخوان و فیش‌پرینتر (Barcode Scanner & POS Printer)",
-      "سایر ماشین‌های اداری (Other Office Equipment)"
+      "سایر موارد"
+    ],
+    "تجهیزات صوتی و تصویری": [
+      "اسپیکر رومیزی و بلوتوثی (Desktop & Bluetooth Speaker)",
+      "هدفون و هندزفری (Headphone & Earphones)",
+      "میکروفون رومیزی و استودیویی (Microphone)",
+      "کپچر و کارت صدا (Audio Interface & Video Capture)",
+      "پروژکتور و پرده نمایش (Projector & Screen)",
+      "سایر موارد"
+    ],
+    "سایر موارد": [
+      "سایر موارد"
     ]
   },
   "attributes": {
@@ -98,16 +111,15 @@
         "label": "Socket",
         "subcategory": "پردازنده (CPU)",
         "values": [
-          "LGA 775",
-          "LGA 1155",
-          "LGA 1150",
-          "LGA 1151",
-          "LGA 1200",
-          "LGA 1700",
-          "LGA 1851",
-          "AM3+",
+          "LGA1700",
+          "LGA1851",
+          "LGA1200",
+          "LGA1151",
+          "AM5",
           "AM4",
-          "AM5"
+          "TR4 / sTRX4",
+          "sWRX8",
+          "LGA2066"
         ]
       },
       {
@@ -130,7 +142,11 @@
           "Ryzen 5",
           "Ryzen 7",
           "Ryzen 9",
-          "Threadripper"
+          "Threadripper",
+          "Apple M1",
+          "Apple M2",
+          "Apple M3",
+          "Apple M4"
         ]
       },
       {
@@ -147,7 +163,9 @@
           "14 Cores",
           "16 Cores",
           "20 Cores",
-          "24 Cores"
+          "24 Cores",
+          "32 Cores",
+          "64 Cores"
         ]
       },
       {
@@ -155,16 +173,14 @@
         "label": "Socket",
         "subcategory": "مادربرد (Motherboard)",
         "values": [
-          "LGA 775",
-          "LGA 1155",
-          "LGA 1150",
-          "LGA 1151",
-          "LGA 1200",
-          "LGA 1700",
-          "LGA 1851",
-          "AM3+",
+          "LGA1700",
+          "LGA1851",
+          "LGA1200",
+          "LGA1151",
+          "AM5",
           "AM4",
-          "AM5"
+          "TR4 / sTRX4",
+          "sWRX8"
         ]
       },
       {
@@ -180,13 +196,13 @@
       },
       {
         "name": "نسل رم پشتیبانی‌شده",
-        "label": "DDR Version",
+        "label": "Supported RAM DDR",
         "subcategory": "مادربرد (Motherboard)",
         "values": [
-          "DDR2",
-          "DDR3",
           "DDR4",
-          "DDR5"
+          "DDR5",
+          "DDR3",
+          "DDR4 / DDR5"
         ]
       },
       {
@@ -194,12 +210,20 @@
         "label": "Capacity",
         "subcategory": "رم کامپیوتر (Desktop RAM)",
         "values": [
+          "1GB",
           "2GB",
+          "3GB",
           "4GB",
+          "6GB",
           "8GB",
+          "12GB",
           "16GB",
+          "24GB",
           "32GB",
-          "64GB"
+          "48GB",
+          "64GB",
+          "96GB",
+          "128GB"
         ]
       },
       {
@@ -221,15 +245,18 @@
           "800MHz",
           "1333MHz",
           "1600MHz",
+          "2133MHz",
           "2400MHz",
           "2666MHz",
-          "3000MHz",
+          "2933MHz",
           "3200MHz",
           "3600MHz",
           "4800MHz",
           "5200MHz",
           "5600MHz",
-          "6000MHz"
+          "6000MHz",
+          "6400MHz",
+          "7200MHz"
         ]
       },
       {
@@ -237,11 +264,20 @@
         "label": "Capacity",
         "subcategory": "رم لپ‌تاپ (Laptop RAM)",
         "values": [
+          "1GB",
           "2GB",
+          "3GB",
           "4GB",
+          "6GB",
           "8GB",
+          "12GB",
           "16GB",
-          "32GB"
+          "24GB",
+          "32GB",
+          "48GB",
+          "64GB",
+          "96GB",
+          "128GB"
         ]
       },
       {
@@ -253,7 +289,12 @@
           "DDR3",
           "DDR3L",
           "DDR4",
-          "DDR5"
+          "DDR5",
+          "LPDDR3",
+          "LPDDR4",
+          "LPDDR4X",
+          "LPDDR5",
+          "LPDDR5X"
         ]
       },
       {
@@ -264,12 +305,18 @@
           "800MHz",
           "1333MHz",
           "1600MHz",
+          "2133MHz",
           "2400MHz",
           "2666MHz",
+          "2933MHz",
           "3200MHz",
+          "3600MHz",
           "4800MHz",
           "5200MHz",
-          "5600MHz"
+          "5600MHz",
+          "6000MHz",
+          "6400MHz",
+          "7200MHz"
         ]
       },
       {
@@ -277,7 +324,6 @@
         "label": "VRAM Capacity",
         "subcategory": "کارت گرافیک (GPU)",
         "values": [
-          "1GB",
           "2GB",
           "4GB",
           "6GB",
@@ -285,7 +331,9 @@
           "10GB",
           "12GB",
           "16GB",
-          "24GB"
+          "20GB",
+          "24GB",
+          "48GB"
         ]
       },
       {
@@ -293,10 +341,11 @@
         "label": "VRAM Type",
         "subcategory": "کارت گرافیک (GPU)",
         "values": [
-          "DDR3",
           "GDDR5",
           "GDDR6",
-          "GDDR6X"
+          "GDDR6X",
+          "HBM2",
+          "HBM3"
         ]
       },
       {
@@ -313,7 +362,9 @@
           "512GB",
           "1TB",
           "2TB",
-          "4TB"
+          "4TB",
+          "8TB",
+          "16TB"
         ]
       },
       {
@@ -321,12 +372,18 @@
         "label": "Interface",
         "subcategory": "حافظه اس‌اس‌دی (SSD)",
         "values": [
+          "SATA 3.0",
+          "NVMe M.2 (PCIe 3.0)",
+          "NVMe M.2 (PCIe 4.0)",
+          "NVMe M.2 (PCIe 5.0)",
+          "PCIe x4 / x8",
+          "mSATA",
+          "USB 3.2",
+          "USB-C",
+          "Thunderbolt 3 / 4",
           "NVMe PCIe 3.0",
           "NVMe PCIe 4.0",
-          "NVMe PCIe 5.0",
-          "2.5\" SATA III",
-          "M.2 SATA",
-          "mSATA"
+          "NVMe PCIe 5.0"
         ]
       },
       {
@@ -334,15 +391,17 @@
         "label": "Capacity",
         "subcategory": "هارد دیسک اینترنال (Internal HDD)",
         "values": [
+          "120GB",
+          "128GB",
+          "240GB",
+          "256GB",
+          "480GB",
           "500GB",
+          "512GB",
           "1TB",
           "2TB",
-          "3TB",
           "4TB",
-          "6TB",
           "8TB",
-          "10TB",
-          "12TB",
           "16TB"
         ]
       },
@@ -351,10 +410,10 @@
         "label": "Interface & Form Factor",
         "subcategory": "هارد دیسک اینترنال (Internal HDD)",
         "values": [
-          "3.5\" SATA III (7200 RPM)",
-          "3.5\" SATA III (5400 RPM)",
-          "2.5\" SATA III (5400 RPM)",
-          "3.5\" SAS Enterprise"
+          "SATA 3.0 (3.5 inch)",
+          "SATA 3.0 (2.5 inch)",
+          "SAS (3.5 inch)",
+          "SAS (2.5 inch)"
         ]
       },
       {
@@ -363,7 +422,6 @@
         "subcategory": "منبع تغذیه (PSU)",
         "values": [
           "300W",
-          "350W",
           "400W",
           "450W",
           "500W",
@@ -374,7 +432,8 @@
           "750W",
           "850W",
           "1000W",
-          "1200W"
+          "1200W",
+          "1600W"
         ]
       },
       {
@@ -383,11 +442,11 @@
         "subcategory": "منبع تغذیه (PSU)",
         "values": [
           "Standard",
-          "80 Plus Bronze",
-          "80 Plus Silver",
-          "80 Plus Gold",
-          "80 Plus Platinum",
-          "80 Plus Titanium"
+          "80 PLUS Bronze",
+          "80 PLUS Silver",
+          "80 PLUS Gold",
+          "80 PLUS Platinum",
+          "80 PLUS Titanium"
         ]
       },
       {
@@ -395,12 +454,12 @@
         "label": "Cooler Type",
         "subcategory": "خنک‌کننده پردازنده (CPU Cooler)",
         "values": [
-          "Air Cooler (Single Tower)",
-          "Air Cooler (Dual Tower)",
+          "Air Cooler",
           "Liquid AIO 120mm",
           "Liquid AIO 240mm",
+          "Liquid AIO 280mm",
           "Liquid AIO 360mm",
-          "Stock Cooler"
+          "Custom Water Loop"
         ]
       },
       {
@@ -410,8 +469,8 @@
         "values": [
           "Mid Tower",
           "Full Tower",
-          "Mini Tower (mATX)",
-          "Small Form Factor (ITX)"
+          "Mini Tower",
+          "Small Form Factor (SFF)"
         ]
       },
       {
@@ -423,8 +482,8 @@
     ],
     "لپ‌تاپ و سیستم‌های آماده": [
       {
-        "name": "سری پردازنده",
-        "label": "CPU Series",
+        "name": "پردازنده",
+        "label": "Processor",
         "subcategory": null,
         "values": [
           "Celeron",
@@ -436,10 +495,13 @@
           "Core Ultra 5",
           "Core Ultra 7",
           "Core Ultra 9",
+          "Xeon",
+          "Athlon",
           "Ryzen 3",
           "Ryzen 5",
           "Ryzen 7",
           "Ryzen 9",
+          "Threadripper",
           "Apple M1",
           "Apple M2",
           "Apple M3",
@@ -447,85 +509,118 @@
         ]
       },
       {
-        "name": "ظرفیت رم",
-        "label": "RAM Capacity",
+        "name": "حافظه رم",
+        "label": "RAM",
         "subcategory": null,
         "values": [
+          "1GB",
+          "2GB",
+          "3GB",
           "4GB",
+          "6GB",
           "8GB",
           "12GB",
           "16GB",
           "24GB",
           "32GB",
-          "64GB"
+          "48GB",
+          "64GB",
+          "96GB",
+          "128GB"
         ]
       },
       {
         "name": "نسل رم",
-        "label": "DDR Version",
+        "label": "RAM Type",
         "subcategory": null,
         "values": [
-          "DDR3 / DDR3L",
+          "DDR2",
+          "DDR3",
+          "DDR3L",
           "DDR4",
           "DDR5",
-          "LPDDR4 / LPDDR4X",
-          "LPDDR5 / LPDDR5X"
+          "LPDDR3",
+          "LPDDR4",
+          "LPDDR4X",
+          "LPDDR5",
+          "LPDDR5X"
         ]
       },
       {
-        "name": "ظرفیت حافظه داخلی",
+        "name": "ظرفیت ذخیره‌سازی",
         "label": "Storage Capacity",
         "subcategory": null,
         "values": [
-          "128GB SSD",
-          "256GB SSD",
-          "512GB SSD",
-          "1TB SSD",
-          "2TB SSD",
-          "1TB HDD + 256GB SSD"
+          "120GB",
+          "128GB",
+          "240GB",
+          "256GB",
+          "480GB",
+          "500GB",
+          "512GB",
+          "1TB",
+          "2TB",
+          "4TB",
+          "8TB",
+          "16TB"
         ]
       },
       {
-        "name": "پردازنده گرافیکی",
-        "label": "GPU",
+        "name": "نوع ذخیره‌سازی",
+        "label": "Storage Type",
         "subcategory": null,
         "values": [
-          "Intel Iris Xe / Integrated",
-          "AMD Radeon Integrated",
-          "Apple M-Series GPU",
-          "NVIDIA GeForce GTX 1650",
-          "NVIDIA GeForce RTX 2050",
-          "NVIDIA GeForce RTX 3050",
+          "SSD NVMe M.2",
+          "SSD SATA 2.5 inch",
+          "HDD + SSD",
+          "SSD PCIe 4.0"
+        ]
+      },
+      {
+        "name": "کارت گرافیک",
+        "label": "Graphics Card",
+        "subcategory": null,
+        "values": [
+          "Intel Iris Xe / UHD",
+          "AMD Radeon Graphics",
           "NVIDIA GeForce RTX 4050",
           "NVIDIA GeForce RTX 4060",
           "NVIDIA GeForce RTX 4070",
           "NVIDIA GeForce RTX 4080",
-          "NVIDIA GeForce RTX 4090"
+          "NVIDIA GeForce RTX 4090",
+          "NVIDIA RTX A-Series",
+          "Apple Integrated GPU"
         ]
       },
       {
-        "name": "ابعاد صفحه نمایش",
+        "name": "اندازه صفحه نمایش",
         "label": "Screen Size",
         "subcategory": null,
         "values": [
-          "13.3\"",
-          "14.0\"",
-          "15.6\"",
-          "16.0\"",
-          "17.3\""
+          "13.3 inch",
+          "14.0 inch",
+          "15.6 inch",
+          "16.0 inch",
+          "17.3 inch",
+          "21.5 inch",
+          "23.8 inch",
+          "27 inch"
         ]
       },
       {
-        "name": "رزولوشن",
+        "name": "دقت صفحه نمایش",
         "label": "Resolution",
         "subcategory": null,
         "values": [
-          "1366x768 (HD)",
-          "1920x1080 (FHD)",
-          "1920x1200 (WUXGA)",
-          "2560x1440 (2K QHD)",
-          "2880x1800 (OLED)",
-          "3840x2160 (4K UHD)"
+          "HD (1366x768)",
+          "HD+ (1600x900)",
+          "FHD (1920x1080)",
+          "FHD+ (1920x1200)",
+          "2K / QHD (2560x1440)",
+          "QHD+ (2560x1600)",
+          "4K / UHD (3840x2160)",
+          "5K",
+          "8K"
         ]
       },
       {
@@ -537,33 +632,33 @@
     ],
     "مانیتور و نمایشگر": [
       {
-        "name": "ابعاد صفحه نمایش",
+        "name": "اندازه صفحه نمایش",
         "label": "Screen Size",
         "subcategory": null,
         "values": [
-          "14.0\"",
-          "15.6\"",
-          "18.5\"",
-          "19.5\"",
-          "21.5\"",
-          "23.8\" / 24\"",
-          "27\"",
-          "31.5\" / 32\"",
-          "34\" Ultrawide"
+          "19 inch",
+          "22 inch",
+          "24 inch",
+          "27 inch",
+          "32 inch",
+          "34 inch Ultrawide",
+          "49 inch Super Ultrawide"
         ]
       },
       {
-        "name": "رزولوشن",
+        "name": "دقت صفحه نمایش",
         "label": "Resolution",
         "subcategory": null,
         "values": [
-          "1366x768 (HD)",
-          "1600x900 (HD+)",
-          "1920x1080 (FHD)",
-          "1920x1200 (WUXGA)",
-          "2560x1440 (2K QHD)",
-          "3440x1440 (UWQHD)",
-          "3840x2160 (4K UHD)"
+          "HD (1366x768)",
+          "HD+ (1600x900)",
+          "FHD (1920x1080)",
+          "FHD+ (1920x1200)",
+          "2K / QHD (2560x1440)",
+          "QHD+ (2560x1600)",
+          "4K / UHD (3840x2160)",
+          "5K",
+          "8K"
         ]
       },
       {
@@ -572,11 +667,51 @@
         "subcategory": null,
         "values": [
           "IPS",
-          "Fast IPS",
           "VA",
           "TN",
           "OLED",
-          "Mini LED"
+          "Mini-LED"
+        ]
+      },
+      {
+        "name": "نرخ نوسازی",
+        "label": "Refresh Rate",
+        "subcategory": null,
+        "values": [
+          "60Hz",
+          "75Hz",
+          "100Hz",
+          "120Hz",
+          "144Hz",
+          "165Hz",
+          "180Hz",
+          "240Hz",
+          "360Hz"
+        ]
+      },
+      {
+        "name": "درگاه‌های اتصال",
+        "label": "Display Ports",
+        "subcategory": null,
+        "values": [
+          "HDMI + VGA",
+          "HDMI + DisplayPort",
+          "DisplayPort + Type-C (Thunderbolt)",
+          "HDMI + DP + Type-C"
+        ]
+      },
+      {
+        "name": "ابعاد صفحه نمایش",
+        "label": "Screen Size",
+        "subcategory": null,
+        "values": [
+          "19 inch",
+          "22 inch",
+          "24 inch",
+          "27 inch",
+          "32 inch",
+          "34 inch Ultrawide",
+          "49 inch Super Ultrawide"
         ]
       },
       {
@@ -596,14 +731,14 @@
         ]
       },
       {
-        "name": "درگاه‌های ورودی",
-        "label": "Input Ports",
+        "name": "رزولوشن",
+        "label": "Resolution",
         "subcategory": null,
         "values": [
-          "HDMI + VGA",
-          "HDMI + DisplayPort",
-          "HDMI + DP + Type-C",
-          "VGA + DVI"
+          "HD (1366x768)",
+          "FHD (1920x1080)",
+          "2K (2560x1440)",
+          "4K (3840x2160)"
         ]
       },
       {
@@ -613,21 +748,24 @@
         "values": []
       }
     ],
-    "ذخیره‌سازی اکسترنال و فلش": [
+    "تجهیزات ذخیره‌سازی": [
       {
         "name": "ظرفیت",
         "label": "Capacity",
         "subcategory": null,
         "values": [
-          "32GB",
-          "64GB",
+          "120GB",
           "128GB",
+          "240GB",
           "256GB",
+          "480GB",
+          "500GB",
           "512GB",
           "1TB",
           "2TB",
           "4TB",
-          "5TB"
+          "8TB",
+          "16TB"
         ]
       },
       {
@@ -635,11 +773,11 @@
         "label": "Interface",
         "subcategory": null,
         "values": [
+          "USB 3.2 Gen 1",
+          "USB 3.2 Gen 2",
+          "USB-C / Thunderbolt",
           "USB 2.0",
-          "USB 3.2 Gen 1 (USB 3.0)",
-          "USB 3.2 Gen 2 (Type-C)",
-          "Thunderbolt 3/4",
-          "Dual OTG (USB-A + Type-C)"
+          "microSDXC / SDHC"
         ]
       },
       {
@@ -649,41 +787,31 @@
         "values": []
       }
     ],
-    "تجهیزات جانبی و لوازم کامپیوتر": [
+    "لوازم جانبی کامپیوتر": [
       {
         "name": "نوع اتصال",
         "label": "Connectivity",
         "subcategory": null,
         "values": [
-          "Wired (USB)",
-          "Wireless (2.4GHz Dongle)",
-          "Bluetooth",
-          "Dual-Mode (Wired + Wireless)",
-          "Tri-Mode (USB + 2.4GHz + BT)"
+          "Wireless 2.4GHz + Bluetooth",
+          "Bluetooth Only",
+          "Wired USB",
+          "Wired Type-C",
+          "Wireless Dongle",
+          "Tri-Mode (Wired/Wireless/BT)"
         ]
       },
       {
-        "name": "نوع حسگر / کلید",
-        "label": "Switch / Sensor Type",
+        "name": "نوع سنسور / سوییچ",
+        "label": "Sensor / Switch Type",
         "subcategory": null,
         "values": [
           "Optical",
           "Laser",
-          "Membrane",
-          "Mechanical Blue Switch",
           "Mechanical Red Switch",
-          "Mechanical Brown Switch"
-        ]
-      },
-      {
-        "name": "نورپردازی",
-        "label": "Lighting",
-        "subcategory": null,
-        "values": [
-          "None",
-          "Single Backlight",
-          "RGB",
-          "ARGB Customizable"
+          "Mechanical Blue Switch",
+          "Mechanical Brown Switch",
+          "Membrane"
         ]
       },
       {
@@ -695,28 +823,26 @@
     ],
     "تجهیزات شبکه و ارتباطات": [
       {
-        "name": "استاندارد شبکه",
-        "label": "Network Standard",
+        "name": "سرعت پورت شبکه",
+        "label": "Port Speed",
+        "subcategory": null,
+        "values": [
+          "10/100 Fast Ethernet",
+          "Gigabit 1000Mbps",
+          "2.5 Gigabit",
+          "10 Gigabit (10GbE)"
+        ]
+      },
+      {
+        "name": "استاندارد بی‌سیم",
+        "label": "Wireless Standard",
         "subcategory": null,
         "values": [
           "Wi-Fi 4 (802.11n)",
           "Wi-Fi 5 (802.11ac)",
           "Wi-Fi 6 (802.11ax)",
           "Wi-Fi 6E",
-          "Wi-Fi 7",
-          "4G LTE",
-          "5G"
-        ]
-      },
-      {
-        "name": "سرعت پورت",
-        "label": "Port Speed",
-        "subcategory": null,
-        "values": [
-          "10/100 Fast Ethernet",
-          "Gigabit (10/100/1000)",
-          "2.5 Gigabit",
-          "10 Gigabit"
+          "Wi-Fi 7 (802.11be)"
         ]
       },
       {
@@ -724,7 +850,6 @@
         "label": "Port Count",
         "subcategory": null,
         "values": [
-          "1 Port",
           "4 Ports",
           "5 Ports",
           "8 Ports",
@@ -742,18 +867,21 @@
     ],
     "کابل، مبدل و اتصالات": [
       {
-        "name": "نوع کابل / رابط",
-        "label": "Cable Type",
+        "name": "نوع کانکتور",
+        "label": "Connector Type",
         "subcategory": null,
         "values": [
-          "HDMI 2.0 / 2.1",
+          "HDMI 2.0",
+          "HDMI 2.1",
           "DisplayPort 1.4",
+          "DisplayPort 2.1",
           "VGA",
           "USB Type-C to Type-C",
           "USB-A to Type-C",
           "Power Cable 3-Pin",
           "AUX 3.5mm",
-          "CAT6 Network Cable"
+          "CAT6 Network Cable",
+          "CAT6A / CAT7"
         ]
       },
       {
@@ -769,7 +897,8 @@
           "5m",
           "10m",
           "15m",
-          "20m"
+          "20m",
+          "30m"
         ]
       },
       {
@@ -779,7 +908,7 @@
         "values": []
       }
     ],
-    "ماشین‌های اداری و مصرفی": [
+    "ماشین‌های اداری": [
       {
         "name": "فناوری چاپ",
         "label": "Print Technology",
@@ -818,6 +947,45 @@
         "subcategory": null,
         "values": []
       }
+    ],
+    "تجهیزات صوتی و تصویری": [
+      {
+        "name": "نوع اتصال",
+        "label": "Connectivity",
+        "subcategory": null,
+        "values": [
+          "Bluetooth 5.0+",
+          "Wired AUX 3.5mm",
+          "USB Audio",
+          "Optical / Coaxial",
+          "XLR / TRS"
+        ]
+      },
+      {
+        "name": "توان و خروجی",
+        "label": "Power / Output",
+        "subcategory": null,
+        "values": [
+          "10W - 20W",
+          "30W - 50W",
+          "60W - 100W",
+          "100W+"
+        ]
+      },
+      {
+        "name": "مشخصات",
+        "label": "Specifications",
+        "subcategory": null,
+        "values": []
+      }
+    ],
+    "سایر موارد": [
+      {
+        "name": "مشخصات",
+        "label": "Specifications",
+        "subcategory": null,
+        "values": []
+      }
     ]
   },
   "colors": [
@@ -831,7 +999,11 @@
     "سرمه‌ای"
   ],
   "service_types": [
-    "نرم‌افزاری",
-    "سخت‌افزاری"
+    "تعمیرات سخت‌افزاری",
+    "نصب سیستم‌عامل و نرم‌افزار",
+    "سرویس دوره‌ای و غبارروبی",
+    "بازیابی اطلاعات و بکاپ",
+    "ارتقای سیستم و قطعات",
+    "کانفیگ و راه‌اندازی شبکه"
   ]
 }

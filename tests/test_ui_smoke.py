@@ -48,7 +48,7 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
         assert window.tabs.count() == 10
         assert window.chk_upg_consume_stock.isChecked()
         assert window.tabs.tabText(9).endswith("تنظیمات")
-        assert window.lbl_app_version.text() == "دقیق | نسخه برنامه: 4.6.0"
+        assert window.lbl_app_version.text() == "دقیق | نسخه برنامه: 4.7.0"
         assert [window.catalog_tabs.tabText(i) for i in range(window.catalog_tabs.count())] == [
             "مدیریت کالاها",
             "مدیریت خدمات",
@@ -388,7 +388,7 @@ def test_create_database_action_defaults_to_new_daqiq_filename(
     try:
         window._create_and_connect_new_db()
         assert captured
-        assert os.path.basename(captured[0][2]) == "NewDaqiq.db"
+        assert os.path.basename(captured[0][2]).startswith("Daqiq_") and captured[0][2].endswith(".db")
     finally:
         window.close()
         qapp.processEvents()
@@ -1410,7 +1410,7 @@ def test_catalog_create_actions_reject_persian_spacing_aliases(tmp_path, monkeyp
 
         service_types = window._taxonomy_draft["service_types"]
         service_type_count = len(service_types)
-        window.ed_cfg_service_type.setText("نرم افزاری")
+        window.ed_cfg_service_type.setText("تعمیرات سخت افزاری")
         window._add_catalog_service_type()
         assert len(window._taxonomy_draft["service_types"]) == service_type_count
 
@@ -1418,7 +1418,7 @@ def test_catalog_create_actions_reject_persian_spacing_aliases(tmp_path, monkeyp
         assert "لپ" in messages[0][1]
         assert "لپ" in messages[1][1]
         assert "نقره" in messages[2][1]
-        assert "نرم" in messages[3][1]
+        assert "تعمیرات" in messages[3][1] or "سخت" in messages[3][1]
     finally:
         window.close()
         qapp.processEvents()

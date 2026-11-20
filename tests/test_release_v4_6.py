@@ -49,8 +49,8 @@ class TestReleaseV460(unittest.TestCase):
     # REQ-0: Greenfield Schema & App Parity (Zero Phantom Columns)
     # =========================================================================
     def test_req0_schema_parity_no_phantom_columns(self):
-        self.assertEqual(APP_VERSION, "4.6.0")
-        self.assertEqual(SCHEMA_VERSION, 460)
+        self.assertEqual(APP_VERSION, "4.7.0")
+        self.assertEqual(SCHEMA_VERSION, 470)
 
         # Verify payment_method phantom column is completely eliminated
         self.assertNotIn("payment_method", EXPECTED_SCHEMA_COLUMNS["payments"])
@@ -67,7 +67,7 @@ class TestReleaseV460(unittest.TestCase):
             with db.get_connection() as conn:
                 # Check user_version
                 ver = conn.execute("PRAGMA user_version").fetchone()[0]
-                self.assertEqual(ver, 460)
+                self.assertEqual(ver, 470)
 
                 # Check payments columns in database
                 cols = [row[1] for row in conn.execute("PRAGMA table_info(payments)").fetchall()]
@@ -132,10 +132,12 @@ class TestReleaseV460(unittest.TestCase):
         for cat in taxonomy["categories"]:
             self.assertFalse(bool(re.search(r'[A-Za-z]', cat)), f"Category contains English: {cat}")
 
-        # 2. Subcategories: Strictly "Persian (English)"
+        # 2. Subcategories: Strictly "Persian (English)", except universal "سایر موارد"
         for cat, subs in taxonomy["subcategories"].items():
             self.assertEqual(len(subs), len(set(subs)), f"Duplicate subcategory in {cat}")
             for sub in subs:
+                if sub == "سایر موارد":
+                    continue
                 self.assertTrue(bool(re.search(r'\([A-Za-z0-9\s,&/+\-.]+\)$', sub)), f"Subcategory not bilingual: {sub}")
 
         # 3. Attribute names: 100% Persian, display names: 100% English, options: 100% English
@@ -331,11 +333,11 @@ class TestReleaseV460(unittest.TestCase):
             db = DatabaseManager(db_path)
             win = MainWindow(db)
 
-            # Check minimum heights conform to 6-8 items viewport standard (>= 200px)
-            self.assertGreaterEqual(win.lst_cfg_subcategories.minimumHeight(), 200)
-            self.assertGreaterEqual(win.lst_cfg_colors.minimumHeight(), 200)
-            self.assertGreaterEqual(win.lst_cfg_attributes.minimumHeight(), 220)
-            self.assertGreaterEqual(win.attr_values_widget.scroll_area.minimumHeight(), 220)
+            # Check minimum heights conform to compacted v4.7.0 standard
+            self.assertGreaterEqual(win.lst_cfg_subcategories.minimumHeight(), 174)
+            self.assertGreaterEqual(win.lst_cfg_colors.minimumHeight(), 174)
+            self.assertGreaterEqual(win.lst_cfg_attributes.minimumHeight(), 192)
+            self.assertGreaterEqual(win.attr_values_widget.scroll_area.minimumHeight(), 190)
 
             win.close()
 
