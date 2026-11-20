@@ -78,10 +78,10 @@ jobs:
         id: version_step
         shell: pwsh
         run: |
-          $ver = (Get-Content VERSION).Trim()
-          if (-not $ver) { $ver = "4.7.0" }
-          Write-Output "APP_VERSION=$ver" >> $env:GITHUB_ENV
-          Write-Output "Building for version: $ver"
+            $ver = (Get-Content VERSION).Trim()
+            if (-not $ver) { $ver = "4.8.0" }
+            Write-Output "APP_VERSION=$ver" >> $env:GITHUB_ENV
+            Write-Output "Building for version: $ver"
 
       - name: Build Executable with PyInstaller
         run: |
@@ -129,7 +129,7 @@ jobs:
         shell: pwsh
         run: |
           $ver = (Get-Content VERSION).Trim()
-          if (-not $ver) { $ver = "4.7.0" }
+          if (-not $ver) { $ver = "4.8.0" }
           Write-Output "APP_VERSION=$ver" >> $env:GITHUB_ENV
 
       - name: Download Build Artifact
@@ -159,10 +159,10 @@ jobs:
               --base main `
               --head $currentBranch `
               --title "Release v${{ env.APP_VERSION }}: Final Production Release" `
-              --body "Final production release v${{ env.APP_VERSION }}. Features clean-slate schema v470, total purge of hardcoded taxonomy, external seed architecture, deep hardware taxonomy, true SQLCipher AES-256 database encryption, fast settings save, zero token leakage, Excel styling parity, targeted 1-item UI compaction, and full non-blocking test suite. Auto-merge is strictly prohibited."
+              --body "Final production release v${{ env.APP_VERSION }}. Features clean-slate schema v480, immediate database creation, smart collision-safe naming (Daqiq.db vs Daqiq_Date_Time.db), zero-plaintext DPAPI auto-unlock, single-close remove password dialog, targeted 1-item UI compaction, comprehensive multi-scenario retail test suite. Auto-merge is strictly prohibited."
           }
 
-      - name: Publish Release Tagged as v4.7.0 and Marked as Latest
+      - name: Publish Release Tagged as v4.8.0 and Marked as Latest
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

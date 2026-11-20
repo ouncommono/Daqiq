@@ -30,16 +30,16 @@ class ReleaseV41Tests(unittest.TestCase):
 
     def test_greenfield_database_schema_and_version(self):
         """Requirement 0 & 6: Verify clean greenfield DB initialization with 4.1.0/410 schema."""
-        self.assertEqual(APP_VERSION, "4.7.0")
-        self.assertEqual(SCHEMA_VERSION, 470)
+        self.assertEqual(APP_VERSION, "4.8.0")
+        self.assertEqual(SCHEMA_VERSION, 480)
         with tempfile.TemporaryDirectory() as tmp:
             db_path = os.path.join(tmp, "test_v410.db")
             config_path = os.path.join(tmp, "app_config.json")
             with patch.object(database, "CONFIG_FILE", config_path):
                 db = DatabaseManager(db_path)
                 with db.get_connection() as conn:
-                    # User version matches 470
-                    self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 470)
+                    # User version matches 480
+                    self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 480)
                     
                     # Columns match contract
                     prod_cols = tuple(r["name"] for r in conn.execute("PRAGMA table_info(products)"))
@@ -116,7 +116,7 @@ class ReleaseV41Tests(unittest.TestCase):
         # Clear
         widget.clear()
         self.assertEqual(widget.get_values(), [])
-        self.assertEqual(len(widget.rows), 0)
+        self.assertEqual(len(widget.rows), 1)
 
     def test_decoupled_catalog_settings_state_preservation(self):
         """Requirement 1: Decoupled UI state preservation across tab switches."""

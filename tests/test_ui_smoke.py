@@ -48,7 +48,7 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
         assert window.tabs.count() == 10
         assert window.chk_upg_consume_stock.isChecked()
         assert window.tabs.tabText(9).endswith("تنظیمات")
-        assert window.lbl_app_version.text() == "دقیق | نسخه برنامه: 4.7.0"
+        assert window.lbl_app_version.text() == "دقیق | نسخه برنامه: 4.8.0"
         assert [window.catalog_tabs.tabText(i) for i in range(window.catalog_tabs.count())] == [
             "مدیریت کالاها",
             "مدیریت خدمات",
@@ -388,6 +388,14 @@ def test_create_database_action_defaults_to_new_daqiq_filename(
     try:
         window._create_and_connect_new_db()
         assert captured
+        # REQ-2: Defaults to Daqiq.db if missing, or Daqiq_ timestamped if existing
+        assert os.path.basename(captured[0][2]) == "Daqiq.db"
+        # When Daqiq.db already exists in directory:
+        daqiq_path = os.path.join(os.path.dirname(captured[0][2]), "Daqiq.db")
+        with open(daqiq_path, "w") as f:
+            f.write("existing")
+        captured.clear()
+        window._create_and_connect_new_db()
         assert os.path.basename(captured[0][2]).startswith("Daqiq_") and captured[0][2].endswith(".db")
     finally:
         window.close()

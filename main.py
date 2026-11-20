@@ -49,7 +49,8 @@ from database import (
     DatabaseManager, load_app_config, save_app_config, hash_password,
     receivable_balance, service_financial_breakdown,
     app_config_has_database_selection, get_default_database_path,
-    generate_timestamped_database_filename,
+    generate_timestamped_database_filename, resolve_new_database_filename,
+    create_and_initialize_database,
     SCHEMA_VERSION, round_integer_division, round_percentage_amount,
 )
 from utils_and_widgets import (
@@ -78,7 +79,7 @@ from exporter import (
     get_next_excel_filename,
 )
 
-APP_VERSION = "4.7.0"
+APP_VERSION = "4.8.0"
 
 REPORT_AVAILABLE_COLUMNS = {
     "همه (گزارش جامع خرید، فروش و خدمات)": [
@@ -900,9 +901,9 @@ def select_startup_database_path(parent=None):
             save_app_config(config)
             return existing_path
 
-    default_path = configured_path or get_default_database_path()
+    default_path = configured_path or resolve_new_database_filename()
     if os.path.isfile(default_path) and not _is_valid_sqlite_database_file(default_path):
-        base_dir = os.path.dirname(default_path) or get_default_database_path()
+        base_dir = os.path.dirname(default_path) or os.path.dirname(get_default_database_path())
         if os.path.isfile(base_dir):
             base_dir = os.path.dirname(base_dir)
         default_path = generate_timestamped_database_filename(base_dir, prefix="Daqiq", extension=".db")
@@ -914,6 +915,8 @@ def select_startup_database_path(parent=None):
         return None
 
     chosen_path = os.path.abspath(dialog.selected_path)
+    if dialog.rb_create.isChecked() or not os.path.isfile(chosen_path):
+        create_and_initialize_database(chosen_path)
     config["db_path"] = chosen_path
     recent = [
         os.path.abspath(path) for path in config.get("recent_databases", [])
@@ -7775,20 +7778,20 @@ class MainWindow(QMainWindow):
                 self._staged_db_startup_prompt = None
             else:
                 orig_pwd = self._staged_db_password_action.get("old_pwd", p_cur) if (self._staged_db_password_action and self._staged_db_password_action.get("action") == "change") else p_cur
-                self._staged_db_password_action = {
-                    "action": "remove",
-                    "pwd": orig_pwd,
-                }
-                self._staged_db_startup_prompt = False
+                try:
+                    self.db.remove_database_password(orig_pwd)
+                except Exception as exc:
+                    QMessageBox.critical(dialog, "خطا در حذف رمز", f"عملیات حذف رمز عبور با خطا مواجه شد:\n{exc}")
+                    return
+                self._staged_db_password_action = None
+                self._staged_db_startup_prompt = None
             self._refresh_db_password_status()
-            QMessageBox.information(self, "آماده ذخیره", "حذف رمز عبور ثبت شد. برای اعمال نهایی دکمه «ذخیره تنظیمات» را بزنید.")
+            QMessageBox.information(self, "حذف رمز عبور", "رمز عبور پایگاه داده با موفقیت حذف شد.")
             dialog.accept()
 
         btn_ok.clicked.connect(do_remove)
         btn_row.addWidget(btn_ok)
         btn_row.addWidget(btn_cancel)
-        d_layout.addLayout(btn_row)
-        dialog.exec()
         d_layout.addLayout(btn_row)
         dialog.exec()
 
@@ -9090,7 +9093,7 @@ class MainWindow(QMainWindow):
         if not target_path:
             return
         target_path = os.path.abspath(os.path.expanduser(target_path))
-        if os.path.normcase(os.path.abspath(self.db.db_path)) == os.path.normcase(target_path):
+        if self.db and os.path.normcase(os.path.abspath(self.db.db_path)) == os.path.normcase(target_path):
             return
 
         if os.path.isfile(target_path):
@@ -9113,62 +9116,77 @@ class MainWindow(QMainWindow):
             )
             return
 
-        previous_path = self.db.db_path
-        previous_config = copy.deepcopy(self.db.cfg)
+        old_db = self.db
         previous_employee = self.active_employee
 
         try:
             os.makedirs(os.path.dirname(target_path) or ".", exist_ok=True)
-            self.db.db_path = target_path
-            self.db.cfg["db_path"] = target_path
-            self.db.cfg["backup_dir"] = os.path.dirname(target_path) or "."
+            if create_if_missing:
+                if old_db:
+                    try:
+                        old_db.sync_database()
+                        old_db.close()
+                    except Exception:
+                        pass
+                new_db = create_and_initialize_database(target_path)
+            else:
+                probe_db = DatabaseManager(target_path)
+                pwd = None
+                if probe_db.is_password_protected() and probe_db.is_startup_password_prompt_required() and not probe_db.can_auto_unlock_locally():
+                    from PySide6.QtWidgets import QInputDialog
+                    unlocked = False
+                    for _ in range(3):
+                        p, ok = QInputDialog.getText(self, "ورود به پایگاه داده", "رمز عبور این پایگاه داده را وارد کنید:", QLineEdit.Password)
+                        if not ok:
+                            break
+                        if probe_db.verify_database_password(p):
+                            pwd = p
+                            unlocked = True
+                            break
+                        else:
+                            QMessageBox.warning(self, "رمز نادرست", "رمز عبور واردشده برای پایگاه داده صحیح نیست.")
+                    if not unlocked:
+                        probe_db.close()
+                        return
+                probe_db.close()
+                if old_db:
+                    try:
+                        old_db.sync_database()
+                        old_db.close()
+                    except Exception:
+                        pass
+                new_db = DatabaseManager(target_path, password=pwd)
+
+            new_db.cfg["db_path"] = target_path
+            new_db.cfg["backup_dir"] = os.path.dirname(target_path) or "."
             recents = [
-                os.path.abspath(path) for path in self.db.cfg.get("recent_databases", [])
+                os.path.abspath(path) for path in new_db.cfg.get("recent_databases", [])
                 if path and os.path.normcase(os.path.abspath(path)) != os.path.normcase(target_path)
                 and os.path.isfile(path)
             ]
-            self.db.cfg["recent_databases"] = [target_path] + recents
-            if self.db.is_password_protected() and self.db.is_startup_password_prompt_required() and not self.db.can_auto_unlock_locally():
-                from PySide6.QtWidgets import QInputDialog
-                unlocked = False
-                for _ in range(3):
-                    pwd, ok = QInputDialog.getText(self, "ورود به پایگاه داده", "رمز عبور این پایگاه داده را وارد کنید:", QLineEdit.Password)
-                    if not ok:
-                        break
-                    if self.db.verify_database_password(pwd):
-                        unlocked = True
-                        break
-                    else:
-                        QMessageBox.warning(self, "رمز نادرست", "رمز عبور واردشده برای پایگاه داده صحیح نیست.")
-                if not unlocked:
-                    self.db.db_path = previous_path
-                    self.db.cfg = previous_config
-                    self.active_employee = previous_employee
-                    self._refresh_multi_db_combo()
-                    self._restart_backup_timer()
-                    return
+            new_db.cfg["recent_databases"] = [target_path] + recents
+            save_app_config(new_db.cfg)
+            self.db = new_db
+            self._staged_db_password_action = None
+            self._staged_db_startup_prompt = None
         except Exception as exc:
-            self.db.db_path = previous_path
-            self.db.cfg = previous_config
             QMessageBox.critical(self, "خطا در اتصال", f"اتصال به پایگاه داده انجام نشد.\n{exc}")
             self._refresh_multi_db_combo()
             return
 
         selected_employee, accepted = _resolve_startup_employee(self.db, self)
         if not accepted:
-            self.db.db_path = previous_path
-            self.db.cfg = previous_config
             self.active_employee = previous_employee
             self._refresh_multi_db_combo()
             self._restart_backup_timer()
             return
 
         self.active_employee = selected_employee
-        save_app_config(self.db.cfg)
         shop_name = (self.db.get_setting("shop_name", "فروشگاه من") or "فروشگاه من").strip()
         self.setWindowTitle(_window_title(shop_name))
-        self.lbl_store_name.setText(bidi_isolate_text(f"دقیق | {shop_name}"))
-        self.lbl_store_name.setToolTip(f"نام فروشگاه: {shop_name}")
+        if hasattr(self, "lbl_store_name"):
+            self.lbl_store_name.setText(bidi_isolate_text(f"دقیق | {shop_name}"))
+            self.lbl_store_name.setToolTip(f"نام فروشگاه: {shop_name}")
 
         self.catalog_config = self._effective_product_catalog_config()
         self._apply_product_catalog_config()
@@ -9176,14 +9194,20 @@ class MainWindow(QMainWindow):
         self._restart_backup_timer()
         self.refresh_all_data()
         self._load_general_settings_form()
-        QMessageBox.information(
-            self, "تغییر پایگاه داده",
-            f"برنامه به پایگاه دادهٔ زیر متصل شد:\n{target_path}"
-        )
+        if create_if_missing:
+            QMessageBox.information(
+                self, "ایجاد پایگاه داده",
+                f"پایگاه دادهٔ جدید با موفقیت ایجاد و متصل شد:\n{target_path}"
+            )
+        else:
+            QMessageBox.information(
+                self, "تغییر پایگاه داده",
+                f"برنامه به پایگاه دادهٔ زیر متصل شد:\n{target_path}"
+            )
 
     def _create_and_connect_new_db(self):
         base_dir = os.path.dirname(os.path.abspath(self.db.db_path)) if self.db and self.db.db_path else None
-        default_path = generate_timestamped_database_filename(base_dir, prefix="Daqiq", extension=".db")
+        default_path = resolve_new_database_filename(base_dir)
         new_path, _ = QFileDialog.getSaveFileName(
             self, "ایجاد فایل پایگاه دادهٔ جدید", default_path,
             "پایگاه داده SQLite (*.db)"

@@ -27,16 +27,16 @@ def qapp():
     return app
 
 def test_req0_schema_version_and_parity(tmp_path):
-    """REQ-0: Clean-slate relational schema v470 and column parity."""
-    assert SCHEMA_VERSION == 470
-    assert APP_VERSION == "4.7.0"
+    """REQ-0: Clean-slate relational schema v480 and column parity."""
+    assert SCHEMA_VERSION == 480
+    assert APP_VERSION == "4.8.0"
 
     db_path = os.path.join(tmp_path, "schema_test.db")
     db = DatabaseManager(db_path)
 
     with db.get_connection() as conn:
         ver = conn.execute("PRAGMA user_version").fetchone()[0]
-        assert ver == 470
+        assert ver == 480
 
         # Verify key tables exist with expected physical columns
         for table, expected_cols in EXPECTED_SCHEMA_COLUMNS.items():
@@ -136,8 +136,8 @@ def test_req4_ui_compaction_heights(qapp, tmp_path):
     assert win.lst_cfg_attributes.minimumHeight() == 192
     assert win.lst_cfg_attributes.maximumHeight() == 252
 
-    assert win.attr_values_widget.scroll_area.minimumHeight() == 190
-    assert win.attr_values_widget.scroll_area.maximumHeight() == 250
+    assert win.attr_values_widget.scroll_area.minimumHeight() == 160
+    assert win.attr_values_widget.scroll_area.maximumHeight() == 220
 
     win.close()
     db.close()

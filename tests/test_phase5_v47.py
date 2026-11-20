@@ -79,9 +79,9 @@ def test_phase5_ui_compaction_heights(qapp, tmp_path):
     assert win.lst_cfg_attributes.minimumHeight() == 192
     assert win.lst_cfg_attributes.maximumHeight() == 252
 
-    # 4. DynamicAttributeValuesWidget.scroll_area: min 190, max 250
-    assert win.attr_values_widget.scroll_area.minimumHeight() == 190
-    assert win.attr_values_widget.scroll_area.maximumHeight() == 250
+    # 4. DynamicAttributeValuesWidget.scroll_area: min 160, max 220 (compacted in v4.8.0)
+    assert win.attr_values_widget.scroll_area.minimumHeight() == 160
+    assert win.attr_values_widget.scroll_area.maximumHeight() == 220
 
     win.close()
     db.close()
