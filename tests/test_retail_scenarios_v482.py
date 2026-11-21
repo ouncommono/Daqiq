@@ -390,23 +390,23 @@ def test_scenario5_zero_asterisks_and_uniform_placeholders(qapp, tmp_path):
 
 
 # =========================================================================
-# SCENARIO 6: Clean-Slate Schema v482 & Full Store Workflow Regression Sweep
+# SCENARIO 6: Clean-Slate Schema v483 & Full Store Workflow Regression Sweep
 # =========================================================================
 def test_scenario6_schema_v482_and_full_workflow_regression(qapp, tmp_path):
     """Scenario 6:
-    - Schema version is 482 and APP_VERSION is 4.8.2.
+    - Schema version is 483 and APP_VERSION is 4.8.3.
     - All tables, columns, indexes valid.
     - End-to-end store workflow: purchase batch -> sell items -> upgrade batch -> service invoice -> reports.
     """
-    assert APP_VERSION == "4.8.2"
-    assert SCHEMA_VERSION == 482
+    assert APP_VERSION == "4.8.3"
+    assert SCHEMA_VERSION == 483
 
     db_path = str(tmp_path / "Daqiq.db")
     db = create_and_initialize_database(db_path)
 
     with db.get_connection() as conn:
         validate_schema_column_order(conn)
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 482
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 483
 
     # Add Employee
     emp_id = db.add_employee("صندوق‌دار اصلی", "فروشنده", "09123456789", "pass123", "مدیر سیستم (دسترسی کامل)")

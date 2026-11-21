@@ -14,8 +14,8 @@ import time
 import hashlib
 from decimal import Decimal, ROUND_HALF_EVEN
 
-APP_VERSION = "4.8.2"
-SCHEMA_VERSION = 482
+APP_VERSION = "4.8.3"
+SCHEMA_VERSION = 483
 
 SQLITE_INTEGER_MIN = -(1 << 63)
 SQLITE_INTEGER_MAX = (1 << 63) - 1
@@ -24,7 +24,7 @@ SQLITE_INTEGER_MAX = (1 << 63) - 1
 # SQL uses named columns; this contract protects all positional consumers.
 EXPECTED_SCHEMA_COLUMNS = {
     "settings": ("key", "value"),
-    "employees": ("id", "name", "role", "phone", "is_active", "permissions", "password", "created_at", "updated_at"),
+    "employees": ("id", "name", "role", "phone", "is_active", "permissions", "password", "created_at", "updated_at", "last_login_at"),
     "access_level_data_scopes": ("access_level_name", "mode"),
     "access_level_scope_levels": ("access_level_name", "selected_access_level_name"),
     "access_level_scope_users": ("access_level_name", "employee_id"),
@@ -742,8 +742,15 @@ class DatabaseManager:
                     permissions TEXT DEFAULT 'دسترسی کامل',
                     password TEXT DEFAULT '',
                     created_at TEXT NOT NULL DEFAULT '',
-                    updated_at TEXT NOT NULL DEFAULT ''
+                    updated_at TEXT DEFAULT NULL,
+                    last_login_at TEXT DEFAULT NULL
                 )
+            """)
+
+            cur.execute("""
+                CREATE VIEW IF NOT EXISTS users AS
+                SELECT id, name, role, phone, is_active, permissions, password, created_at, updated_at, last_login_at
+                FROM employees;
             """)
 
             cur.execute("""
@@ -1029,7 +1036,7 @@ class DatabaseManager:
             # remain separate and are never changed by these triggers.
             activity_tables = (
                 "products", "batches", "sales", "upgrades", "service_catalog",
-                "service_records", "suppliers", "employees", "customers", "payments",
+                "service_records", "suppliers", "customers", "payments",
                 "service_price_history", "audit_logs",
             )
             for table_name in activity_tables:
@@ -1071,6 +1078,54 @@ class DatabaseManager:
                         WHERE id = NEW.id;
                     END
                 """)
+
+            # User lifecycle audit triggers:
+            # created_at: immutable timestamp initialized on insert.
+            # updated_at: NULL on insert, updated ONLY when core user data changes.
+            # last_login_at: NULL on insert, updated without affecting updated_at or created_at.
+            conn.execute("DROP TRIGGER IF EXISTS trg_employees_updated_at_insert")
+            conn.execute("DROP TRIGGER IF EXISTS trg_employees_updated_at_update")
+            conn.execute("""
+                CREATE TRIGGER trg_employees_updated_at_insert
+                AFTER INSERT ON employees
+                FOR EACH ROW
+                BEGIN
+                    UPDATE employees
+                    SET created_at = CASE
+                            WHEN NEW.created_at IS NULL OR NEW.created_at=''
+                            THEN strftime('%Y-%m-%d %H:%M:%f', 'now', 'localtime')
+                            ELSE NEW.created_at END,
+                        updated_at = NEW.updated_at,
+                        last_login_at = NEW.last_login_at
+                    WHERE id = NEW.id;
+                END
+            """)
+            conn.execute("""
+                CREATE TRIGGER trg_employees_updated_at_update
+                AFTER UPDATE ON employees
+                FOR EACH ROW
+                WHEN (NEW.name <> OLD.name
+                   OR NEW.role <> OLD.role
+                   OR COALESCE(NEW.phone, '') <> COALESCE(OLD.phone, '')
+                   OR NEW.is_active <> OLD.is_active
+                   OR COALESCE(NEW.permissions, '') <> COALESCE(OLD.permissions, '')
+                   OR COALESCE(NEW.password, '') <> COALESCE(OLD.password, ''))
+                  AND (NEW.updated_at IS OLD.updated_at)
+                BEGIN
+                    UPDATE employees
+                    SET updated_at = CASE
+                        WHEN OLD.updated_at IS NOT NULL
+                         AND julianday(OLD.updated_at) IS NOT NULL
+                         AND strftime('%Y-%m-%d %H:%M:%f', 'now', 'localtime') <= OLD.updated_at
+                        THEN strftime(
+                            '%Y-%m-%d %H:%M:%f',
+                            julianday(OLD.updated_at) + (2.0 / 86400000.0)
+                        )
+                        ELSE strftime('%Y-%m-%d %H:%M:%f', 'now', 'localtime')
+                    END
+                    WHERE id = NEW.id;
+                END
+            """)
 
             # Index the same COALESCE expression used by the default activity sort,
             # followed by the stable primary-key tie-breaker.
@@ -1810,6 +1865,21 @@ class DatabaseManager:
             self.log_audit(conn, "ثبت کاربر جدید", f"شناسه: {emp_id} | نام: {name} | نقش: {role}")
             conn.commit()
             return emp_id
+
+    def record_employee_login(self, employee_id: int, timestamp: str = None) -> None:
+        """Record employee/user login timestamp without touching created_at or updated_at."""
+        if not employee_id:
+            return
+        now_ts = timestamp or time.strftime("%Y-%m-%d %H:%M:%S")
+        with self.get_connection() as conn:
+            conn.execute(
+                "UPDATE employees SET last_login_at = ? WHERE id = ?",
+                (now_ts, int(employee_id)),
+            )
+            conn.commit()
+
+    record_user_login = record_employee_login
+    add_user = add_employee
 
     def delete_employee_custom(self, emp_id: int, delete_related_data: bool = False):
         """Delete an employee; optionally remove all linked operations and reverse inventory effects."""
