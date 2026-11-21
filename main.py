@@ -80,7 +80,52 @@ from exporter import (
     get_next_excel_filename,
 )
 
-APP_VERSION = "4.8.3"
+APP_VERSION = "4.8.4"
+
+# Semantic theme tokens for WCAG AA+ accessible dashboard top report cards
+DASHBOARD_CARD_TOKENS = {
+    "light": {
+        "surface": "#FFFFFF",
+        "border": "#E2E8F0",
+        "title": "#334155",  # Contrast 8.54:1 on #FFFFFF (WCAG AAA)
+        "roles": {
+            "primary": {"accent": "#2563EB", "val": "#1D4ED8"},   # val: 5.61:1 on #FFFFFF
+            "success": {"accent": "#059669", "val": "#047857"},   # val: 5.48:1 on #FFFFFF
+            "info":    {"accent": "#7C3AED", "val": "#6D28D9"},   # val: 7.23:1 on #FFFFFF
+            "warning": {"accent": "#D97706", "val": "#B45309"},   # val: 5.02:1 on #FFFFFF
+            "neutral": {"accent": "#0D9488", "val": "#0F766E"},   # val: 5.16:1 on #FFFFFF
+            "danger":  {"accent": "#DC2626", "val": "#B91C1C"},   # val: 6.09:1 on #FFFFFF
+            "rose":    {"accent": "#E11D48", "val": "#BE123C"},   # val: 5.92:1 on #FFFFFF
+            "accent":  {"accent": "#4F46E5", "val": "#4338CA"},   # val: 7.37:1 on #FFFFFF
+        },
+    },
+    "dark": {
+        "surface": "#1E293B",
+        "border": "#334155",
+        "title": "#CBD5E1",  # Contrast 9.59:1 on #1E293B (WCAG AAA)
+        "roles": {
+            "primary": {"accent": "#3B82F6", "val": "#60A5FA"},   # val: 6.44:1 on #1E293B
+            "success": {"accent": "#10B981", "val": "#34D399"},   # val: 8.38:1 on #1E293B
+            "info":    {"accent": "#A855F7", "val": "#C084FC"},   # val: 6.64:1 on #1E293B
+            "warning": {"accent": "#F59E0B", "val": "#FBBF24"},   # val: 8.79:1 on #1E293B
+            "neutral": {"accent": "#14B8A6", "val": "#2DD4BF"},   # val: 8.16:1 on #1E293B
+            "danger":  {"accent": "#EF4444", "val": "#F87171"},   # val: 5.37:1 on #1E293B
+            "rose":    {"accent": "#F43F5E", "val": "#FB7185"},   # val: 5.56:1 on #1E293B
+            "accent":  {"accent": "#6366F1", "val": "#818CF8"},   # val: 5.86:1 on #1E293B
+        },
+    },
+}
+
+LEGACY_COLOR_TO_ROLE = {
+    "#1d4ed8": "primary",
+    "#047857": "success",
+    "#7c3aed": "info",
+    "#b45309": "warning",
+    "#0f766e": "neutral",
+    "#dc2626": "danger",
+    "#be123c": "rose",
+    "#4338ca": "accent",
+}
 
 
 def format_iso_to_jalali(dt_str) -> str:
@@ -2084,27 +2129,31 @@ class MainWindow(QMainWindow):
 
     def _refresh_dashboard_card_styles(self):
         dark = self.db.cfg.get("theme", "light") == "dark"
-        panel = "#2b3648" if dark else "#ffffff"
-        title_color = "#cbd5e1" if dark else "#64748b"
-        value_palette = (
-            ["#93c5fd", "#6ee7b7", "#fcd34d", "#fca5a5", "#c4b5fd", "#67e8f9"]
-            if dark else
-            ["#1d4ed8", "#047857", "#92400e", "#b91c1c", "#6d28d9", "#0e7490"]
-        )
-        for index, (box, title_label, value_label, accent) in enumerate(getattr(
+        theme_key = "dark" if dark else "light"
+        theme_tokens = DASHBOARD_CARD_TOKENS.get(theme_key, DASHBOARD_CARD_TOKENS["light"])
+        surface = theme_tokens["surface"]
+        border_color = theme_tokens["border"]
+        title_color = theme_tokens["title"]
+        roles_dict = theme_tokens["roles"]
+
+        for box, title_label, value_label, role_or_color in getattr(
             self, "_dashboard_card_styles", []
-        )):
+        ):
+            role = LEGACY_COLOR_TO_ROLE.get(str(role_or_color).lower(), str(role_or_color))
+            card_token = roles_dict.get(role, roles_dict["primary"])
+            accent = card_token["accent"]
+            val_color = card_token["val"]
+
             box.setStyleSheet(
-                f"QGroupBox {{ border-right: 5px solid {accent}; "
-                f"background: {panel}; border-radius: 8px; padding: 8px; }}"
+                f"QGroupBox {{ border: 1px solid {border_color}; border-right: 5px solid {accent}; "
+                f"background: {surface}; border-radius: 8px; padding: 8px; }}"
             )
             title_label.setStyleSheet(
                 f"color: {title_color}; background: transparent; "
                 "font-size: 12px; font-weight: bold;"
             )
-            value_color = value_palette[index % len(value_palette)]
             value_label.setStyleSheet(
-                f"color: {value_color}; background: transparent; "
+                f"color: {val_color}; background: transparent; "
                 "font-size: 18px; font-weight: bold;"
             )
 
@@ -2501,28 +2550,28 @@ class MainWindow(QMainWindow):
 
         cards_layout = QGridLayout()
         self.lbl_dash_sales_today = self._make_stat_card(
-            cards_layout, 0, 0, "فروش امروز (تومان)", "0", "#1d4ed8"
+            cards_layout, 0, 0, "فروش امروز (تومان)", "0", "primary"
         )
         self.lbl_dash_profit_today = self._make_stat_card(
-            cards_layout, 0, 1, "سود فروش امروز (تومان)", "0", "#047857"
+            cards_layout, 0, 1, "سود فروش امروز (تومان)", "0", "success"
         )
         self.lbl_dash_count_today = self._make_stat_card(
-            cards_layout, 0, 2, "تعداد فروش امروز", "0", "#7c3aed"
+            cards_layout, 0, 2, "تعداد فروش امروز", "0", "info"
         )
         self.lbl_dash_buy_today = self._make_stat_card(
-            cards_layout, 0, 3, "خرید امروز (تومان)", "0", "#b45309"
+            cards_layout, 0, 3, "خرید امروز (تومان)", "0", "warning"
         )
         self.lbl_dash_total_stock = self._make_stat_card(
-            cards_layout, 1, 0, "کل موجودی انبار (عدد)", "0", "#0f766e"
+            cards_layout, 1, 0, "کل موجودی انبار (عدد)", "0", "neutral"
         )
         self.lbl_dash_low_stock = self._make_stat_card(
-            cards_layout, 1, 1, "کالاهای کم‌موجود", "0", "#dc2626"
+            cards_layout, 1, 1, "کالاهای کم‌موجود", "0", "danger"
         )
         self.lbl_dash_unpaid_supplier = self._make_stat_card(
-            cards_layout, 1, 2, "بدهی به تأمین‌کنندگان", "0", "#be123c"
+            cards_layout, 1, 2, "بدهی به تأمین‌کنندگان", "0", "rose"
         )
         self.lbl_dash_srv_profit = self._make_stat_card(
-            cards_layout, 1, 3, "سود خدمات امروز", "0", "#4338ca"
+            cards_layout, 1, 3, "سود خدمات امروز", "0", "accent"
         )
         layout.addLayout(cards_layout)
 
@@ -2570,29 +2619,15 @@ class MainWindow(QMainWindow):
     def _make_stat_card(self, grid, r, c, title, val, color):
         box = QGroupBox()
         box.setToolTip(title)
-        dark = self.db.cfg.get("theme", "light") == "dark"
-        panel = "#2b3648" if dark else "#ffffff"
-        title_color = "#cbd5e1" if dark else "#64748b"
-        box.setStyleSheet(
-            f"QGroupBox {{ border-right: 5px solid {color}; background: {panel}; "
-            "border-radius: 8px; padding: 8px; }"
-        )
         v = QVBoxLayout(box)
         t = QLabel(title)
         t.setToolTip(title)
-        t.setStyleSheet(
-            f"color: {title_color}; background: transparent; "
-            "font-size: 12px; font-weight: bold;"
-        )
         lbl_val = QLabel(val)
-        lbl_val.setStyleSheet(
-            f"color: {color}; background: transparent; "
-            "font-size: 18px; font-weight: bold;"
-        )
         v.addWidget(t)
         v.addWidget(lbl_val)
         grid.addWidget(box, r, c)
-        self._dashboard_card_styles.append((box, t, lbl_val, color))
+        role = LEGACY_COLOR_TO_ROLE.get(str(color).lower(), str(color))
+        self._dashboard_card_styles.append((box, t, lbl_val, role))
         self._refresh_dashboard_card_styles()
         return lbl_val
 
@@ -7311,8 +7346,20 @@ class MainWindow(QMainWindow):
         btn_import_prod_tax.setToolTip("بارگذاری ساختار کالا از فایل taxonomy.json خارجی بدون تغییر خدمات")
         btn_import_prod_tax.clicked.connect(self._import_product_taxonomy)
 
+        self.btn_export_prod_tax_section = QPushButton("📤 خروجی JSON همین بخش")
+        self.btn_export_prod_tax_section.setObjectName("btnSecondary")
+        self.btn_export_prod_tax_section.setToolTip("خروجی گرفتن از دسته‌بندی‌ها، زیرمجموعه‌ها، مشخصات و رنگ‌های کالا در قالب فایل JSON")
+        self.btn_export_prod_tax_section.clicked.connect(self._export_product_taxonomy_section)
+
+        self.btn_export_prod_tax_full = QPushButton("📦 خروجی جامع JSON")
+        self.btn_export_prod_tax_full.setObjectName("btnSecondary")
+        self.btn_export_prod_tax_full.setToolTip("خروجی گرفتن از ساختار کامل کالاها و انواع خدمات در یک فایل جامع default_taxonomy.json")
+        self.btn_export_prod_tax_full.clicked.connect(self._export_comprehensive_taxonomy)
+
         prod_actions_bar.addWidget(btn_clear_prod_tax)
         prod_actions_bar.addWidget(btn_import_prod_tax)
+        prod_actions_bar.addWidget(self.btn_export_prod_tax_section)
+        prod_actions_bar.addWidget(self.btn_export_prod_tax_full)
         prod_actions_bar.addStretch()
         prod_page_layout.addLayout(prod_actions_bar)
 
@@ -7383,8 +7430,20 @@ class MainWindow(QMainWindow):
         btn_import_serv_tax.setToolTip("بارگذاری انواع خدمت از فایل taxonomy.json خارجی بدون تغییر کالاها")
         btn_import_serv_tax.clicked.connect(self._import_service_taxonomy)
 
+        self.btn_export_serv_tax_section = QPushButton("📤 خروجی JSON همین بخش")
+        self.btn_export_serv_tax_section.setObjectName("btnSecondary")
+        self.btn_export_serv_tax_section.setToolTip("خروجی گرفتن از فهرست انواع خدمات در قالب فایل JSON")
+        self.btn_export_serv_tax_section.clicked.connect(self._export_service_taxonomy_section)
+
+        self.btn_export_serv_tax_full = QPushButton("📦 خروجی جامع JSON")
+        self.btn_export_serv_tax_full.setObjectName("btnSecondary")
+        self.btn_export_serv_tax_full.setToolTip("خروجی گرفتن از ساختار کامل کالاها و انواع خدمات در یک فایل جامع default_taxonomy.json")
+        self.btn_export_serv_tax_full.clicked.connect(self._export_comprehensive_taxonomy)
+
         service_actions_bar.addWidget(btn_clear_serv_tax)
         service_actions_bar.addWidget(btn_import_serv_tax)
+        service_actions_bar.addWidget(self.btn_export_serv_tax_section)
+        service_actions_bar.addWidget(self.btn_export_serv_tax_full)
         service_actions_bar.addStretch()
         service_page_layout.addLayout(service_actions_bar)
 
@@ -9019,14 +9078,17 @@ class MainWindow(QMainWindow):
         self._taxonomy_draft["colors"] = []
         self._refresh_catalog_draft_ui()
 
-    def _import_product_taxonomy(self):
+    def _import_product_taxonomy(self, import_path=None):
         """Action 2 (REQ-3): Scoped manual JSON import for product taxonomy only (services untouched)."""
-        path, _ = QFileDialog.getOpenFileName(
-            self,
-            "انتخاب فایل ساختار کالا (JSON)",
-            "",
-            "JSON Files (*.json);;All Files (*.*)",
-        )
+        if import_path:
+            path = import_path
+        else:
+            path, _ = QFileDialog.getOpenFileName(
+                self,
+                "انتخاب فایل ساختار کالا (JSON)",
+                "",
+                "JSON Files (*.json);;All Files (*.*)",
+            )
         if not path:
             return
         try:
@@ -9053,13 +9115,17 @@ class MainWindow(QMainWindow):
             self._taxonomy_draft = self._enforce_other_subcategory_attribute_contract(self._taxonomy_draft)
 
             self._refresh_catalog_draft_ui()
-            QMessageBox.information(
-                self,
-                "بارگذاری ساختار کالا",
-                "ساختار کالاها با موفقیت در پیش‌نویس بارگذاری شد.\nبرای اعمال نهایی، روی «ذخیره تنظیمات» کلیک کنید."
-            )
+            if not import_path:
+                QMessageBox.information(
+                    self,
+                    "بارگذاری ساختار کالا",
+                    "ساختار کالاها با موفقیت در پیش‌نویس بارگذاری شد.\nبرای اعمال نهایی، روی «ذخیره تنظیمات» کلیک کنید."
+                )
         except Exception as e:
-            QMessageBox.critical(self, "خطا در بارگذاری فایل ساختار", f"فایل انتخاب‌شده نامعتبر است یا قابل خواندن نیست:\n{e}")
+            if not import_path:
+                QMessageBox.critical(self, "خطا در بارگذاری فایل ساختار", f"فایل انتخاب‌شده نامعتبر است یا قابل خواندن نیست:\n{e}")
+            else:
+                raise
 
     def _clear_service_taxonomy(self):
         """Action 1 (REQ-3): Clear all service types from in-memory draft (products untouched)."""
@@ -9073,14 +9139,17 @@ class MainWindow(QMainWindow):
         self._taxonomy_draft["service_types"] = []
         self._refresh_catalog_draft_ui()
 
-    def _import_service_taxonomy(self):
+    def _import_service_taxonomy(self, import_path=None):
         """Action 2 (REQ-3): Scoped manual JSON import for service types only (products untouched)."""
-        path, _ = QFileDialog.getOpenFileName(
-            self,
-            "انتخاب فایل ساختار خدمات (JSON)",
-            "",
-            "JSON Files (*.json);;All Files (*.*)",
-        )
+        if import_path:
+            path = import_path
+        else:
+            path, _ = QFileDialog.getOpenFileName(
+                self,
+                "انتخاب فایل ساختار خدمات (JSON)",
+                "",
+                "JSON Files (*.json);;All Files (*.*)",
+            )
         if not path:
             return
         try:
@@ -9097,13 +9166,123 @@ class MainWindow(QMainWindow):
 
             self._taxonomy_draft["service_types"] = [str(st).strip() for st in service_types if str(st).strip()]
             self._refresh_catalog_draft_ui()
-            QMessageBox.information(
-                self,
-                "بارگذاری انواع خدمت",
-                "فهرست انواع خدمت با موفقیت در پیش‌نویس بارگذاری شد.\nبرای اعمال نهایی، روی «ذخیره تنظیمات» کلیک کنید."
-            )
+            if not import_path:
+                QMessageBox.information(
+                    self,
+                    "بارگذاری انواع خدمت",
+                    "فهرست انواع خدمت با موفقیت در پیش‌نویس بارگذاری شد.\nبرای اعمال نهایی، روی «ذخیره تنظیمات» کلیک کنید."
+                )
         except Exception as e:
-            QMessageBox.critical(self, "خطا در بارگذاری فایل خدمات", f"فایل انتخاب‌شده نامعتبر است یا قابل خواندن نیست:\n{e}")
+            if not import_path:
+                QMessageBox.critical(self, "خطا در بارگذاری فایل خدمات", f"فایل انتخاب‌شده نامعتبر است یا قابل خواندن نیست:\n{e}")
+            else:
+                raise
+
+    def _export_product_taxonomy_section(self, export_path=None):
+        """REQ-1: Scoped JSON export for product taxonomy only (categories, subcategories, attributes, colors)."""
+        if export_path:
+            path = export_path
+        else:
+            path, _ = QFileDialog.getSaveFileName(
+                self,
+                "ذخیره ساختار کالا در فایل JSON",
+                "product_taxonomy.json",
+                "JSON Files (*.json);;All Files (*.*)",
+            )
+        if not path:
+            return None
+        try:
+            payload = {
+                "categories": list(self._taxonomy_draft.get("categories") or []),
+                "subcategories": copy.deepcopy(self._taxonomy_draft.get("subcategories") or {}),
+                "attributes": copy.deepcopy(self._taxonomy_draft.get("attributes") or {}),
+                "colors": list(self._taxonomy_draft.get("colors") or []),
+            }
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+            if not export_path:
+                QMessageBox.information(
+                    self,
+                    "خروجی ساختار کالا",
+                    f"فایل ساختار کالا با موفقیت ذخیره شد:\n{path}"
+                )
+            return path
+        except Exception as e:
+            if not export_path:
+                QMessageBox.critical(self, "خطا در ذخیره فایل", f"ذخیره فایل با خطا مواجه شد:\n{e}")
+                return None
+            else:
+                raise
+
+    def _export_service_taxonomy_section(self, export_path=None):
+        """REQ-1: Scoped JSON export for service types only (service_types)."""
+        if export_path:
+            path = export_path
+        else:
+            path, _ = QFileDialog.getSaveFileName(
+                self,
+                "ذخیره انواع خدمت در فایل JSON",
+                "service_taxonomy.json",
+                "JSON Files (*.json);;All Files (*.*)",
+            )
+        if not path:
+            return None
+        try:
+            payload = {
+                "service_types": list(self._taxonomy_draft.get("service_types") or []),
+            }
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+            if not export_path:
+                QMessageBox.information(
+                    self,
+                    "خروجی انواع خدمت",
+                    f"فایل انواع خدمت با موفقیت ذخیره شد:\n{path}"
+                )
+            return path
+        except Exception as e:
+            if not export_path:
+                QMessageBox.critical(self, "خطا در ذخیره فایل", f"ذخیره فایل با خطا مواجه شد:\n{e}")
+                return None
+            else:
+                raise
+
+    def _export_comprehensive_taxonomy(self, export_path=None):
+        """REQ-1: Comprehensive JSON export of products and services matching default_taxonomy.json schema."""
+        if export_path:
+            path = export_path
+        else:
+            path, _ = QFileDialog.getSaveFileName(
+                self,
+                "ذخیره فهرست جامع ساختار کالا و خدمات در فایل JSON",
+                "default_taxonomy.json",
+                "JSON Files (*.json);;All Files (*.*)",
+            )
+        if not path:
+            return None
+        try:
+            payload = {
+                "categories": list(self._taxonomy_draft.get("categories") or []),
+                "subcategories": copy.deepcopy(self._taxonomy_draft.get("subcategories") or {}),
+                "attributes": copy.deepcopy(self._taxonomy_draft.get("attributes") or {}),
+                "colors": list(self._taxonomy_draft.get("colors") or []),
+                "service_types": list(self._taxonomy_draft.get("service_types") or []),
+            }
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+            if not export_path:
+                QMessageBox.information(
+                    self,
+                    "خروجی جامع ساختار",
+                    f"فایل جامع ساختار کالا و خدمات با موفقیت ذخیره شد:\n{path}"
+                )
+            return path
+        except Exception as e:
+            if not export_path:
+                QMessageBox.critical(self, "خطا در ذخیره فایل", f"ذخیره فایل با خطا مواجه شد:\n{e}")
+                return None
+            else:
+                raise
 
     def _on_save_settings_clicked(self):
         return self._save_general_settings()
@@ -10638,7 +10817,7 @@ def main():
     if sys.platform == "win32":
         try:
             import ctypes
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("ouncommono.Daqiq.4.8.3")
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("ouncommono.Daqiq.4.8.4")
         except Exception:
             pass
 

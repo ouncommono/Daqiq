@@ -28,15 +28,15 @@ def qapp():
 
 def test_req0_schema_version_and_parity(tmp_path):
     """REQ-0: Clean-slate relational schema v483 and column parity."""
-    assert SCHEMA_VERSION == 483
-    assert APP_VERSION == "4.8.3"
+    assert SCHEMA_VERSION == 484
+    assert APP_VERSION == "4.8.4"
 
     db_path = os.path.join(tmp_path, "schema_test.db")
     db = DatabaseManager(db_path)
 
     with db.get_connection() as conn:
         ver = conn.execute("PRAGMA user_version").fetchone()[0]
-        assert ver == 483
+        assert ver == 484
 
         # Verify key tables exist with expected physical columns
         for table, expected_cols in EXPECTED_SCHEMA_COLUMNS.items():

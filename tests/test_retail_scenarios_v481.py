@@ -63,7 +63,7 @@ def test_scenario1_sequential_db_and_isolated_backups(qapp, tmp_path, monkeypatc
     db1 = create_and_initialize_database(path1)
     with db1.get_connection() as conn:
         validate_schema_column_order(conn)
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 483
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 484
 
     # 2. Sequential resolution: Daqiq_2.db and Daqiq_3.db
     path2 = resolve_new_database_filename(base_dir)

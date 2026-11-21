@@ -226,7 +226,7 @@ def test_scenario3_brand_logo_assets_and_packaging():
         ci_content = f.read()
     assert "--icon=assets/daqiq_logo.ico" in ci_content
     assert '--add-data "assets;assets"' in ci_content or "--add-data 'assets;assets'" in ci_content
-    assert "4.8.3" in ci_content
+    assert "4.8.4" in ci_content
 
 
 # =========================================================================
@@ -234,8 +234,8 @@ def test_scenario3_brand_logo_assets_and_packaging():
 # =========================================================================
 def test_scenario4_schema_v483_and_store_workflow_sweep(qapp, tmp_path):
     """End-to-end retail store scenario on clean schema v483."""
-    assert APP_VERSION == "4.8.3"
-    assert SCHEMA_VERSION == 483
+    assert APP_VERSION == "4.8.4"
+    assert SCHEMA_VERSION == 484
 
     db_path = str(tmp_path / "Daqiq.db")
     db = create_and_initialize_database(db_path)
@@ -243,7 +243,7 @@ def test_scenario4_schema_v483_and_store_workflow_sweep(qapp, tmp_path):
     # Schema integrity check
     with db.get_connection() as conn:
         validate_schema_column_order(conn)
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 483
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 484
         assert conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
         emp_cols = tuple(r["name"] for r in conn.execute("PRAGMA table_info(employees)").fetchall())
         assert emp_cols == EXPECTED_SCHEMA_COLUMNS["employees"]
