@@ -43,7 +43,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
 )
 from PySide6.QtCore import Qt, QTimer, QObject, QEvent, QLocale
-from PySide6.QtGui import QFont, QColor, QFontMetrics
+from PySide6.QtGui import QFont, QColor, QFontMetrics, QIcon
 
 from database import (
     DatabaseManager, load_app_config, save_app_config, hash_password,
@@ -72,6 +72,7 @@ from utils_and_widgets import (
     bidi_isolate_text,
     strip_bidi_controls,
     mixed_bidi_tooltip,
+    resource_path,
 )
 from exporter import (
     export_safe_inventory_excel,
@@ -79,7 +80,31 @@ from exporter import (
     get_next_excel_filename,
 )
 
-APP_VERSION = "4.8.2"
+APP_VERSION = "4.8.3"
+
+
+def format_iso_to_jalali(dt_str) -> str:
+    """Format an ISO/SQLite timestamp into Persian/Jalali YYYY/MM/DD - HH:MM, fallback to em-dash."""
+    if not dt_str or not str(dt_str).strip():
+        return "—"
+    s = str(dt_str).strip()
+    try:
+        dt_clean = s.replace("T", " ")
+        if "." in dt_clean:
+            dt_clean = dt_clean.split(".")[0]
+        from datetime import datetime
+        dt_greg = datetime.strptime(dt_clean, "%Y-%m-%d %H:%M:%S")
+        dt_jalali = jdatetime.datetime.fromgregorian(datetime=dt_greg)
+        return dt_jalali.strftime("%Y/%m/%d - %H:%M")
+    except Exception:
+        try:
+            from datetime import datetime
+            dt_greg = datetime.strptime(s.split()[0], "%Y-%m-%d")
+            dt_jalali = jdatetime.date.fromgregorian(date=dt_greg.date())
+            return f"{dt_jalali.strftime('%Y/%m/%d')} - 00:00"
+        except Exception:
+            return s or "—"
+
 
 REPORT_AVAILABLE_COLUMNS = {
     "همه (گزارش جامع خرید، فروش و خدمات)": [
@@ -674,6 +699,9 @@ class LoginDialog(QDialog):
         self.setWindowTitle("ورود با رمز عبور" if self.require_password else "انتخاب کاربر")
         self.setLayoutDirection(Qt.RightToLeft)
         self.setFixedSize(410, 220)
+        icon_path = resource_path("assets/daqiq_logo.png")
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
 
         layout = QFormLayout(self)
         layout.setContentsMargins(16, 14, 16, 14)
@@ -735,6 +763,10 @@ class LoginDialog(QDialog):
                 QMessageBox.warning(self, "خطا", "رمز عبور واردشده صحیح نیست.")
                 return
         self.logged_employee = employee
+        try:
+            self.db.record_employee_login(employee["id"])
+        except Exception:
+            pass
         self.accept()
 
 
@@ -947,7 +979,12 @@ def _resolve_startup_employee(db, parent=None):
     has_password_account = any(bool(employee["password"]) for employee in employees)
     must_show_dialog = require_password or len(employees) > 1 or has_password_account
     if not must_show_dialog:
-        return dict(employees[0]), True
+        emp = dict(employees[0])
+        try:
+            db.record_employee_login(emp["id"])
+        except Exception:
+            pass
+        return emp, True
 
     dialog = LoginDialog(db, parent)
     if dialog.exec() != QDialog.Accepted or not dialog.logged_employee:
@@ -961,6 +998,14 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.db = db
         self.active_employee = active_employee
+        if self.active_employee and isinstance(self.active_employee, dict) and self.active_employee.get("id"):
+            try:
+                self.db.record_employee_login(self.active_employee["id"])
+            except Exception:
+                pass
+        icon_path = resource_path("assets/daqiq_logo.png")
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
         initial_shop_name = (self.db.get_setting("shop_name", "فروشگاه من") or "فروشگاه من").strip()
         self.setWindowTitle(_window_title(initial_shop_name))
         self.setLayoutDirection(Qt.RightToLeft)
@@ -6212,6 +6257,9 @@ class MainWindow(QMainWindow):
                 "سطح دسترسی",
                 "دارای رمز عبور",
                 "وضعیت فعالیت",
+                "تاریخ ایجاد",
+                "تاریخ ویرایش",
+                "آخرین ورود",
             ]
         )
         self.tbl_employees.itemSelectionChanged.connect(self._on_emp_selected)
@@ -10357,7 +10405,7 @@ class MainWindow(QMainWindow):
         with self.db.get_connection() as conn:
             rows = self._execute_scoped_query(
                 conn,
-                "SELECT id, name, role, phone, is_active, permissions, password, created_at, updated_at "
+                "SELECT id, name, role, phone, is_active, permissions, password, created_at, updated_at, last_login_at "
                 "FROM employees ORDER BY updated_at DESC, id DESC",
                 "id",
             ).fetchall()
@@ -10370,6 +10418,9 @@ class MainWindow(QMainWindow):
                 r["permissions"],
                 "بله" if r["password"] else "خیر",
                 "فعال" if r["is_active"] else "غیرفعال",
+                format_iso_to_jalali(r["created_at"]),
+                format_iso_to_jalali(r["updated_at"]),
+                format_iso_to_jalali(r["last_login_at"]),
             ]
             for r in rows
         ]
@@ -10584,10 +10635,21 @@ class MainWindow(QMainWindow):
 
 
 def main():
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("ouncommono.Daqiq.4.8.3")
+        except Exception:
+            pass
+
     app = QApplication(sys.argv)
     app.setLayoutDirection(Qt.RightToLeft)
     font = QFont("Tahoma", 10)
     app.setFont(font)
+
+    icon_path = resource_path("assets/daqiq_logo.png")
+    if os.path.exists(icon_path):
+        app.setWindowIcon(QIcon(icon_path))
 
     selected_db_path = select_startup_database_path()
     if not selected_db_path:

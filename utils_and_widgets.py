@@ -1,9 +1,20 @@
 # utils_and_widgets.py
+import os
+import sys
 import datetime
 import re
 import weakref
 import html
 import jdatetime
+
+def resource_path(relative_path: str) -> str:
+    """Get absolute path to resource, works for dev and for PyInstaller bundle."""
+    try:
+        base_path = sys._MEIPASS
+    except AttributeError:
+        base_path = os.path.dirname(os.path.abspath(__file__))
+    return os.path.normpath(os.path.join(base_path, relative_path))
+
 from PySide6.QtWidgets import (
     QWidget,
     QHBoxLayout,
@@ -1174,10 +1185,8 @@ class DynamicSpecsWidget(QGroupBox):
                 widget = SearchableComboBox()
                 widget.addItem("")
                 widget.addItems(list(dict.fromkeys(values)))
-                if widget.lineEdit():
-                    widget.lineEdit().setPlaceholderText(f"{form_label} را وارد یا انتخاب کنید...")
             else:
-                widget = SmartLineEdit(f"{field_name} را وارد کنید...")
+                widget = SmartLineEdit()
             widget.setToolTip(f"مشخصات فنی: {form_label}")
             self.fields[field_name] = widget
             self._custom_field_widgets[field_name] = widget
@@ -1239,7 +1248,6 @@ class DynamicSpecsWidget(QGroupBox):
                 target_key = next((f_key for f_key in self.fields if normalize_catalog_label(f_key) == normalize_catalog_label("مشخصات")), None)
                 if not target_key:
                     w = SmartLineEdit()
-                    w.setPlaceholderText("مشخصات فنی کالا...")
                     self.fields["مشخصات"] = w
                     self.form_layout.addRow("مشخصات:", w)
                     target_key = "مشخصات"
@@ -1247,7 +1255,6 @@ class DynamicSpecsWidget(QGroupBox):
                 target_key = next((f_key for f_key in self.fields if normalize_catalog_label(f_key) == normalize_catalog_label(k)), k)
                 if target_key not in self.fields:
                     w = SmartLineEdit()
-                    w.setPlaceholderText(f"{k}...")
                     self.fields[target_key] = w
                     self.form_layout.addRow(f"{target_key}:", w)
             if target_key and target_key in self.fields:

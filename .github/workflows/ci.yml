@@ -79,13 +79,13 @@ jobs:
         shell: pwsh
         run: |
             $ver = (Get-Content VERSION).Trim()
-            if (-not $ver) { $ver = "4.8.2" }
+            if (-not $ver) { $ver = "4.8.3" }
             Write-Output "APP_VERSION=$ver" >> $env:GITHUB_ENV
             Write-Output "Building for version: $ver"
 
       - name: Build Executable with PyInstaller
         run: |
-          pyinstaller --noconfirm --onefile --windowed --name "Daqiq_${{ env.APP_VERSION }}" main.py
+          pyinstaller --noconfirm --onefile --windowed --icon=assets/daqiq_logo.ico --add-data "assets;assets" --name "Daqiq_${{ env.APP_VERSION }}" main.py
 
       - name: Copy External Standalone Taxonomy
         shell: pwsh
@@ -129,7 +129,7 @@ jobs:
         shell: pwsh
         run: |
           $ver = (Get-Content VERSION).Trim()
-          if (-not $ver) { $ver = "4.8.2" }
+          if (-not $ver) { $ver = "4.8.3" }
           Write-Output "APP_VERSION=$ver" >> $env:GITHUB_ENV
 
       - name: Download Build Artifact
