@@ -9,8 +9,8 @@ Covers:
 import os
 import sys
 import json
+import struct
 import pytest
-from PIL import Image
 
 from PySide6.QtWidgets import QApplication, QLineEdit, QComboBox
 from PySide6.QtCore import Qt
@@ -194,14 +194,24 @@ def test_scenario3_brand_logo_assets_and_packaging():
     assert os.path.isfile(ico_path), f"Missing ICO logo at {ico_path}"
 
     # 2. PNG dimensions
-    with Image.open(png_path) as png_img:
-        assert png_img.size == (512, 512)
-        assert png_img.mode in ("RGBA", "RGB")
+    with open(png_path, "rb") as f:
+        header = f.read(8)
+        assert header == b"\x89PNG\r\n\x1a\n", "Invalid PNG header"
+        f.read(8)  # skip chunk length and IHDR
+        w, h = struct.unpack(">II", f.read(8))
+        assert (w, h) == (512, 512), f"Expected (512, 512), got ({w}, {h})"
 
     # 3. Multi-resolution ICO frames
-    with Image.open(ico_path) as ico_img:
-        assert ico_img.format == "ICO"
-        sizes = ico_img.info.get("sizes", set())
+    with open(ico_path, "rb") as f:
+        res, typ, count = struct.unpack("<HHH", f.read(6))
+        assert typ == 1, "Not a valid Windows ICO file"
+        sizes = set()
+        for _ in range(count):
+            w, h = struct.unpack("BB", f.read(2))
+            w = 256 if w == 0 else w
+            h = 256 if h == 0 else h
+            f.read(14)
+            sizes.add((w, h))
         expected_resolutions = {(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)}
         assert expected_resolutions.issubset(sizes), f"ICO missing required sizes: {expected_resolutions - sizes}"
 

@@ -43,7 +43,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest pytest-timeout openpyxl pyinstaller
+          pip install pytest pytest-timeout openpyxl pyinstaller pillow
 
       - name: Compile Python bytecode
         run: python -m compileall -q .
@@ -72,7 +72,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pyinstaller openpyxl
+          pip install pyinstaller openpyxl pillow
 
       - name: Read Application Version
         id: version_step
