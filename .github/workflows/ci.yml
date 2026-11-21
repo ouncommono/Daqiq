@@ -79,7 +79,7 @@ jobs:
         shell: pwsh
         run: |
             $ver = (Get-Content VERSION).Trim()
-            if (-not $ver) { $ver = "4.8.1" }
+            if (-not $ver) { $ver = "4.8.2" }
             Write-Output "APP_VERSION=$ver" >> $env:GITHUB_ENV
             Write-Output "Building for version: $ver"
 
@@ -129,7 +129,7 @@ jobs:
         shell: pwsh
         run: |
           $ver = (Get-Content VERSION).Trim()
-          if (-not $ver) { $ver = "4.8.1" }
+          if (-not $ver) { $ver = "4.8.2" }
           Write-Output "APP_VERSION=$ver" >> $env:GITHUB_ENV
 
       - name: Download Build Artifact
@@ -159,10 +159,10 @@ jobs:
               --base main `
               --head $currentBranch `
               --title "Release v${{ env.APP_VERSION }}: Final Production Release" `
-              --body "Final production release v${{ env.APP_VERSION }}. Features clean-slate schema v481, sequential database naming (Daqiq.db, Daqiq_2.db, ...), per-database auto-backup isolation and prefix-collision protection, sales warranty English numerals & robust parser, transactional taxonomy clear & scoped manual JSON import, transactional remove password dialog, multi-DB self-healing DPAPI credential vault. Auto-merge is strictly prohibited."
+              --body "Final production release v${{ env.APP_VERSION }}. Features clean-slate schema v482, decoupled historical record immutability, Specs DB key normalization, first-letter auto-capitalization policy (with ALL-CAPS brand/model and hardware string preservation), active logged-in user auto-selection across operator fields on load/switch/reload/clear, 100% purge of asterisk mandatory indicators, uniform Persian input placeholders. Auto-merge is strictly prohibited."
           }
 
-      - name: Publish Release Tagged as v4.8.1 and Marked as Latest
+      - name: Publish Release Tagged as v4.8.2 and Marked as Latest
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

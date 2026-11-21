@@ -49,8 +49,8 @@ class TestReleaseV460(unittest.TestCase):
     # REQ-0: Greenfield Schema & App Parity (Zero Phantom Columns)
     # =========================================================================
     def test_req0_schema_parity_no_phantom_columns(self):
-        self.assertEqual(APP_VERSION, "4.8.1")
-        self.assertEqual(SCHEMA_VERSION, 481)
+        self.assertEqual(APP_VERSION, "4.8.2")
+        self.assertEqual(SCHEMA_VERSION, 482)
 
         # Verify payment_method phantom column is completely eliminated
         self.assertNotIn("payment_method", EXPECTED_SCHEMA_COLUMNS["payments"])
@@ -67,7 +67,7 @@ class TestReleaseV460(unittest.TestCase):
             with db.get_connection() as conn:
                 # Check user_version
                 ver = conn.execute("PRAGMA user_version").fetchone()[0]
-                self.assertEqual(ver, 481)
+                self.assertEqual(ver, 482)
 
                 # Check payments columns in database
                 cols = [row[1] for row in conn.execute("PRAGMA table_info(payments)").fetchall()]

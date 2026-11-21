@@ -114,8 +114,24 @@ def normalize_digits(text: str) -> str:
     return str(text).translate(PERSIAN_ARABIC_MAP)
 
 
+def auto_capitalize_first_char(text: str) -> str:
+    """Uppercase ONLY the first Latin letter if lowercased, leaving all remaining characters untouched (REQ-1).
+    Does NOT use str.capitalize() to avoid destroying mixed-case hardware strings (e.g. DDR4, NVMe, Core i7, RTX 4060).
+    """
+    if not text:
+        return ""
+    text = normalize_digits(text)
+    for i, ch in enumerate(text):
+        if ch.isspace():
+            continue
+        if ch.islower():
+            return text[:i] + ch.upper() + text[i + 1:]
+        break
+    return text
+
+
 def auto_capitalize_english(text: str) -> str:
-    """مورد ۲: تبدیل واقعی تمامی حروف انگلیسی به حروف بزرگ (UPPERCASE) به همراه نرمال‌سازی اعداد"""
+    """تبدیل تمامی حروف انگلیسی به حروف بزرگ (UPPERCASE) ویژه برند و مدل کالا"""
     if not text:
         return ""
     return normalize_digits(text).upper()
@@ -338,28 +354,42 @@ class CollapsibleSection(QWidget):
 
 
 class SmartLineEdit(QLineEdit):
-    """فیلد متنی که اعداد را انگلیسی و تمام حروف انگلیسی را به طور واقعی بزرگ (UPPERCASE) ذخیره می‌کند"""
+    """فیلد متنی هوشمند با تبدیل اعداد به انگلیسی و بزرگ‌نویسی خودکار حرف اول (یا تمام حروف برای برند و مدل)."""
 
-    def __init__(self, placeholder="", parent=None):
+    def __init__(self, placeholder="", parent=None, all_caps=False):
         super().__init__(parent)
+        self.all_caps = bool(all_caps)
         if placeholder:
             self.setPlaceholderText(placeholder)
         self.textEdited.connect(self._on_text_edited)
 
+    def _transform_text(self, txt: str) -> str:
+        if not txt:
+            return ""
+        if self.all_caps:
+            return auto_capitalize_english(txt)
+        return auto_capitalize_first_char(txt)
+
     def _on_text_edited(self, txt):
-        new_txt = auto_capitalize_english(txt)
+        new_txt = self._transform_text(txt)
         if new_txt != txt:
             pos = self.cursorPosition()
+            has_sel = self.hasSelectedText()
+            sel_start = self.selectionStart()
+            sel_len = self.selectionLength()
             self.blockSignals(True)
             super().setText(new_txt)
-            self.setCursorPosition(pos)
+            if has_sel and sel_start >= 0 and sel_len > 0:
+                self.setSelection(sel_start, sel_len)
+            else:
+                self.setCursorPosition(pos)
             self.blockSignals(False)
 
     def setText(self, txt: str):
-        super().setText(auto_capitalize_english(txt))
+        super().setText(self._transform_text(str(txt or "")))
 
     def text(self) -> str:
-        return auto_capitalize_english(super().text())
+        return self._transform_text(super().text())
 
 
 class PriceInput(QLineEdit):
@@ -438,7 +468,7 @@ class _ComboSearchProxyModel(QSortFilterProxyModel):
         self.setFilterCaseSensitivity(Qt.CaseInsensitive)
 
     def set_query(self, query):
-        self.query = auto_capitalize_english(query).strip()
+        self.query = auto_capitalize_first_char(query).strip()
         self.invalidateFilter()
 
     def filterAcceptsRow(self, source_row: int, source_parent: QModelIndex) -> bool:
@@ -450,7 +480,7 @@ class _ComboSearchProxyModel(QSortFilterProxyModel):
         searchable = source.data(index, self.search_role) or ""
         q = self.query.casefold().strip()
         haystack = f"{visible} {searchable}".casefold()
-        return q in haystack or auto_capitalize_english(self.query) in auto_capitalize_english(f"{visible} {searchable}")
+        return q in haystack or auto_capitalize_first_char(self.query) in auto_capitalize_first_char(f"{visible} {searchable}")
 
 
 class SearchableComboBox(QComboBox):
@@ -483,7 +513,7 @@ class SearchableComboBox(QComboBox):
             self._search_proxy.invalidateFilter()
 
     def _normalize_search(self, txt):
-        norm = auto_capitalize_english(txt)
+        norm = auto_capitalize_first_char(txt)
         self._search_proxy.set_query(norm)
         if norm != txt:
             pos = self.lineEdit().cursorPosition()
@@ -491,9 +521,10 @@ class SearchableComboBox(QComboBox):
             self.lineEdit().setText(norm)
             self.lineEdit().setCursorPosition(pos)
             self.lineEdit().blockSignals(False)
+        return norm
 
     def currentText(self) -> str:
-        return auto_capitalize_english(super().currentText())
+        return auto_capitalize_first_char(super().currentText())
 
 
 class QuantitySelector(QComboBox):
@@ -1143,8 +1174,10 @@ class DynamicSpecsWidget(QGroupBox):
                 widget = SearchableComboBox()
                 widget.addItem("")
                 widget.addItems(list(dict.fromkeys(values)))
+                if widget.lineEdit():
+                    widget.lineEdit().setPlaceholderText(f"{form_label} را وارد یا انتخاب کنید...")
             else:
-                widget = SmartLineEdit(f"{field_name}...")
+                widget = SmartLineEdit(f"{field_name} را وارد کنید...")
             widget.setToolTip(f"مشخصات فنی: {form_label}")
             self.fields[field_name] = widget
             self._custom_field_widgets[field_name] = widget
@@ -1191,15 +1224,33 @@ class DynamicSpecsWidget(QGroupBox):
         for k, w in self.fields.items():
             val = w.currentText() if isinstance(w, QComboBox) else w.text()
             if val.strip():
-                res[k] = val.strip()
+                clean_val = val.strip()
+                if normalize_catalog_label(k) == normalize_catalog_label("مشخصات") or k in ("Specs", "specs"):
+                    res["Specs"] = clean_val
+                else:
+                    res[k] = clean_val
         return res
 
     def set_specs_dict(self, data: dict):
         if not isinstance(data, dict):
             return
         for k, val in data.items():
-            target_key = next((f_key for f_key in self.fields if normalize_catalog_label(f_key) == normalize_catalog_label(k)), k)
-            if target_key in self.fields:
+            if k in ("Specs", "specs") or normalize_catalog_label(k) == normalize_catalog_label("مشخصات"):
+                target_key = next((f_key for f_key in self.fields if normalize_catalog_label(f_key) == normalize_catalog_label("مشخصات")), None)
+                if not target_key:
+                    w = SmartLineEdit()
+                    w.setPlaceholderText("مشخصات فنی کالا...")
+                    self.fields["مشخصات"] = w
+                    self.form_layout.addRow("مشخصات:", w)
+                    target_key = "مشخصات"
+            else:
+                target_key = next((f_key for f_key in self.fields if normalize_catalog_label(f_key) == normalize_catalog_label(k)), k)
+                if target_key not in self.fields:
+                    w = SmartLineEdit()
+                    w.setPlaceholderText(f"{k}...")
+                    self.fields[target_key] = w
+                    self.form_layout.addRow(f"{target_key}:", w)
+            if target_key and target_key in self.fields:
                 w = self.fields[target_key]
                 if isinstance(w, QComboBox):
                     w.setCurrentText(str(val))

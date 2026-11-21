@@ -56,11 +56,11 @@ def test_scenario1_smart_naming_and_immediate_creation(tmp_path):
     assert os.path.isfile(path1)
     with db1.get_connection() as conn:
         ver = conn.execute("PRAGMA user_version").fetchone()[0]
-        assert ver == 481
+        assert ver == 482
 
         # Check default settings
         app_ver = conn.execute("SELECT value FROM settings WHERE key='app_version'").fetchone()[0]
-        assert app_ver == "4.8.1"
+        assert app_ver == "4.8.2"
 
     # Check taxonomy seeded
     tax = db1.get_product_catalog_config()
@@ -89,7 +89,7 @@ def test_scenario1_taxonomy_missing_fallback(tmp_path, monkeypatch):
     db = create_and_initialize_database(db_path)
     with db.get_connection() as conn:
         ver = conn.execute("PRAGMA user_version").fetchone()[0]
-        assert ver == 481
+        assert ver == 482
     tax = db.get_product_catalog_config()
     assert len(tax.get("categories", [])) == 0
     assert len(tax.get("service_types", [])) == 0
