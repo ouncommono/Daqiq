@@ -279,7 +279,11 @@ class ReleaseV44Tests(unittest.TestCase):
     def test_item2_multi_mode_connectivity(self):
         """Item 2 & 3: Mouse and peripherals have comprehensive multi-mode connectivity options."""
         taxonomy = self.db.get_product_catalog_config()
-        acc_defs = taxonomy.get("attributes", {}).get("لوازم جانبی کامپیوتر") or taxonomy.get("attributes", {}).get("تجهیزات جانبی و لوازم کامپیوتر", [])
+        acc_defs = (
+            taxonomy.get("attributes", {}).get("لوازم جانبی و صوتی")
+            or taxonomy.get("attributes", {}).get("لوازم جانبی کامپیوتر")
+            or taxonomy.get("attributes", {}).get("تجهیزات جانبی و لوازم کامپیوتر", [])
+        )
         conn_def = next((d for d in acc_defs if d["name"] == "نوع اتصال"), None)
         self.assertIsNotNone(conn_def)
         conn_vals = conn_def["values"]
