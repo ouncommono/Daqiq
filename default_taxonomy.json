@@ -3595,6 +3595,7 @@
           "USB-C Single",
           "USB-A Single",
           "USB-C + USB-A Multi-Port",
+          "Surface Connect",
           "MagSafe 1",
           "MagSafe 2",
           "MagSafe 3",
@@ -3606,8 +3607,7 @@
           "5.5x2.1mm",
           "5.5x1.7mm",
           "3.0x1.1mm",
-          "6.0x3.7mm",
-          "Surface Connect"
+          "6.0x3.7mm"
         ]
       },
       {
@@ -3731,6 +3731,7 @@
           "Micro-USB",
           "Micro-USB 3.0",
           "Lightning",
+          "Surface Connect",
           "3.5mm AUX",
           "6.35mm TRS",
           "RCA",
@@ -3763,6 +3764,7 @@
           "Micro-USB",
           "Micro-USB 3.0",
           "Lightning",
+          "Surface Connect",
           "3-in-1 (USB-C + Micro + Lightning)",
           "3.5mm AUX Male",
           "3.5mm AUX Female",
@@ -3879,6 +3881,7 @@
           "Mini-USB",
           "Lightning",
           "Thunderbolt",
+          "Surface Connect",
           "3.5mm AUX",
           "Dual 3.5mm (Mic + Audio)",
           "6.35mm TRS",
@@ -3936,6 +3939,7 @@
           "Mini-USB",
           "Lightning",
           "Thunderbolt",
+          "Surface Connect",
           "3.5mm AUX",
           "Dual 3.5mm (Mic + Audio)",
           "6.35mm TRS",
