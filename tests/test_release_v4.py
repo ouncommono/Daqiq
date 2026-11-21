@@ -38,9 +38,9 @@ class ReleaseV4Tests(unittest.TestCase):
         cls._app = QApplication.instance() or QApplication([])
 
     def test_application_version_is_consistent(self):
-        self.assertEqual(APP_VERSION, "4.8.3")
-        self.assertEqual(UI_APP_VERSION, "4.8.3")
-        self.assertEqual(SCHEMA_VERSION, 483)
+        self.assertEqual(APP_VERSION, "4.8.4")
+        self.assertEqual(UI_APP_VERSION, "4.8.4")
+        self.assertEqual(SCHEMA_VERSION, 484)
 
     def test_price_input_preserves_large_python_integers(self):
         widget = PriceInput(_FakeDatabase())
@@ -89,7 +89,7 @@ class ReleaseV4Tests(unittest.TestCase):
                 db = DatabaseManager(db_path)
 
                 with db.get_connection() as conn:
-                    self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 483)
+                    self.assertEqual(conn.execute("PRAGMA user_version").fetchone()[0], 484)
                     for table, expected in EXPECTED_SCHEMA_COLUMNS.items():
                         actual = tuple(
                             row["name"]

@@ -79,7 +79,7 @@ jobs:
         shell: pwsh
         run: |
             $ver = (Get-Content VERSION).Trim()
-            if (-not $ver) { $ver = "4.8.3" }
+            if (-not $ver) { $ver = "4.8.4" }
             Write-Output "APP_VERSION=$ver" >> $env:GITHUB_ENV
             Write-Output "Building for version: $ver"
 
@@ -129,7 +129,7 @@ jobs:
         shell: pwsh
         run: |
           $ver = (Get-Content VERSION).Trim()
-          if (-not $ver) { $ver = "4.8.3" }
+          if (-not $ver) { $ver = "4.8.4" }
           Write-Output "APP_VERSION=$ver" >> $env:GITHUB_ENV
 
       - name: Download Build Artifact

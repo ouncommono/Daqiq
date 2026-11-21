@@ -14,8 +14,8 @@ import time
 import hashlib
 from decimal import Decimal, ROUND_HALF_EVEN
 
-APP_VERSION = "4.8.3"
-SCHEMA_VERSION = 483
+APP_VERSION = "4.8.4"
+SCHEMA_VERSION = 484
 
 SQLITE_INTEGER_MIN = -(1 << 63)
 SQLITE_INTEGER_MAX = (1 << 63) - 1
