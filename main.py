@@ -79,7 +79,7 @@ from exporter import (
     get_next_excel_filename,
 )
 
-APP_VERSION = "4.8.1"
+APP_VERSION = "4.8.2"
 
 REPORT_AVAILABLE_COLUMNS = {
     "همه (گزارش جامع خرید، فروش و خدمات)": [
@@ -995,6 +995,33 @@ class MainWindow(QMainWindow):
         self._setup_timers()
         self.refresh_all_data()
         self._apply_employee_permissions()
+        self._sync_all_default_operators()
+
+    def _select_default_operator(self, combo: QComboBox):
+        if combo is None or not hasattr(self, "active_employee") or not self.active_employee:
+            return
+        active_id = self.active_employee.get("id")
+        active_name = (self.active_employee.get("name") or "").strip()
+        if active_id is not None:
+            idx = combo.findData(active_id)
+            if idx != -1:
+                combo.setCurrentIndex(idx)
+                return
+        if active_name:
+            idx = combo.findText(active_name)
+            if idx != -1:
+                combo.setCurrentIndex(idx)
+                return
+
+    def _sync_all_default_operators(self):
+        for cb in (
+            getattr(self, "cb_batch_buyer", None),
+            getattr(self, "cb_sale_seller", None),
+            getattr(self, "cb_srv_seller", None),
+            getattr(self, "cb_upg_tech", None),
+        ):
+            if cb is not None:
+                self._select_default_operator(cb)
 
     def closeEvent(self, event):
         try:
@@ -1048,6 +1075,7 @@ class MainWindow(QMainWindow):
             self._update_active_user_badge()
             self._apply_employee_permissions()
             self.refresh_all_data()
+            self._sync_all_default_operators()
 
     @staticmethod
     def _default_access_scope(policy):
@@ -2264,7 +2292,9 @@ class MainWindow(QMainWindow):
         for key in order:
             definition = definitions_by_name.get(key, {})
             title = str(definition.get("label") or key).strip()
-            if title.startswith("@") or not title:
+            if key in ("Specs", "specs") or title in ("Specs", "specs"):
+                title = "مشخصات"
+            elif title.startswith("@") or not title:
                 title = key
             pieces.append(f"{title}: {rendered[key]}")
         return " | ".join(pieces)
@@ -2312,6 +2342,14 @@ class MainWindow(QMainWindow):
         else:
             if hasattr(self, "_catalog_settings_state") and self._catalog_settings_state is not None:
                 self._catalog_settings_state.capture_from_window(self)
+        for cb in (
+            getattr(self, "cb_batch_buyer", None),
+            getattr(self, "cb_sale_seller", None),
+            getattr(self, "cb_srv_seller", None),
+            getattr(self, "cb_upg_tech", None),
+        ):
+            if cb is not None and cb.currentIndex() == -1:
+                self._select_default_operator(cb)
 
     def _on_catalog_subtab_changed(self, index):
         if hasattr(self, "_catalog_settings_state") and self._catalog_settings_state is not None:
@@ -2536,8 +2574,10 @@ class MainWindow(QMainWindow):
         self.cb_prod_cat.addItems(list(dict.fromkeys(product_categories)))
         self.cb_prod_cat.setToolTip("دسته‌بندی اصلی را از فهرست انتخاب کنید.")
 
-        self.ed_prod_brand = SmartLineEdit("مثلاً ASUS, Lenovo, HP, Logitech...")
-        self.ed_prod_model = SmartLineEdit("مدل کالا (مثلاً G102, VivoBook 15...)")
+        self.ed_prod_brand = SmartLineEdit("", all_caps=True)
+        self.ed_prod_brand.setPlaceholderText("مثلاً ASUS, Lenovo, HP, Logitech...")
+        self.ed_prod_model = SmartLineEdit("", all_caps=True)
+        self.ed_prod_model.setPlaceholderText("مدل کالا (مثلاً G102, VivoBook 15...)")
         self.sp_prod_reorder = QSpinBox()
         self.sp_prod_reorder.setRange(0, 1000)
         self.sp_prod_reorder.setValue(int(self.db.cfg.get("default_min_inventory", 1)))
@@ -2549,11 +2589,12 @@ class MainWindow(QMainWindow):
             int(float(self.db.cfg.get("default_profit_pct", 20)))
         )
         self.sp_prod_profit.setToolTip("درصد سود پیش‌فرض برای محاسبه قیمت فروش پیشنهادی این کالا")
-        self.ed_prod_desc = SmartLineEdit("توضیحات تکمیلی کالا...")
+        self.ed_prod_desc = SmartLineEdit("")
+        self.ed_prod_desc.setPlaceholderText("توضیحات تکمیلی کالا...")
 
         f_layout.addRow("کد کالا (شناسه):", self.ed_prod_code)
         f_layout.addRow("شماره سریال / بارکد:", self.ed_prod_serial)
-        f_layout.addRow("دسته‌بندی اصلی *:", self.cb_prod_cat)
+        f_layout.addRow("دسته‌بندی اصلی:", self.cb_prod_cat)
         f_layout.addRow("برند کالا:", self.ed_prod_brand)
         f_layout.addRow("مدل کالا:", self.ed_prod_model)
         f_layout.addRow("حداقل موجودی (هشدار سفارش):", self.sp_prod_reorder)
@@ -2693,6 +2734,8 @@ class MainWindow(QMainWindow):
         self.ed_prod_serial.setText(serial_txt)
         cat_txt = self.tbl_products.item(row, 3).text()
         sub_txt = self.tbl_products.item(row, 4).text()
+        if cat_txt and self.cb_prod_cat.findText(cat_txt) == -1:
+            self.cb_prod_cat.addItem(cat_txt)
         self.cb_prod_cat.setCurrentText(cat_txt)
         self._configure_product_specs(cat_txt)
         self.specs_widget.set_sub_category(sub_txt)
@@ -2799,7 +2842,8 @@ class MainWindow(QMainWindow):
         self.cb_batch_supplier.setEditable(False)
         self.cb_batch_buyer = SearchableComboBox()
         self.cb_batch_buyer.setEditable(False)
-        self.ed_batch_inv = SmartLineEdit("شماره فاکتور خرید")
+        self.ed_batch_inv = SmartLineEdit("")
+        self.ed_batch_inv.setPlaceholderText("شماره فاکتور خرید...")
         self.dt_batch_date = JalaliDateEdit(default_today=True)
         self.cb_batch_qty = QuantitySelector(500)
         self.pr_batch_buy = PriceInput(self.db)
@@ -2827,7 +2871,7 @@ class MainWindow(QMainWindow):
 
         grid.addWidget(QLabel("کد محموله:"), 0, 0)
         grid.addWidget(self.ed_batch_code, 0, 1)
-        grid.addWidget(QLabel("انتخاب کالا *:"), 0, 2)
+        grid.addWidget(QLabel("انتخاب کالا:"), 0, 2)
         grid.addWidget(self.cb_batch_prod, 0, 3)
         grid.addWidget(QLabel("شماره سریال / بارکد:"), 0, 4)
         grid.addWidget(self.ed_batch_serial_number, 0, 5)
@@ -2841,7 +2885,7 @@ class MainWindow(QMainWindow):
 
         grid.addWidget(QLabel("تاریخ خرید:"), 2, 0)
         grid.addWidget(self.dt_batch_date, 2, 1)
-        grid.addWidget(QLabel("تعداد خرید *:"), 2, 2)
+        grid.addWidget(QLabel("تعداد خرید:"), 2, 2)
         grid.addWidget(self.cb_batch_qty, 2, 3)
         grid.addWidget(QLabel("قیمت خرید واحد (تومان):"), 2, 4)
         grid.addWidget(self.pr_batch_buy, 2, 5)
@@ -3019,6 +3063,7 @@ class MainWindow(QMainWindow):
         self.cb_batch_supplier.clearEditText()
         self.cb_batch_buyer.setCurrentIndex(-1)
         self.cb_batch_buyer.clearEditText()
+        self._select_default_operator(self.cb_batch_buyer)
         self.ed_batch_inv.clear()
         self.ed_batch_serial.clear()
         self.dt_batch_date.set_date(jdatetime.date.today().strftime("%Y/%m/%d"))
@@ -3293,6 +3338,7 @@ class MainWindow(QMainWindow):
             grid.setColumnStretch(column, 0)
 
         self.ed_sale_inv = SmartLineEdit("")
+        self.ed_sale_inv.setPlaceholderText("شماره فاکتور فروش (خودکار یا دستی)...")
         self.ed_sale_inv.setToolTip("در صورت خالی بودن، شماره فاکتور بعدی خودکار تخصیص می‌یابد.")
         self.cb_sale_prod = SearchableComboBox()
         self.cb_sale_prod.setToolTip(
@@ -3306,8 +3352,9 @@ class MainWindow(QMainWindow):
         self.cb_sale_seller = SearchableComboBox()
         self.cb_sale_seller.setEditable(False)
         self.ed_sale_customer = SmartLineEdit("")
+        self.ed_sale_customer.setPlaceholderText("نام و نام خانوادگی مشتری را وارد کنید...")
         self.ed_sale_phone = SmartLineEdit("")
-        self.ed_sale_phone.setPlaceholderText("شماره تماس مشتری...")
+        self.ed_sale_phone.setPlaceholderText("شماره تماس مشتری (مثلاً ۰۹۱۲۳۴۵۶۷۸۹)...")
         self.ed_sale_phone.setToolTip("شماره تماس یا تلفن همراه مشتری را وارد کنید.")
         self.btn_sale_colors = ColorSelectionButton()
         self.ed_sale_specs = SmartLineEdit("مشخصات دقیق کالای فروخته‌شده؛ قابل ویرایش...")
@@ -3374,16 +3421,16 @@ class MainWindow(QMainWindow):
 
         grid.addWidget(QLabel("شماره فاکتور:"), 0, 0)
         grid.addWidget(self.ed_sale_inv, 0, 1)
-        grid.addWidget(QLabel("انتخاب کالا *:"), 0, 2)
+        grid.addWidget(QLabel("انتخاب کالا:"), 0, 2)
         grid.addWidget(self.cb_sale_prod, 0, 3)
         grid.addWidget(QLabel("شماره سریال / بارکد:"), 0, 4)
         grid.addWidget(self.ed_sale_serial, 0, 5)
 
-        grid.addWidget(QLabel("محموله موجود *:"), 1, 0)
+        grid.addWidget(QLabel("محموله موجود:"), 1, 0)
         grid.addWidget(self.cb_sale_batch, 1, 1)
-        grid.addWidget(QLabel("فروشنده *:"), 1, 2)
+        grid.addWidget(QLabel("فروشنده:"), 1, 2)
         grid.addWidget(self.cb_sale_seller, 1, 3)
-        grid.addWidget(QLabel("تعداد فروش *:"), 1, 4)
+        grid.addWidget(QLabel("تعداد فروش:"), 1, 4)
         grid.addWidget(self.cb_sale_qty, 1, 5)
 
         grid.addWidget(QLabel("قیمت فروش واحد:"), 2, 0)
@@ -3759,6 +3806,7 @@ class MainWindow(QMainWindow):
         self._on_sale_prod_changed()
         self.cb_sale_seller.setCurrentIndex(-1)
         self.cb_sale_seller.clearEditText()
+        self._select_default_operator(self.cb_sale_seller)
         self.ed_sale_customer.clear()
         self.ed_sale_phone.clear()
         self.ed_sale_specs.clear()
@@ -4095,14 +4143,16 @@ class MainWindow(QMainWindow):
             self.catalog_config.get("service_types") or []
         )
         self.ed_srv_code = SmartLineEdit("")
+        self.ed_srv_code.setPlaceholderText("کد خدمت (مثلاً S-1001)...")
         self.ed_srv_code.setToolTip("در صورت خالی بودن، کد خدمت بعدی خودکار تخصیص می‌یابد.")
-        self.ed_srv_name = SmartLineEdit("عنوان خدمت (مثلاً نصب ویندوز، نصب آنتی‌ویروس...)")
+        self.ed_srv_name = SmartLineEdit("")
+        self.ed_srv_name.setPlaceholderText("عنوان خدمت (مثلاً نصب ویندوز، نصب آنتی‌ویروس...)")
         self.pr_srv_def_fee = PriceInput(self.db)
         self.pr_srv_def_side = PriceInput(self.db)
 
         f_cat.addRow("نوع خدمت:", self.cb_srv_type)
         f_cat.addRow("کد خدمت:", self.ed_srv_code)
-        f_cat.addRow("عنوان خدمت *:", self.ed_srv_name)
+        f_cat.addRow("عنوان خدمت:", self.ed_srv_name)
         f_cat.addRow("هزینه خدمت (تومان):", self.pr_srv_def_fee)
         f_cat.addRow("هزینه جانبی پیش‌فرض:", self.pr_srv_def_side)
         v_cat.addLayout(f_cat)
@@ -4140,7 +4190,8 @@ class MainWindow(QMainWindow):
         self.cb_srv_select.currentIndexChanged.connect(self._on_srv_catalog_picked)
         self.cb_srv_seller = SearchableComboBox()
         self.cb_srv_seller.setEditable(False)
-        self.ed_srv_cust = SmartLineEdit("نام مشتری (اختیاری)")
+        self.ed_srv_cust = SmartLineEdit("")
+        self.ed_srv_cust.setPlaceholderText("نام و نام خانوادگی مشتری را وارد کنید...")
         self.pr_srv_fee = PriceInput(self.db)
         self.pr_srv_fee.setReadOnly(True)
         self.pr_srv_fee.setToolTip("این مبلغ از فهرست خدمات خوانده می‌شود. برای اعمال تخفیف یا تشدید، «مبلغ دریافتی» را تغییر دهید.")
@@ -4175,7 +4226,7 @@ class MainWindow(QMainWindow):
         btn_rec_row.addWidget(btn_edit_srv)
         btn_rec_row.addWidget(btn_del_srv)
 
-        f_rec.addRow("انتخاب خدمت *:", self.cb_srv_select)
+        f_rec.addRow("انتخاب خدمت:", self.cb_srv_select)
         f_rec.addRow("مسئول خدمت:", self.cb_srv_seller)
         f_rec.addRow("نام مشتری:", self.ed_srv_cust)
         f_rec.addRow("هزینه خدمت (تومان):", self.pr_srv_fee)
@@ -4229,6 +4280,7 @@ class MainWindow(QMainWindow):
         self.cb_srv_select.clearEditText()
         self.cb_srv_seller.setCurrentIndex(-1)
         self.cb_srv_seller.clearEditText()
+        self._select_default_operator(self.cb_srv_seller)
         self.ed_srv_cust.clear()
         self.ed_srv_desc.clear()
         self.cb_srv_status.setCurrentIndex(0)
@@ -4395,6 +4447,22 @@ class MainWindow(QMainWindow):
             return
         r = items[0].row()
         self.selected_srv_rec_id = int(self.tbl_services.item(r, 0).text())
+        service_name = self.tbl_services.item(r, 4).text()
+        seller_name = self.tbl_services.item(r, 5).text()
+        if seller_name:
+            idx = self.cb_srv_seller.findText(seller_name)
+            if idx != -1:
+                self.cb_srv_seller.setCurrentIndex(idx)
+            else:
+                self.cb_srv_seller.addItem(seller_name, None)
+                self.cb_srv_seller.setCurrentText(seller_name)
+        if service_name:
+            idx = self.cb_srv_select.findText(service_name)
+            if idx != -1:
+                self.cb_srv_select.setCurrentIndex(idx)
+            else:
+                self.cb_srv_select.addItem(service_name, None)
+                self.cb_srv_select.setCurrentText(service_name)
         self.ed_srv_cust.setText(self.tbl_services.item(r, 6).text())
         self.pr_srv_fee.set_value(
             int(self.tbl_services.item(r, 7).text().replace(",", ""))
@@ -4473,19 +4541,19 @@ class MainWindow(QMainWindow):
             "در صورت غیرفعال بودن، مشخصات و هزینه ارتقا ثبت می‌شود اما موجودی فیزیکی قطعه تغییر نمی‌کند."
         )
 
-        grid.addWidget(QLabel("محموله کالای هدف *:"), 0, 0)
+        grid.addWidget(QLabel("محموله کالای هدف:"), 0, 0)
         grid.addWidget(self.cb_upg_target, 0, 1)
         grid.addWidget(QLabel("تعداد کالای هدف:"), 0, 2)
         grid.addWidget(self.cb_upg_target_qty, 0, 3)
 
-        grid.addWidget(QLabel("قطعه مصرفی از انبار *:"), 1, 0)
+        grid.addWidget(QLabel("قطعه مصرفی از انبار:"), 1, 0)
         grid.addWidget(self.cb_upg_part, 1, 1)
         grid.addWidget(QLabel("تعداد قطعه در هر کالا:"), 1, 2)
         grid.addWidget(self.cb_upg_part_qty, 1, 3)
 
         grid.addWidget(QLabel("اجرت ارتقا هر واحد:"), 2, 0)
         grid.addWidget(self.pr_upg_labor, 2, 1)
-        grid.addWidget(QLabel("مشخصات جدید دستگاه *:"), 2, 2)
+        grid.addWidget(QLabel("مشخصات جدید دستگاه:"), 2, 2)
         grid.addWidget(self.ed_upg_new_specs, 2, 3)
 
         grid.addWidget(QLabel("تاریخ ارتقا:"), 3, 0)
@@ -4676,6 +4744,7 @@ class MainWindow(QMainWindow):
         self.cb_upg_part.setCurrentIndex(-1)
         self.cb_upg_part.setEditText("")
         self.cb_upg_tech.setCurrentIndex(-1)
+        self._select_default_operator(self.cb_upg_tech)
         self.cb_upg_target_qty.setCurrentText("1")
         self.cb_upg_part_qty.setCurrentText("1")
         self.cb_upg_part_qty.setEnabled(0)
@@ -4808,10 +4877,13 @@ class MainWindow(QMainWindow):
         gb_sup = QGroupBox("ثبت، ویرایش و حذف تأمین‌کنندگان (عمده‌فروشان)")
         v_sup = QVBoxLayout(gb_sup)
         h_sup = QHBoxLayout()
-        self.ed_sup_name = SmartLineEdit("نام تأمین‌کننده / شرکت...")
-        self.ed_sup_phone = SmartLineEdit("تلفن تماس...")
-        self.ed_sup_addr = SmartLineEdit("آدرس یا توضیحات...")
-        h_sup.addWidget(QLabel("نام تأمین‌کننده *:"))
+        self.ed_sup_name = SmartLineEdit("")
+        self.ed_sup_name.setPlaceholderText("نام تأمین‌کننده / شرکت...")
+        self.ed_sup_phone = SmartLineEdit("")
+        self.ed_sup_phone.setPlaceholderText("تلفن تماس...")
+        self.ed_sup_addr = SmartLineEdit("")
+        self.ed_sup_addr.setPlaceholderText("آدرس یا توضیحات...")
+        h_sup.addWidget(QLabel("نام تأمین‌کننده:"))
         h_sup.addWidget(self.ed_sup_name)
         h_sup.addWidget(QLabel("تلفن:"))
         h_sup.addWidget(self.ed_sup_phone)
@@ -6075,25 +6147,27 @@ class MainWindow(QMainWindow):
         gb = QGroupBox("مدیریت کاربران، نقش‌ها، سطوح دسترسی و رمز ورود")
         grid = QGridLayout(gb)
 
-        self.ed_emp_name = SmartLineEdit("نام و نام خانوادگی کاربر...")
+        self.ed_emp_name = SmartLineEdit("")
+        self.ed_emp_name.setPlaceholderText("نام و نام خانوادگی کاربر...")
         self.cb_emp_role = QComboBox()
         self.cb_emp_role.addItems(
             ["مدیر", "فروشنده", "مسئول خرید", "تکنسین فنی"]
         )
-        self.ed_emp_phone = SmartLineEdit("شماره تماس...")
+        self.ed_emp_phone = SmartLineEdit("")
+        self.ed_emp_phone.setPlaceholderText("شماره تماس...")
         self.ed_emp_old_pass = QLineEdit()
         self.ed_emp_old_pass.setEchoMode(QLineEdit.Password)
-        self.ed_emp_old_pass.setPlaceholderText("فقط هنگام تغییر رمز وارد شود...")
+        self.ed_emp_old_pass.setPlaceholderText("رمز عبور فعلی کاربر...")
         self.ed_emp_pass = QLineEdit()
         self.ed_emp_pass.setEchoMode(QLineEdit.Password)
-        self.ed_emp_pass.setPlaceholderText("رمز عبور جدید...")
+        self.ed_emp_pass.setPlaceholderText("رمز عبور جدید کاربر...")
         self.cb_emp_perm = QComboBox()
         for access_level in self._get_access_levels():
             self.cb_emp_perm.addItem(access_level["name"], access_level["name"])
         self.chk_emp_active = QCheckBox("کاربر فعال است")
         self.chk_emp_active.setChecked(True)
 
-        grid.addWidget(QLabel("نام کاربر *:"), 0, 0)
+        grid.addWidget(QLabel("نام کاربر:"), 0, 0)
         grid.addWidget(self.ed_emp_name, 0, 1)
         grid.addWidget(QLabel("نقش:"), 0, 2)
         grid.addWidget(self.cb_emp_role, 0, 3)
@@ -6831,7 +6905,7 @@ class MainWindow(QMainWindow):
         self.gb_access_levels = gb_access_levels
         access_layout = QGridLayout(gb_access_levels)
         self.cb_cfg_access_level = QComboBox()
-        self.ed_cfg_access_level = QLineEdit()
+        self.ed_cfg_access_level = SmartLineEdit()
         self.ed_cfg_access_level.setPlaceholderText("نام سطح دسترسی جدید یا نام جایگزین...")
         self.cb_cfg_access_policy = QComboBox()
         for access_level in DEFAULT_ACCESS_LEVELS:
@@ -6940,7 +7014,8 @@ class MainWindow(QMainWindow):
         self.cb_win_mode = QComboBox()
         self.cb_win_mode.addItem("تمام‌صفحه", "1")
         self.cb_win_mode.addItem("پنجره معمولی", "0")
-        self.ed_shop_name = QLineEdit()
+        self.ed_shop_name = SmartLineEdit()
+        self.ed_shop_name.setPlaceholderText("نام فروشگاه را وارد کنید...")
         self.ed_shop_name.setAlignment(Qt.AlignRight)
         self.ed_shop_name.setLayoutDirection(Qt.RightToLeft)
 
@@ -6963,7 +7038,7 @@ class MainWindow(QMainWindow):
         categories_layout.setContentsMargins(10, 10, 10, 10)
         categories_layout.setSpacing(8)
         self.cb_cfg_category = QComboBox()
-        self.ed_cfg_category = QLineEdit()
+        self.ed_cfg_category = SmartLineEdit()
         self.ed_cfg_category.setPlaceholderText("نام فارسی دسته‌بندی اصلی را وارد کنید...")
         self.ed_cfg_category.textChanged.connect(
             lambda _: getattr(self, "_catalog_settings_state", None) and self._catalog_settings_state.capture_from_window(self)
@@ -6997,7 +7072,7 @@ class MainWindow(QMainWindow):
         self.lst_cfg_subcategories.verticalScrollBar().setSingleStep(18)
         self.lst_cfg_subcategories.setMinimumHeight(174)
         self.lst_cfg_subcategories.setMaximumHeight(234)
-        self.ed_cfg_subcategory = QLineEdit()
+        self.ed_cfg_subcategory = SmartLineEdit()
         self.ed_cfg_subcategory.setPlaceholderText("نام زیرمجموعه را وارد کنید؛ مثلاً صفحه‌نمایش یا پردازنده...")
         self.ed_cfg_subcategory.textChanged.connect(
             lambda _: getattr(self, "_catalog_settings_state", None) and self._catalog_settings_state.capture_from_window(self)
@@ -7044,7 +7119,7 @@ class MainWindow(QMainWindow):
         self.lst_cfg_attributes.setSizePolicy(
             QSizePolicy.Expanding, QSizePolicy.Fixed
         )
-        self.ed_cfg_attribute_name = QLineEdit()
+        self.ed_cfg_attribute_name = SmartLineEdit()
         self.ed_cfg_attribute_name.setMinimumHeight(32)
         self.ed_cfg_attribute_name.setPlaceholderText(
             "نام فارسی ویژگی؛ مثلاً پردازنده، ظرفیت رم یا نوع پنل"
@@ -7052,7 +7127,7 @@ class MainWindow(QMainWindow):
         self.ed_cfg_attribute_name.textChanged.connect(
             lambda _: getattr(self, "_catalog_settings_state", None) and self._catalog_settings_state.capture_from_window(self)
         )
-        self.ed_cfg_attribute_label = QLineEdit()
+        self.ed_cfg_attribute_label = SmartLineEdit()
         self.ed_cfg_attribute_label.setMinimumHeight(32)
         self.ed_cfg_attribute_label.setPlaceholderText(
             "عنوان انگلیسی برای نمایش؛ مثلاً CPU یا RAM. در صورت نیاز می‌توانید خالی بگذارید."
@@ -7145,7 +7220,7 @@ class MainWindow(QMainWindow):
         self.lst_cfg_colors.verticalScrollBar().setSingleStep(18)
         self.lst_cfg_colors.setMinimumHeight(174)
         self.lst_cfg_colors.setMaximumHeight(234)
-        self.ed_cfg_color = QLineEdit()
+        self.ed_cfg_color = SmartLineEdit()
         self.ed_cfg_color.setPlaceholderText("نام رنگ را وارد کنید؛ مثلاً سبز، ذغالی یا نقره‌ای...")
         self.ed_cfg_color.textChanged.connect(
             lambda _: getattr(self, "_catalog_settings_state", None) and self._catalog_settings_state.capture_from_window(self)
@@ -7271,7 +7346,7 @@ class MainWindow(QMainWindow):
         self.lst_cfg_service_types.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
         self.lst_cfg_service_types.verticalScrollBar().setSingleStep(18)
         self.lst_cfg_service_types.setMaximumHeight(220)
-        self.ed_cfg_service_type = QLineEdit()
+        self.ed_cfg_service_type = SmartLineEdit()
         self.ed_cfg_service_type.setPlaceholderText("نوع خدمت را وارد کنید؛ مثلاً سخت‌افزاری یا نرم‌افزاری...")
         self.lst_cfg_service_types.currentItemChanged.connect(
             self._on_catalog_service_type_selected
@@ -7643,8 +7718,10 @@ class MainWindow(QMainWindow):
         form.setVerticalSpacing(12)
         ed_new = QLineEdit()
         ed_new.setEchoMode(QLineEdit.Password)
+        ed_new.setPlaceholderText("رمز عبور جدید پایگاه داده...")
         ed_confirm = QLineEdit()
         ed_confirm.setEchoMode(QLineEdit.Password)
+        ed_confirm.setPlaceholderText("تکرار رمز عبور جدید...")
         chk_show = QCheckBox("نمایش رمز عبور")
         chk_req_startup = QCheckBox("درخواست رمز عبور در زمان ورود به برنامه")
         chk_req_startup.setChecked(True)
@@ -7712,10 +7789,13 @@ class MainWindow(QMainWindow):
         form.setVerticalSpacing(12)
         ed_old = QLineEdit()
         ed_old.setEchoMode(QLineEdit.Password)
+        ed_old.setPlaceholderText("رمز عبور فعلی پایگاه داده...")
         ed_new = QLineEdit()
         ed_new.setEchoMode(QLineEdit.Password)
+        ed_new.setPlaceholderText("رمز عبور جدید پایگاه داده...")
         ed_confirm = QLineEdit()
         ed_confirm.setEchoMode(QLineEdit.Password)
+        ed_confirm.setPlaceholderText("تکرار رمز عبور جدید...")
         chk_show = QCheckBox("نمایش رمزهای عبور")
 
         def toggle_show(state):
@@ -7798,6 +7878,7 @@ class MainWindow(QMainWindow):
         form.setVerticalSpacing(12)
         ed_cur = QLineEdit()
         ed_cur.setEchoMode(QLineEdit.Password)
+        ed_cur.setPlaceholderText("رمز عبور فعلی پایگاه داده...")
         chk_show = QCheckBox("نمایش رمز عبور")
 
         def toggle_show(state):
@@ -9849,6 +9930,7 @@ class MainWindow(QMainWindow):
             cb.clear()
             for e in emps:
                 cb.addItem(e["name"], e["id"])
+            self._select_default_operator(cb)
 
         self.cb_rep_emp.blockSignals(True)
         self.cb_rep_emp.clear()

@@ -14,8 +14,8 @@ import time
 import hashlib
 from decimal import Decimal, ROUND_HALF_EVEN
 
-APP_VERSION = "4.8.1"
-SCHEMA_VERSION = 481
+APP_VERSION = "4.8.2"
+SCHEMA_VERSION = 482
 
 SQLITE_INTEGER_MIN = -(1 << 63)
 SQLITE_INTEGER_MAX = (1 << 63) - 1
@@ -962,7 +962,7 @@ class DatabaseManager:
                 CREATE TABLE IF NOT EXISTS service_records (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     invoice_number TEXT NOT NULL,
-                    service_id INTEGER NOT NULL,
+                    service_id INTEGER,
                     seller_employee_id INTEGER,
                     technician_employee_id INTEGER,
                     service_type TEXT NOT NULL,
@@ -978,7 +978,7 @@ class DatabaseManager:
                     description TEXT DEFAULT '',
                     created_at TEXT NOT NULL DEFAULT '',
                     updated_at TEXT NOT NULL DEFAULT '',
-                    FOREIGN KEY(service_id) REFERENCES service_catalog(id),
+                    FOREIGN KEY(service_id) REFERENCES service_catalog(id) ON DELETE SET NULL,
                     FOREIGN KEY(seller_employee_id) REFERENCES employees(id),
                     FOREIGN KEY(technician_employee_id) REFERENCES employees(id)
                 )
@@ -1458,8 +1458,8 @@ class DatabaseManager:
         model,
         specs_dict,
         description,
-        reorder_point,
-        default_profit_pct,
+        reorder_point=1,
+        default_profit_pct=20.0,
         serial_number="",
     ):
         auto_name = (
@@ -1467,6 +1467,17 @@ class DatabaseManager:
             if name and name.strip()
             else self.build_product_title(category, sub_category, brand, model)
         )
+        norm_specs = {}
+        if isinstance(specs_dict, dict):
+            for sk, sv in specs_dict.items():
+                if sk in ("Specs", "specs") or str(sk).strip() == "مشخصات":
+                    norm_specs["Specs"] = sv
+                else:
+                    norm_specs[sk] = sv
+        elif specs_dict:
+            norm_specs = specs_dict
+        specs_dict = norm_specs
+
         with self.get_connection() as conn:
             conn.execute("BEGIN IMMEDIATE")
             if not code:
@@ -1514,6 +1525,17 @@ class DatabaseManager:
             if name and name.strip()
             else self.build_product_title(category, sub_category, brand, model)
         )
+        norm_specs = {}
+        if isinstance(specs_dict, dict):
+            for sk, sv in specs_dict.items():
+                if sk in ("Specs", "specs") or str(sk).strip() == "مشخصات":
+                    norm_specs["Specs"] = sv
+                else:
+                    norm_specs[sk] = sv
+        elif specs_dict:
+            norm_specs = specs_dict
+        specs_dict = norm_specs
+
         with self.get_connection() as conn:
             conn.execute("BEGIN IMMEDIATE")
             conn.execute(
@@ -1773,6 +1795,21 @@ class DatabaseManager:
             )
             conn.commit()
 
+
+    def add_employee(self, name: str, role: str, phone: str = "", password: str = "", permissions: str = "", is_active: int = 1) -> int:
+        """Insert a new employee record and return its row ID."""
+        with self.get_connection() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO employees (name, role, phone, password, permissions, is_active)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (name.strip(), role.strip(), phone.strip(), password, permissions.strip(), int(is_active)),
+            )
+            emp_id = cur.lastrowid
+            self.log_audit(conn, "ثبت کاربر جدید", f"شناسه: {emp_id} | نام: {name} | نقش: {role}")
+            conn.commit()
+            return emp_id
 
     def delete_employee_custom(self, emp_id: int, delete_related_data: bool = False):
         """Delete an employee; optionally remove all linked operations and reverse inventory effects."""
@@ -2863,6 +2900,7 @@ class DatabaseManager:
                     (code, type_clean, name_clean, default_fee, default_side_cost, description),
                 )
                 srv_id = cur.lastrowid
+                target_id = srv_id
                 conn.execute(
                     """
                     INSERT INTO service_price_history (service_id, old_fee, new_fee, change_date)
@@ -2898,16 +2936,17 @@ class DatabaseManager:
                     ),
                 )
             conn.commit()
+            return target_id
 
     def delete_service_catalog(self, service_id):
-        """Hard-delete a service tariff together with dependent invoices and price history."""
+        """Hard-delete a service tariff from the catalog without deleting past transactional service records (REQ-1)."""
         with self.get_connection() as conn:
             service = conn.execute(
                 "SELECT name FROM service_catalog WHERE id=?", (service_id,)
             ).fetchone()
             if not service:
                 return
-            conn.execute("DELETE FROM service_records WHERE service_id=?", (service_id,))
+            conn.execute("UPDATE service_records SET service_id=NULL WHERE service_id=?", (service_id,))
             conn.execute("DELETE FROM service_price_history WHERE service_id=?", (service_id,))
             conn.execute("DELETE FROM service_catalog WHERE id=?", (service_id,))
             self.log_audit(conn, "حذف کامل خدمت", f"شناسه خدمت: {service_id} - {service['name']}")
@@ -2928,18 +2967,23 @@ class DatabaseManager:
         settlement_status=None,
     ):
         with self.get_connection() as conn:
-            srv = conn.execute(
-                """SELECT id, code, service_type, name, default_fee, default_side_cost,
-            description, is_active, created_at, updated_at FROM service_catalog WHERE id=?""", (service_id,)
-            ).fetchone()
-            if not srv:
-                raise ValueError("تعرفه خدمت یافت نشد.")
+            srv = None
+            if service_id is not None:
+                srv = conn.execute(
+                    """SELECT id, code, service_type, name, default_fee, default_side_cost,
+                description, is_active, created_at, updated_at FROM service_catalog WHERE id=?""", (service_id,)
+                ).fetchone()
+                if not srv:
+                    raise ValueError("تعرفه خدمت یافت نشد.")
             if not invoice_number:
                 invoice_number = self.generate_next_code(
                     "service_records", "invoice_number", "SINV-", 1001
                 )
 
-            historical_tariff = self._batch_integer(srv["default_fee"], "تعرفه تاریخی")
+            srv_type = srv["service_type"] if srv else "خدمات عمومی"
+            srv_name = srv["name"] if srv else (description or "خدمت متفرقه")
+            default_fee_val = srv["default_fee"] if srv else service_fee
+            historical_tariff = self._batch_integer(default_fee_val, "تعرفه تاریخی")
             service_fee = self._batch_integer(service_fee, "هزینه خدمت")
             side_cost = self._batch_integer(side_cost, "هزینه جانبی")
             paid_amount = self._batch_integer(paid_amount, "مبلغ دریافتی")
@@ -2968,8 +3012,8 @@ class DatabaseManager:
                 (
                     invoice_number,
                     service_id,
-                    srv["service_type"],
-                    srv["name"],
+                    srv_type,
+                    srv_name,
                     seller_employee_id,
                     technician_employee_id,
                     customer_name,
