@@ -46,6 +46,10 @@ def build(mode: str, repo_root: Path) -> int:
     print(f"==================================================")
 
     # Base flags
+    import PySide6
+    pyside6_dir = Path(PySide6.__file__).resolve().parent
+    platforms_src = pyside6_dir / "plugins" / "platforms"
+
     cmd = [
         sys.executable,
         "-m",
@@ -62,8 +66,12 @@ def build(mode: str, repo_root: Path) -> int:
         f"--include-data-files={repo_root / 'assets' / 'daqiq_logo.ico'}=assets/daqiq_logo.ico",
         f"--include-data-files={repo_root / 'assets' / 'daqiq_logo.png'}=assets/daqiq_logo.png",
         f"--include-data-files={repo_root / 'assets' / 'daqiq_logo.svg'}=assets/daqiq_logo.svg",
-        f"--output-dir={dist_dir}",
     ]
+
+    if platforms_src.is_dir():
+        cmd.append(f"--include-data-dir={platforms_src}=PySide6/plugins/platforms")
+
+    cmd.append(f"--output-dir={dist_dir}")
 
     # Detect MSVC vs GCC
     cl_path = shutil.which("cl")
