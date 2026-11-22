@@ -46,21 +46,11 @@ def verify_binary(binary_path: Path, is_standalone: bool = False) -> int:
     # Note: In production, without an active license, it should show LicenseDialog or exit cleanly
     env = os.environ.copy()
     env["DAQIQ_SMOKE_TEST"] = "1"
+    env["QT_QPA_PLATFORM"] = "offscreen"
     env["QT_FORCE_STDERR_LOGGING"] = "1"
+    env["QT_LOGGING_TO_CONSOLE"] = "1"
 
-    # Select platform plugin if present
-    platforms_dir = binary_path.parent / "PySide6" / "plugins" / "platforms"
-    if (platforms_dir / "qoffscreen.dll").is_file():
-        env["QT_QPA_PLATFORM"] = "offscreen"
-        print(f"Detected qoffscreen.dll; using QT_QPA_PLATFORM=offscreen")
-    elif (platforms_dir / "qminimal.dll").is_file():
-        env["QT_QPA_PLATFORM"] = "minimal"
-        print(f"Detected qminimal.dll; using QT_QPA_PLATFORM=minimal")
-    else:
-        env.pop("QT_QPA_PLATFORM", None)
-        print("Using default platform (windows)")
-
-    print("\nRunning runtime smoke test (60s timeout)...")
+    print("\nRunning runtime smoke test (offscreen mode, 60s timeout)...")
     start_time = time.time()
     try:
         proc = subprocess.run(

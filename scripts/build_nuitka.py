@@ -69,7 +69,8 @@ def build(mode: str, repo_root: Path) -> int:
     ]
 
     if platforms_src.is_dir():
-        cmd.append(f"--include-data-dir={platforms_src}=PySide6/plugins/platforms")
+        cmd.append(f"--include-data-dir={platforms_src}=PySide6/qt-plugins/platforms")
+        cmd.append(f"--include-data-dir={platforms_src}=platforms")
 
     cmd.append(f"--output-dir={dist_dir}")
 
@@ -138,6 +139,16 @@ def build(mode: str, repo_root: Path) -> int:
         target_tax = standalone_dir / "default_taxonomy.json"
         shutil.copy2(source_tax, target_tax)
         print(f"Copied external {source_tax.name} to {target_tax}")
+
+        # Ensure all Qt platform plugins (especially qoffscreen.dll) exist for headless verification
+        if platforms_src.is_dir():
+            for dest_sub in ["PySide6/qt-plugins/platforms", "platforms"]:
+                p_dest = standalone_dir / dest_sub
+                p_dest.mkdir(parents=True, exist_ok=True)
+                for dll in platforms_src.glob("*.dll"):
+                    shutil.copy2(dll, p_dest / dll.name)
+            print("Verified complete Qt platform plugins in standalone directory.")
+
         print(f"Standalone distribution ready at: {standalone_dir}")
 
     return 0
