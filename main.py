@@ -10891,8 +10891,10 @@ def main():
     smoke_log_file = None
     if os.environ.get("DAQIQ_SMOKE_TEST") == "1":
         try:
-            exe_dir = os.path.dirname(os.path.abspath(sys.executable))
-            smoke_log_file = os.path.join(exe_dir, "smoke_test.log")
+            smoke_log_file = os.environ.get("DAQIQ_SMOKE_LOG_PATH")
+            if not smoke_log_file:
+                exe_dir = os.path.dirname(os.path.abspath(sys.executable))
+                smoke_log_file = os.path.join(exe_dir, "smoke_test.log")
             with open(smoke_log_file, "a", encoding="utf-8") as f:
                 f.write("STEP 1: Entered main()\n")
         except Exception:

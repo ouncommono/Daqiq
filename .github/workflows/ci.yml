@@ -132,7 +132,7 @@ jobs:
     name: Build Nuitka Onefile (Stage B)
     needs: build-nuitka-standalone
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     permissions:
       contents: read
     steps:

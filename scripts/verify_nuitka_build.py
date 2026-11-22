@@ -42,53 +42,74 @@ def verify_binary(binary_path: Path, is_standalone: bool = False) -> int:
         return 1
     print(f"[PASS] External default_taxonomy.json verified: {taxonomy_file.stat().st_size:,} bytes")
 
+    smoke_log = binary_path.parent / "smoke_test.log"
+    if smoke_log.is_file():
+        try:
+            smoke_log.unlink()
+        except Exception:
+            pass
+
     # Run executable with DAQIQ_SMOKE_TEST=1
     # Note: In production, without an active license, it should show LicenseDialog or exit cleanly
     env = os.environ.copy()
     env["DAQIQ_SMOKE_TEST"] = "1"
+    env["DAQIQ_SMOKE_LOG_PATH"] = str(smoke_log.resolve())
     env["QT_QPA_PLATFORM"] = "offscreen"
     env["QT_FORCE_STDERR_LOGGING"] = "1"
     env["QT_LOGGING_TO_CONSOLE"] = "1"
+    env["PYTHONUNBUFFERED"] = "1"
 
-    print("\nRunning runtime smoke test (offscreen mode, 60s timeout)...")
+    print("\nRunning runtime smoke test (offscreen mode, 60s timeout)...", flush=True)
     start_time = time.time()
     try:
-        proc = subprocess.run(
+        proc = subprocess.Popen(
             [str(binary_path)],
             env=env,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=60.0,
         )
-        elapsed = time.time() - start_time
-        print(f"[PASS] Binary executed and exited with returncode {proc.returncode} in {elapsed:.2f}s")
-        if proc.stdout:
-            print("--- STDOUT ---")
-            print(proc.stdout)
-        if proc.stderr:
-            print("--- STDERR ---")
-            print(proc.stderr)
+        try:
+            stdout, stderr = proc.communicate(timeout=60.0)
+        except subprocess.TimeoutExpired:
+            print("[FAIL] Binary execution hung and timed out after 60 seconds!", file=sys.stderr, flush=True)
+            if sys.platform == "win32":
+                subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True)
+            else:
+                proc.kill()
+            stdout, stderr = proc.communicate()
+            if stdout:
+                print("--- STDOUT BEFORE TIMEOUT ---", flush=True)
+                print(stdout, flush=True)
+            if stderr:
+                print("--- STDERR BEFORE TIMEOUT ---", flush=True)
+                print(stderr, flush=True)
+            if smoke_log.is_file():
+                print("--- SMOKE TEST LOG BEFORE HANG ---", flush=True)
+                print(smoke_log.read_text(encoding="utf-8", errors="ignore"), flush=True)
+            return 1
 
-        smoke_log = binary_path.parent / "smoke_test.log"
+        elapsed = time.time() - start_time
+        print(f"[PASS] Binary executed and exited with returncode {proc.returncode} in {elapsed:.2f}s", flush=True)
+        if stdout:
+            print("--- STDOUT ---", flush=True)
+            print(stdout, flush=True)
+        if stderr:
+            print("--- STDERR ---", flush=True)
+            print(stderr, flush=True)
+
         if smoke_log.is_file():
-            print("--- SMOKE TEST LOG ---")
-            print(smoke_log.read_text(encoding="utf-8", errors="ignore"))
+            print("--- SMOKE TEST LOG ---", flush=True)
+            print(smoke_log.read_text(encoding="utf-8", errors="ignore"), flush=True)
 
         if proc.returncode != 0:
-            print(f"[FAIL] Executable exited with non-zero returncode {proc.returncode}", file=sys.stderr)
+            print(f"[FAIL] Executable exited with non-zero returncode {proc.returncode}", file=sys.stderr, flush=True)
             return 1
-    except subprocess.TimeoutExpired:
-        print("[FAIL] Binary execution hung and timed out after 60 seconds!", file=sys.stderr)
-        smoke_log = binary_path.parent / "smoke_test.log"
-        if smoke_log.is_file():
-            print("--- SMOKE TEST LOG BEFORE HANG ---")
-            print(smoke_log.read_text(encoding="utf-8", errors="ignore"))
-        return 1
     except Exception as e:
-        print(f"[FAIL] Failed to execute binary: {e}", file=sys.stderr)
+        print(f"[FAIL] Failed to execute binary: {e}", file=sys.stderr, flush=True)
         return 1
 
-    print("\nAll binary acceptance checks passed successfully!")
+    print("\nAll binary acceptance checks passed successfully!", flush=True)
     return 0
 
 
