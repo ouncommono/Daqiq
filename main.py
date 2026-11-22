@@ -42,6 +42,7 @@ from PySide6.QtWidgets import (
     QToolButton,
     QAbstractItemView,
     QScrollArea,
+    QFrame,
 )
 from PySide6.QtCore import Qt, QTimer, QObject, QEvent, QLocale, QCoreApplication
 from PySide6.QtGui import QFont, QColor, QFontMetrics, QIcon
@@ -91,7 +92,7 @@ def _load_app_version() -> str:
                     return ver
         except Exception:
             pass
-    return "4.9.0"
+    return "4.9.1"
 
 APP_VERSION = _load_app_version()
 
@@ -2152,6 +2153,25 @@ class MainWindow(QMainWindow):
         top_layout.addWidget(title_lbl, 0)
         main_layout.addWidget(top_bar)
 
+        # نوار هشدار وضعیت اشتراک و دوره مهلت لایسنس
+        self.license_banner_frame = QFrame()
+        self.license_banner_frame.setVisible(False)
+        self.license_banner_frame.setStyleSheet(
+            "background-color: #fef3c7; border: 1px solid #f59e0b; border-radius: 6px; padding: 6px 12px;"
+        )
+        banner_layout = QHBoxLayout(self.license_banner_frame)
+        banner_layout.setContentsMargins(6, 4, 6, 4)
+        self.lbl_license_banner = QLabel()
+        self.lbl_license_banner.setStyleSheet("color: #92400e; font-weight: bold; font-size: 11px;")
+        btn_renew_banner = QPushButton("تمدید / مدیریت لایسنس 🔑")
+        btn_renew_banner.setStyleSheet(
+            "background-color: #d97706; color: white; font-weight: bold; padding: 4px 10px; border-radius: 4px;"
+        )
+        btn_renew_banner.clicked.connect(self._open_license_dialog)
+        banner_layout.addWidget(self.lbl_license_banner, 1)
+        banner_layout.addWidget(btn_renew_banner, 0)
+        main_layout.addWidget(self.license_banner_frame)
+
         # --- تب‌های برنامه با ترتیب جدید (بند ۵: تب ارتقای لپ‌تاپ بلافاصله بعد از مدیریت خدمات) ---
         self.tabs = QTabWidget()
         self.tabs.tabBarClicked.connect(self._on_tab_bar_clicked)
@@ -2171,6 +2191,82 @@ class MainWindow(QMainWindow):
         self._update_clock()
         self._update_active_user_badge()
         self._apply_employee_permissions()
+        self._update_license_banner()
+
+        # بررسی دوره‌ای پس‌زمینه (هر ۱۰ دقیقه بدون ایجاد وقفه در رابط کاربری)
+        self._license_timer = QTimer(self)
+        self._license_timer.timeout.connect(self._periodic_license_check)
+        self._license_timer.start(600000)
+
+    def _update_license_banner(self, res: Optional[ValidationResult] = None):
+        if not getattr(self, "license_service", None):
+            if hasattr(self, "license_banner_frame"):
+                self.license_banner_frame.setVisible(False)
+            return
+        if res is None:
+            res = self.license_service.check_license()
+        if not res or not res.is_valid or not res.license:
+            if hasattr(self, "license_banner_frame"):
+                self.license_banner_frame.setVisible(False)
+            return
+
+        payload = res.license.payload
+        if res.in_grace_period:
+            self.license_banner_frame.setStyleSheet(
+                "background-color: #fee2e2; border: 1px solid #ef4444; border-radius: 6px; padding: 6px 12px;"
+            )
+            self.lbl_license_banner.setStyleSheet("color: #b91c1c; font-weight: bold; font-size: 11px;")
+            self.lbl_license_banner.setText(
+                f"⚠️ توجه: اشتراک لایسنس شما به پایان رسیده و سامانه در دوره مهلت موقت ({res.grace_mode}) قرار دارد. لطفاً جهت تمدید اقدام فرمایید."
+            )
+            self.license_banner_frame.setVisible(True)
+        elif res.days_remaining is not None and res.days_remaining <= (payload.expiry_warning_days or 14):
+            self.license_banner_frame.setStyleSheet(
+                "background-color: #fef3c7; border: 1px solid #f59e0b; border-radius: 6px; padding: 6px 12px;"
+            )
+            self.lbl_license_banner.setStyleSheet("color: #92400e; font-weight: bold; font-size: 11px;")
+            self.lbl_license_banner.setText(
+                f"⚠️ یادآوری اشتراک: {res.days_remaining} روز تا پایان اعتبار لایسنس باقیمانده است. جهت تمدید اشتراک کلیک فرمایید."
+            )
+            self.license_banner_frame.setVisible(True)
+        elif res.is_trial:
+            self.license_banner_frame.setStyleSheet(
+                "background-color: #e0e7ff; border: 1px solid #6366f1; border-radius: 6px; padding: 6px 12px;"
+            )
+            self.lbl_license_banner.setStyleSheet("color: #3730a3; font-weight: bold; font-size: 11px;")
+            rem_str = f" ({res.days_remaining} روز باقیمانده)" if res.days_remaining is not None else ""
+            self.lbl_license_banner.setText(f"🔷 نسخه آزمایشی دقیق فعال است{rem_str}.")
+            self.license_banner_frame.setVisible(True)
+        else:
+            self.license_banner_frame.setVisible(False)
+
+    def _periodic_license_check(self):
+        if not getattr(self, "license_service", None):
+            return
+        res = self.license_service.check_license()
+        self._update_license_banner(res)
+        self._apply_employee_permissions()
+
+    def _export_device_request_from_settings(self):
+        if not getattr(self, "license_service", None):
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "ذخیره فایل مشخصات سیستم (.daqreq)",
+            "Daqiq_Hardware_Request.daqreq",
+            "Daqiq Request (*.daqreq);;JSON Files (*.json);;All Files (*)",
+        )
+        if not path:
+            return
+        try:
+            self.license_service.export_device_request_file(path)
+            QMessageBox.information(
+                self,
+                "ذخیره موفق",
+                f"فایل مشخصات سیستم با موفقیت در مسیر زیر ذخیره شد:\n{path}\n\nلطفاً این فایل را برای واحد پشتیبانی/فروش ارسال فرمایید.",
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "خطا در ذخیره فایل", f"امکان ذخیره فایل وجود ندارد:\n{e}")
 
     def _refresh_dashboard_card_styles(self):
         dark = self.db.cfg.get("theme", "light") == "dark"
@@ -6985,11 +7081,27 @@ class MainWindow(QMainWindow):
         self.lbl_app_version.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.lbl_app_version)
 
+        lic_btn_row = QHBoxLayout()
         btn_license_mgmt = QPushButton("📜 مدیریت و وضعیت لایسنس تجاری")
-        btn_license_mgmt.setStyleSheet("background-color: #0f766e; color: white; padding: 6px 14px; font-weight: bold; border-radius: 6px;")
-        btn_license_mgmt.setToolTip("مشاهده مشخصات لایسنس فعال، کپی شناسه سخت‌افزاری دستگاه، و وارد کردن لایسنس جدید")
+        btn_license_mgmt.setStyleSheet(
+            "background-color: #0f766e; color: white; padding: 6px 14px; font-weight: bold; border-radius: 6px;"
+        )
+        btn_license_mgmt.setToolTip(
+            "مشاهده مشخصات لایسنس فعال، کپی شناسه سخت‌افزاری دستگاه، و وارد کردن لایسنس جدید"
+        )
         btn_license_mgmt.clicked.connect(self._open_license_dialog)
-        layout.addWidget(btn_license_mgmt)
+        lic_btn_row.addWidget(btn_license_mgmt)
+
+        btn_export_req = QPushButton("💾 دریافت فایل مشخصات سیستم (.daqreq)")
+        btn_export_req.setStyleSheet(
+            "background-color: #0d9488; color: white; padding: 6px 14px; font-weight: bold; border-radius: 6px;"
+        )
+        btn_export_req.setToolTip(
+            "ایجاد و ذخیره فایل مشخصات سخت‌افزاری (.daqreq) برای ارسال به پشتیبانی"
+        )
+        btn_export_req.clicked.connect(self._export_device_request_from_settings)
+        lic_btn_row.addWidget(btn_export_req)
+        layout.addLayout(lic_btn_row)
 
         gb_security = QGroupBox("امنیت و ورود کاربران")
         security_layout = QVBoxLayout(gb_security)

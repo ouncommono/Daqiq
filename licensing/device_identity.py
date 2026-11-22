@@ -3,16 +3,22 @@
 
 Binds licenses strictly to motherboard/SMBIOS identity.
 Resilient to Windows reinstallation, RAM upgrades, SSD/HDD swaps, and network changes.
+Uses ultra-fast native Win32 kernel32.GetSystemFirmwareTable (< 5 ms, zero PowerShell on primary path).
 """
 
 import abc
+import ctypes
+from ctypes import wintypes
+import datetime
 import hashlib
 import os
 import re
+import struct
 import subprocess
 import sys
 import unicodedata
-from typing import Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
+
 from .license_models import HardwareIdentityUnavailableError
 
 # Strict placeholder and invalid value lists
@@ -116,9 +122,6 @@ def compute_hardware_fingerprint_from_components(
     serial_ok = is_valid_board_serial(clean_serial)
     model_ok = is_valid_model_info(clean_mfg, clean_prod)
 
-    canonical_str = ""
-    tier = ""
-
     if uuid_ok and serial_ok:
         tier = "tier1"
         canonical_str = f"v1|uuid={clean_uuid}|board={clean_serial}"
@@ -133,13 +136,42 @@ def compute_hardware_fingerprint_from_components(
             "شناسه سخت‌افزاری پایدار مادربورد/بایوس قابل دریافت نیست یا با مقادیر غیراختصاصی شرکت سازنده پر شده است."
         )
 
-    # Normalize canonical string: NFC, trimmed, uppercase ASCII
     norm = unicodedata.normalize("NFC", canonical_str).strip()
     norm = " ".join(norm.split())
     norm = norm.upper()
 
     digest = hashlib.sha256(f"DAQIQ-HWFP-V1|{norm}".encode("utf-8")).hexdigest().lower()
     return f"fp_v1:{digest}", tier
+
+
+def get_all_available_fingerprint_tiers(
+    uuid: Optional[str],
+    serial: Optional[str],
+    mfg: Optional[str] = None,
+    prod: Optional[str] = None,
+) -> Dict[str, str]:
+    """Return dictionary of all valid tiers computed for the hardware."""
+    tiers: Dict[str, str] = {}
+    clean_uuid = _clean_string(uuid)
+    clean_serial = _clean_string(serial)
+    clean_mfg = _clean_string(mfg)
+    clean_prod = _clean_string(prod)
+
+    uuid_ok = is_valid_uuid(clean_uuid)
+    serial_ok = is_valid_board_serial(clean_serial)
+    model_ok = is_valid_model_info(clean_mfg, clean_prod)
+
+    if uuid_ok and serial_ok:
+        c1 = f"V1|UUID={clean_uuid}|BOARD={clean_serial}".upper()
+        tiers["tier1"] = f"fp_v1:{hashlib.sha256(f'DAQIQ-HWFP-V1|{c1}'.encode('utf-8')).hexdigest().lower()}"
+    if uuid_ok and model_ok:
+        c2 = f"V1|UUID={clean_uuid}|BOARD_MODEL={clean_mfg}:{clean_prod}".upper()
+        tiers["tier2"] = f"fp_v1:{hashlib.sha256(f'DAQIQ-HWFP-V1|{c2}'.encode('utf-8')).hexdigest().lower()}"
+    if serial_ok and model_ok:
+        c3 = f"V1|BOARD={clean_serial}|BOARD_MODEL={clean_mfg}:{clean_prod}".upper()
+        tiers["tier3"] = f"fp_v1:{hashlib.sha256(f'DAQIQ-HWFP-V1|{c3}'.encode('utf-8')).hexdigest().lower()}"
+
+    return tiers
 
 
 class HardwareIdentitySource(abc.ABC):
@@ -150,22 +182,93 @@ class HardwareIdentitySource(abc.ABC):
         """Return the calculated fp_v1:<64-hex> fingerprint."""
         pass
 
+    def get_all_tiers(self) -> Dict[str, str]:
+        """Return dict of all available tiers."""
+        fp = self.get_fingerprint()
+        return {"tier1": fp}
 
-class WindowsHardwareProvider(HardwareIdentitySource):
-    """Acquires SMBIOS hardware identity via Windows CIM/WMI with hard timeouts."""
 
-    def __init__(self, timeout_sec: float = 5.0):
-        self.timeout_sec = timeout_sec
+class NativeWindowsHardwareProvider(HardwareIdentitySource):
+    """Fast native Windows SMBIOS reader using kernel32.GetSystemFirmwareTable (< 5 ms)."""
 
-    def _query_wmi(self) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
-        """Query Win32_ComputerSystemProduct and Win32_BaseBoard via PowerShell CIM."""
+    def __init__(self):
+        self._cached_components: Optional[Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]] = None
+
+    def _query_native_smbios(self) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
+        """Extract UUID and BaseBoard directly from SMBIOS via GetSystemFirmwareTable."""
+        uuid_str: Optional[str] = None
+        serial_str: Optional[str] = None
+        mfg_str: Optional[str] = None
+        prod_str: Optional[str] = None
+
+        try:
+            kernel32 = ctypes.windll.kernel32
+            RSMB = 0x52534D42  # 'RSMB'
+            buf_size = kernel32.GetSystemFirmwareTable(RSMB, 0, None, 0)
+            if not buf_size:
+                return None, None, None, None
+
+            buf = ctypes.create_string_buffer(buf_size)
+            r = kernel32.GetSystemFirmwareTable(RSMB, 0, buf, buf_size)
+            if r == 0:
+                return None, None, None, None
+
+            raw = bytes(buf)
+            data = raw[8:]  # Skip RSMB header
+            idx = 0
+            while idx < len(data):
+                if idx + 4 > len(data):
+                    break
+                header = data[idx : idx + 4]
+                stype, length, handle = struct.unpack("<BBH", header)
+                if length < 4 or idx + length > len(data):
+                    break
+                formatted = data[idx : idx + length]
+                str_idx = idx + length
+                strings: List[str] = []
+                while str_idx < len(data) - 1:
+                    if data[str_idx : str_idx + 1] == b"\x00":
+                        if str_idx == idx + length:
+                            str_idx += 1
+                        break
+                    end = data.find(b"\x00", str_idx)
+                    if end == -1 or end > len(data):
+                        break
+                    s = data[str_idx:end].decode("latin-1", errors="replace").strip()
+                    strings.append(s)
+                    str_idx = end + 1
+                    if str_idx < len(data) and data[str_idx : str_idx + 1] == b"\x00":
+                        str_idx += 1
+                        break
+                idx = str_idx
+
+                def get_str(str_index: int) -> str:
+                    return strings[str_index - 1] if 0 < str_index <= len(strings) else ""
+
+                if stype == 1 and length >= 0x18:
+                    uuid_bytes = formatted[0x08:0x18]
+                    d1, d2, d3 = struct.unpack("<IHH", uuid_bytes[:8])
+                    d4 = uuid_bytes[8:10].hex()
+                    d5 = uuid_bytes[10:16].hex()
+                    uuid_str = f"{d1:08x}-{d2:04x}-{d3:04x}-{d4}-{d5}"
+                elif stype == 2 and length >= 8:
+                    mfg_str = get_str(formatted[4])
+                    prod_str = get_str(formatted[5])
+                    serial_str = get_str(formatted[7])
+        except Exception:
+            pass
+
+        return uuid_str, serial_str, mfg_str, prod_str
+
+    def _query_powershell_fallback(self) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
+        """Fallback querying Win32_ComputerSystemProduct and Win32_BaseBoard via CIM."""
         script = (
             "$u = (Get-CimInstance Win32_ComputerSystemProduct -OperationTimeoutSec 5 | Select-Object -ExpandProperty UUID) 2>$null; "
             "$b = (Get-CimInstance Win32_BaseBoard -OperationTimeoutSec 5 | Select-Object SerialNumber, Manufacturer, Product) 2>$null; "
-            "Write-Output \"UUID=$u\"; "
-            "Write-Output \"SERIAL=$($b.SerialNumber)\"; "
-            "Write-Output \"MFG=$($b.Manufacturer)\"; "
-            "Write-Output \"PROD=$($b.Product)\""
+            'Write-Output "UUID=$u"; '
+            'Write-Output "SERIAL=$($b.SerialNumber)"; '
+            'Write-Output "MFG=$($b.Manufacturer)"; '
+            'Write-Output "PROD=$($b.Product)"'
         )
         cmd = [
             "powershell.exe",
@@ -176,49 +279,58 @@ class WindowsHardwareProvider(HardwareIdentitySource):
             "-Command",
             script,
         ]
-
-        creationflags = 0
-        if sys.platform == "win32":
-            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
-
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
         try:
             proc = subprocess.run(
                 cmd,
                 stdin=subprocess.DEVNULL,
                 capture_output=True,
                 text=True,
-                timeout=self.timeout_sec,
+                timeout=5.0,
                 creationflags=creationflags,
             )
-        except Exception as e:
-            raise HardwareIdentityUnavailableError(
-                f"اجرای دستور بررسی مشخصات سخت‌افزاری سیستم با خطا متوقف شد: {e}"
-            ) from e
+            if proc.returncode != 0:
+                return None, None, None, None
+            u, s, m, p = None, None, None, None
+            for line in proc.stdout.splitlines():
+                line = line.strip()
+                if line.startswith("UUID="):
+                    u = line[5:].strip()
+                elif line.startswith("SERIAL="):
+                    s = line[7:].strip()
+                elif line.startswith("MFG="):
+                    m = line[4:].strip()
+                elif line.startswith("PROD="):
+                    p = line[5:].strip()
+            return u, s, m, p
+        except Exception:
+            return None, None, None, None
 
-        if proc.returncode != 0:
-            raise HardwareIdentityUnavailableError(
-                f"پرس‌وجوی مشخصات سیستم با کد خطای {proc.returncode} خاتمه یافت."
-            )
-
-        uuid, serial, mfg, prod = None, None, None, None
-        for line in proc.stdout.splitlines():
-            line = line.strip()
-            if line.startswith("UUID="):
-                uuid = line[5:].strip()
-            elif line.startswith("SERIAL="):
-                serial = line[7:].strip()
-            elif line.startswith("MFG="):
-                mfg = line[4:].strip()
-            elif line.startswith("PROD="):
-                prod = line[5:].strip()
-
-        return uuid, serial, mfg, prod
+    def get_components(self) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
+        if self._cached_components is None:
+            u, s, m, p = self._query_native_smbios()
+            if not u or not s:
+                # If native didn't get both, try CIM fallback
+                u_c, s_c, m_c, p_c = self._query_powershell_fallback()
+                u = u or u_c
+                s = s or s_c
+                m = m or m_c
+                p = p or p_c
+            self._cached_components = (u, s, m, p)
+        return self._cached_components
 
     def get_fingerprint(self) -> str:
-        """Acquire Windows SMBIOS identity and compute fp_v1 fingerprint."""
-        uuid, serial, mfg, prod = self._query_wmi()
-        fp, _ = compute_hardware_fingerprint_from_components(uuid, serial, mfg, prod)
+        u, s, m, p = self.get_components()
+        fp, _ = compute_hardware_fingerprint_from_components(u, s, m, p)
         return fp
+
+    def get_all_tiers(self) -> Dict[str, str]:
+        u, s, m, p = self.get_components()
+        return get_all_available_fingerprint_tiers(u, s, m, p)
+
+
+# Backwards compatibility alias
+WindowsHardwareProvider = NativeWindowsHardwareProvider
 
 
 class MockHardwareProvider(HardwareIdentitySource):
@@ -242,12 +354,44 @@ class MockHardwareProvider(HardwareIdentitySource):
         )
         return fp
 
+    def get_all_tiers(self) -> Dict[str, str]:
+        return get_all_available_fingerprint_tiers(
+            self.uuid, self.serial, self.mfg, self.prod
+        )
+
 
 def get_system_hardware_fingerprint() -> str:
     """Convenience function returning the current machine's fp_v1 fingerprint."""
     if sys.platform == "win32":
-        provider = WindowsHardwareProvider()
+        provider = NativeWindowsHardwareProvider()
     else:
-        # Fallback for non-Windows development/testing environments
         provider = MockHardwareProvider()
     return provider.get_fingerprint()
+
+
+def get_system_hardware_fingerprint_with_tier() -> Tuple[str, str]:
+    """Return (fingerprint, tier_id) for current system."""
+    if sys.platform == "win32":
+        provider = NativeWindowsHardwareProvider()
+        u, s, m, p = provider.get_components()
+        return compute_hardware_fingerprint_from_components(u, s, m, p)
+    else:
+        provider = MockHardwareProvider()
+        return compute_hardware_fingerprint_from_components(
+            provider.uuid, provider.serial, provider.mfg, provider.prod
+        )
+
+
+def create_device_request_dict(app_version: str = "4.9.1", device_label: str = "") -> Dict[str, Any]:
+    """Generate exact .daqreq dictionary compatible with Daqiq-License-Generator."""
+    fp, tier = get_system_hardware_fingerprint_with_tier()
+    now_iso = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return {
+        "request_version": 1,
+        "product_id": "daqiq.desktop",
+        "generated_at": now_iso,
+        "device_fingerprint": fp,
+        "device_label": device_label or f"صندوق فروشگاه ({tier})",
+        "app_version": app_version,
+        "hardware_tier": tier,
+    }

@@ -1,8 +1,8 @@
-# Daqiq Offline Licensing Protocol Specification (v1.0)
-**Document Version:** 1.0.0  
+# Daqiq Offline Licensing Protocol Specification (v1.1)
+**Document Version:** 1.1.0  
 **Target Product:** Daqiq Desktop (`daqiq.desktop`)  
-**Standard Release:** v4.9.0  
-**Security Boundary:** Asymmetric Cryptography (Ed25519), Hardware SMBIOS Anchoring (`fp_v1`), Offline Clock-Rollback Protection
+**Standard Release:** v4.9.1  
+**Security Boundary:** Asymmetric Cryptography (Ed25519), Fast Win32 SMBIOS Anchoring (`fp_v1`), Multi-Anchor Clock Protection (AppData + HKCU Registry)
 
 ---
 
@@ -15,8 +15,8 @@ The system operates across three distinct entities:
 
 ```
 +------------------------------------+
-|  Companion App A                   |
-|  Device Request Utility            |
+|  Companion App A / Daqiq Desktop   |
+|  Device Request Utility (.daqreq)  |
 |  (Client Machine - Offline)        |
 +-----------------+------------------+
                   |
@@ -24,12 +24,12 @@ The system operates across three distinct entities:
                   v
 +-----------------+------------------+
 |  Companion App B                   |
-|  Offline License Generator/Issuer  |
+|  Daqiq-License-Generator           |
 |  (Vendor Air-gapped Host)          |
-|  [Holds Ed25519 Signing Key]        |
+|  [Holds Ed25519 Signing Key]       |
 +-----------------+------------------+
                   |
-                  | Issues Signed License (*.daqlic)
+                  | Issues Signed License (*.daqlic / Compact Text Token)
                   v
 +-----------------+------------------+
 |  Daqiq Desktop Application         |
@@ -38,16 +38,17 @@ The system operates across three distinct entities:
 +------------------------------------+
 ```
 
-1. **Companion App A (Device Request Utility):** Standalone lightweight tool running on the client machine. Collects the client machine's SMBIOS hardware identity, hashes it via `fp_v1`, and exports a `.daqreq` JSON request file.
-2. **Companion App B (Offline License Generator):** Air-gapped administrative software operated strictly by the vendor. Imports `.daqreq`, configures customer details, entitlements, validity period, and device quotas, and signs the payload with the vendor's private Ed25519 key, outputting a `.daqlic` license file.
-3. **Daqiq Desktop (`daqiq.desktop`):** The commercial enterprise desktop ERP application. Embeds trusted Ed25519 public keys, verifies the cryptographic signature of `.daqlic`, matches the local `fp_v1` hardware fingerprint, enforces feature entitlements, and detects clock rollback. **The private signing key never exists in Daqiq.**
+1. **Companion App A / Daqiq Desktop:** Standalone lightweight tool or in-app dialog running on the client machine. Collects the client machine's SMBIOS hardware identity via native Win32 `kernel32.GetSystemFirmwareTable` in < 2ms, hashes it via `fp_v1`, and exports a `.daqreq` JSON request file.
+2. **Companion App B (Daqiq-License-Generator):** Air-gapped administrative software operated strictly by the vendor (`https://github.com/ouncommono/Daqiq-License-Generator`). Imports `.daqreq`, configures customer details, entitlements, validity period, match policy, grace periods, and device quotas, and signs the payload with the vendor's private Ed25519 key, outputting a `.daqlic` license file or Base64 text token.
+3. **Daqiq Desktop (`daqiq.desktop`):** The commercial enterprise desktop ERP application. Embeds trusted Ed25519 public keys, verifies the cryptographic signature of `.daqlic`, matches the local `fp_v1` hardware fingerprint according to `match_policy`, enforces feature entitlements, and detects clock rollback across dual AppData + Registry storage anchors. **The private signing key never exists in Daqiq.**
 
 ---
 
 ## 2. Cryptographic Envelope & File Format
 
-### 2.1 File Specification
+### 2.1 File & Token Specification
 - **File Extension:** `.daqlic`
+- **Compact Text Token:** Base64-encoded UTF-8 canonical envelope string (`eyJ...`) accepted directly via paste.
 - **Encoding:** UTF-8 without Byte Order Mark (BOM).
 - **Max File Size:** `65536` bytes (64 KiB). Any file exceeding this limit is rejected immediately without parsing.
 - **Parsing Restrictions:** Strict JSON parser. Duplicate keys inside dictionaries MUST be rejected (`object_pairs_hook`). Floats, `NaN`, and `Infinity` are strictly forbidden inside the signed payload.
@@ -76,6 +77,11 @@ The system operates across three distinct entities:
     "device_fingerprints": [
       "fp_v1:b8782278c4c15107a8fd2a5d21718e3328c8baeac5d1a3f0664701ac2983e52e"
     ],
+    "match_policy": "standard",
+    "grace_period_days": 7,
+    "grace_mode": "readonly",
+    "expiry_warning_days": 14,
+    "max_clock_skew_hours": 24,
     "features": {
       "dashboard": true,
       "products": true,
@@ -88,6 +94,8 @@ The system operates across three distinct entities:
       "employees": true,
       "settings": true
     },
+    "quotas": {},
+    "metadata": {},
     "min_app_version": "4.9.0",
     "max_app_version": null
   },
@@ -109,13 +117,20 @@ The system operates across three distinct entities:
 | `payload.customer.name` | String | Yes | Customer name in Persian or Latin (Unicode NFC normalized). |
 | `payload.customer.organization` | String / Null | Optional | Organization name (Unicode NFC normalized). |
 | `payload.customer.contact` | String / Null | Optional | Support phone, email, or telegram ID. |
-| `payload.license_type` | String | Yes | Either `"perpetual"` or `"subscription"`. |
+| `payload.license_type` | String | Yes | One of `"perpetual"`, `"subscription"`, or `"trial"`. |
 | `payload.issued_at` | String | Yes | ISO-8601 UTC timestamp (`YYYY-MM-DDTHH:MM:SSZ`). |
 | `payload.not_before` | String | Yes | ISO-8601 UTC timestamp (`YYYY-MM-DDTHH:MM:SSZ`). |
-| `payload.expires_at` | String / Null | Conditional | If `license_type == "perpetual"`, MUST be `null`. If `license_type == "subscription"`, MUST be valid ISO-8601 UTC timestamp strictly greater than `not_before`. |
+| `payload.expires_at` | String / Null | Conditional | If `license_type == "perpetual"`, MUST be `null`. If `subscription` or `trial`, MUST be valid ISO-8601 UTC timestamp strictly greater than `not_before`. |
 | `payload.max_devices` | Integer | Yes | Integer `>= 1`. |
 | `payload.device_fingerprints` | List[String] | Yes | Non-empty list of valid `fp_v1:<64-hex>` strings with zero duplicates. Length must satisfy `1 <= len(device_fingerprints) <= max_devices`. |
+| `payload.match_policy` | String / Null | Optional | One of `"strict"`, `"standard"`, `"relaxed"`. Default is `"standard"`. |
+| `payload.grace_period_days` | Integer / Null | Optional | Non-negative integer (e.g. `7`). Days allowed past `expires_at`. |
+| `payload.grace_mode` | String / Null | Optional | One of `"readonly"`, `"full"`. Default is `"readonly"`. |
+| `payload.expiry_warning_days`| Integer / Null | Optional | Non-negative integer (e.g. `14`). Days prior to expiration to surface banner. |
+| `payload.max_clock_skew_hours`| Integer / Null| Optional | Non-negative integer (default `24`). Allowed backward clock skew. |
 | `payload.features` | Dict[str, bool] | Yes | Dict mapping feature keys to strict booleans. Unknown or non-boolean values rejected. Omitted keys default to `false`. |
+| `payload.quotas` | Dict[str, Any] / Null | Optional | Extensible quota limits. |
+| `payload.metadata` | Dict[str, Any] / Null | Optional | Extensible key-value metadata. |
 | `payload.min_app_version` | String / Null | Optional | SemVer/Packaging version string (e.g. `"4.9.0"`). Current app version must be `>= min_app_version`. |
 | `payload.max_app_version` | String / Null | Optional | SemVer/Packaging version string. Current app version must be `<= max_app_version`. |
 
@@ -176,14 +191,13 @@ The hardware fingerprint binds a license strictly to physical hardware while rem
 2. **Motherboard Serial:** `Win32_BaseBoard.SerialNumber`
 3. **Motherboard Product & Manufacturer:** `Win32_BaseBoard.Product`, `Win32_BaseBoard.Manufacturer`
 
-### 4.2 Non-Blocking Safe Acquisition
-Hardware identity is acquired using PowerShell CIM queries with hard timeouts and hidden window creation flags:
-```powershell
-powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_ComputerSystemProduct | Select-Object -ExpandProperty UUID; Get-CimInstance Win32_BaseBoard | Select-Object SerialNumber, Manufacturer, Product | Format-List"
-```
-Execution constraints:
-- Timeout: `<= 5.0` seconds.
-- Process Creation Flags: `subprocess.CREATE_NO_WINDOW` (exit code `0x08000000`) to prevent console flickering.
+### 4.2 Non-Blocking Safe Acquisition & Native Win32 SMBIOS Provider
+In Daqiq v4.9.1, hardware identity is acquired primarily through **direct native Win32 kernel calls** via `ctypes`:
+- **API:** `kernel32.GetSystemFirmwareTable(0x52534D42, 0, ...)` (Signature `'RSMB'` = Raw SMBIOS).
+- **Latency:** `< 2 milliseconds` (tested 1.2ms on Windows 11).
+- **Subprocesses:** **0 subprocesses**, zero console window flicker, zero PowerShell launch cost, and 100% immune to restrictive PowerShell execution policies or antivirus script blockers.
+- **Parsing:** Implements raw SMBIOS table parsing for Structure Type 1 (System Information: UUID offset 0x08) and Structure Type 2 (Baseboard Information: Manufacturer, Product, Serial Number null-terminated string table).
+- **Fallback Provider:** In non-Windows or restricted environments, gracefully falls back to non-blocking PowerShell CIM queries with hard timeouts (`<= 5.0` seconds) and `subprocess.CREATE_NO_WINDOW` (`0x08000000`).
 
 ### 4.3 OEM Placeholder & Invalid Value Rejection
 Values are cleaned by trimming, removing internal punctuation, and converting to lowercase for comparison. If a value matches any entry below, it is rejected as a non-unique OEM placeholder:
@@ -255,7 +269,7 @@ Daqiq enforces entitlements directly on its 10 main application tabs. Feature ke
 
 ## 6. Device Request File Contract (`.daqreq`)
 
-When a customer commissions a new PC or adds a terminal to a multi-device store license, Companion App A (Device Request Utility) generates a `.daqreq` file:
+When a customer commissions a new PC or adds a terminal to a multi-device store license, Companion App A or the Daqiq Desktop Activation Dialog generates a `.daqreq` file:
 
 ```json
 {
@@ -264,25 +278,25 @@ When a customer commissions a new PC or adds a terminal to a multi-device store 
   "generated_at": "2026-11-22T00:00:00Z",
   "device_fingerprint": "fp_v1:b8782278c4c15107a8fd2a5d21718e3328c8baeac5d1a3f0664701ac2983e52e",
   "device_label": "صندوق اصلی فروشگاه (Main Terminal)",
-  "app_version": "4.9.0",
+  "app_version": "4.9.1",
   "hardware_tier": "tier1"
 }
 ```
 
-Companion App B (Offline License Generator) accepts one or more `.daqreq` files to bundle into `payload.device_fingerprints` (up to `max_devices`).
+Companion App B (`Daqiq-License-Generator`) accepts one or more `.daqreq` files to bundle into `payload.device_fingerprints` (up to `max_devices`).
 
 ---
 
-## 7. Storage, Atomicity & Clock-Rollback Protection
+## 7. Storage, Atomicity & Multi-Anchor Clock-Rollback Protection
 
 ### 7.1 Deterministic Storage Paths
 Licenses and clock states are stored strictly outside the business database:
-1. **Machine-Wide Path:** `%PROGRAMDATA%\Daqiq\Licensing\` (`C:\ProgramData\Daqiq\Licensing\`)
-2. **Per-User Path:** `%LOCALAPPDATA%\Daqiq\Licensing\` (`C:\Users\<User>\AppData\Local\Daqiq\Licensing\`)
+1. **Per-User Path (Primary):** `%LOCALAPPDATA%\Daqiq\license\` (`C:\Users\<User>\AppData\Local\Daqiq\license\`)
+2. **Machine-Wide Path (Fallback/Shared):** `%PROGRAMDATA%\Daqiq\license\` (`C:\ProgramData\Daqiq\license\`)
 
 **Resolution Precedence:**
-- **Read:** Check Machine-Wide `license.daqlic` first. If missing, check Per-User `license.daqlic`.
-- **Write:** Attempt to write to Machine-Wide directory. If permission denied (`PermissionError`), write to Per-User directory seamlessly without failing.
+- **Read:** Check Per-User `license.daqlic` first. If missing, check Machine-Wide `license.daqlic`.
+- **Write:** Write to Per-User directory atomically; mirror to Machine-Wide directory if writable.
 - **Forbidden Locations:** NEVER store inside SQLite/SQLCipher databases, `%TEMP%`, current working directory, or Nuitka onefile temporary extraction directories.
 
 ### 7.2 Atomic Import & Reinstall Recovery
@@ -290,8 +304,11 @@ Licenses and clock states are stored strictly outside the business database:
 - Writing uses a temporary sibling file (`license.daqlic.<uuid>.tmp`), flushed with `os.fsync()`, and swapped atomically using `os.replace()`.
 - The portable signed `.daqlic` is stored unmodified on disk. Re-importing the file after a clean Windows reinstallation on authorized hardware restores full licensing immediately.
 
-### 7.3 Clock-Rollback Protection (`clock_state.json`)
-For time-limited subscription licenses, Daqiq tracks a monotonic high-water mark:
+### 7.3 Multi-Anchor Clock-Rollback Protection (`clock_state.json` + HKCU Registry)
+For time-limited subscription and trial licenses, Daqiq tracks a monotonic high-water mark across dual synchronized anchors:
+1. **Local AppData File:** `clock_state.json`
+2. **Windows Registry:** `HKCU\Software\Daqiq\Licensing` (`LastSeenUtc`, `ClockHmac`)
+
 ```json
 {
   "version": 1,
@@ -299,13 +316,15 @@ For time-limited subscription licenses, Daqiq tracks a monotonic high-water mark
   "hmac_tag": "<hmac-sha256-hex>"
 }
 ```
-- **Tolerance:** `900` seconds (15 minutes) to accommodate natural NTP synchronization or standard BIOS clock jitter.
-- **Evaluation:** If `now_utc + 900s < last_seen_utc`, a `CLOCK_ROLLBACK` status is raised with guidance to synchronize the PC system clock.
+- **Integrity Tag:** HMAC-SHA256 keyed with device-specific salt bound to the hardware fingerprint (`fp_v1`).
+- **Cross-Validation:** If either anchor (file or registry) shows a higher timestamp, the higher authenticated timestamp is enforced as the high-water mark.
+- **Tolerance:** `900` seconds (15 minutes) or `max_clock_skew_hours` (if specified in license payload) to accommodate natural NTP synchronization or standard BIOS clock jitter.
+- **Evaluation:** If `now_utc + tolerance < last_seen_utc`, a `CLOCK_ROLLBACK` status is raised with guidance to synchronize the PC system clock.
 - **Perpetual License Immunity:** Perpetual licenses (`license_type == "perpetual"`) never expire and are immune to clock-state rollback errors.
 
 ---
 
-## 8. Public Key Management & Replacement Instructions
+## 8. Public Key Management & Environment Injection
 
 Daqiq ships with a default trusted public key registry in `licensing/keys.py`:
 ```python
@@ -314,7 +333,14 @@ DEFAULT_KEY_REGISTRY = {
 }
 ```
 
-### Steps to Replace with Vendor Production Public Key:
+### 8.1 Runtime Environment Injection
+For staging, testing, or automated CI/CD without modifying source files, Daqiq supports the `DAQIQ_PUBLIC_KEY` environment variable:
+```bash
+# Inject temporary testing public key:
+set DAQIQ_PUBLIC_KEY="<base64-32-byte-public-key>"
+```
+
+### 8.2 Steps to Replace with Vendor Production Public Key:
 1. Generate an Ed25519 keypair offline in the secure vendor signing environment:
    ```python
    from cryptography.hazmat.primitives.asymmetric import ed25519
@@ -326,6 +352,6 @@ DEFAULT_KEY_REGISTRY = {
    pub_b64 = base64.b64encode(public_key.public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)).decode('ascii')
    print("Vendor Public Key:", pub_b64)
    ```
-2. Store `private_key` securely in an air-gapped vault for Companion App B. **Never commit secret signing keys to source control or package them with Daqiq.**
+2. Store `private_key` securely in an air-gapped vault for Companion App B (`Daqiq-License-Generator`). **Never commit secret signing keys to source control or package them with Daqiq.**
 3. Update `DEFAULT_KEY_REGISTRY` in `licensing/keys.py` with `"daqiq-prod-v1": "<YOUR_VENDOR_PUBLIC_KEY>"`.
 4. Compile Daqiq via `python scripts/build_nuitka.py --mode onefile`.

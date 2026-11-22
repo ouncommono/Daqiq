@@ -106,6 +106,95 @@ def test_valid_perpetual_license(ephemeral_keypair, valid_payload_dict):
 
     assert res.is_valid is True
     assert res.status == ValidationStatus.VALID
+
+
+def test_compact_token_and_trial_license(ephemeral_keypair, valid_payload_dict):
+    """Verify compact base64-encoded token and trial license type."""
+    priv, pub, pub_b64 = ephemeral_keypair
+    reg = KeyRegistry({"test-key-v1": pub_b64})
+    verifier = LicenseVerifier(reg)
+
+    trial_payload = copy.deepcopy(valid_payload_dict)
+    trial_payload["license_type"] = "trial"
+    trial_payload["expires_at"] = "2026-12-01T00:00:00Z"
+
+    doc = make_signed_envelope(priv, "test-key-v1", trial_payload)
+    json_bytes = json.dumps(doc, ensure_ascii=False).encode("utf-8")
+    compact_token = base64.b64encode(json_bytes).decode("ascii")
+
+    # Parse compact token
+    env = verifier.parse_envelope_from_bytes(compact_token.encode("ascii"))
+    assert env.payload.license_type == "trial"
+
+    res = verifier.validate_license(
+        env,
+        current_hardware_fingerprint="fp_v1:b8782278c4c15107a8fd2a5d21718e3328c8baeac5d1a3f0664701ac2983e52e",
+        current_app_version="4.9.1",
+        now_utc=datetime.datetime(2026, 11, 25, 0, 0, 0, tzinfo=datetime.timezone.utc),
+    )
+    assert res.is_valid is True
+    assert res.is_trial is True
+    assert res.status == ValidationStatus.TRIAL
+    assert res.days_remaining == 6
+
+
+def test_grace_period_and_match_policy(ephemeral_keypair, valid_payload_dict):
+    """Verify grace period expiration and standard/strict match policies."""
+    priv, pub, pub_b64 = ephemeral_keypair
+    reg = KeyRegistry({"test-key-v1": pub_b64})
+    verifier = LicenseVerifier(reg)
+
+    sub_payload = copy.deepcopy(valid_payload_dict)
+    sub_payload["license_type"] = "subscription"
+    sub_payload["expires_at"] = "2026-12-01T00:00:00Z"
+    sub_payload["grace_period_days"] = 7
+    sub_payload["grace_mode"] = "readonly"
+    sub_payload["match_policy"] = "standard"
+
+    doc = make_signed_envelope(priv, "test-key-v1", sub_payload)
+    raw = json.dumps(doc, ensure_ascii=False).encode("utf-8")
+    env = verifier.parse_envelope_from_bytes(raw)
+
+    primary_fp = "fp_v1:b8782278c4c15107a8fd2a5d21718e3328c8baeac5d1a3f0664701ac2983e52e"
+    secondary_fp = "fp_v1:11112278c4c15107a8fd2a5d21718e3328c8baeac5d1a3f0664701ac2983e52e"
+
+    # In grace period: now is 2 days after expires_at (within 7 days grace)
+    now_grace = datetime.datetime(2026, 12, 3, 0, 0, 0, tzinfo=datetime.timezone.utc)
+    res_grace = verifier.validate_license(env, primary_fp, "4.9.1", now_utc=now_grace)
+    assert res_grace.is_valid is True
+    assert res_grace.in_grace_period is True
+    assert res_grace.grace_mode == "readonly"
+    assert res_grace.status == ValidationStatus.GRACE_PERIOD
+
+    # Past grace period: now is 10 days after expires_at (> 7 days grace)
+    now_past = datetime.datetime(2026, 12, 11, 0, 0, 0, tzinfo=datetime.timezone.utc)
+    res_past = verifier.validate_license(env, primary_fp, "4.9.1", now_utc=now_past)
+    assert res_past.is_valid is False
+    assert res_past.status == ValidationStatus.EXPIRED
+
+    # Secondary tier match under standard policy
+    tiers = {"tier1": "fp_v1:other", "tier2": primary_fp}
+    res_tier2 = verifier.validate_license(
+        env,
+        current_hardware_fingerprint="fp_v1:other",
+        current_app_version="4.9.1",
+        now_utc=datetime.datetime(2026, 11, 25, 0, 0, 0, tzinfo=datetime.timezone.utc),
+        available_hardware_tiers=tiers,
+    )
+    assert res_tier2.is_valid is True
+
+
+def test_fail_closed_on_invalid_or_missing_keys():
+    """Verify KeyRegistry rejects empty or malformed keys immediately."""
+    reg = KeyRegistry({})
+    verifier = LicenseVerifier(reg)
+
+    with pytest.raises(CryptoVerificationError):
+        reg.register_key_base64("bad-key", "")
+
+    with pytest.raises(CryptoVerificationError):
+        reg.register_key_base64("bad-key-len", base64.b64encode(b"short").decode("ascii"))
+
     assert res.license.payload.license_type == "perpetual"
 
 
@@ -371,3 +460,92 @@ def test_reproducible_canonical_test_vector():
     )
     assert res.is_valid is True
     assert res.status == ValidationStatus.VALID
+
+
+def test_compact_token_and_trial_license(ephemeral_keypair, valid_payload_dict):
+    """Verify compact base64-encoded token and trial license type."""
+    priv, pub, pub_b64 = ephemeral_keypair
+    reg = KeyRegistry({"test-key-v1": pub_b64})
+    verifier = LicenseVerifier(reg)
+
+    trial_payload = copy.deepcopy(valid_payload_dict)
+    trial_payload["license_type"] = "trial"
+    trial_payload["expires_at"] = "2026-12-01T00:00:00Z"
+
+    doc = make_signed_envelope(priv, "test-key-v1", trial_payload)
+    json_bytes = json.dumps(doc, ensure_ascii=False).encode("utf-8")
+    compact_token = base64.b64encode(json_bytes).decode("ascii")
+
+    # Parse compact token
+    env = verifier.parse_envelope_from_bytes(compact_token.encode("ascii"))
+    assert env.payload.license_type == "trial"
+
+    res = verifier.validate_license(
+        env,
+        current_hardware_fingerprint="fp_v1:b8782278c4c15107a8fd2a5d21718e3328c8baeac5d1a3f0664701ac2983e52e",
+        current_app_version="4.9.1",
+        now_utc=datetime.datetime(2026, 11, 25, 0, 0, 0, tzinfo=datetime.timezone.utc),
+    )
+    assert res.is_valid is True
+    assert res.is_trial is True
+    assert res.status == ValidationStatus.TRIAL
+    assert res.days_remaining == 6
+
+
+def test_grace_period_and_match_policy(ephemeral_keypair, valid_payload_dict):
+    """Verify grace period expiration and standard/strict match policies."""
+    priv, pub, pub_b64 = ephemeral_keypair
+    reg = KeyRegistry({"test-key-v1": pub_b64})
+    verifier = LicenseVerifier(reg)
+
+    sub_payload = copy.deepcopy(valid_payload_dict)
+    sub_payload["license_type"] = "subscription"
+    sub_payload["expires_at"] = "2026-12-01T00:00:00Z"
+    sub_payload["grace_period_days"] = 7
+    sub_payload["grace_mode"] = "readonly"
+    sub_payload["match_policy"] = "standard"
+
+    doc = make_signed_envelope(priv, "test-key-v1", sub_payload)
+    raw = json.dumps(doc, ensure_ascii=False).encode("utf-8")
+    env = verifier.parse_envelope_from_bytes(raw)
+
+    primary_fp = "fp_v1:b8782278c4c15107a8fd2a5d21718e3328c8baeac5d1a3f0664701ac2983e52e"
+    secondary_fp = "fp_v1:11112278c4c15107a8fd2a5d21718e3328c8baeac5d1a3f0664701ac2983e52e"
+
+    # In grace period: now is 2 days after expires_at (within 7 days grace)
+    now_grace = datetime.datetime(2026, 12, 3, 0, 0, 0, tzinfo=datetime.timezone.utc)
+    res_grace = verifier.validate_license(env, primary_fp, "4.9.1", now_utc=now_grace)
+    assert res_grace.is_valid is True
+    assert res_grace.in_grace_period is True
+    assert res_grace.grace_mode == "readonly"
+    assert res_grace.status == ValidationStatus.GRACE_PERIOD
+
+    # Past grace period: now is 10 days after expires_at (> 7 days grace)
+    now_past = datetime.datetime(2026, 12, 11, 0, 0, 0, tzinfo=datetime.timezone.utc)
+    res_past = verifier.validate_license(env, primary_fp, "4.9.1", now_utc=now_past)
+    assert res_past.is_valid is False
+    assert res_past.status == ValidationStatus.EXPIRED
+
+    # Secondary tier match under standard policy
+    tiers = {"tier1": "fp_v1:other", "tier2": primary_fp}
+    res_tier2 = verifier.validate_license(
+        env,
+        current_hardware_fingerprint="fp_v1:other",
+        current_app_version="4.9.1",
+        now_utc=datetime.datetime(2026, 11, 25, 0, 0, 0, tzinfo=datetime.timezone.utc),
+        available_hardware_tiers=tiers,
+    )
+    assert res_tier2.is_valid is True
+
+
+def test_fail_closed_on_invalid_or_missing_keys():
+    """Verify KeyRegistry rejects empty or malformed keys immediately."""
+    reg = KeyRegistry({})
+    verifier = LicenseVerifier(reg)
+
+    with pytest.raises(CryptoVerificationError):
+        reg.register_key_base64("bad-key", "")
+
+    with pytest.raises(CryptoVerificationError):
+        reg.register_key_base64("bad-key-len", base64.b64encode(b"short").decode("ascii"))
+

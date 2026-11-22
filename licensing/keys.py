@@ -2,16 +2,28 @@
 """Public key registry and Ed25519 key management for Daqiq licensing."""
 
 import base64
+import os
 from typing import Dict, Optional
 from cryptography.hazmat.primitives.asymmetric import ed25519
-from cryptography.hazmat.primitives import serialization
+from .license_models import CryptoVerificationError
 
 # Default trusted public keys embedded in Daqiq binary.
-# To replace with your commercial vendor key before distribution, replace the string below.
+# Overridable via DAQIQ_PUBLIC_KEY environment variable during build or test.
 DEFAULT_KEY_REGISTRY: Dict[str, str] = {
     # 32-byte raw Ed25519 public key encoded in Base64
-    "daqiq-prod-v1": "tZwFxuCGOF+WZqVF+PeKwpoIpOZovHLFRVSQxGaXJXA=",
+    "daqiq-prod-v1": os.environ.get("DAQIQ_PUBLIC_KEY", "tZwFxuCGOF+WZqVF+PeKwpoIpOZovHLFRVSQxGaXJXA=").strip(),
 }
+
+
+def validate_raw_public_key_b64(raw_b64: str) -> bool:
+    """Validate that a base64 string decodes to exactly 32 bytes for Ed25519."""
+    if not raw_b64 or not isinstance(raw_b64, str):
+        return False
+    try:
+        raw_bytes = base64.b64decode(raw_b64.strip(), validate=True)
+        return len(raw_bytes) == 32
+    except Exception:
+        return False
 
 
 class KeyRegistry:
@@ -24,18 +36,33 @@ class KeyRegistry:
             self.register_key_base64(key_id, raw_b64)
 
     def register_key_base64(self, key_id: str, raw_b64: str) -> None:
-        """Register a base64-encoded raw 32-byte Ed25519 public key."""
-        clean_b64 = raw_b64.strip()
-        raw_bytes = base64.b64decode(clean_b64)
+        """Register a base64-encoded raw 32-byte Ed25519 public key. Fails closed."""
+        clean_b64 = (raw_b64 or "").strip()
+        if not clean_b64:
+            raise CryptoVerificationError(f"Public key for {key_id} is empty or missing.")
+        try:
+            raw_bytes = base64.b64decode(clean_b64, validate=True)
+        except Exception as e:
+            raise CryptoVerificationError(
+                f"Public key for {key_id} contains invalid Base64 encoding: {e}"
+            ) from e
+
         if len(raw_bytes) != 32:
-            raise ValueError(
+            raise CryptoVerificationError(
                 f"Public key for {key_id} must be exactly 32 bytes; got {len(raw_bytes)}"
             )
-        pub_key = ed25519.Ed25519PublicKey.from_public_bytes(raw_bytes)
-        self._keys[key_id] = pub_key
+        try:
+            pub_key = ed25519.Ed25519PublicKey.from_public_bytes(raw_bytes)
+            self._keys[key_id] = pub_key
+        except Exception as e:
+            raise CryptoVerificationError(
+                f"Failed to initialize Ed25519 public key for {key_id}: {e}"
+            ) from e
 
     def register_public_key(self, key_id: str, public_key: ed25519.Ed25519PublicKey) -> None:
         """Register an existing Ed25519PublicKey instance."""
+        if not public_key or not isinstance(public_key, ed25519.Ed25519PublicKey):
+            raise CryptoVerificationError("Invalid Ed25519PublicKey instance.")
         self._keys[key_id] = public_key
 
     def get_public_key(self, key_id: str) -> Optional[ed25519.Ed25519PublicKey]:

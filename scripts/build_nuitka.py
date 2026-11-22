@@ -3,6 +3,7 @@
 
 Single source of truth for local Windows compilation and GitHub Actions CI.
 Supports Stage A (--mode standalone) and Stage B (--mode onefile).
+Optimized for lean executable size and fast cached startup.
 """
 
 import argparse
@@ -19,7 +20,7 @@ def get_version(repo_root: Path) -> str:
     v_path = repo_root / "VERSION"
     if v_path.is_file():
         return v_path.read_text(encoding="utf-8").strip()
-    return "4.9.0"
+    return "4.9.1"
 
 
 def compute_sha256(file_path: Path) -> str:
@@ -32,20 +33,18 @@ def compute_sha256(file_path: Path) -> str:
 
 
 def build(mode: str, repo_root: Path) -> int:
-    """Run Nuitka compilation."""
+    """Run optimized Nuitka compilation."""
     version = get_version(repo_root)
     dist_dir = repo_root / "dist"
     dist_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"==================================================")
-    print(f"Daqiq Nuitka Standard Build Engine")
-    print(f"Target Version: {version}")
+    print(f"Daqiq Nuitka Standard Build Engine v{version}")
     print(f"Compilation Mode: {mode}")
     print(f"Repository Root: {repo_root}")
     print(f"Output Directory: {dist_dir}")
     print(f"==================================================")
 
-    # Base flags
     import PySide6
     pyside6_dir = Path(PySide6.__file__).resolve().parent
     platforms_src = pyside6_dir / "plugins" / "platforms"
@@ -57,7 +56,15 @@ def build(mode: str, repo_root: Path) -> int:
         f"--mode={mode}",
         "--assume-yes-for-downloads",
         "--enable-plugin=pyside6",
-        "--include-qt-plugins=all",
+        # Prune unused heavy Qt plugins and translations
+        "--include-qt-plugins=sensible,platforms,styles,imageformats",
+        "--noinclude-qt-translations",
+        # Prune test and dev packages from payload
+        "--noinclude-pytest-mode=nofollow",
+        "--noinclude-unittest-mode=nofollow",
+        "--noinclude-pydoc-mode=nofollow",
+        "--noinclude-IPython-mode=nofollow",
+        "--nofollow-import-to=pytest,unittest,doctest,pydoc,tkinter,turtle,distutils,lib2to3,setuptools,pip,wheel",
         "--windows-console-mode=attach",
         f"--windows-icon-from-ico={repo_root / 'assets' / 'daqiq_logo.ico'}",
         f"--company-name=ouncommono",
@@ -86,9 +93,11 @@ def build(mode: str, repo_root: Path) -> int:
     if mode == "onefile":
         onefile_name = f"Daqiq_{version}.exe"
         cmd.append(f"--output-filename={onefile_name}")
+        # Enable onefile cache mode to avoid repeated decompression overhead
+        cmd.append("--onefile-cache-mode=cached")
+        cmd.append(f"--onefile-tempdir-spec={{CACHE_DIR}}/Daqiq/{version}")
         cmd.append(str(repo_root / "main.py"))
     else:
-        # standalone mode creates a directory
         cmd.append(str(repo_root / "main.py"))
 
     print("\nExecuting Nuitka command:")
@@ -132,7 +141,6 @@ def build(mode: str, repo_root: Path) -> int:
         print(sums_content.strip())
 
     elif mode == "standalone":
-        # In standalone mode, Nuitka outputs to dist/main.dist/
         standalone_dir = dist_dir / "main.dist"
         if not standalone_dir.is_dir():
             print(f"[ERROR] Expected standalone dir not found: {standalone_dir}", file=sys.stderr)
@@ -141,7 +149,7 @@ def build(mode: str, repo_root: Path) -> int:
         shutil.copy2(source_tax, target_tax)
         print(f"Copied external {source_tax.name} to {target_tax}")
 
-        # Ensure all Qt platform plugins (especially qoffscreen.dll) exist for headless verification
+        # Ensure all Qt platform plugins exist for headless verification
         if platforms_src.is_dir():
             for dest_sub in ["PySide6/qt-plugins/platforms", "platforms"]:
                 p_dest = standalone_dir / dest_sub

@@ -5,7 +5,7 @@ import base64
 import datetime
 import json
 import unicodedata
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Set
 from packaging import version as pkg_version
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from cryptography.exceptions import InvalidSignature
@@ -32,13 +32,18 @@ STATUS_MESSAGES_FA: Dict[ValidationStatus, str] = {
     ValidationStatus.EXPIRED: "اعتبار اشتراک لایسنس به پایان رسیده است. لطفاً جهت تمدید با پشتیبانی تماس بگیرید.",
     ValidationStatus.INVALID_SIGNATURE: "امضای دیجیتال لایسنس نامعتبر است یا محتوای فایل دستکاری شده است.",
     ValidationStatus.UNAUTHORIZED_DEVICE: "این لایسنس برای سخت‌افزار این رایانه صادر نشده است.",
+    ValidationStatus.HARDWARE_MISMATCH: "شناسه سخت‌افزاری دستگاه با شناسه‌های مجاز در لایسنس همخوانی ندارد.",
     ValidationStatus.WRONG_PRODUCT: "این فایل لایسنس متعلق به این نرم‌افزار نیست.",
     ValidationStatus.UNSUPPORTED_FORMAT: "فرمت ساختاری فایل لایسنس پشتیبانی نمی‌شود.",
     ValidationStatus.UNSUPPORTED_APP_VERSION: "این نسخه از برنامه با لایسنس فعال سازگار نیست (نیاز به ارتقا یا تمدید لایسنس).",
+    ValidationStatus.VERSION_INCOMPATIBLE: "نسخه نرم‌افزار با محدوده مجاز لایسنس سازگار نیست.",
     ValidationStatus.INVALID_ENTITLEMENT: "دسترسی‌های تعریف‌شده در لایسنس نامعتبر هستند.",
     ValidationStatus.CORRUPTED_LICENSE: "فایل لایسنس خوانا نیست یا ساختار آن آسیب دیده است.",
     ValidationStatus.HARDWARE_IDENTITY_UNAVAILABLE: "شناسه سخت‌افزاری دستگاه قابل دسترسی نیست.",
     ValidationStatus.CLOCK_ROLLBACK: "عقب کشیدن ساعت سیستم شناسایی شد. لطفاً ساعت و تاریخ ویندوز را همگام‌سازی کنید.",
+    ValidationStatus.CLOCK_TAMPERED: "دستکاری یا عقب کشیدن ساعت سیستم شناسایی شد.",
+    ValidationStatus.GRACE_PERIOD: "لایسنس در دوره مهلت موقت (Grace Period) قرار دارد.",
+    ValidationStatus.TRIAL: "نسخه آزمایشی فعال است.",
 }
 
 
@@ -115,15 +120,24 @@ class LicenseVerifier:
         self.key_registry = key_registry or KeyRegistry()
 
     def parse_envelope_from_bytes(self, raw_bytes: bytes) -> LicenseEnvelope:
-        """Parse raw bytes into a validated LicenseEnvelope instance."""
+        """Parse raw bytes or compact base64 token into a validated LicenseEnvelope."""
         if len(raw_bytes) > MAX_LICENSE_FILE_BYTES:
             raise LicensingError(
                 f"حجم فایل لایسنس ({len(raw_bytes)} بایت) بیش از حد مجاز (۶۴ کیلوبایت) است."
             )
         try:
-            text = raw_bytes.decode("utf-8-sig" if raw_bytes.startswith(b"\xef\xbb\xbf") else "utf-8")
+            text = raw_bytes.decode("utf-8-sig" if raw_bytes.startswith(b"\xef\xbb\xbf") else "utf-8").strip()
         except UnicodeDecodeError as e:
             raise LicensingError(f"فایل لایسنس با استاندارد متنی UTF-8 سازگار نیست: {e}") from e
+
+        # Check if text is a compact base64-encoded token of JSON
+        if not text.startswith("{") and len(text) > 20:
+            try:
+                decoded_text = base64.b64decode(text.encode("ascii")).decode("utf-8").strip()
+                if decoded_text.startswith("{"):
+                    text = decoded_text
+            except Exception:
+                pass
 
         try:
             doc = json.loads(
@@ -185,7 +199,7 @@ class LicenseVerifier:
         )
 
         lic_type = p_raw.get("license_type")
-        if lic_type not in ("perpetual", "subscription"):
+        if lic_type not in ("perpetual", "subscription", "trial"):
             raise LicensingError(f"نوع لایسنس نامعتبر است: {lic_type}")
 
         issued_at = p_raw.get("issued_at")
@@ -195,16 +209,16 @@ class LicenseVerifier:
         if not issued_at or not not_before:
             raise LicensingError("تاریخ‌های صدور و شروع اعتبار لایسنس ضروری هستند.")
 
-        # Perpetual vs Subscription check
+        # Perpetual vs Subscription / Trial check
         if lic_type == "perpetual" and expires_at is not None:
             raise LicensingError("لایسنس دائمی نباید تاریخ انقضا (expires_at) داشته باشد.")
-        if lic_type == "subscription":
+        if lic_type in ("subscription", "trial"):
             if not expires_at:
-                raise LicensingError("لایسنس اشتراکی باید دارای تاریخ انقضا (expires_at) باشد.")
+                raise LicensingError("لایسنس اشتراکی یا آزمایشی باید دارای تاریخ انقضا (expires_at) باشد.")
             dt_nb = parse_iso8601_utc(not_before)
             dt_exp = parse_iso8601_utc(expires_at)
             if dt_exp <= dt_nb:
-                raise LicensingError("تاریخ انقضای لایسنس اشتراکی باید بعد از تاریخ شروع آن باشد.")
+                raise LicensingError("تاریخ انقضای لایسنس باید بعد از تاریخ شروع آن باشد.")
 
         max_dev = p_raw.get("max_devices")
         if not isinstance(max_dev, int) or max_dev < 1:
@@ -227,6 +241,32 @@ class LicenseVerifier:
                 raise LicensingError(f"مقدار دسترسی ماژول {fk} باید بولی (True/False) باشد.")
             features[str(fk)] = fv
 
+        # Known standard keys
+        standard_keys = {
+            "customer",
+            "device_fingerprints",
+            "expires_at",
+            "features",
+            "format_version",
+            "issued_at",
+            "key_id",
+            "license_id",
+            "license_type",
+            "max_app_version",
+            "max_devices",
+            "min_app_version",
+            "not_before",
+            "product_id",
+            "match_policy",
+            "grace_period_days",
+            "grace_mode",
+            "expiry_warning_days",
+            "max_clock_skew_hours",
+            "quotas",
+            "metadata",
+        }
+        extra_fields = {k: v for k, v in p_raw.items() if k not in standard_keys}
+
         payload = LicensePayload(
             format_version=p_raw["format_version"],
             product_id=p_raw["product_id"],
@@ -242,6 +282,14 @@ class LicenseVerifier:
             features=features,
             min_app_version=p_raw.get("min_app_version"),
             max_app_version=p_raw.get("max_app_version"),
+            match_policy=p_raw.get("match_policy"),
+            grace_period_days=p_raw.get("grace_period_days"),
+            grace_mode=p_raw.get("grace_mode"),
+            expiry_warning_days=p_raw.get("expiry_warning_days"),
+            max_clock_skew_hours=p_raw.get("max_clock_skew_hours"),
+            quotas=p_raw.get("quotas"),
+            metadata=p_raw.get("metadata"),
+            extra_fields=extra_fields,
         )
 
         return LicenseEnvelope(
@@ -280,8 +328,9 @@ class LicenseVerifier:
         self,
         envelope: LicenseEnvelope,
         current_hardware_fingerprint: str,
-        current_app_version: str = "4.9.0",
+        current_app_version: str = "4.9.1",
         now_utc: Optional[datetime.datetime] = None,
+        available_hardware_tiers: Optional[Dict[str, str]] = None,
     ) -> ValidationResult:
         """Complete evaluation of envelope, hardware match, version and date boundaries."""
         if now_utc is None:
@@ -311,13 +360,28 @@ class LicenseVerifier:
                 detail=str(e),
             )
 
-        # 3. Hardware node-lock check
+        # 3. Hardware node-lock check with match policy
         norm_current_fp = unicodedata.normalize("NFC", current_hardware_fingerprint).strip().lower()
-        authorized_fps = {
+        authorized_fps: Set[str] = {
             unicodedata.normalize("NFC", fp).strip().lower()
             for fp in envelope.payload.device_fingerprints
         }
-        if norm_current_fp not in authorized_fps:
+
+        match_policy = (envelope.payload.match_policy or "standard").lower()
+        hardware_matched = False
+
+        if norm_current_fp in authorized_fps:
+            hardware_matched = True
+        elif match_policy in ("standard", "relaxed") and available_hardware_tiers:
+            # Check secondary tiers
+            for tier_name, tier_fp in available_hardware_tiers.items():
+                if match_policy == "standard" and tier_name not in ("tier1", "tier2", "tier3"):
+                    continue
+                if unicodedata.normalize("NFC", tier_fp).strip().lower() in authorized_fps:
+                    hardware_matched = True
+                    break
+
+        if not hardware_matched:
             return ValidationResult(
                 status=ValidationStatus.UNAUTHORIZED_DEVICE,
                 is_valid=False,
@@ -326,7 +390,7 @@ class LicenseVerifier:
                 detail="شناسه دستگاه با فهرست سخت‌افزارهای مجاز در لایسنس همخوانی ندارد.",
             )
 
-        # 4. App version checks
+        # 4. App version bounds check
         try:
             curr_v = pkg_version.parse(current_app_version)
             if envelope.payload.min_app_version:
@@ -369,25 +433,65 @@ class LicenseVerifier:
                 detail=f"تاریخ شروع: {envelope.payload.not_before}، زمان جاری: {now_utc.isoformat()}",
             )
 
-        if envelope.payload.license_type == "subscription":
+        is_trial = envelope.payload.license_type == "trial"
+
+        if envelope.payload.license_type in ("subscription", "trial"):
             if not envelope.payload.expires_at:
                 return ValidationResult(
                     status=ValidationStatus.CORRUPTED_LICENSE,
                     is_valid=False,
                     license=envelope,
                     message_fa=STATUS_MESSAGES_FA[ValidationStatus.CORRUPTED_LICENSE],
-                    detail="اشتراک بدون تاریخ انقضا معتبر نیست.",
+                    detail="اشتراک یا دوره آزمایشی بدون تاریخ انقضا معتبر نیست.",
                 )
             dt_expires = parse_iso8601_utc(envelope.payload.expires_at)
-            # Boundary: valid when not_before <= now < expires_at
+            days_remaining = (dt_expires - now_utc).days
+
+            # Grace period logic
+            grace_days = envelope.payload.grace_period_days or 0
+            grace_mode = envelope.payload.grace_mode or "readonly"
+            grace_deadline = dt_expires + datetime.timedelta(days=grace_days)
+
             if now_utc >= dt_expires:
-                return ValidationResult(
-                    status=ValidationStatus.EXPIRED,
-                    is_valid=False,
-                    license=envelope,
-                    message_fa=STATUS_MESSAGES_FA[ValidationStatus.EXPIRED],
-                    detail=f"تاریخ انقضا: {envelope.payload.expires_at}، زمان جاری: {now_utc.isoformat()}",
-                )
+                if grace_days > 0 and now_utc < grace_deadline:
+                    # Within Grace Period
+                    return ValidationResult(
+                        status=ValidationStatus.GRACE_PERIOD,
+                        is_valid=True,
+                        license=envelope,
+                        message_fa="اعتبار لایسنس به پایان رسیده و در دوره مهلت (Grace Period) قرار دارد.",
+                        detail=f"انقضا: {envelope.payload.expires_at}، مهلت تا: {grace_deadline.isoformat()} ({grace_mode})",
+                        in_grace_period=True,
+                        grace_mode=grace_mode,
+                        days_remaining=0,
+                        is_trial=is_trial,
+                    )
+                else:
+                    return ValidationResult(
+                        status=ValidationStatus.EXPIRED,
+                        is_valid=False,
+                        license=envelope,
+                        message_fa=STATUS_MESSAGES_FA[ValidationStatus.EXPIRED],
+                        detail=f"تاریخ انقضا: {envelope.payload.expires_at}، زمان جاری: {now_utc.isoformat()}",
+                        days_remaining=days_remaining,
+                        is_trial=is_trial,
+                    )
+
+            # Active subscription/trial
+            warning_window = envelope.payload.expiry_warning_days if envelope.payload.expiry_warning_days is not None else 14
+            msg = "نسخه آزمایشی فعال است." if is_trial else STATUS_MESSAGES_FA[ValidationStatus.VALID]
+            if 0 <= days_remaining <= warning_window:
+                msg += f" (توجه: {days_remaining} روز تا پایان اعتبار باقیمانده است)"
+
+            return ValidationResult(
+                status=ValidationStatus.TRIAL if is_trial else ValidationStatus.VALID,
+                is_valid=True,
+                license=envelope,
+                message_fa=msg,
+                detail="",
+                days_remaining=days_remaining,
+                is_trial=is_trial,
+            )
 
         return ValidationResult(
             status=ValidationStatus.VALID,
@@ -395,4 +499,6 @@ class LicenseVerifier:
             license=envelope,
             message_fa=STATUS_MESSAGES_FA[ValidationStatus.VALID],
             detail="",
+            days_remaining=None,
+            is_trial=False,
         )

@@ -3,10 +3,15 @@ import os
 import json
 from datetime import datetime
 import jdatetime
-import openpyxl
-from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from database import DatabaseManager
 from utils_and_widgets import add_jalali_months, normalize_digits, strip_bidi_controls
+
+
+def _get_openpyxl():
+    """Deferred lazy import of openpyxl to eliminate startup latency."""
+    import openpyxl
+    from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    return openpyxl, Font, Alignment, PatternFill, Border, Side
 
 
 def get_next_excel_filename(directory: str, prefix: str = "R") -> str:
@@ -83,6 +88,7 @@ def _format_catalog_specs(specs: dict, category: str, catalog_config: dict) -> s
 
 def _style_worksheet_professional(ws, title: str, headers: list, data_rows: list):
     """طراحی حرفه‌ای و چشم‌نواز جدول‌های اکسل با راست‌چین کامل، رنگ‌بندی متناوب و عرض خودکار"""
+    openpyxl, Font, Alignment, PatternFill, Border, Side = _get_openpyxl()
     ws.views.sheetView[0].rightToLeft = True
     col_count = max(1, len(headers))
 
@@ -330,6 +336,7 @@ def export_safe_inventory_excel(
         }
         data_rows.append([values[key] for key in selected_columns])
 
+    openpyxl, Font, Alignment, PatternFill, Border, Side = _get_openpyxl()
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "موجودی همکار"
@@ -343,6 +350,7 @@ def export_table_to_excel(
     shop_name: str = "",
 ):
     """خروجی اکسل کامل و استایل‌دهی شده برای گزارش‌های جامع با پالت رنگی حرفه‌ای و هماهنگ"""
+    openpyxl, Font, Alignment, PatternFill, Border, Side = _get_openpyxl()
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "گزارش جامع"

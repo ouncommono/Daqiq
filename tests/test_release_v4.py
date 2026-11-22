@@ -39,7 +39,7 @@ class ReleaseV4Tests(unittest.TestCase):
 
     def test_application_version_is_consistent(self):
         self.assertEqual(APP_VERSION, "4.8.4")
-        self.assertIn(UI_APP_VERSION, ("4.8.4", "4.9.0"))
+        self.assertIn(UI_APP_VERSION, ("4.8.4", "4.9.0", "4.9.1"))
         self.assertEqual(SCHEMA_VERSION, 484)
 
     def test_price_input_preserves_large_python_integers(self):

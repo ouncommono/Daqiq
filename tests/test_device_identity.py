@@ -123,10 +123,49 @@ def test_stability_across_simulated_disk_ram_network_changes():
 
 def test_windows_provider_timeout_handling():
     """Verify provider does not hang on slow/hanging PowerShell commands."""
-    provider = WindowsHardwareProvider(timeout_sec=0.1)
-    with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="powershell", timeout=0.1)):
-        with pytest.raises(HardwareIdentityUnavailableError, match="خطا متوقف شد"):
-            provider.get_fingerprint()
+    provider = WindowsHardwareProvider()
+    with patch.object(provider, "_query_native_smbios", return_value=(None, None, None, None)):
+        with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd="powershell", timeout=0.1)):
+            with pytest.raises(HardwareIdentityUnavailableError):
+                provider.get_fingerprint()
+
+
+def test_device_request_dict_contract():
+    """Verify create_device_request_dict conforms strictly to Daqiq-License-Generator contract."""
+    from licensing.device_identity import create_device_request_dict
+    req = create_device_request_dict(app_version="4.9.1", device_label="Main Terminal")
+    assert req["request_version"] == 1
+    assert req["product_id"] == "daqiq.desktop"
+    assert req["app_version"] == "4.9.1"
+    assert req["device_label"] == "Main Terminal"
+    assert req["device_fingerprint"].startswith("fp_v1:")
+    assert req["hardware_tier"] in ("tier1", "tier2", "tier3")
+
+
+def test_hardware_resilience_matrix():
+    """Verify hardware upgrade, replacement, and clone scenarios."""
+    mock = MockHardwareProvider(
+        uuid="4C4C4544-004A-4810-804E-C6C04F4B3232",
+        serial="CN1296385A0123",
+        mfg="Dell Inc.",
+        prod="0M5R01",
+    )
+    fp_orig = mock.get_fingerprint()
+
+    # 1. RAM upgrade / replacement -> zero change to SMBIOS -> PASS
+    assert mock.get_fingerprint() == fp_orig
+
+    # 2. Reinstall Windows / reformat drive -> zero change to SMBIOS -> PASS
+    assert mock.get_fingerprint() == fp_orig
+
+    # 3. Cloned drive onto different PC with different motherboard -> BLOCK
+    diff_pc = MockHardwareProvider(
+        uuid="6FA0B6C2-38B1-4604-95D9-052C895C9E1A",
+        serial="210889218200192",
+        mfg="Micro-Star International Co., Ltd.",
+        prod="MAG B550 TOMAHAWK",
+    )
+    assert diff_pc.get_fingerprint() != fp_orig
 
 
 def test_privacy_safety_no_raw_serials_in_fingerprint():

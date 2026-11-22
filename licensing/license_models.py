@@ -1,5 +1,8 @@
 # licensing/license_models.py
-"""Immutable data models, statuses, and exceptions for Daqiq offline licensing."""
+"""Immutable data models, statuses, and exceptions for Daqiq offline licensing.
+
+Compatible with Daqiq Desktop and Daqiq-License-Generator protocol.
+"""
 
 from dataclasses import dataclass, field
 from enum import Enum
@@ -22,7 +25,7 @@ class HardwareIdentityUnavailableError(LicensingError):
 
 
 class ClockRollbackError(LicensingError):
-    """Raised when system clock rollback is detected on a subscription."""
+    """Raised when system clock rollback or manipulation is detected."""
     pass
 
 
@@ -32,20 +35,25 @@ class StorageError(LicensingError):
 
 
 class ValidationStatus(str, Enum):
-    """Validation outcome status codes covering all 13 possible licensing states."""
+    """Validation outcome status codes covering all licensing states."""
     VALID = "VALID"
     MISSING = "MISSING"
     NOT_YET_VALID = "NOT_YET_VALID"
     EXPIRED = "EXPIRED"
     INVALID_SIGNATURE = "INVALID_SIGNATURE"
     UNAUTHORIZED_DEVICE = "UNAUTHORIZED_DEVICE"
+    HARDWARE_MISMATCH = "HARDWARE_MISMATCH"
     WRONG_PRODUCT = "WRONG_PRODUCT"
     UNSUPPORTED_FORMAT = "UNSUPPORTED_FORMAT"
     UNSUPPORTED_APP_VERSION = "UNSUPPORTED_APP_VERSION"
+    VERSION_INCOMPATIBLE = "VERSION_INCOMPATIBLE"
     INVALID_ENTITLEMENT = "INVALID_ENTITLEMENT"
     CORRUPTED_LICENSE = "CORRUPTED_LICENSE"
     HARDWARE_IDENTITY_UNAVAILABLE = "HARDWARE_IDENTITY_UNAVAILABLE"
     CLOCK_ROLLBACK = "CLOCK_ROLLBACK"
+    CLOCK_TAMPERED = "CLOCK_TAMPERED"
+    GRACE_PERIOD = "GRACE_PERIOD"
+    TRIAL = "TRIAL"
 
 
 @dataclass(frozen=True)
@@ -57,9 +65,9 @@ class CustomerInfo:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
+            "contact": self.contact,
             "name": self.name,
             "organization": self.organization,
-            "contact": self.contact,
         }
 
 
@@ -71,7 +79,7 @@ class LicensePayload:
     license_id: str
     key_id: str
     customer: CustomerInfo
-    license_type: str  # "perpetual" or "subscription"
+    license_type: str  # "perpetual", "subscription", or "trial"
     issued_at: str     # UTC ISO-8601
     not_before: str    # UTC ISO-8601
     expires_at: Optional[str]  # UTC ISO-8601 or None for perpetual
@@ -80,9 +88,17 @@ class LicensePayload:
     features: Dict[str, bool]
     min_app_version: Optional[str] = None
     max_app_version: Optional[str] = None
+    match_policy: Optional[str] = None  # "strict", "standard", "relaxed"
+    grace_period_days: Optional[int] = None
+    grace_mode: Optional[str] = None    # "readonly" or "full"
+    expiry_warning_days: Optional[int] = None
+    max_clock_skew_hours: Optional[int] = None
+    quotas: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = None
+    extra_fields: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        d: Dict[str, Any] = {
             "customer": self.customer.to_dict(),
             "device_fingerprints": list(self.device_fingerprints),
             "expires_at": self.expires_at,
@@ -98,6 +114,24 @@ class LicensePayload:
             "not_before": self.not_before,
             "product_id": self.product_id,
         }
+        if self.match_policy is not None:
+            d["match_policy"] = self.match_policy
+        if self.grace_period_days is not None:
+            d["grace_period_days"] = self.grace_period_days
+        if self.grace_mode is not None:
+            d["grace_mode"] = self.grace_mode
+        if self.expiry_warning_days is not None:
+            d["expiry_warning_days"] = self.expiry_warning_days
+        if self.max_clock_skew_hours is not None:
+            d["max_clock_skew_hours"] = self.max_clock_skew_hours
+        if self.quotas is not None:
+            d["quotas"] = self.quotas
+        if self.metadata is not None:
+            d["metadata"] = self.metadata
+        for k, v in self.extra_fields.items():
+            if k not in d:
+                d[k] = v
+        return d
 
 
 @dataclass(frozen=True)
@@ -127,3 +161,7 @@ class ValidationResult:
     license: Optional[LicenseEnvelope] = None
     message_fa: str = ""
     detail: str = ""
+    in_grace_period: bool = False
+    grace_mode: str = "readonly"
+    days_remaining: Optional[int] = None
+    is_trial: bool = False
