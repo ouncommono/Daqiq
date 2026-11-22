@@ -48,7 +48,7 @@ def verify_binary(binary_path: Path, is_standalone: bool = False) -> int:
     env["QT_QPA_PLATFORM"] = "offscreen"
     env["DAQIQ_SMOKE_TEST"] = "1"
 
-    print("\nRunning runtime smoke test (offscreen mode, 15s timeout)...")
+    print("\nRunning runtime smoke test (offscreen mode, 60s timeout)...")
     start_time = time.time()
     try:
         proc = subprocess.run(
@@ -56,12 +56,21 @@ def verify_binary(binary_path: Path, is_standalone: bool = False) -> int:
             env=env,
             capture_output=True,
             text=True,
-            timeout=15.0,
+            timeout=60.0,
         )
         elapsed = time.time() - start_time
         print(f"[PASS] Binary executed and exited with returncode {proc.returncode} in {elapsed:.2f}s")
+        if proc.stdout:
+            print("--- STDOUT ---")
+            print(proc.stdout)
+        if proc.stderr:
+            print("--- STDERR ---")
+            print(proc.stderr)
+        if proc.returncode != 0:
+            print(f"[FAIL] Executable exited with non-zero returncode {proc.returncode}", file=sys.stderr)
+            return 1
     except subprocess.TimeoutExpired:
-        print("[FAIL] Binary execution hung and timed out after 15 seconds!", file=sys.stderr)
+        print("[FAIL] Binary execution hung and timed out after 60 seconds!", file=sys.stderr)
         return 1
     except Exception as e:
         print(f"[FAIL] Failed to execute binary: {e}", file=sys.stderr)

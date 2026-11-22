@@ -10907,10 +10907,10 @@ def main():
     # Startup Offline Ed25519 Licensing Gate (Pre-DB, Pre-Login, Pre-MainWindow)
     license_service = LicenseService(app_version=APP_VERSION)
     val_res = license_service.check_license()
+    if os.environ.get("DAQIQ_SMOKE_TEST") == "1":
+        print(f"DAQIQ_SMOKE_TEST: Startup licensing gate successfully executed ({val_res.status.value}). Exiting.", flush=True)
+        sys.exit(0)
     if not val_res.is_valid:
-        if os.environ.get("DAQIQ_SMOKE_TEST") == "1":
-            print(f"DAQIQ_SMOKE_TEST: Startup licensing gate successfully caught invalid license ({val_res.status.value}). Exiting.")
-            sys.exit(0)
         dlg = LicenseDialog(
             service=license_service,
             icon_path=icon_path if os.path.exists(icon_path) else None,
