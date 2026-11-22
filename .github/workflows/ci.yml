@@ -62,10 +62,14 @@ jobs:
         run: |
           $keyPattern = "PRIVATE" + " " + "KEY"
           $priv = git grep -in "$keyPattern"
-          if ($priv) {
+          if ($LASTEXITCODE -eq 0) {
             Write-Error "CRITICAL: Secret pattern detected in repository!"
             exit 1
+          } elseif ($LASTEXITCODE -ne 1) {
+            Write-Error "git grep encountered an unexpected error."
+            exit 1
           }
+          $global:LASTEXITCODE = 0
           Write-Output "Zero secrets found in tracked files."
 
       - name: Compile Python bytecode
