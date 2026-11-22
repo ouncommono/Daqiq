@@ -8,6 +8,7 @@ import sqlite3
 import copy
 import re
 from datetime import timedelta
+from typing import Optional
 import jdatetime
 
 from PySide6.QtWidgets import (
