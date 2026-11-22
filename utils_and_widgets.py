@@ -8,11 +8,28 @@ import html
 import jdatetime
 
 def resource_path(relative_path: str) -> str:
-    """Get absolute path to resource, works for dev and for PyInstaller bundle."""
+    """Get absolute path to resource, works for dev, Nuitka standalone, and Nuitka onefile."""
+    # 1. Check relative to sys.executable (Nuitka compiled standalone/onefile)
     try:
-        base_path = sys._MEIPASS
-    except AttributeError:
-        base_path = os.path.dirname(os.path.abspath(__file__))
+        exe_dir = os.path.dirname(os.path.abspath(sys.executable))
+        candidate = os.path.normpath(os.path.join(exe_dir, relative_path))
+        if os.path.exists(candidate):
+            return candidate
+    except Exception:
+        pass
+
+    # 2. Legacy extraction directory (_MEIPASS fallback if present)
+    if hasattr(sys, "_MEIPASS"):
+        candidate = os.path.normpath(os.path.join(sys._MEIPASS, relative_path))
+        if os.path.exists(candidate):
+            return candidate
+
+    # 3. Source directory relative to this file
+    base_path = os.path.dirname(os.path.abspath(__file__))
+    candidate = os.path.normpath(os.path.join(base_path, relative_path))
+    if os.path.exists(candidate):
+        return candidate
+
     return os.path.normpath(os.path.join(base_path, relative_path))
 
 from PySide6.QtWidgets import (

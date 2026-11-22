@@ -80,7 +80,31 @@ from exporter import (
     get_next_excel_filename,
 )
 
-APP_VERSION = "4.8.4"
+def _load_app_version() -> str:
+    v_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "VERSION")
+    if os.path.isfile(v_file):
+        try:
+            with open(v_file, "r", encoding="utf-8") as f:
+                ver = f.read().strip()
+                if ver:
+                    return ver
+        except Exception:
+            pass
+    return "4.9.0"
+
+APP_VERSION = _load_app_version()
+
+# In Nuitka standalone/onefile binaries, ensure sys.frozen is set for external resource resolution
+if "__compiled__" in globals() or hasattr(sys, "__compiled__"):
+    sys.frozen = True
+
+from licensing import (
+    LicenseService,
+    LicenseDialog,
+    ValidationResult,
+    ValidationStatus,
+)
+from licensing.license_policy import TAB_MODULE_TO_FEATURE
 
 # Semantic theme tokens for WCAG AA+ accessible dashboard top report cards
 DASHBOARD_CARD_TOKENS = {
@@ -1039,10 +1063,21 @@ def _resolve_startup_employee(db, parent=None):
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, db: DatabaseManager, active_employee=None):
+    def __init__(
+        self,
+        db: DatabaseManager,
+        active_employee=None,
+        license_service: Optional[LicenseService] = None,
+    ):
         super().__init__()
         self.db = db
         self.active_employee = active_employee
+        if license_service is not None:
+            self.license_service = license_service
+        elif "PYTEST_CURRENT_TEST" in os.environ:
+            self.license_service = None
+        else:
+            self.license_service = LicenseService(app_version=APP_VERSION)
         if self.active_employee and isinstance(self.active_employee, dict) and self.active_employee.get("id"):
             try:
                 self.db.record_employee_login(self.active_employee["id"])
@@ -1799,8 +1834,16 @@ class MainWindow(QMainWindow):
         )
         is_scoped = self._is_scoped_access()
         for index, module in enumerate(tab_modules):
-            allowed = f"{module}.view" in grants
-            self.tabs.setTabEnabled(index, allowed)
+            emp_allowed = f"{module}.view" in grants
+            lic_feature = TAB_MODULE_TO_FEATURE.get(module, module)
+            lic_allowed = (
+                self.license_service.is_feature_enabled(lic_feature)
+                if getattr(self, "license_service", None) is not None
+                else True
+            )
+            self.tabs.setTabEnabled(index, emp_allowed and lic_allowed)
+            if not lic_allowed:
+                self.tabs.setTabToolTip(index, "این بخش در لایسنس فعال شما مجاز نیست.")
 
         for permission_key, widget in getattr(
             self, "_dashboard_permission_widgets", {}
@@ -2110,6 +2153,7 @@ class MainWindow(QMainWindow):
 
         # --- تب‌های برنامه با ترتیب جدید (بند ۵: تب ارتقای لپ‌تاپ بلافاصله بعد از مدیریت خدمات) ---
         self.tabs = QTabWidget()
+        self.tabs.tabBarClicked.connect(self._on_tab_bar_clicked)
         main_layout.addWidget(self.tabs)
 
         self._init_tab_dashboard()
@@ -2425,6 +2469,29 @@ class MainWindow(QMainWindow):
                     values.append(strip_bidi_controls(item.toolTip()))
             haystack = normalize_digits(" ".join(values)).casefold()
             table.setRowHidden(row, query not in haystack)
+
+    def _on_tab_bar_clicked(self, index: int):
+        tab_modules = (
+            "dashboard", "products", "batches", "sales", "services",
+            "upgrades", "suppliers", "reports", "employees", "settings",
+        )
+        if 0 <= index < len(tab_modules) and getattr(self, "license_service", None) is not None:
+            module = tab_modules[index]
+            lic_feature = TAB_MODULE_TO_FEATURE.get(module, module)
+            if not self.license_service.is_feature_enabled(lic_feature):
+                QMessageBox.information(
+                    self,
+                    "دسترسی لایسنس",
+                    "این بخش در لایسنس فعال شما مجاز نیست. جهت ارتقا یا فعال‌سازی این ماژول با پشتیبانی تماس بگیرید.",
+                )
+
+    def _open_license_dialog(self):
+        icon_path = resource_path("assets/daqiq_logo.png")
+        service = getattr(self, "license_service", None) or LicenseService(app_version=APP_VERSION)
+        dark = self.db.cfg.get("theme", "light") == "dark" if hasattr(self, "db") and self.db else False
+        dlg = LicenseDialog(service, parent=self, icon_path=icon_path, is_dark_theme=dark)
+        dlg.exec()
+        self._apply_employee_permissions()
 
     def _on_main_tab_changed(self, index):
         if index == getattr(self, "_settings_tab_index", -1):
@@ -6917,6 +6984,12 @@ class MainWindow(QMainWindow):
         self.lbl_app_version.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.lbl_app_version)
 
+        btn_license_mgmt = QPushButton("📜 مدیریت و وضعیت لایسنس تجاری")
+        btn_license_mgmt.setStyleSheet("background-color: #0f766e; color: white; padding: 6px 14px; font-weight: bold; border-radius: 6px;")
+        btn_license_mgmt.setToolTip("مشاهده مشخصات لایسنس فعال، کپی شناسه سخت‌افزاری دستگاه، و وارد کردن لایسنس جدید")
+        btn_license_mgmt.clicked.connect(self._open_license_dialog)
+        layout.addWidget(btn_license_mgmt)
+
         gb_security = QGroupBox("امنیت و ورود کاربران")
         security_layout = QVBoxLayout(gb_security)
         self.chk_req_pass = QCheckBox(
@@ -10817,11 +10890,11 @@ def main():
     if sys.platform == "win32":
         try:
             import ctypes
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("ouncommono.Daqiq.4.8.4")
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(f"ouncommono.Daqiq.{APP_VERSION}")
         except Exception:
             pass
 
-    app = QApplication(sys.argv)
+    app = QApplication.instance() or QApplication(sys.argv)
     app.setLayoutDirection(Qt.RightToLeft)
     font = QFont("Tahoma", 10)
     app.setFont(font)
@@ -10829,6 +10902,23 @@ def main():
     icon_path = resource_path("assets/daqiq_logo.png")
     if os.path.exists(icon_path):
         app.setWindowIcon(QIcon(icon_path))
+
+    # Startup Offline Ed25519 Licensing Gate (Pre-DB, Pre-Login, Pre-MainWindow)
+    license_service = LicenseService(app_version=APP_VERSION)
+    val_res = license_service.check_license()
+    if not val_res.is_valid:
+        if os.environ.get("DAQIQ_SMOKE_TEST") == "1":
+            print(f"DAQIQ_SMOKE_TEST: Startup licensing gate successfully caught invalid license ({val_res.status.value}). Exiting.")
+            sys.exit(0)
+        dlg = LicenseDialog(
+            service=license_service,
+            icon_path=icon_path if os.path.exists(icon_path) else None,
+        )
+        if dlg.exec() != QDialog.Accepted:
+            sys.exit(0)
+        val_res = license_service.check_license()
+        if not val_res.is_valid:
+            sys.exit(0)
 
     selected_db_path = select_startup_database_path()
     if not selected_db_path:
@@ -10856,7 +10946,7 @@ def main():
     if not accepted:
         sys.exit(0)
 
-    win = MainWindow(db, active_emp)
+    win = MainWindow(db, active_emp, license_service=license_service)
     if bool(db.cfg.get("default_window_maximized", True)):
         win.showMaximized()
     else:

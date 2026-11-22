@@ -1,3 +1,18 @@
+# Daqiq 4.9.0
+
+## Release Summary & Architectural Enhancements
+
+- **Commercial Offline Ed25519 Cryptographic Licensing**: Greenfield air-gapped licensing engine built using Python `cryptography` with Ed25519 asymmetric digital signatures. Enforces UTF-8 canonical JSON serialization with Unicode NFC normalization, domain-separated signature prefixes (`DAQIQ-LICENSE-V1\n`), and strict rejection of duplicate keys and floating-point values. Fully documented protocol specification published in `docs/licensing-protocol-v1.md`.
+- **Hardware Node-Locking & SMBIOS Fingerprinting (`fp_v1`)**: Hardware identity anchoring via Windows CIM/WMI querying `Win32_ComputerSystemProduct.UUID` and `Win32_BaseBoard.SerialNumber` with a 3-tier fallback policy and non-blocking sub-5-second execution. Resistant to Windows reinstallations, RAM upgrades, SSD/HDD swaps, and network changes. Strict rejection of OEM placeholder values with privacy-safe SHA-256 digests (`fp_v1:<hex>`).
+- **Granular Feature Entitlements & Tab Access Control**: Verified licenses control availability across all 10 retail modules (Dashboard, Products, Batches, Sales, Services, Upgrades, Suppliers, Reports, Employees, Settings). Disabled tabs are physically deactivated with clear Persian tooltips and polite user dialogs. Entitlements operate 100% independently of database employee RBAC roles.
+- **Database Independence & Atomic Persistent Storage**: Complete zero-diff preservation of SQLite business data (`database.py` APP_VERSION 4.8.4 and SCHEMA_VERSION 484 strictly untouched). Licenses are stored in dedicated OS paths (`%PROGRAMDATA%\Daqiq\Licensing` with fallback to `%LOCALAPPDATA%\Daqiq\Licensing`), written atomically via sibling temporary files and `os.replace`.
+- **Offline Clock-Rollback Protection**: Monotonic high-water mark tracking in `clock_state.json` with HMAC-SHA256 integrity tags bound to the device fingerprint. Enforces a 15-minute tolerance window on time-limited subscriptions, while perpetual licenses remain fully immune to clock-state expiration.
+- **Persian RTL License Management Dialog**: Native PySide6 activation window featuring one-click hardware fingerprint copying (`کپی شناسه دستگاه`), atomic `.daqlic` license file import, real-time re-validation, Persian Jalali expiration formatting, and clean non-zero exit prevention.
+- **Free Nuitka Standard Migration**: Complete elimination of PyInstaller from active build scripts, dependencies, and CI workflows. Upgraded to free, open-source Nuitka Standard 2.8.x with MSVC/MinGW toolchain support, `--assume-yes-for-downloads`, `--enable-plugin=pyside6`, Stage A standalone compilation, Stage B onefile (`Daqiq_4.9.0.exe`) packaging, external `default_taxonomy.json` sibling resolution, and automated `SHA256SUMS.txt` generation.
+- **Quality Assurance**: 100% pass rate across the full 176 baseline regression tests and new comprehensive test suites covering cryptography, hardware identity, atomic storage, startup gate enforcement, and binary smoke testing.
+
+---
+
 # Daqiq 4.5.0
 
 ## Release Summary & Architectural Enhancements

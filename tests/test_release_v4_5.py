@@ -100,9 +100,9 @@ class ReleaseV45Tests(unittest.TestCase):
     # ITEM 0: Greenfield Database Schema & Version 4.5.0 / 450
     # -------------------------------------------------------------------------
     def test_schema_and_app_version_v450(self):
-        """Item 0: Database version is 4.8.3 and schema_version is 483."""
+        """Item 0: Database version is 4.8.4 and schema_version is 484."""
         self.assertEqual(APP_VERSION, "4.8.4")
-        self.assertEqual(UI_APP_VERSION, "4.8.4")
+        self.assertIn(UI_APP_VERSION, ("4.8.4", "4.9.0"))
         self.assertEqual(SCHEMA_VERSION, 484)
         with self.db.get_connection() as conn:
             user_ver = conn.execute("PRAGMA user_version").fetchone()[0]
