@@ -43,7 +43,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QScrollArea,
 )
-from PySide6.QtCore import Qt, QTimer, QObject, QEvent, QLocale
+from PySide6.QtCore import Qt, QTimer, QObject, QEvent, QLocale, QCoreApplication
 from PySide6.QtGui import QFont, QColor, QFontMetrics, QIcon
 
 from database import (
@@ -10906,6 +10906,20 @@ def main():
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(f"ouncommono.Daqiq.{APP_VERSION}")
         except Exception:
             pass
+
+    # Configure Qt library paths and platform plugins for Nuitka onefile and standalone
+    try:
+        import PySide6
+        pyside_dir = os.path.dirname(PySide6.__file__)
+        for sub in ["qt-plugins", "plugins", ""]:
+            cand = os.path.join(pyside_dir, sub) if sub else pyside_dir
+            if os.path.isdir(cand):
+                QCoreApplication.addLibraryPath(cand)
+                p_cand = os.path.join(cand, "platforms")
+                if os.path.isdir(p_cand):
+                    os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = p_cand
+    except Exception:
+        pass
 
     app = QApplication.instance() or QApplication(sys.argv)
     app.setLayoutDirection(Qt.RightToLeft)
