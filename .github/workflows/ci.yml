@@ -60,7 +60,7 @@ jobs:
       - name: Scan repository for signing secrets and residual build artifacts
         shell: pwsh
         run: |
-          $keyPattern = ('P' + 'RIVATE_') -replace '_',' ' + 'KEY'
+          $keyPattern = "PRIVATE" + " " + "KEY"
           $priv = git grep -in "$keyPattern"
           if ($priv) {
             Write-Error "CRITICAL: Secret pattern detected in repository!"
@@ -167,7 +167,7 @@ jobs:
       - name: Scan built artifacts for signing secrets
         shell: pwsh
         run: |
-          $keyPattern = ('P' + 'RIVATE_') -replace '_',' ' + 'KEY'
+          $keyPattern = "PRIVATE" + " " + "KEY"
           $found = Select-String -Path dist/SHA256SUMS.txt -Pattern $keyPattern
           if ($found) {
             Write-Error "Secret pattern found in output artifacts!"
