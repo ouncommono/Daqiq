@@ -10888,6 +10888,16 @@ class MainWindow(QMainWindow):
 
 
 def main():
+    smoke_log_file = None
+    if os.environ.get("DAQIQ_SMOKE_TEST") == "1":
+        try:
+            exe_dir = os.path.dirname(os.path.abspath(sys.executable))
+            smoke_log_file = os.path.join(exe_dir, "smoke_test.log")
+            with open(smoke_log_file, "a", encoding="utf-8") as f:
+                f.write("STEP 1: Entered main()\n")
+        except Exception:
+            pass
+
     if sys.platform == "win32":
         try:
             import ctypes
@@ -10900,15 +10910,42 @@ def main():
     font = QFont("Tahoma", 10)
     app.setFont(font)
 
+    if smoke_log_file:
+        try:
+            with open(smoke_log_file, "a", encoding="utf-8") as f:
+                f.write("STEP 2: QApplication initialized\n")
+        except Exception:
+            pass
+
     icon_path = resource_path("assets/daqiq_logo.png")
     if os.path.exists(icon_path):
         app.setWindowIcon(QIcon(icon_path))
 
     # Startup Offline Ed25519 Licensing Gate (Pre-DB, Pre-Login, Pre-MainWindow)
     license_service = LicenseService(app_version=APP_VERSION)
+    if smoke_log_file:
+        try:
+            with open(smoke_log_file, "a", encoding="utf-8") as f:
+                f.write("STEP 3: LicenseService instantiated\n")
+        except Exception:
+            pass
+
     val_res = license_service.check_license()
+    if smoke_log_file:
+        try:
+            with open(smoke_log_file, "a", encoding="utf-8") as f:
+                f.write(f"STEP 4: check_license completed ({val_res.status.value})\n")
+        except Exception:
+            pass
+
     if os.environ.get("DAQIQ_SMOKE_TEST") == "1":
         print(f"DAQIQ_SMOKE_TEST: Startup licensing gate successfully executed ({val_res.status.value}). Exiting.", flush=True)
+        if smoke_log_file:
+            try:
+                with open(smoke_log_file, "a", encoding="utf-8") as f:
+                    f.write("STEP 5: Clean exit sys.exit(0)\n")
+            except Exception:
+                pass
         sys.exit(0)
     if not val_res.is_valid:
         dlg = LicenseDialog(

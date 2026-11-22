@@ -66,11 +66,21 @@ def verify_binary(binary_path: Path, is_standalone: bool = False) -> int:
         if proc.stderr:
             print("--- STDERR ---")
             print(proc.stderr)
+
+        smoke_log = binary_path.parent / "smoke_test.log"
+        if smoke_log.is_file():
+            print("--- SMOKE TEST LOG ---")
+            print(smoke_log.read_text(encoding="utf-8", errors="ignore"))
+
         if proc.returncode != 0:
             print(f"[FAIL] Executable exited with non-zero returncode {proc.returncode}", file=sys.stderr)
             return 1
     except subprocess.TimeoutExpired:
         print("[FAIL] Binary execution hung and timed out after 60 seconds!", file=sys.stderr)
+        smoke_log = binary_path.parent / "smoke_test.log"
+        if smoke_log.is_file():
+            print("--- SMOKE TEST LOG BEFORE HANG ---")
+            print(smoke_log.read_text(encoding="utf-8", errors="ignore"))
         return 1
     except Exception as e:
         print(f"[FAIL] Failed to execute binary: {e}", file=sys.stderr)

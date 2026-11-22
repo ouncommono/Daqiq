@@ -76,6 +76,10 @@ jobs:
         shell: pwsh
         run: python -m compileall -q .
 
+      - name: Verify Hardware Fingerprint Acquisition
+        shell: pwsh
+        run: python -c "from licensing.device_identity import WindowsHardwareProvider; print('CI Hardware Fingerprint:', WindowsHardwareProvider().get_fingerprint())"
+
       - name: Run PyTest test suite
         env:
           QT_QPA_PLATFORM: offscreen

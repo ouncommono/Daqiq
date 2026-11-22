@@ -160,8 +160,8 @@ class WindowsHardwareProvider(HardwareIdentitySource):
     def _query_wmi(self) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
         """Query Win32_ComputerSystemProduct and Win32_BaseBoard via PowerShell CIM."""
         script = (
-            "$u = (Get-CimInstance Win32_ComputerSystemProduct | Select-Object -ExpandProperty UUID) 2>$null; "
-            "$b = (Get-CimInstance Win32_BaseBoard | Select-Object SerialNumber, Manufacturer, Product) 2>$null; "
+            "$u = (Get-CimInstance Win32_ComputerSystemProduct -OperationTimeoutSec 5 | Select-Object -ExpandProperty UUID) 2>$null; "
+            "$b = (Get-CimInstance Win32_BaseBoard -OperationTimeoutSec 5 | Select-Object SerialNumber, Manufacturer, Product) 2>$null; "
             "Write-Output \"UUID=$u\"; "
             "Write-Output \"SERIAL=$($b.SerialNumber)\"; "
             "Write-Output \"MFG=$($b.Manufacturer)\"; "
@@ -184,6 +184,7 @@ class WindowsHardwareProvider(HardwareIdentitySource):
         try:
             proc = subprocess.run(
                 cmd,
+                stdin=subprocess.DEVNULL,
                 capture_output=True,
                 text=True,
                 timeout=self.timeout_sec,

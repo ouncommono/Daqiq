@@ -53,7 +53,7 @@ def build(mode: str, repo_root: Path) -> int:
         f"--mode={mode}",
         "--assume-yes-for-downloads",
         "--enable-plugin=pyside6",
-        "--windows-console-mode=disable",
+        "--windows-console-mode=attach",
         f"--windows-icon-from-ico={repo_root / 'assets' / 'daqiq_logo.ico'}",
         f"--company-name=ouncommono",
         f"--product-name=Daqiq",
