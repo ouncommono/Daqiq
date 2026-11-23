@@ -115,8 +115,19 @@ jobs:
         run: |
           python -m nuitka --version
 
+      - name: Synchronize Embedded Key Shards
+        shell: pwsh
+        env:
+          DAQIQ_LICENSE_PUBLIC_KEY_B64: ${{ secrets.DAQIQ_LICENSE_PUBLIC_KEY_B64 }}
+          DAQIQ_LICENSE_KEY_ID: ${{ vars.DAQIQ_LICENSE_KEY_ID }}
+        run: |
+          python tools/build_key_shards.py
+
       - name: Build Stage A Standalone Binary
         shell: pwsh
+        env:
+          DAQIQ_LICENSE_PUBLIC_KEY_B64: ${{ secrets.DAQIQ_LICENSE_PUBLIC_KEY_B64 }}
+          DAQIQ_LICENSE_KEY_ID: ${{ vars.DAQIQ_LICENSE_KEY_ID }}
         run: python scripts/build_nuitka.py --mode standalone
 
       - name: Verify Stage A Standalone Acceptance
@@ -153,12 +164,23 @@ jobs:
         shell: pwsh
         run: |
           $ver = (Get-Content VERSION).Trim()
-          if (-not $ver) { $ver = "4.9.1" }
+          if (-not $ver) { $ver = "4.9.2" }
           Write-Output "APP_VERSION=$ver" >> $env:GITHUB_ENV
           Write-Output "Building Daqiq onefile for version: $ver"
 
+      - name: Synchronize Embedded Key Shards
+        shell: pwsh
+        env:
+          DAQIQ_LICENSE_PUBLIC_KEY_B64: ${{ secrets.DAQIQ_LICENSE_PUBLIC_KEY_B64 }}
+          DAQIQ_LICENSE_KEY_ID: ${{ vars.DAQIQ_LICENSE_KEY_ID }}
+        run: |
+          python tools/build_key_shards.py
+
       - name: Build Stage B Onefile Binary
         shell: pwsh
+        env:
+          DAQIQ_LICENSE_PUBLIC_KEY_B64: ${{ secrets.DAQIQ_LICENSE_PUBLIC_KEY_B64 }}
+          DAQIQ_LICENSE_KEY_ID: ${{ vars.DAQIQ_LICENSE_KEY_ID }}
         run: python scripts/build_nuitka.py --mode onefile
 
       - name: Verify Stage B Onefile Acceptance
@@ -217,7 +239,7 @@ jobs:
         shell: pwsh
         run: |
           $ver = (Get-Content VERSION).Trim()
-          if (-not $ver) { $ver = "4.9.1" }
+          if (-not $ver) { $ver = "4.9.2" }
           Write-Output "APP_VERSION=$ver" >> $env:GITHUB_ENV
 
       - name: Download Build Artifacts
@@ -257,8 +279,8 @@ jobs:
             gh pr create `
               --base main `
               --head $currentBranch `
-              --title "Release v${{ env.APP_VERSION }} - Commercial Offline Licensing Parity, Nuitka Optimization & Node 24 CI" `
-              --body "Daqiq v${{ env.APP_VERSION }} Commercial Production Release with 100% protocol parity with Daqiq-License-Generator, ultra-fast native Win32 SMBIOS hardware fingerprinting (<5ms), multi-anchor clock tampering defense, Nuitka cached onefile optimization, and Node 24 CI/CD. Strictly unmerged."
+              --title "Release v${{ env.APP_VERSION }} - Anti-Crack Ed25519 Key Architecture, Protocol Parity & Production Release" `
+              --body "Daqiq v${{ env.APP_VERSION }} Commercial Production Release with anti-crack XOR-masked Ed25519 key sharding, 100% protocol parity with Daqiq-License-Generator, developer license key tool, ultra-fast native Win32 SMBIOS hardware fingerprinting (<5ms), multi-anchor clock tampering defense, Nuitka cached onefile optimization, and Node 24 CI/CD. Strictly unmerged."
           }
 
       - name: Publish Official Release on Matching Version Tag

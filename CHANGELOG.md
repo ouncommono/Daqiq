@@ -1,3 +1,22 @@
+# Daqiq 4.9.2
+
+## Release Summary & Architectural Enhancements
+
+- **Anti-Crack Ed25519 Public Key Sharding Architecture**: Completely eradicated binary patching crack vectors and plaintext public-key markers in executable binaries. Re-engineered key provisioning using multi-byte XOR masking with pseudo-random build salts and compile-time integrity checks (`tools/build_key_shards.py`). Shards are compiled directly into native C compilation units via Nuitka, preventing hex-editor tampering or external key substitution.
+- **Developer License Key CLI Tool (`tools/license_key_tool.py`)**: Built a robust, production-grade CLI utility for developers and administrators with four core commands:
+  - `inspect`: Displays all embedded public keys, key IDs, Base64 values, SHA-256 fingerprints, and shard integrity status.
+  - `set-public-key`: Registers or updates trusted public keys in `licensing/trusted_keys.json` with immediate shard rebuilding.
+  - `generate-keypair`: Generates new Ed25519 keypairs with strict filesystem safeguards refusing to write secret signing keys inside the repository or git tree.
+  - `verify-license`: Non-blocking offline verification and deep payload inspection for `.daqlic` files against configured public keys.
+- **Fail-Closed Multi-Key Ring & Seamless Key Rotation**: Upgraded `KeyRegistry` to support multiple trusted public keys with fallback verification (`KeyRegistry.verify_any()`). Supports hot key rotation and grandfathered licenses without breaking backward compatibility.
+- **100% Deterministic Protocol Parity with Daqiq-License-Generator**: Fully validated against `https://github.com/ouncommono/Daqiq-License-Generator` specifications (`COMPATIBILITY_CONTRACT.md`). Supports all 14 canonical payload fields, `fp_v1:<sha256>` hardware fingerprints, `match_policy` (strict, standard, relaxed), `grace_period_days`, `grace_mode` (full, readonly), and `expiry_warning_days`.
+- **Persian RTL UI/UX Key Fingerprint Transparency**: Added subtle security key fingerprint footer (`شناسه کلید امنیتی (Key FP): daqiq-prod-v1 · 7925-3864-0164`) in the offline license activation dialog and detailed license view, allowing operators to verify pairing with the store's license generator at a glance.
+- **Compiler Hardening & Developer Tool Exclusion**: Enhanced `scripts/build_nuitka.py` with automatic pre-build key shard synchronization and explicit exclusion of developer utilities and test generators (`--noinclude-tools-mode=nofollow`, `--nofollow-import-to=tools`), ensuring zero private-key or developer scaffolding leaks into distributed binaries.
+- **Continuous Integration (CI/CD) on Node 24**: Updated GitHub Actions workflows for v4.9.2 with automatic key shard synchronization, clean Node 24 execution across all jobs, zero Node 20 deprecation warnings, and automated unmerged release pull requests targeting `main`.
+- **Strict Database Independence & Zero Schema Regressions**: Confirmed 0 bytes of diff in `database.py` and `default_taxonomy.json` (`APP_VERSION = "4.8.4"` and `SCHEMA_VERSION = 484` strictly untouched). All commercial licensing operations execute completely external to the business database.
+
+---
+
 # Daqiq 4.9.1
 
 ## Release Summary & Architectural Enhancements

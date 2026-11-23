@@ -18,6 +18,8 @@ from .license_models import (
     ValidationResult,
     LicensingError,
     CryptoVerificationError,
+    KeyIntegrityError,
+    PublicKeyNotConfiguredError,
 )
 from .keys import KeyRegistry
 
@@ -44,6 +46,9 @@ STATUS_MESSAGES_FA: Dict[ValidationStatus, str] = {
     ValidationStatus.CLOCK_TAMPERED: "دستکاری یا عقب کشیدن ساعت سیستم شناسایی شد.",
     ValidationStatus.GRACE_PERIOD: "لایسنس در دوره مهلت موقت (Grace Period) قرار دارد.",
     ValidationStatus.TRIAL: "نسخه آزمایشی فعال است.",
+    ValidationStatus.PUBLIC_KEY_NOT_CONFIGURED: "کلید عمومی لایسنس در سامانه تنظیم نشده است.",
+    ValidationStatus.KEY_INTEGRITY_ERROR: "یکپارچگی کلیدهای امنیتی داخلی نقض شده است (احتمال دستکاری نرم‌افزار).",
+    ValidationStatus.UNTRUSTED_KEY: "امضای دیجیتال لایسنس با کلیدهای معتبر این نسخه همخوانی ندارد.",
 }
 
 
@@ -116,8 +121,15 @@ def parse_iso8601_utc(dt_str: str) -> datetime.datetime:
 class LicenseVerifier:
     """Strict cryptographic and entitlement verifier for Daqiq offline licenses."""
 
-    def __init__(self, key_registry: Optional[KeyRegistry] = None):
-        self.key_registry = key_registry or KeyRegistry()
+    def __init__(
+        self,
+        key_registry: Optional[KeyRegistry] = None,
+        public_key_bytes: Optional[bytes] = None,
+    ):
+        if public_key_bytes is not None:
+            self.key_registry = KeyRegistry(initial_keys={"test-injected-key": public_key_bytes})
+        else:
+            self.key_registry = key_registry or KeyRegistry()
 
     def parse_envelope_from_bytes(self, raw_bytes: bytes) -> LicenseEnvelope:
         """Parse raw bytes or compact base64 token into a validated LicenseEnvelope."""
@@ -301,13 +313,7 @@ class LicenseVerifier:
         )
 
     def verify_cryptographic_signature(self, envelope: LicenseEnvelope) -> None:
-        """Verify the Ed25519 digital signature of the envelope."""
-        pub_key = self.key_registry.get_public_key(envelope.key_id)
-        if not pub_key:
-            raise CryptoVerificationError(
-                f"کلید عمومی معتبر برای شناسه {envelope.key_id} در سامانه یافت نشد."
-            )
-
+        """Verify the Ed25519 digital signature of the envelope against trusted keyring."""
         try:
             sig_bytes = base64.b64decode(envelope.signature, validate=True)
         except Exception as e:
@@ -319,16 +325,35 @@ class LicenseVerifier:
         canonical_payload_bytes = canonicalize_payload(envelope.payload.to_dict())
         data_to_verify = DOMAIN_PREFIX + canonical_payload_bytes
 
-        try:
-            pub_key.verify(sig_bytes, data_to_verify)
-        except InvalidSignature as e:
-            raise CryptoVerificationError("امضای دیجیتال لایسنس نامعتبر است.") from e
+        # 1. First try matching key_id if present in registry
+        matched_pub_key = self.key_registry.get_public_key(envelope.key_id)
+        if matched_pub_key is not None:
+            try:
+                matched_pub_key.verify(sig_bytes, data_to_verify)
+                return
+            except InvalidSignature:
+                pass  # Fall through to check other trusted keys in keyring
+
+        # 2. If key_id is omitted, not found, or failed, try all other registered keys
+        all_keys = self.key_registry.get_all_public_keys()
+        if not all_keys:
+            raise PublicKeyNotConfiguredError("هیچ کلید عمومی معتبری در سامانه تنظیم نشده است.")
+
+        for kid, alt_key in all_keys.items():
+            if alt_key is not matched_pub_key:
+                try:
+                    alt_key.verify(sig_bytes, data_to_verify)
+                    return
+                except InvalidSignature:
+                    continue
+
+        raise CryptoVerificationError("امضای دیجیتال لایسنس با هیچ‌یک از کلیدهای عمومی معتبر همخوانی ندارد.")
 
     def validate_license(
         self,
         envelope: LicenseEnvelope,
         current_hardware_fingerprint: str,
-        current_app_version: str = "4.9.1",
+        current_app_version: str = "4.9.2",
         now_utc: Optional[datetime.datetime] = None,
         available_hardware_tiers: Optional[Dict[str, str]] = None,
     ) -> ValidationResult:
@@ -351,6 +376,22 @@ class LicenseVerifier:
         # 2. Cryptographic signature check
         try:
             self.verify_cryptographic_signature(envelope)
+        except PublicKeyNotConfiguredError as e:
+            return ValidationResult(
+                status=ValidationStatus.PUBLIC_KEY_NOT_CONFIGURED,
+                is_valid=False,
+                license=envelope,
+                message_fa=STATUS_MESSAGES_FA[ValidationStatus.PUBLIC_KEY_NOT_CONFIGURED],
+                detail=str(e),
+            )
+        except KeyIntegrityError as e:
+            return ValidationResult(
+                status=ValidationStatus.KEY_INTEGRITY_ERROR,
+                is_valid=False,
+                license=envelope,
+                message_fa=STATUS_MESSAGES_FA[ValidationStatus.KEY_INTEGRITY_ERROR],
+                detail=str(e),
+            )
         except CryptoVerificationError as e:
             return ValidationResult(
                 status=ValidationStatus.INVALID_SIGNATURE,

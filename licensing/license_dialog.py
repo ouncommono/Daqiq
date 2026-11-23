@@ -223,6 +223,12 @@ class LicenseDialog(QDialog):
 
         layout.addLayout(act_row)
 
+        # Key fingerprint subtle footer
+        self.lbl_key_fp = QLabel("شناسه کلید امنیتی: در حال بارگذاری...")
+        self.lbl_key_fp.setAlignment(Qt.AlignCenter)
+        self.lbl_key_fp.setStyleSheet("color: #64748b; font-size: 10px; font-family: monospace; padding-top: 4px;")
+        layout.addWidget(self.lbl_key_fp)
+
     def _toggle_token_box(self):
         self.token_frame.setVisible(not self.token_frame.isVisible())
 
@@ -256,6 +262,14 @@ class LicenseDialog(QDialog):
 
         res = self.service.check_license(force_reload=True)
         self.current_result = res
+
+        try:
+            key_fps = self.service.get_active_key_fingerprints()
+            key_fp_str = ", ".join(k.get("display", k.get("fingerprint", "")) for k in key_fps) if key_fps else "پیش‌فرض"
+            self.lbl_key_fp.setText(f"شناسه کلید امنیتی (Key FP): {key_fp_str}")
+        except Exception:
+            key_fp_str = "پیش‌فرض"
+            self.lbl_key_fp.setText("شناسه کلید امنیتی: پیش‌فرض")
 
         if res.is_valid and res.license:
             payload = res.license.payload
@@ -307,7 +321,8 @@ class LicenseDialog(QDialog):
                 f"<b>پلن/نسخه:</b> {lic_type_fa}<br>"
                 f"<b>تاریخ انقضا:</b> {expiry_text}<br>"
                 f"<b>دستگاه‌های مجاز:</b> {payload.max_devices} سیستم<br>"
-                f"<b>ماژول‌های فعال:</b> {modules_str}"
+                f"<b>ماژول‌های فعال:</b> {modules_str}<br>"
+                f"<b>شناسه کلید امنیتی:</b> <code>{key_fp_str}</code>"
             )
             self.lbl_details.setText(info_text)
             self.details_box.setVisible(True)

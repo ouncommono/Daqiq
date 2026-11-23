@@ -20,7 +20,7 @@ def get_version(repo_root: Path) -> str:
     v_path = repo_root / "VERSION"
     if v_path.is_file():
         return v_path.read_text(encoding="utf-8").strip()
-    return "4.9.1"
+    return "4.9.2"
 
 
 def compute_sha256(file_path: Path) -> str:
@@ -45,6 +45,15 @@ def build(mode: str, repo_root: Path) -> int:
     print(f"Output Directory: {dist_dir}")
     print(f"==================================================")
 
+    # Ensure anti-tamper key shards are in sync prior to compilation
+    build_shards_script = repo_root / "tools" / "build_key_shards.py"
+    if build_shards_script.is_file():
+        print("Synchronizing anti-tamper Ed25519 public key shards...")
+        shard_proc = subprocess.run([sys.executable, str(build_shards_script)], cwd=str(repo_root))
+        if shard_proc.returncode != 0:
+            print("[ERROR] Failed to compile key shards prior to build", file=sys.stderr)
+            return shard_proc.returncode
+
     import PySide6
     pyside6_dir = Path(PySide6.__file__).resolve().parent
     platforms_src = pyside6_dir / "plugins" / "platforms"
@@ -64,7 +73,8 @@ def build(mode: str, repo_root: Path) -> int:
         "--noinclude-unittest-mode=nofollow",
         "--noinclude-pydoc-mode=nofollow",
         "--noinclude-IPython-mode=nofollow",
-        "--nofollow-import-to=pytest,unittest,doctest,pydoc,tkinter,turtle,distutils,lib2to3,setuptools,pip,wheel",
+        "--noinclude-tools-mode=nofollow",
+        "--nofollow-import-to=pytest,unittest,doctest,pydoc,tkinter,turtle,distutils,lib2to3,setuptools,pip,wheel,tools",
         "--windows-console-mode=attach",
         f"--windows-icon-from-ico={repo_root / 'assets' / 'daqiq_logo.ico'}",
         f"--company-name=ouncommono",

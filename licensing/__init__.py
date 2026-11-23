@@ -12,11 +12,20 @@ from .license_models import (
     ValidationResult,
     LicensingError,
     CryptoVerificationError,
+    KeyIntegrityError,
+    PublicKeyNotConfiguredError,
     HardwareIdentityUnavailableError,
     ClockRollbackError,
     StorageError,
 )
-from .keys import KeyRegistry, DEFAULT_KEY_REGISTRY, validate_raw_public_key_b64
+from .keys import (
+    KeyRegistry,
+    DEFAULT_KEY_REGISTRY,
+    validate_raw_public_key_b64,
+    normalize_ed25519_public_key,
+    compute_key_fingerprint,
+    get_active_key_fingerprints,
+)
 from .device_identity import (
     HardwareIdentitySource,
     NativeWindowsHardwareProvider,

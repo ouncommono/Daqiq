@@ -129,7 +129,7 @@ def test_compact_token_and_trial_license(ephemeral_keypair, valid_payload_dict):
     res = verifier.validate_license(
         env,
         current_hardware_fingerprint="fp_v1:b8782278c4c15107a8fd2a5d21718e3328c8baeac5d1a3f0664701ac2983e52e",
-        current_app_version="4.9.1",
+        current_app_version="4.9.2",
         now_utc=datetime.datetime(2026, 11, 25, 0, 0, 0, tzinfo=datetime.timezone.utc),
     )
     assert res.is_valid is True
@@ -160,7 +160,7 @@ def test_grace_period_and_match_policy(ephemeral_keypair, valid_payload_dict):
 
     # In grace period: now is 2 days after expires_at (within 7 days grace)
     now_grace = datetime.datetime(2026, 12, 3, 0, 0, 0, tzinfo=datetime.timezone.utc)
-    res_grace = verifier.validate_license(env, primary_fp, "4.9.1", now_utc=now_grace)
+    res_grace = verifier.validate_license(env, primary_fp, "4.9.2", now_utc=now_grace)
     assert res_grace.is_valid is True
     assert res_grace.in_grace_period is True
     assert res_grace.grace_mode == "readonly"
@@ -168,7 +168,7 @@ def test_grace_period_and_match_policy(ephemeral_keypair, valid_payload_dict):
 
     # Past grace period: now is 10 days after expires_at (> 7 days grace)
     now_past = datetime.datetime(2026, 12, 11, 0, 0, 0, tzinfo=datetime.timezone.utc)
-    res_past = verifier.validate_license(env, primary_fp, "4.9.1", now_utc=now_past)
+    res_past = verifier.validate_license(env, primary_fp, "4.9.2", now_utc=now_past)
     assert res_past.is_valid is False
     assert res_past.status == ValidationStatus.EXPIRED
 
@@ -177,7 +177,7 @@ def test_grace_period_and_match_policy(ephemeral_keypair, valid_payload_dict):
     res_tier2 = verifier.validate_license(
         env,
         current_hardware_fingerprint="fp_v1:other",
-        current_app_version="4.9.1",
+        current_app_version="4.9.2",
         now_utc=datetime.datetime(2026, 11, 25, 0, 0, 0, tzinfo=datetime.timezone.utc),
         available_hardware_tiers=tiers,
     )
@@ -483,7 +483,7 @@ def test_compact_token_and_trial_license(ephemeral_keypair, valid_payload_dict):
     res = verifier.validate_license(
         env,
         current_hardware_fingerprint="fp_v1:b8782278c4c15107a8fd2a5d21718e3328c8baeac5d1a3f0664701ac2983e52e",
-        current_app_version="4.9.1",
+        current_app_version="4.9.2",
         now_utc=datetime.datetime(2026, 11, 25, 0, 0, 0, tzinfo=datetime.timezone.utc),
     )
     assert res.is_valid is True
@@ -514,7 +514,7 @@ def test_grace_period_and_match_policy(ephemeral_keypair, valid_payload_dict):
 
     # In grace period: now is 2 days after expires_at (within 7 days grace)
     now_grace = datetime.datetime(2026, 12, 3, 0, 0, 0, tzinfo=datetime.timezone.utc)
-    res_grace = verifier.validate_license(env, primary_fp, "4.9.1", now_utc=now_grace)
+    res_grace = verifier.validate_license(env, primary_fp, "4.9.2", now_utc=now_grace)
     assert res_grace.is_valid is True
     assert res_grace.in_grace_period is True
     assert res_grace.grace_mode == "readonly"
@@ -522,7 +522,7 @@ def test_grace_period_and_match_policy(ephemeral_keypair, valid_payload_dict):
 
     # Past grace period: now is 10 days after expires_at (> 7 days grace)
     now_past = datetime.datetime(2026, 12, 11, 0, 0, 0, tzinfo=datetime.timezone.utc)
-    res_past = verifier.validate_license(env, primary_fp, "4.9.1", now_utc=now_past)
+    res_past = verifier.validate_license(env, primary_fp, "4.9.2", now_utc=now_past)
     assert res_past.is_valid is False
     assert res_past.status == ValidationStatus.EXPIRED
 
@@ -531,7 +531,7 @@ def test_grace_period_and_match_policy(ephemeral_keypair, valid_payload_dict):
     res_tier2 = verifier.validate_license(
         env,
         current_hardware_fingerprint="fp_v1:other",
-        current_app_version="4.9.1",
+        current_app_version="4.9.2",
         now_utc=datetime.datetime(2026, 11, 25, 0, 0, 0, tzinfo=datetime.timezone.utc),
         available_hardware_tiers=tiers,
     )

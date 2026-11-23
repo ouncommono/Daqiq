@@ -19,6 +19,16 @@ class CryptoVerificationError(LicensingError):
     pass
 
 
+class KeyIntegrityError(CryptoVerificationError):
+    """Raised when embedded key shards are tampered with or corrupted."""
+    pass
+
+
+class PublicKeyNotConfiguredError(CryptoVerificationError):
+    """Raised when no valid public verification key is embedded or configured."""
+    pass
+
+
 class HardwareIdentityUnavailableError(LicensingError):
     """Raised when stable motherboard/SMBIOS identity cannot be acquired."""
     pass
@@ -54,6 +64,9 @@ class ValidationStatus(str, Enum):
     CLOCK_TAMPERED = "CLOCK_TAMPERED"
     GRACE_PERIOD = "GRACE_PERIOD"
     TRIAL = "TRIAL"
+    PUBLIC_KEY_NOT_CONFIGURED = "PUBLIC_KEY_NOT_CONFIGURED"
+    KEY_INTEGRITY_ERROR = "KEY_INTEGRITY_ERROR"
+    UNTRUSTED_KEY = "UNTRUSTED_KEY"
 
 
 @dataclass(frozen=True)

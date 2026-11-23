@@ -382,7 +382,7 @@ def get_system_hardware_fingerprint_with_tier() -> Tuple[str, str]:
         )
 
 
-def create_device_request_dict(app_version: str = "4.9.1", device_label: str = "") -> Dict[str, Any]:
+def create_device_request_dict(app_version: str = "4.9.2", device_label: str = "") -> Dict[str, Any]:
     """Generate exact .daqreq dictionary compatible with Daqiq-License-Generator."""
     fp, tier = get_system_hardware_fingerprint_with_tier()
     now_iso = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")

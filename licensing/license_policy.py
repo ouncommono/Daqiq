@@ -48,7 +48,7 @@ class LicenseService:
         verifier: Optional[LicenseVerifier] = None,
         hardware_provider: Optional[HardwareIdentitySource] = None,
         clock_provider: Optional[Callable[[], datetime.datetime]] = None,
-        app_version: str = "4.9.1",
+        app_version: str = "4.9.2",
     ):
         self.store = store or LicenseStore()
         self.verifier = verifier or LicenseVerifier()
@@ -59,6 +59,10 @@ class LicenseService:
         self._cached_fingerprint: Optional[str] = None
         self._cached_tiers: Optional[Dict[str, str]] = None
         self._last_result: Optional[ValidationResult] = None
+
+    def get_active_key_fingerprints(self) -> List[Dict[str, str]]:
+        """Return read-only key IDs and human-readable fingerprints."""
+        return self.verifier.key_registry.get_active_key_fingerprints()
 
     def get_hardware_fingerprint(self) -> str:
         """Acquire or return cached fp_v1 device fingerprint."""

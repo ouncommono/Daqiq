@@ -1,8 +1,8 @@
-# Daqiq Offline Licensing Protocol Specification (v1.1)
-**Document Version:** 1.1.0  
+# Daqiq Offline Licensing Protocol Specification (v1.2)
+**Document Version:** 1.2.0  
 **Target Product:** Daqiq Desktop (`daqiq.desktop`)  
-**Standard Release:** v4.9.1  
-**Security Boundary:** Asymmetric Cryptography (Ed25519), Fast Win32 SMBIOS Anchoring (`fp_v1`), Multi-Anchor Clock Protection (AppData + HKCU Registry)
+**Standard Release:** v4.9.2  
+**Security Boundary:** Asymmetric Cryptography (Ed25519), Fast Win32 SMBIOS Anchoring (`fp_v1`), Multi-Anchor Clock Protection (AppData + HKCU Registry), Anti-Patch C-Compiled Key Shards
 
 ---
 
@@ -192,7 +192,7 @@ The hardware fingerprint binds a license strictly to physical hardware while rem
 3. **Motherboard Product & Manufacturer:** `Win32_BaseBoard.Product`, `Win32_BaseBoard.Manufacturer`
 
 ### 4.2 Non-Blocking Safe Acquisition & Native Win32 SMBIOS Provider
-In Daqiq v4.9.1, hardware identity is acquired primarily through **direct native Win32 kernel calls** via `ctypes`:
+In Daqiq v4.9.1 / v4.9.2, hardware identity is acquired primarily through **direct native Win32 kernel calls** via `ctypes`:
 - **API:** `kernel32.GetSystemFirmwareTable(0x52534D42, 0, ...)` (Signature `'RSMB'` = Raw SMBIOS).
 - **Latency:** `< 2 milliseconds` (tested 1.2ms on Windows 11).
 - **Subprocesses:** **0 subprocesses**, zero console window flicker, zero PowerShell launch cost, and 100% immune to restrictive PowerShell execution policies or antivirus script blockers.
@@ -278,7 +278,7 @@ When a customer commissions a new PC or adds a terminal to a multi-device store 
   "generated_at": "2026-11-22T00:00:00Z",
   "device_fingerprint": "fp_v1:b8782278c4c15107a8fd2a5d21718e3328c8baeac5d1a3f0664701ac2983e52e",
   "device_label": "صندوق اصلی فروشگاه (Main Terminal)",
-  "app_version": "4.9.1",
+  "app_version": "4.9.2",
   "hardware_tier": "tier1"
 }
 ```
@@ -324,34 +324,48 @@ For time-limited subscription and trial licenses, Daqiq tracks a monotonic high-
 
 ---
 
-## 8. Public Key Management & Environment Injection
+## 8. Anti-Crack Public Key Architecture & Key Management
 
-Daqiq ships with a default trusted public key registry in `licensing/keys.py`:
-```python
-DEFAULT_KEY_REGISTRY = {
-    "daqiq-prod-v1": "tZwFxuCGOF+WZqVF+PeKwpoIpOZovHLFRVSQxGaXJXA=",
-}
-```
+Daqiq v4.9.2 eliminates contiguous plaintext public key strings from compiled binaries, eradicating binary patching and hex-editor cracking vectors.
 
-### 8.1 Runtime Environment Injection
-For staging, testing, or automated CI/CD without modifying source files, Daqiq supports the `DAQIQ_PUBLIC_KEY` environment variable:
-```bash
-# Inject temporary testing public key:
-set DAQIQ_PUBLIC_KEY="<base64-32-byte-public-key>"
-```
-
-### 8.2 Steps to Replace with Vendor Production Public Key:
-1. Generate an Ed25519 keypair offline in the secure vendor signing environment:
-   ```python
-   from cryptography.hazmat.primitives.asymmetric import ed25519
-   from cryptography.hazmat.primitives import serialization
-   import base64
-
-   private_key = ed25519.Ed25519PrivateKey.generate()
-   public_key = private_key.public_key()
-   pub_b64 = base64.b64encode(public_key.public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)).decode('ascii')
-   print("Vendor Public Key:", pub_b64)
+### 8.1 Build-Time Obfuscated Native C Sharding
+1. **Source Manifest:** Versioned public keys are registered in `licensing/trusted_keys.json`:
+   ```json
+   {
+     "daqiq-prod-v1": "tZwFxuCGOF+WZqVF+PeKwpoIpOZovHLFRVSQxGaXJXA="
+   }
    ```
-2. Store `private_key` securely in an air-gapped vault for Companion App B (`Daqiq-License-Generator`). **Never commit secret signing keys to source control or package them with Daqiq.**
-3. Update `DEFAULT_KEY_REGISTRY` in `licensing/keys.py` with `"daqiq-prod-v1": "<YOUR_VENDOR_PUBLIC_KEY>"`.
-4. Compile Daqiq via `python scripts/build_nuitka.py --mode onefile`.
+2. **Shard Generation (`tools/build_key_shards.py`):**
+   Prior to compilation, each 32-byte Ed25519 public key is split into 4 XOR-masked byte shards mixed with a build-time salt and an internal SHA-256 integrity tag, writing `licensing/_embedded_keys.py`.
+3. **Nuitka Native Compilation:**
+   Nuitka compiles `licensing/_embedded_keys.py` into native C machine code. There is no contiguous Base64 or binary public key in `Daqiq.exe`.
+4. **Fail-Closed Tamper Guard:**
+   If any shard byte in the binary is tampered with, the internal SHA-256 integrity check fails immediately, raising `KeyIntegrityError` and failing closed.
+
+### 8.2 Developer & Vendor Key Utility (`tools/license_key_tool.py`)
+A standalone CLI utility (strictly excluded from `Daqiq.exe` packaging via `--nofollow-import-to=tools`) provides complete lifecycle management:
+
+- **Inspection:**
+  ```bash
+  python tools/license_key_tool.py inspect
+  ```
+- **Configure Public Key from Generator:**
+  Accepts standard Base64, URL-safe Base64, 64-char Hex, or PEM formats:
+  ```bash
+  python tools/license_key_tool.py set-public-key --key "tZwFxuCGOF+WZqVF+PeKwpoIpOZovHLFRVSQxGaXJXA=" --key-id "daqiq-prod-v1"
+  ```
+- **Generate Keypair (with Strict Repository-Safety Guard):**
+  Strictly refuses to write secret signing keys inside the Daqiq git repository working tree, preventing secret leaks:
+  ```bash
+  python tools/license_key_tool.py generate-keypair --out-dir ~/DaqiqVault --key-id "daqiq-prod-v1"
+  ```
+- **Diagnostic Verification:**
+  Verifies a `.daqlic` license against Daqiq's exact verifier:
+  ```bash
+  python tools/license_key_tool.py verify-license license.daqlic --request request.daqreq
+  ```
+
+### 8.3 CI/CD Key Injection & Key Rotation
+- **GitHub Secrets:** In GitHub Actions CI/CD, set `DAQIQ_LICENSE_PUBLIC_KEY_B64` to bake the production vendor key into the release binary without committing it to git.
+- **Key Rotation:** For seamless key rotation across versions without breaking existing customer installations, provide additional trusted public keys via `DAQIQ_LICENSE_EXTRA_KEYS_JSON='{"daqiq-v2": "<KEY2>"}'`. Daqiq automatically checks `key_id` first, and if unmatched, iterates all trusted keys in the keyring.
+- **Key Fingerprint Display:** Both the activation dialog and in-app management interface display a safe, short key fingerprint (e.g. `daqiq-prod-v1 · 7925-3864-0164`), enabling instant pairing verification with `Daqiq-License-Generator`.

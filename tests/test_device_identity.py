@@ -133,10 +133,10 @@ def test_windows_provider_timeout_handling():
 def test_device_request_dict_contract():
     """Verify create_device_request_dict conforms strictly to Daqiq-License-Generator contract."""
     from licensing.device_identity import create_device_request_dict
-    req = create_device_request_dict(app_version="4.9.1", device_label="Main Terminal")
+    req = create_device_request_dict(device_label="Main Terminal")
     assert req["request_version"] == 1
     assert req["product_id"] == "daqiq.desktop"
-    assert req["app_version"] == "4.9.1"
+    assert req["app_version"] == "4.9.2"
     assert req["device_label"] == "Main Terminal"
     assert req["device_fingerprint"].startswith("fp_v1:")
     assert req["hardware_tier"] in ("tier1", "tier2", "tier3")
