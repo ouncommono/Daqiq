@@ -73,7 +73,6 @@ def build(mode: str, repo_root: Path) -> int:
         "--noinclude-unittest-mode=nofollow",
         "--noinclude-pydoc-mode=nofollow",
         "--noinclude-IPython-mode=nofollow",
-        "--noinclude-tools-mode=nofollow",
         "--nofollow-import-to=pytest,unittest,doctest,pydoc,tkinter,turtle,distutils,lib2to3,setuptools,pip,wheel,tools",
         "--windows-console-mode=attach",
         f"--windows-icon-from-ico={repo_root / 'assets' / 'daqiq_logo.ico'}",
