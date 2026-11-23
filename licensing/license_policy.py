@@ -4,7 +4,7 @@
 import datetime
 import json
 import os
-from typing import Callable, Dict, Optional, Any
+from typing import Callable, Dict, List, Optional, Any
 
 from .license_models import (
     LicenseEnvelope,
