@@ -8,6 +8,7 @@ import sqlite3
 import copy
 import re
 from datetime import timedelta
+from typing import Optional
 import jdatetime
 
 from PySide6.QtWidgets import (
@@ -41,8 +42,9 @@ from PySide6.QtWidgets import (
     QToolButton,
     QAbstractItemView,
     QScrollArea,
+    QFrame,
 )
-from PySide6.QtCore import Qt, QTimer, QObject, QEvent, QLocale
+from PySide6.QtCore import Qt, QTimer, QObject, QEvent, QLocale, QCoreApplication
 from PySide6.QtGui import QFont, QColor, QFontMetrics, QIcon
 
 from database import (
@@ -80,7 +82,31 @@ from exporter import (
     get_next_excel_filename,
 )
 
-APP_VERSION = "4.8.4"
+def _load_app_version() -> str:
+    v_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "VERSION")
+    if os.path.isfile(v_file):
+        try:
+            with open(v_file, "r", encoding="utf-8") as f:
+                ver = f.read().strip()
+                if ver:
+                    return ver
+        except Exception:
+            pass
+    return "4.9.2"
+
+APP_VERSION = _load_app_version()
+
+# In Nuitka standalone/onefile binaries, ensure sys.frozen is set for external resource resolution
+if "__compiled__" in globals() or hasattr(sys, "__compiled__"):
+    sys.frozen = True
+
+from licensing import (
+    LicenseService,
+    LicenseDialog,
+    ValidationResult,
+    ValidationStatus,
+)
+from licensing.license_policy import TAB_MODULE_TO_FEATURE
 
 # Semantic theme tokens for WCAG AA+ accessible dashboard top report cards
 DASHBOARD_CARD_TOKENS = {
@@ -1039,10 +1065,21 @@ def _resolve_startup_employee(db, parent=None):
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, db: DatabaseManager, active_employee=None):
+    def __init__(
+        self,
+        db: DatabaseManager,
+        active_employee=None,
+        license_service: Optional[LicenseService] = None,
+    ):
         super().__init__()
         self.db = db
         self.active_employee = active_employee
+        if license_service is not None:
+            self.license_service = license_service
+        elif "PYTEST_CURRENT_TEST" in os.environ:
+            self.license_service = None
+        else:
+            self.license_service = LicenseService(app_version=APP_VERSION)
         if self.active_employee and isinstance(self.active_employee, dict) and self.active_employee.get("id"):
             try:
                 self.db.record_employee_login(self.active_employee["id"])
@@ -1799,8 +1836,16 @@ class MainWindow(QMainWindow):
         )
         is_scoped = self._is_scoped_access()
         for index, module in enumerate(tab_modules):
-            allowed = f"{module}.view" in grants
-            self.tabs.setTabEnabled(index, allowed)
+            emp_allowed = f"{module}.view" in grants
+            lic_feature = TAB_MODULE_TO_FEATURE.get(module, module)
+            lic_allowed = (
+                self.license_service.is_feature_enabled(lic_feature)
+                if getattr(self, "license_service", None) is not None
+                else True
+            )
+            self.tabs.setTabEnabled(index, emp_allowed and lic_allowed)
+            if not lic_allowed:
+                self.tabs.setTabToolTip(index, "این بخش در لایسنس فعال شما مجاز نیست.")
 
         for permission_key, widget in getattr(
             self, "_dashboard_permission_widgets", {}
@@ -2108,8 +2153,28 @@ class MainWindow(QMainWindow):
         top_layout.addWidget(title_lbl, 0)
         main_layout.addWidget(top_bar)
 
+        # نوار هشدار وضعیت اشتراک و دوره مهلت لایسنس
+        self.license_banner_frame = QFrame()
+        self.license_banner_frame.setVisible(False)
+        self.license_banner_frame.setStyleSheet(
+            "background-color: #fef3c7; border: 1px solid #f59e0b; border-radius: 6px; padding: 6px 12px;"
+        )
+        banner_layout = QHBoxLayout(self.license_banner_frame)
+        banner_layout.setContentsMargins(6, 4, 6, 4)
+        self.lbl_license_banner = QLabel()
+        self.lbl_license_banner.setStyleSheet("color: #92400e; font-weight: bold; font-size: 11px;")
+        btn_renew_banner = QPushButton("تمدید / مدیریت لایسنس 🔑")
+        btn_renew_banner.setStyleSheet(
+            "background-color: #d97706; color: white; font-weight: bold; padding: 4px 10px; border-radius: 4px;"
+        )
+        btn_renew_banner.clicked.connect(self._open_license_dialog)
+        banner_layout.addWidget(self.lbl_license_banner, 1)
+        banner_layout.addWidget(btn_renew_banner, 0)
+        main_layout.addWidget(self.license_banner_frame)
+
         # --- تب‌های برنامه با ترتیب جدید (بند ۵: تب ارتقای لپ‌تاپ بلافاصله بعد از مدیریت خدمات) ---
         self.tabs = QTabWidget()
+        self.tabs.tabBarClicked.connect(self._on_tab_bar_clicked)
         main_layout.addWidget(self.tabs)
 
         self._init_tab_dashboard()
@@ -2126,6 +2191,82 @@ class MainWindow(QMainWindow):
         self._update_clock()
         self._update_active_user_badge()
         self._apply_employee_permissions()
+        self._update_license_banner()
+
+        # بررسی دوره‌ای پس‌زمینه (هر ۱۰ دقیقه بدون ایجاد وقفه در رابط کاربری)
+        self._license_timer = QTimer(self)
+        self._license_timer.timeout.connect(self._periodic_license_check)
+        self._license_timer.start(600000)
+
+    def _update_license_banner(self, res: Optional[ValidationResult] = None):
+        if not getattr(self, "license_service", None):
+            if hasattr(self, "license_banner_frame"):
+                self.license_banner_frame.setVisible(False)
+            return
+        if res is None:
+            res = self.license_service.check_license()
+        if not res or not res.is_valid or not res.license:
+            if hasattr(self, "license_banner_frame"):
+                self.license_banner_frame.setVisible(False)
+            return
+
+        payload = res.license.payload
+        if res.in_grace_period:
+            self.license_banner_frame.setStyleSheet(
+                "background-color: #fee2e2; border: 1px solid #ef4444; border-radius: 6px; padding: 6px 12px;"
+            )
+            self.lbl_license_banner.setStyleSheet("color: #b91c1c; font-weight: bold; font-size: 11px;")
+            self.lbl_license_banner.setText(
+                f"⚠️ توجه: اشتراک لایسنس شما به پایان رسیده و سامانه در دوره مهلت موقت ({res.grace_mode}) قرار دارد. لطفاً جهت تمدید اقدام فرمایید."
+            )
+            self.license_banner_frame.setVisible(True)
+        elif res.days_remaining is not None and res.days_remaining <= (payload.expiry_warning_days or 14):
+            self.license_banner_frame.setStyleSheet(
+                "background-color: #fef3c7; border: 1px solid #f59e0b; border-radius: 6px; padding: 6px 12px;"
+            )
+            self.lbl_license_banner.setStyleSheet("color: #92400e; font-weight: bold; font-size: 11px;")
+            self.lbl_license_banner.setText(
+                f"⚠️ یادآوری اشتراک: {res.days_remaining} روز تا پایان اعتبار لایسنس باقیمانده است. جهت تمدید اشتراک کلیک فرمایید."
+            )
+            self.license_banner_frame.setVisible(True)
+        elif res.is_trial:
+            self.license_banner_frame.setStyleSheet(
+                "background-color: #e0e7ff; border: 1px solid #6366f1; border-radius: 6px; padding: 6px 12px;"
+            )
+            self.lbl_license_banner.setStyleSheet("color: #3730a3; font-weight: bold; font-size: 11px;")
+            rem_str = f" ({res.days_remaining} روز باقیمانده)" if res.days_remaining is not None else ""
+            self.lbl_license_banner.setText(f"🔷 نسخه آزمایشی دقیق فعال است{rem_str}.")
+            self.license_banner_frame.setVisible(True)
+        else:
+            self.license_banner_frame.setVisible(False)
+
+    def _periodic_license_check(self):
+        if not getattr(self, "license_service", None):
+            return
+        res = self.license_service.check_license()
+        self._update_license_banner(res)
+        self._apply_employee_permissions()
+
+    def _export_device_request_from_settings(self):
+        if not getattr(self, "license_service", None):
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "ذخیره فایل مشخصات سیستم (.daqreq)",
+            "Daqiq_Hardware_Request.daqreq",
+            "Daqiq Request (*.daqreq);;JSON Files (*.json);;All Files (*)",
+        )
+        if not path:
+            return
+        try:
+            self.license_service.export_device_request_file(path)
+            QMessageBox.information(
+                self,
+                "ذخیره موفق",
+                f"فایل مشخصات سیستم با موفقیت در مسیر زیر ذخیره شد:\n{path}\n\nلطفاً این فایل را برای واحد پشتیبانی/فروش ارسال فرمایید.",
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "خطا در ذخیره فایل", f"امکان ذخیره فایل وجود ندارد:\n{e}")
 
     def _refresh_dashboard_card_styles(self):
         dark = self.db.cfg.get("theme", "light") == "dark"
@@ -2425,6 +2566,29 @@ class MainWindow(QMainWindow):
                     values.append(strip_bidi_controls(item.toolTip()))
             haystack = normalize_digits(" ".join(values)).casefold()
             table.setRowHidden(row, query not in haystack)
+
+    def _on_tab_bar_clicked(self, index: int):
+        tab_modules = (
+            "dashboard", "products", "batches", "sales", "services",
+            "upgrades", "suppliers", "reports", "employees", "settings",
+        )
+        if 0 <= index < len(tab_modules) and getattr(self, "license_service", None) is not None:
+            module = tab_modules[index]
+            lic_feature = TAB_MODULE_TO_FEATURE.get(module, module)
+            if not self.license_service.is_feature_enabled(lic_feature):
+                QMessageBox.information(
+                    self,
+                    "دسترسی لایسنس",
+                    "این بخش در لایسنس فعال شما مجاز نیست. جهت ارتقا یا فعال‌سازی این ماژول با پشتیبانی تماس بگیرید.",
+                )
+
+    def _open_license_dialog(self):
+        icon_path = resource_path("assets/daqiq_logo.png")
+        service = getattr(self, "license_service", None) or LicenseService(app_version=APP_VERSION)
+        dark = self.db.cfg.get("theme", "light") == "dark" if hasattr(self, "db") and self.db else False
+        dlg = LicenseDialog(service, parent=self, icon_path=icon_path, is_dark_theme=dark)
+        dlg.exec()
+        self._apply_employee_permissions()
 
     def _on_main_tab_changed(self, index):
         if index == getattr(self, "_settings_tab_index", -1):
@@ -6917,6 +7081,28 @@ class MainWindow(QMainWindow):
         self.lbl_app_version.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.lbl_app_version)
 
+        lic_btn_row = QHBoxLayout()
+        btn_license_mgmt = QPushButton("📜 مدیریت و وضعیت لایسنس تجاری")
+        btn_license_mgmt.setStyleSheet(
+            "background-color: #0f766e; color: white; padding: 6px 14px; font-weight: bold; border-radius: 6px;"
+        )
+        btn_license_mgmt.setToolTip(
+            "مشاهده مشخصات لایسنس فعال، کپی شناسه سخت‌افزاری دستگاه، و وارد کردن لایسنس جدید"
+        )
+        btn_license_mgmt.clicked.connect(self._open_license_dialog)
+        lic_btn_row.addWidget(btn_license_mgmt)
+
+        btn_export_req = QPushButton("💾 دریافت فایل مشخصات سیستم (.daqreq)")
+        btn_export_req.setStyleSheet(
+            "background-color: #0d9488; color: white; padding: 6px 14px; font-weight: bold; border-radius: 6px;"
+        )
+        btn_export_req.setToolTip(
+            "ایجاد و ذخیره فایل مشخصات سخت‌افزاری (.daqreq) برای ارسال به پشتیبانی"
+        )
+        btn_export_req.clicked.connect(self._export_device_request_from_settings)
+        lic_btn_row.addWidget(btn_export_req)
+        layout.addLayout(lic_btn_row)
+
         gb_security = QGroupBox("امنیت و ورود کاربران")
         security_layout = QVBoxLayout(gb_security)
         self.chk_req_pass = QCheckBox(
@@ -10814,21 +11000,91 @@ class MainWindow(QMainWindow):
 
 
 def main():
-    if sys.platform == "win32":
+    smoke_log_file = None
+    if os.environ.get("DAQIQ_SMOKE_TEST") == "1":
         try:
-            import ctypes
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("ouncommono.Daqiq.4.8.4")
+            smoke_log_file = os.environ.get("DAQIQ_SMOKE_LOG_PATH")
+            if not smoke_log_file:
+                exe_dir = os.path.dirname(os.path.abspath(sys.executable))
+                smoke_log_file = os.path.join(exe_dir, "smoke_test.log")
+            with open(smoke_log_file, "a", encoding="utf-8") as f:
+                f.write("STEP 1: Entered main()\n")
         except Exception:
             pass
 
-    app = QApplication(sys.argv)
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(f"ouncommono.Daqiq.{APP_VERSION}")
+        except Exception:
+            pass
+
+    # Configure Qt library paths and platform plugins for Nuitka onefile and standalone
+    try:
+        import PySide6
+        pyside_dir = os.path.dirname(PySide6.__file__)
+        for sub in ["qt-plugins", "plugins", ""]:
+            cand = os.path.join(pyside_dir, sub) if sub else pyside_dir
+            if os.path.isdir(cand):
+                QCoreApplication.addLibraryPath(cand)
+                p_cand = os.path.join(cand, "platforms")
+                if os.path.isdir(p_cand):
+                    os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = p_cand
+    except Exception:
+        pass
+
+    app = QApplication.instance() or QApplication(sys.argv)
     app.setLayoutDirection(Qt.RightToLeft)
     font = QFont("Tahoma", 10)
     app.setFont(font)
 
+    if smoke_log_file:
+        try:
+            with open(smoke_log_file, "a", encoding="utf-8") as f:
+                f.write("STEP 2: QApplication initialized\n")
+        except Exception:
+            pass
+
     icon_path = resource_path("assets/daqiq_logo.png")
     if os.path.exists(icon_path):
         app.setWindowIcon(QIcon(icon_path))
+
+    # Startup Offline Ed25519 Licensing Gate (Pre-DB, Pre-Login, Pre-MainWindow)
+    license_service = LicenseService(app_version=APP_VERSION)
+    if smoke_log_file:
+        try:
+            with open(smoke_log_file, "a", encoding="utf-8") as f:
+                f.write("STEP 3: LicenseService instantiated\n")
+        except Exception:
+            pass
+
+    val_res = license_service.check_license()
+    if smoke_log_file:
+        try:
+            with open(smoke_log_file, "a", encoding="utf-8") as f:
+                f.write(f"STEP 4: check_license completed ({val_res.status.value})\n")
+        except Exception:
+            pass
+
+    if os.environ.get("DAQIQ_SMOKE_TEST") == "1":
+        print(f"DAQIQ_SMOKE_TEST: Startup licensing gate successfully executed ({val_res.status.value}). Exiting.", flush=True)
+        if smoke_log_file:
+            try:
+                with open(smoke_log_file, "a", encoding="utf-8") as f:
+                    f.write("STEP 5: Clean exit sys.exit(0)\n")
+            except Exception:
+                pass
+        sys.exit(0)
+    if not val_res.is_valid:
+        dlg = LicenseDialog(
+            service=license_service,
+            icon_path=icon_path if os.path.exists(icon_path) else None,
+        )
+        if dlg.exec() != QDialog.Accepted:
+            sys.exit(0)
+        val_res = license_service.check_license()
+        if not val_res.is_valid:
+            sys.exit(0)
 
     selected_db_path = select_startup_database_path()
     if not selected_db_path:
@@ -10856,7 +11112,7 @@ def main():
     if not accepted:
         sys.exit(0)
 
-    win = MainWindow(db, active_emp)
+    win = MainWindow(db, active_emp, license_service=license_service)
     if bool(db.cfg.get("default_window_maximized", True)):
         win.showMaximized()
     else:

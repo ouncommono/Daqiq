@@ -1,0 +1,5 @@
+nuitka==2.8.10
+ordered-set>=4.1.0
+zstandard>=0.22.0
+pytest>=8.0.0
+pytest-timeout>=2.3.0

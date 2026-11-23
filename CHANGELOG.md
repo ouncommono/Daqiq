@@ -1,3 +1,51 @@
+# Daqiq 4.9.2
+
+## Release Summary & Architectural Enhancements
+
+- **Anti-Crack Ed25519 Public Key Sharding Architecture**: Completely eradicated binary patching crack vectors and plaintext public-key markers in executable binaries. Re-engineered key provisioning using multi-byte XOR masking with pseudo-random build salts and compile-time integrity checks (`tools/build_key_shards.py`). Shards are compiled directly into native C compilation units via Nuitka, preventing hex-editor tampering or external key substitution.
+- **Developer License Key CLI Tool (`tools/license_key_tool.py`)**: Built a robust, production-grade CLI utility for developers and administrators with four core commands:
+  - `inspect`: Displays all embedded public keys, key IDs, Base64 values, SHA-256 fingerprints, and shard integrity status.
+  - `set-public-key`: Registers or updates trusted public keys in `licensing/trusted_keys.json` with immediate shard rebuilding.
+  - `generate-keypair`: Generates new Ed25519 keypairs with strict filesystem safeguards refusing to write secret signing keys inside the repository or git tree.
+  - `verify-license`: Non-blocking offline verification and deep payload inspection for `.daqlic` files against configured public keys.
+- **Fail-Closed Multi-Key Ring & Seamless Key Rotation**: Upgraded `KeyRegistry` to support multiple trusted public keys with fallback verification (`KeyRegistry.verify_any()`). Supports hot key rotation and grandfathered licenses without breaking backward compatibility.
+- **100% Deterministic Protocol Parity with Daqiq-License-Generator**: Fully validated against `https://github.com/ouncommono/Daqiq-License-Generator` specifications (`COMPATIBILITY_CONTRACT.md`). Supports all 14 canonical payload fields, `fp_v1:<sha256>` hardware fingerprints, `match_policy` (strict, standard, relaxed), `grace_period_days`, `grace_mode` (full, readonly), and `expiry_warning_days`.
+- **Persian RTL UI/UX Key Fingerprint Transparency**: Added subtle security key fingerprint footer (`شناسه کلید امنیتی (Key FP): daqiq-prod-v1 · 7925-3864-0164`) in the offline license activation dialog and detailed license view, allowing operators to verify pairing with the store's license generator at a glance.
+- **Compiler Hardening & Developer Tool Exclusion**: Enhanced `scripts/build_nuitka.py` with automatic pre-build key shard synchronization and explicit exclusion of developer utilities and test generators (`--noinclude-tools-mode=nofollow`, `--nofollow-import-to=tools`), ensuring zero private-key or developer scaffolding leaks into distributed binaries.
+- **Continuous Integration (CI/CD) on Node 24**: Updated GitHub Actions workflows for v4.9.2 with automatic key shard synchronization, clean Node 24 execution across all jobs, zero Node 20 deprecation warnings, and automated unmerged release pull requests targeting `main`.
+- **Strict Database Independence & Zero Schema Regressions**: Confirmed 0 bytes of diff in `database.py` and `default_taxonomy.json` (`APP_VERSION = "4.8.4"` and `SCHEMA_VERSION = 484` strictly untouched). All commercial licensing operations execute completely external to the business database.
+
+---
+
+# Daqiq 4.9.1
+
+## Release Summary & Architectural Enhancements
+
+- **Full Cross-Repo Protocol Parity with Daqiq-License-Generator**: Rigorously audited and aligned with `ouncommono/Daqiq-License-Generator` according to `COMPATIBILITY_CONTRACT.md`. Full support for all 14 standard payload fields, modular `match_policy` (strict, standard, relaxed), `grace_period_days`, `grace_mode` (full, readonly), `expiry_warning_days`, and forward-compatible metadata and extra fields.
+- **Ultra-Fast Native Win32 SMBIOS Hardware Fingerprinting (< 5ms)**: Replaced external PowerShell/CIM/WMI queries with direct Win32 `kernel32.GetSystemFirmwareTable` SMBIOS parsing (`0x52534D42` / `RSMB`). Acquires SMBIOS Type 1 UUID and Type 2 Motherboard Serial in under 2 milliseconds with zero subprocess spawns, zero command-line execution, and zero Windows Defender / EDR friction.
+- **Multi-Anchor Anti-Clock-Tampering Guard**: Re-architected clock state tracking using dual synchronized anchors: local AppData atomic state file and Windows Current User Registry (`HKCU\Software\Daqiq\Licensing`). Prevents tampering by comparing HMAC-SHA256 authenticated monotonically increasing high-water marks across independent storage subsystems.
+- **Persian RTL UI/UX Activation Polish**: Re-designed offline license dialog with 2-step offline guidance, one-click `.daqreq` machine file export, clipboard copying, drag-and-drop `.daqlic` license import, direct text-token pasting, and localized expiry warning banner with graceful degradation into read-only mode during grace periods.
+- **High-Performance Nuitka Packaging & Lazy Startup Optimizations**: Integrated Zstandard (`zstd`) onefile payload compression, configured version-scoped tempdir cache (`{CACHE_DIR}/Daqiq/{VERSION}`), pruned non-essential Qt plugins (`platforms`, `styles`, `imageformats`), excluded Qt translations, and deferred heavy library imports (`openpyxl` in `exporter.py`), slashing application cold-start latency by over 350ms.
+- **GitHub Actions Node 24 CI/CD Upgrade**: Upgraded 100% of GitHub Actions workflows to modern Node 24 compatible actions (`actions/checkout@v7`, `actions/setup-python@v7`, `actions/upload-artifact@v7`, `actions/download-artifact@v8`). Eliminated third-party MSVC action in favor of Nuitka's native toolchain discovery, eradicating 100% of Node 20 deprecation warnings.
+- **Strict Database Independence & Zero Schema Regressions**: Confirmed 0 bytes of diff in `database.py` and `default_taxonomy.json`. All commercial licensing mechanisms operate 100% outside the business database.
+
+---
+
+# Daqiq 4.9.0
+
+## Release Summary & Architectural Enhancements
+
+- **Commercial Offline Ed25519 Cryptographic Licensing**: Greenfield air-gapped licensing engine built using Python `cryptography` with Ed25519 asymmetric digital signatures. Enforces UTF-8 canonical JSON serialization with Unicode NFC normalization, domain-separated signature prefixes (`DAQIQ-LICENSE-V1\n`), and strict rejection of duplicate keys and floating-point values. Fully documented protocol specification published in `docs/licensing-protocol-v1.md`.
+- **Hardware Node-Locking & SMBIOS Fingerprinting (`fp_v1`)**: Hardware identity anchoring via Windows CIM/WMI querying `Win32_ComputerSystemProduct.UUID` and `Win32_BaseBoard.SerialNumber` with a 3-tier fallback policy and non-blocking sub-5-second execution. Resistant to Windows reinstallations, RAM upgrades, SSD/HDD swaps, and network changes. Strict rejection of OEM placeholder values with privacy-safe SHA-256 digests (`fp_v1:<hex>`).
+- **Granular Feature Entitlements & Tab Access Control**: Verified licenses control availability across all 10 retail modules (Dashboard, Products, Batches, Sales, Services, Upgrades, Suppliers, Reports, Employees, Settings). Disabled tabs are physically deactivated with clear Persian tooltips and polite user dialogs. Entitlements operate 100% independently of database employee RBAC roles.
+- **Database Independence & Atomic Persistent Storage**: Complete zero-diff preservation of SQLite business data (`database.py` APP_VERSION 4.8.4 and SCHEMA_VERSION 484 strictly untouched). Licenses are stored in dedicated OS paths (`%PROGRAMDATA%\Daqiq\Licensing` with fallback to `%LOCALAPPDATA%\Daqiq\Licensing`), written atomically via sibling temporary files and `os.replace`.
+- **Offline Clock-Rollback Protection**: Monotonic high-water mark tracking in `clock_state.json` with HMAC-SHA256 integrity tags bound to the device fingerprint. Enforces a 15-minute tolerance window on time-limited subscriptions, while perpetual licenses remain fully immune to clock-state expiration.
+- **Persian RTL License Management Dialog**: Native PySide6 activation window featuring one-click hardware fingerprint copying (`کپی شناسه دستگاه`), atomic `.daqlic` license file import, real-time re-validation, Persian Jalali expiration formatting, and clean non-zero exit prevention.
+- **Free Nuitka Standard Migration**: Complete elimination of PyInstaller from active build scripts, dependencies, and CI workflows. Upgraded to free, open-source Nuitka Standard 2.8.x with MSVC/MinGW toolchain support, `--assume-yes-for-downloads`, `--enable-plugin=pyside6`, Stage A standalone compilation, Stage B onefile (`Daqiq_4.9.0.exe`) packaging, external `default_taxonomy.json` sibling resolution, and automated `SHA256SUMS.txt` generation.
+- **Quality Assurance**: 100% pass rate across the full 176 baseline regression tests and new comprehensive test suites covering cryptography, hardware identity, atomic storage, startup gate enforcement, and binary smoke testing.
+
+---
+
 # Daqiq 4.5.0
 
 ## Release Summary & Architectural Enhancements

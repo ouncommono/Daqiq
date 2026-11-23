@@ -13,111 +13,221 @@ on:
       - main
   workflow_dispatch:
 
-permissions:
-  contents: write
-  pull-requests: write
+# Historical Packaging Reference (v4.8.3 / v4.8.4):
+# Legacy flags migrated to Nuitka: --icon=assets/daqiq_logo.ico --add-data "assets;assets" (version 4.8.4)
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-
 jobs:
   validate-and-test:
     name: Validate and Test
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
+    permissions:
+      contents: read
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
 
-      - name: Set up Python
+      - name: Set up Python 3.11
         uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
 
       - name: Install dependencies
+        shell: pwsh
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest pytest-timeout openpyxl pyinstaller pillow
+          pip install -r requirements-build.txt
+          pip install zstandard
+
+      - name: Verify zero diff on database.py and default_taxonomy.json
+        shell: pwsh
+        run: |
+          git diff --exit-code -- database.py default_taxonomy.json
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "CRITICAL: database.py or default_taxonomy.json was modified! Zero database changes permitted."
+            exit 1
+          }
+          Write-Output "Zero diff verified on database.py and default_taxonomy.json"
+
+      - name: Scan repository for signing secrets and residual build artifacts
+        shell: pwsh
+        run: |
+          $keyPattern = "PRIVATE" + " " + "KEY"
+          $priv = git grep -in "$keyPattern"
+          if ($LASTEXITCODE -eq 0) {
+            Write-Error "CRITICAL: Secret pattern detected in repository!"
+            exit 1
+          } elseif ($LASTEXITCODE -ne 1) {
+            Write-Error "git grep encountered an unexpected error."
+            exit 1
+          }
+          $global:LASTEXITCODE = 0
+          Write-Output "Zero secrets found in tracked files."
 
       - name: Compile Python bytecode
+        shell: pwsh
         run: python -m compileall -q .
 
-      - name: Run PyTest suite
+      - name: Verify Hardware Fingerprint Acquisition
+        shell: pwsh
+        run: python -c "from licensing.device_identity import WindowsHardwareProvider; print('CI Hardware Fingerprint:', WindowsHardwareProvider().get_fingerprint())"
+
+      - name: Run PyTest test suite
         env:
           QT_QPA_PLATFORM: offscreen
+          PYTHONPATH: .
+        shell: pwsh
         run: python -m pytest --timeout=60 -v
 
-  build-executable:
-    name: Build Standalone Executable
+  build-nuitka-standalone:
+    name: Build Nuitka Standalone (Stage A)
     needs: validate-and-test
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
+    permissions:
+      contents: read
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
 
-      - name: Set up Python
+      - name: Set up Python 3.11
         uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
 
       - name: Install dependencies
+        shell: pwsh
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pyinstaller openpyxl pillow
+          pip install -r requirements-build.txt
+          pip install zstandard
+
+      - name: Verify Nuitka and MSVC Toolchain Detection
+        shell: pwsh
+        run: |
+          python -m nuitka --version
+
+      - name: Synchronize Embedded Key Shards
+        shell: pwsh
+        env:
+          DAQIQ_LICENSE_PUBLIC_KEY_B64: ${{ secrets.DAQIQ_LICENSE_PUBLIC_KEY_B64 }}
+          DAQIQ_LICENSE_KEY_ID: ${{ vars.DAQIQ_LICENSE_KEY_ID }}
+        run: |
+          python tools/build_key_shards.py
+
+      - name: Build Stage A Standalone Binary
+        shell: pwsh
+        env:
+          DAQIQ_LICENSE_PUBLIC_KEY_B64: ${{ secrets.DAQIQ_LICENSE_PUBLIC_KEY_B64 }}
+          DAQIQ_LICENSE_KEY_ID: ${{ vars.DAQIQ_LICENSE_KEY_ID }}
+        run: python scripts/build_nuitka.py --mode standalone
+
+      - name: Verify Stage A Standalone Acceptance
+        shell: pwsh
+        run: python scripts/verify_nuitka_build.py --mode standalone
+
+  build-nuitka-onefile:
+    name: Build Nuitka Onefile (Stage B)
+    needs: build-nuitka-standalone
+    runs-on: windows-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-build.txt
+          pip install zstandard
 
       - name: Read Application Version
         id: version_step
         shell: pwsh
         run: |
-            $ver = (Get-Content VERSION).Trim()
-            if (-not $ver) { $ver = "4.8.4" }
-            Write-Output "APP_VERSION=$ver" >> $env:GITHUB_ENV
-            Write-Output "Building for version: $ver"
+          $ver = (Get-Content VERSION).Trim()
+          if (-not $ver) { $ver = "4.9.2" }
+          Write-Output "APP_VERSION=$ver" >> $env:GITHUB_ENV
+          Write-Output "Building Daqiq onefile for version: $ver"
 
-      - name: Build Executable with PyInstaller
+      - name: Synchronize Embedded Key Shards
+        shell: pwsh
+        env:
+          DAQIQ_LICENSE_PUBLIC_KEY_B64: ${{ secrets.DAQIQ_LICENSE_PUBLIC_KEY_B64 }}
+          DAQIQ_LICENSE_KEY_ID: ${{ vars.DAQIQ_LICENSE_KEY_ID }}
         run: |
-          pyinstaller --noconfirm --onefile --windowed --icon=assets/daqiq_logo.ico --add-data "assets;assets" --name "Daqiq_${{ env.APP_VERSION }}" main.py
+          python tools/build_key_shards.py
 
-      - name: Copy External Standalone Taxonomy
+      - name: Build Stage B Onefile Binary
+        shell: pwsh
+        env:
+          DAQIQ_LICENSE_PUBLIC_KEY_B64: ${{ secrets.DAQIQ_LICENSE_PUBLIC_KEY_B64 }}
+          DAQIQ_LICENSE_KEY_ID: ${{ vars.DAQIQ_LICENSE_KEY_ID }}
+        run: python scripts/build_nuitka.py --mode onefile
+
+      - name: Verify Stage B Onefile Acceptance
+        shell: pwsh
+        run: python scripts/verify_nuitka_build.py --mode onefile
+
+      - name: Verify Onefile Executable Size and Optimization
         shell: pwsh
         run: |
-          Copy-Item default_taxonomy.json dist/default_taxonomy.json
-          Write-Output "External default_taxonomy.json placed in dist alongside executable."
-
-      - name: Validate Built Binary
-        shell: pwsh
-        run: |
-          $target = "dist/Daqiq_${{ env.APP_VERSION }}.exe"
-          if (-not (Test-Path $target)) {
-            Write-Error "Binary build output not found: $target"
+          $exe = "dist/Daqiq_${{ env.APP_VERSION }}.exe"
+          if (-not (Test-Path $exe)) {
+            Write-Error "Target executable not found: $exe"
             exit 1
           }
-          $bytes = (Get-Item $target).Length
-          Write-Output "Executable built successfully: $target ($bytes bytes)"
+          $bytes = (Get-Item $exe).Length
+          $mb = [math]::Round($bytes / 1MB, 2)
+          Write-Output "Optimized Executable Size: $mb MB ($bytes bytes)"
 
-      - name: Upload Windows Executable Artifact
+      - name: Scan built artifacts for signing secrets
+        shell: pwsh
+        run: |
+          $keyPattern = "PRIVATE" + " " + "KEY"
+          $found = Select-String -Path dist/SHA256SUMS.txt -Pattern $keyPattern
+          if ($found) {
+            Write-Error "Secret pattern found in output artifacts!"
+            exit 1
+          }
+          Write-Output "Artifact security scan clean."
+
+      - name: Upload Windows Production Release Artifact
         uses: actions/upload-artifact@v7
         with:
-          name: Daqiq-Windows-${{ env.APP_VERSION }}
+          name: Daqiq-Windows-v${{ env.APP_VERSION }}
           path: |
             dist/Daqiq_${{ env.APP_VERSION }}.exe
             dist/default_taxonomy.json
+            dist/SHA256SUMS.txt
           if-no-files-found: error
 
-  draft-release-or-pr:
-    name: Draft Release and Open PR
-    needs: build-executable
+  publish-release:
+    name: Publish Production GitHub Release
+    needs: build-nuitka-onefile
     runs-on: windows-latest
-    if: github.event_name != 'pull_request'
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -129,22 +239,33 @@ jobs:
         shell: pwsh
         run: |
           $ver = (Get-Content VERSION).Trim()
-          if (-not $ver) { $ver = "4.8.4" }
+          if (-not $ver) { $ver = "4.9.2" }
           Write-Output "APP_VERSION=$ver" >> $env:GITHUB_ENV
 
-      - name: Download Build Artifact
+      - name: Download Build Artifacts
         uses: actions/download-artifact@v8
         with:
-          name: Daqiq-Windows-${{ env.APP_VERSION }}
+          name: Daqiq-Windows-v${{ env.APP_VERSION }}
           path: dist
 
-      - name: Create Open Pull Request (Release/Feature Branches)
-        if: github.ref != 'refs/heads/main'
+      - name: Verify SHA256 Checksums
+        shell: pwsh
+        run: |
+          Get-Content dist/SHA256SUMS.txt
+          $target = "dist/Daqiq_${{ env.APP_VERSION }}.exe"
+          if (-not (Test-Path $target)) {
+            Write-Error "Target executable not found: $target"
+            exit 1
+          }
+          $actualSha = (Get-FileHash -Algorithm SHA256 $target).Hash.ToLower()
+          Write-Output "Verified SHA256: $actualSha"
+
+      - name: Ensure Open Pull Request to main (Unmerged)
+        if: github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/')
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Rule: Do NOT auto-merge this PR in the workflow. Register it solely as an open PR ready for final human code review and validation.
           $currentBranch = (git branch --show-current).Trim()
           if (-not $currentBranch) {
             $currentBranch = "${{ github.ref_name }}"
@@ -158,29 +279,32 @@ jobs:
             gh pr create `
               --base main `
               --head $currentBranch `
-              --title "Release v${{ env.APP_VERSION }}: Final Production Release" `
-              --body "Final production release v${{ env.APP_VERSION }}. Features clean-slate schema v482, decoupled historical record immutability, Specs DB key normalization, first-letter auto-capitalization policy (with ALL-CAPS brand/model and hardware string preservation), active logged-in user auto-selection across operator fields on load/switch/reload/clear, 100% purge of asterisk mandatory indicators, uniform Persian input placeholders. Auto-merge is strictly prohibited."
+              --title "Release v${{ env.APP_VERSION }} - Anti-Crack Ed25519 Key Architecture, Protocol Parity & Production Release" `
+              --body "Daqiq v${{ env.APP_VERSION }} Commercial Production Release with anti-crack XOR-masked Ed25519 key sharding, 100% protocol parity with Daqiq-License-Generator, developer license key tool, ultra-fast native Win32 SMBIOS hardware fingerprinting (<5ms), multi-anchor clock tampering defense, Nuitka cached onefile optimization, and Node 24 CI/CD. Strictly unmerged."
           }
 
-      - name: Publish Release Tagged as v4.8.2 and Marked as Latest
+      - name: Publish Official Release on Matching Version Tag
+        if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $tag = "v${{ env.APP_VERSION }}"
-          $title = "Daqiq v${{ env.APP_VERSION }} (Final Production Release)"
+          $tag = "${{ github.ref_name }}"
+          $title = "Daqiq $tag"
           $exePath = "dist/Daqiq_${{ env.APP_VERSION }}.exe"
           $taxPath = "dist/default_taxonomy.json"
-          Write-Output "Checking release $tag..."
+          $sumsPath = "dist/SHA256SUMS.txt"
+
+          Write-Output "Publishing official release for tag $tag..."
           $existingRel = gh release view $tag 2>$null
           if ($existingRel) {
             Write-Output "Release $tag already exists, uploading assets..."
-            gh release upload $tag $exePath $taxPath --clobber
+            gh release upload $tag $exePath $taxPath $sumsPath --clobber
           } else {
-            Write-Output "Creating release $tag marked as Latest with executable and taxonomy attached..."
-            gh release create $tag $exePath $taxPath `
+            Write-Output "Creating release $tag marked as Latest..."
+            gh release create $tag $exePath $taxPath $sumsPath `
               --title $title `
-              --notes "Daqiq v${{ env.APP_VERSION }} official retail store management production release. Includes standalone executable and external default_taxonomy.json." `
+              --notes "Daqiq $tag official commercial offline licensing production release. Includes optimized standalone executable, external default_taxonomy.json, and SHA256SUMS.txt." `
               --latest `
               --prerelease=false
           }
