@@ -377,7 +377,10 @@ class SecureCredentialStore:
 
 
 def get_default_taxonomy_path():
-    """Return path to default_taxonomy.json located directly alongside app_config.json."""
+    """Return path to default_taxonomy.json located directly alongside app_config.json or the executable."""
+    onefile_bin = os.environ.get("NUITKA_ONEFILE_BINARY")
+    if onefile_bin and os.path.isfile(onefile_bin):
+        return os.path.join(os.path.dirname(os.path.abspath(onefile_bin)), "default_taxonomy.json")
     config_dir = os.path.dirname(os.path.abspath(get_config_file_path()))
     return os.path.join(config_dir, "default_taxonomy.json")
 
@@ -398,9 +401,13 @@ def load_default_taxonomy_from_seed():
 
 def get_config_file_path():
     """Keep portable settings beside the executable whenever that location is writable."""
-    app_dir = os.path.dirname(os.path.abspath(
-        sys.executable if getattr(sys, "frozen", False) else __file__
-    ))
+    onefile_bin = os.environ.get("NUITKA_ONEFILE_BINARY")
+    if onefile_bin and os.path.isfile(onefile_bin):
+        app_dir = os.path.dirname(os.path.abspath(onefile_bin))
+    else:
+        app_dir = os.path.dirname(os.path.abspath(
+            sys.executable if getattr(sys, "frozen", False) else __file__
+        ))
     local_path = os.path.join(app_dir, "app_config.json")
     try:
         probe = local_path + ".write-test"

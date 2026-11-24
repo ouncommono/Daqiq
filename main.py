@@ -58,6 +58,7 @@ from database import (
 from utils_and_widgets import (
     normalize_catalog_label,
     SmartLineEdit,
+    WarrantyLineEdit,
     PriceInput,
     SearchableComboBox,
     QuantitySelector,
@@ -874,6 +875,21 @@ def _is_valid_sqlite_database_file(path):
     finally:
         if conn is not None:
             conn.close()
+
+
+def _prompt_database_password(parent=None, prompt_text="رمز عبور پایگاه داده را وارد کنید:") -> tuple:
+    """Display a localized Persian RTL password dialog with 'تأیید' and 'انصراف' buttons."""
+    from PySide6.QtWidgets import QInputDialog
+    dlg = QInputDialog(parent)
+    dlg.setWindowTitle("ورود به پایگاه داده")
+    dlg.setLabelText(prompt_text)
+    dlg.setTextEchoMode(QLineEdit.Password)
+    dlg.setOkButtonText("تأیید")
+    dlg.setCancelButtonText("انصراف")
+    dlg.setLayoutDirection(Qt.RightToLeft)
+    dlg.setInputMode(QInputDialog.TextInput)
+    ok = bool(dlg.exec())
+    return (dlg.textValue() if ok else ""), ok
 
 
 class DatabaseBootstrapDialog(QDialog):
@@ -2737,7 +2753,11 @@ class MainWindow(QMainWindow):
                     and financial_value > 0
                 ):
                     item.setForeground(QColor("#dc2626"))
-                elif receivable_column or row_is_receivable:
+                elif (
+                    (receivable_column or row_is_receivable)
+                    and financial_value is not None
+                    and financial_value > 0
+                ):
                     item.setForeground(QColor("#059669"))
                 elif highlight_col is not None and c_idx == highlight_col:
                     if text_val in ("ناموجود", "کم‌موجود", "تسویه‌نشده"):
@@ -3680,15 +3700,16 @@ class MainWindow(QMainWindow):
         self.cb_war_months.setEditable(True)
         self.cb_war_months.setInsertPolicy(QComboBox.NoInsert)
         self.cb_war_months.setLocale(QLocale.c())
-        if self.cb_war_months.lineEdit():
-            self.cb_war_months.lineEdit().setLocale(QLocale.c())
-            def _normalize_war_input(txt):
-                norm = normalize_digits(txt)
-                if norm != txt and self.cb_war_months.lineEdit():
-                    pos = self.cb_war_months.lineEdit().cursorPosition()
-                    self.cb_war_months.lineEdit().setText(norm)
-                    self.cb_war_months.lineEdit().setCursorPosition(pos)
-            self.cb_war_months.lineEdit().textEdited.connect(_normalize_war_input)
+        war_line_edit = WarrantyLineEdit("", self.cb_war_months)
+        war_line_edit.setLocale(QLocale.c())
+        self.cb_war_months.setLineEdit(war_line_edit)
+        def _normalize_war_input(txt):
+            norm = normalize_digits(txt)
+            if norm != txt:
+                pos = war_line_edit.cursorPosition()
+                war_line_edit.setText(norm)
+                war_line_edit.setCursorPosition(pos)
+        war_line_edit.textEdited.connect(_normalize_war_input)
         self.cb_war_months.setCurrentText("بدون گارانتی")
         self.cb_war_months.setToolTip(
             "مدت را از فهرست انتخاب کنید یا تعداد روز/ماه را دستی وارد کنید."
@@ -3750,7 +3771,7 @@ class MainWindow(QMainWindow):
         grid.addWidget(QLabel("رنگ‌های فروخته‌شده:"), 5, 2)
         grid.addWidget(self.btn_sale_colors, 5, 3, 1, 3)
 
-        grid.addWidget(QLabel("مشخصات فنی کالای فروخته‌شده:"), 6, 0)
+        grid.addWidget(QLabel("مشخصات فنی فروخته‌شده:"), 6, 0)
         grid.addWidget(self.ed_sale_specs, 6, 1, 1, 5)
         grid.addWidget(self.lbl_sale_summary, 7, 0, 1, 6)
 
@@ -4015,7 +4036,7 @@ class MainWindow(QMainWindow):
             self.cb_sale_batch.addItem(bidi_isolate_text(label), batch)
             self.cb_sale_batch.setItemSearchText(index, search_text)
             self.cb_sale_batch.setItemData(
-                index, mixed_bidi_tooltip(full_tooltip), Qt.ToolTipRole
+                index, bidi_isolate_text(full_tooltip), Qt.ToolTipRole
             )
         if self.cb_sale_batch.count():
             self.cb_sale_batch.setCurrentIndex(0)
@@ -7330,7 +7351,7 @@ class MainWindow(QMainWindow):
         self.cb_win_mode = QComboBox()
         self.cb_win_mode.addItem("تمام‌صفحه", "1")
         self.cb_win_mode.addItem("پنجره معمولی", "0")
-        self.ed_shop_name = SmartLineEdit()
+        self.ed_shop_name = SmartLineEdit(preserve_persian_digits=True)
         self.ed_shop_name.setPlaceholderText("نام فروشگاه را وارد کنید...")
         self.ed_shop_name.setAlignment(Qt.AlignRight)
         self.ed_shop_name.setLayoutDirection(Qt.RightToLeft)
@@ -9864,10 +9885,9 @@ class MainWindow(QMainWindow):
                 probe_db = DatabaseManager(target_path)
                 pwd = None
                 if probe_db.is_password_protected() and not probe_db.can_auto_unlock_locally():
-                    from PySide6.QtWidgets import QInputDialog
                     unlocked = False
                     for _ in range(3):
-                        p, ok = QInputDialog.getText(self, "ورود به پایگاه داده", "رمز عبور این پایگاه داده را وارد کنید:", QLineEdit.Password)
+                        p, ok = _prompt_database_password(self, "رمز عبور این پایگاه داده را وارد کنید:")
                         if not ok:
                             break
                         if probe_db.verify_database_password(p):
@@ -10158,19 +10178,49 @@ class MainWindow(QMainWindow):
 
             if self._staged_db_password_action:
                 action = self._staged_db_password_action.get("action")
-                if action == "set":
-                    req = self._staged_db_startup_prompt if self._staged_db_startup_prompt is not None else self._staged_db_password_action.get("req_startup", True)
-                    self.db.set_database_password(self._staged_db_password_action["new_pwd"], require_startup_prompt=bool(req))
-                elif action == "change":
-                    self.db.change_database_password(
-                        self._staged_db_password_action["old_pwd"],
-                        self._staged_db_password_action["new_pwd"],
-                    )
-                    if self._staged_db_startup_prompt is not None:
-                        self.db.set_startup_password_prompt_required(self._staged_db_startup_prompt)
-                elif action == "remove":
-                    self.db.remove_database_password(self._staged_db_password_action["pwd"])
-                self._staged_db_password_action = None
+                busy_dlg = None
+                try:
+                    if hasattr(self, "btn_save_settings"):
+                        self.btn_save_settings.setEnabled(False)
+                    if hasattr(self, "btn_cancel_settings"):
+                        self.btn_cancel_settings.setEnabled(False)
+                    QApplication.setOverrideCursor(Qt.WaitCursor)
+                    busy_dlg = QDialog(self)
+                    busy_dlg.setWindowTitle("اعمال تنظیمات امنیتی")
+                    busy_dlg.setWindowModality(Qt.WindowModal)
+                    busy_dlg.setLayoutDirection(Qt.RightToLeft)
+                    busy_dlg.setFixedSize(380, 110)
+                    busy_l = QVBoxLayout(busy_dlg)
+                    busy_l.setContentsMargins(16, 16, 16, 16)
+                    busy_l.setSpacing(10)
+                    lbl_busy = QLabel("لطفاً چند لحظه صبر کنید...\nدر حال اعمال رمز عبور و ذخیره تنظیمات...")
+                    lbl_busy.setAlignment(Qt.AlignCenter)
+                    lbl_busy.setStyleSheet("font-size: 10pt; font-weight: bold; color: #0284c7;")
+                    busy_l.addWidget(lbl_busy)
+                    busy_dlg.show()
+                    QApplication.processEvents()
+
+                    if action == "set":
+                        req = self._staged_db_startup_prompt if self._staged_db_startup_prompt is not None else self._staged_db_password_action.get("req_startup", True)
+                        self.db.set_database_password(self._staged_db_password_action["new_pwd"], require_startup_prompt=bool(req))
+                    elif action == "change":
+                        self.db.change_database_password(
+                            self._staged_db_password_action["old_pwd"],
+                            self._staged_db_password_action["new_pwd"],
+                        )
+                        if self._staged_db_startup_prompt is not None:
+                            self.db.set_startup_password_prompt_required(self._staged_db_startup_prompt)
+                    elif action == "remove":
+                        self.db.remove_database_password(self._staged_db_password_action["pwd"])
+                    self._staged_db_password_action = None
+                finally:
+                    if busy_dlg:
+                        busy_dlg.close()
+                    QApplication.restoreOverrideCursor()
+                    if hasattr(self, "btn_save_settings"):
+                        self.btn_save_settings.setEnabled(True)
+                    if hasattr(self, "btn_cancel_settings"):
+                        self.btn_cancel_settings.setEnabled(True)
             elif self._staged_db_startup_prompt is not None and self.db.is_password_protected():
                 self.db.set_startup_password_prompt_required(self._staged_db_startup_prompt)
             self._staged_db_startup_prompt = None
@@ -11144,10 +11194,9 @@ def main():
 
     # Database Password Startup Check (Item 13, REQ-5)
     if db.is_password_protected() and not db.can_auto_unlock_locally():
-        from PySide6.QtWidgets import QInputDialog
         unlocked = False
         for _ in range(3):
-            pwd, ok = QInputDialog.getText(None, "ورود به پایگاه داده", "رمز عبور پایگاه داده را وارد کنید:", QLineEdit.Password)
+            pwd, ok = _prompt_database_password(None, "رمز عبور پایگاه داده را وارد کنید:")
             if not ok:
                 break
             if db.verify_database_password(pwd):

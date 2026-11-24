@@ -160,6 +160,13 @@ def generate_embedded_module_source(
     return "\n".join(lines)
 
 
+class ShardResult(list):
+    """List of key fingerprints with attached fp_prefix metadata."""
+    def __init__(self, fps: List[Dict[str, str]], fp_prefix: str):
+        super().__init__(fps)
+        self.fp_prefix = fp_prefix
+
+
 def build_shards(
     output_path: str,
     manifest_path: str,
@@ -168,7 +175,7 @@ def build_shards(
     override_fp_prefix: str = None,
     extra_keys_json: str = None,
     local_config_path: str = None,
-) -> Tuple[List[Dict[str, str]], str]:
+) -> ShardResult:
     """Build key shards from environment overrides, local config, or manifest file."""
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     if local_config_path is None:
@@ -245,7 +252,7 @@ def build_shards(
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(source_code)
 
-    return fingerprints, fp_prefix
+    return ShardResult(fingerprints, fp_prefix)
 
 
 def main():
@@ -261,7 +268,7 @@ def main():
     env_fp = args.fp_prefix or os.environ.get("DAQIQ_LICENSE_FP_PREFIX")
     env_extra = os.environ.get("DAQIQ_LICENSE_EXTRA_KEYS_JSON")
 
-    fps, resolved_fp_prefix = build_shards(
+    res = build_shards(
         output_path=args.output,
         manifest_path=args.manifest,
         override_key_b64=env_key,
@@ -270,6 +277,8 @@ def main():
         extra_keys_json=env_extra,
         local_config_path=args.local_config,
     )
+    fps = list(res)
+    resolved_fp_prefix = getattr(res, "fp_prefix", "fp_v1:")
 
     print(f"Successfully generated embedded key shards at: {args.output}")
     print(f"  * Configured Fingerprint Prefix: {resolved_fp_prefix}")

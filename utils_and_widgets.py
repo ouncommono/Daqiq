@@ -384,9 +384,10 @@ class CollapsibleSection(QWidget):
 class SmartLineEdit(QLineEdit):
     """فیلد متنی هوشمند با تبدیل اعداد به انگلیسی و بزرگ‌نویسی خودکار حرف اول (یا تمام حروف برای برند و مدل)."""
 
-    def __init__(self, placeholder="", parent=None, all_caps=False):
+    def __init__(self, placeholder="", parent=None, all_caps=False, preserve_persian_digits=False):
         super().__init__(parent)
         self.all_caps = bool(all_caps)
+        self.preserve_persian_digits = bool(preserve_persian_digits)
         if placeholder:
             self.setPlaceholderText(placeholder)
         self.textEdited.connect(self._on_text_edited)
@@ -394,9 +395,18 @@ class SmartLineEdit(QLineEdit):
     def _transform_text(self, txt: str) -> str:
         if not txt:
             return ""
+        if self.preserve_persian_digits:
+            for i, ch in enumerate(txt):
+                if ch.isspace():
+                    continue
+                if ch.islower():
+                    return txt[:i] + ch.upper() + txt[i + 1:]
+                break
+            return txt
         if self.all_caps:
             return auto_capitalize_english(txt)
         return auto_capitalize_first_char(txt)
+
 
     def _on_text_edited(self, txt):
         new_txt = self._transform_text(txt)
@@ -418,6 +428,26 @@ class SmartLineEdit(QLineEdit):
 
     def text(self) -> str:
         return self._transform_text(super().text())
+
+
+class WarrantyLineEdit(SmartLineEdit):
+    """فیلد ویرایش مدت گارانتی با انتخاب هوشمند صرفاً بخش عددی هنگام کلیک یا فوکوس."""
+
+    def mousePressEvent(self, event):
+        super().mousePressEvent(event)
+        self._select_digits_only()
+
+    def focusInEvent(self, event):
+        super().focusInEvent(event)
+        self._select_digits_only()
+
+    def _select_digits_only(self):
+        txt = self.text().strip()
+        m = re.match(r"^([0-9\u06f0-\u06f9]+)", txt)
+        if m:
+            start = m.start(1)
+            length = len(m.group(1))
+            QTimer.singleShot(0, lambda: self.setSelection(start, length))
 
 
 class PriceInput(QLineEdit):
