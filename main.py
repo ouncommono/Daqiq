@@ -879,26 +879,35 @@ def _is_valid_sqlite_database_file(path):
 class DatabaseBootstrapDialog(QDialog):
     """First-run wizard for creating a database file or connecting an existing one."""
 
-    def __init__(self, default_path, parent=None):
+    def __init__(self, default_path, parent=None, is_dark_theme: bool = False):
         super().__init__(parent)
         self.setWindowTitle("راه‌اندازی اولیه پایگاه داده")
         self.setLayoutDirection(Qt.RightToLeft)
-        self.setMinimumWidth(560)
+        self.setMinimumWidth(580)
         self.selected_path = None
+        self.is_dark_theme = is_dark_theme
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(18, 18, 18, 16)
         layout.setSpacing(12)
 
+        header_row = QHBoxLayout()
         title = QLabel("برای شروع، پایگاه دادهٔ فروشگاه را انتخاب کنید")
-        title.setStyleSheet("font-size: 16px; font-weight: bold;")
+        title.setStyleSheet("font-size: 15px; font-weight: bold;")
+        header_row.addWidget(title, 1)
+
+        self.btn_theme_toggle = QPushButton()
+        self.btn_theme_toggle.setCursor(Qt.PointingHandCursor)
+        self.btn_theme_toggle.clicked.connect(self._toggle_theme)
+        header_row.addWidget(self.btn_theme_toggle)
+        layout.addLayout(header_row)
+
         detail = QLabel(
             "می‌توانید یک پایگاه دادهٔ جدید بسازید یا فایل پایگاه دادهٔ قبلی خود را به برنامه متصل کنید. "
             "مسیر پیشنهادی قابل ویرایش است."
         )
         detail.setWordWrap(True)
         detail.setObjectName("settingsHint")
-        layout.addWidget(title)
         layout.addWidget(detail)
 
         self.rb_create = QRadioButton("ایجاد پایگاه دادهٔ جدید در مسیر زیر")
@@ -926,6 +935,44 @@ class DatabaseBootstrapDialog(QDialog):
         buttons.accepted.connect(self._validate_and_accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+        self._apply_theme()
+
+    def _toggle_theme(self):
+        self.is_dark_theme = not self.is_dark_theme
+        try:
+            cfg = load_app_config()
+            cfg["theme"] = "dark" if self.is_dark_theme else "light"
+            save_app_config(cfg)
+        except Exception:
+            pass
+        self._apply_theme()
+
+    def _apply_theme(self):
+        if self.is_dark_theme:
+            self.setStyleSheet(
+                "QDialog { background-color: #0f172a; color: #f8fafc; } "
+                "QLabel { color: #f1f5f9; } "
+                "QRadioButton { color: #f1f5f9; font-size: 11px; } "
+                "QLineEdit { background-color: #1e293b; color: #f8fafc; border: 1px solid #475569; padding: 6px; border-radius: 4px; } "
+                "QPushButton { background-color: #334155; color: #f8fafc; border: 1px solid #64748b; padding: 6px 12px; border-radius: 4px; } "
+            )
+            self.btn_theme_toggle.setText("☀️ حالت روشن")
+            self.btn_theme_toggle.setStyleSheet(
+                "background-color: #334155; color: #f8fafc; border: 1px solid #64748b; border-radius: 6px; padding: 4px 10px; font-weight: bold;"
+            )
+        else:
+            self.setStyleSheet(
+                "QDialog { background-color: #f8fafc; color: #0f172a; } "
+                "QLabel { color: #0f172a; } "
+                "QRadioButton { color: #0f172a; font-size: 11px; } "
+                "QLineEdit { background-color: #ffffff; color: #0f172a; border: 1px solid #cbd5e1; padding: 6px; border-radius: 4px; } "
+                "QPushButton { background-color: #f1f5f9; color: #0f172a; border: 1px solid #cbd5e1; padding: 6px 12px; border-radius: 4px; } "
+            )
+            self.btn_theme_toggle.setText("🌙 حالت تاریک")
+            self.btn_theme_toggle.setStyleSheet(
+                "background-color: #f1f5f9; color: #0f172a; border: 1px solid #cbd5e1; border-radius: 6px; padding: 4px 10px; font-weight: bold;"
+            )
 
     def _browse(self):
         current = self.ed_path.text().strip()
@@ -1017,7 +1064,7 @@ def select_startup_database_path(parent=None):
             base_dir = os.path.dirname(base_dir)
         default_path = resolve_new_database_filename(base_dir)
 
-    dialog = DatabaseBootstrapDialog(default_path, parent)
+    dialog = DatabaseBootstrapDialog(default_path, parent, is_dark_theme=(config.get("theme", "light") == "dark"))
     if _is_valid_sqlite_database_file(default_path):
         dialog.rb_existing.setChecked(True)
     if dialog.exec() != QDialog.Accepted or not dialog.selected_path:
@@ -2586,7 +2633,7 @@ class MainWindow(QMainWindow):
         icon_path = resource_path("assets/daqiq_logo.png")
         service = getattr(self, "license_service", None) or LicenseService(app_version=APP_VERSION)
         dark = self.db.cfg.get("theme", "light") == "dark" if hasattr(self, "db") and self.db else False
-        dlg = LicenseDialog(service, parent=self, icon_path=icon_path, is_dark_theme=dark)
+        dlg = LicenseDialog(service, parent=self, icon_path=icon_path, is_dark_theme=dark, is_startup_gate=False)
         dlg.exec()
         self._apply_employee_permissions()
 
@@ -7082,7 +7129,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.lbl_app_version)
 
         lic_btn_row = QHBoxLayout()
-        btn_license_mgmt = QPushButton("📜 مدیریت و وضعیت لایسنس تجاری")
+        btn_license_mgmt = QPushButton("📜 مدیریت و وضعیت لایسنس")
         btn_license_mgmt.setStyleSheet(
             "background-color: #0f766e; color: white; padding: 6px 14px; font-weight: bold; border-radius: 6px;"
         )
@@ -11076,9 +11123,13 @@ def main():
                 pass
         sys.exit(0)
     if not val_res.is_valid:
+        startup_cfg = load_app_config()
+        startup_dark = startup_cfg.get("theme", "light") == "dark"
         dlg = LicenseDialog(
             service=license_service,
             icon_path=icon_path if os.path.exists(icon_path) else None,
+            is_dark_theme=startup_dark,
+            is_startup_gate=True,
         )
         if dlg.exec() != QDialog.Accepted:
             sys.exit(0)
