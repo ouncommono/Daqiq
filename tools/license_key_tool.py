@@ -59,15 +59,20 @@ def cmd_inspect(args):
     # 2. Embedded Shards
     embedded_keys: Dict[str, bytes] = {}
     embedded_valid = False
+    configured_fp_prefix = "fp_v1:"
     if os.path.isfile(embedded_path):
         try:
             embedded_keys = get_embedded_public_keys()
             embedded_valid = True
+            from licensing._embedded_keys import get_embedded_fp_prefix
+            configured_fp_prefix = get_embedded_fp_prefix()
             print(f"Embedded Module: {embedded_path} (Integrity check PASSED)")
         except Exception as e:
             print(f"Embedded Module: {embedded_path} (Integrity check FAILED: {e})")
     else:
         print(f"Embedded Module: NOT FOUND ({embedded_path})")
+
+    print(f"FP Prefix:       {configured_fp_prefix}")
 
     print("-" * 70)
     print(f"{'Key ID':<18} {'Fingerprint':<16} {'In Sync?':<10} {'Canonical Base64'}")
@@ -135,7 +140,8 @@ def cmd_set_public_key(args):
         json.dump(manifest, f, indent=2)
 
     # Regenerate shards
-    build_shards(output_path=embedded_path, manifest_path=manifest_path)
+    fp_prefix = getattr(args, "fp_prefix", None)
+    build_shards(output_path=embedded_path, manifest_path=manifest_path, fp_prefix=fp_prefix)
 
     print("=" * 70)
     print("  PUBLIC KEY REGISTERED & SHARDS COMPILED SUCCESSFULLY")
@@ -294,7 +300,7 @@ def cmd_verify_license(args):
         res = verifier.validate_license(
             envelope=envelope,
             current_hardware_fingerprint=target_fp,
-            current_app_version="4.9.2",
+            current_app_version="4.9.3",
         )
         print("-" * 70)
         print(f"  Evaluation Status:  {res.status.value}")
@@ -317,6 +323,7 @@ def main():
     p_set = subparsers.add_parser("set-public-key", help="Register a public key and recompile shards")
     p_set.add_argument("--key", required=True, help="Base64, Hex, PEM string, or path to key file")
     p_set.add_argument("--key-id", default="daqiq-prod-v1", help="Key ID (default: daqiq-prod-v1)")
+    p_set.add_argument("--fp-prefix", default=None, help="Hardware fingerprint prefix (default: fp_v1:)")
 
     # generate-keypair
     p_gen = subparsers.add_parser("generate-keypair", help="Generate Ed25519 keypair outside the git repo")

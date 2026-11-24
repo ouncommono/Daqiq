@@ -58,6 +58,7 @@ from database import (
 from utils_and_widgets import (
     normalize_catalog_label,
     SmartLineEdit,
+    WarrantyLineEdit,
     PriceInput,
     SearchableComboBox,
     QuantitySelector,
@@ -80,6 +81,18 @@ from exporter import (
     export_safe_inventory_excel,
     export_table_to_excel,
     get_next_excel_filename,
+    INVENTORY_EXPORT_AVAILABLE_COLUMNS,
+)
+import datetime_format
+from datetime_format import (
+    CALENDAR_JALALI,
+    CALENDAR_HIJRI,
+    CALENDAR_GREGORIAN,
+    TIME_FORMAT_24H,
+    TIME_FORMAT_12H,
+    CALENDAR_NAMES_FA,
+    TIME_FORMAT_NAMES_FA,
+    migrate_database_datetime,
 )
 
 def _load_app_version() -> str:
@@ -92,7 +105,7 @@ def _load_app_version() -> str:
                     return ver
         except Exception:
             pass
-    return "4.9.2"
+    return "4.9.3"
 
 APP_VERSION = _load_app_version()
 
@@ -341,6 +354,21 @@ class SettingsSnapshot:
         self.color_text = win.ed_cfg_color.text() if hasattr(win, "ed_cfg_color") else ""
         self.staged_db_password_action = copy.deepcopy(getattr(win, "_staged_db_password_action", None))
         self.staged_db_startup_prompt = getattr(win, "_staged_db_startup_prompt", None)
+        cal = win.cb_calendar_format.currentData() if hasattr(win, "cb_calendar_format") else "jalali"
+        self.calendar_format = cal if isinstance(cal, str) else "jalali"
+        tf = win.cb_time_format.currentData() if hasattr(win, "cb_time_format") else "24h"
+        self.time_format = tf if isinstance(tf, str) else "24h"
+        self.inventory_export_items = []
+        if hasattr(win, "lst_inventory_export_columns"):
+            try:
+                cnt = win.lst_inventory_export_columns.count()
+                if isinstance(cnt, int):
+                    for i in range(cnt):
+                        it = win.lst_inventory_export_columns.item(i)
+                        if it is not None:
+                            self.inventory_export_items.append((it.data(Qt.UserRole), it.text(), it.checkState() == Qt.Checked))
+            except Exception:
+                pass
 
     def restore(self, win):
         win.db.cfg = copy.deepcopy(self.cfg)
@@ -351,6 +379,16 @@ class SettingsSnapshot:
         win._load_general_settings_form()
         win._taxonomy_draft = copy.deepcopy(self.taxonomy_draft)
         win._refresh_catalog_draft_ui()
+        if hasattr(win, "cb_calendar_format") and hasattr(self, "calendar_format"):
+            idx = win.cb_calendar_format.findData(self.calendar_format)
+            if isinstance(idx, int) and idx >= 0:
+                win.cb_calendar_format.setCurrentIndex(idx)
+        if hasattr(win, "cb_time_format") and hasattr(self, "time_format"):
+            idx = win.cb_time_format.findData(self.time_format)
+            if isinstance(idx, int) and idx >= 0:
+                win.cb_time_format.setCurrentIndex(idx)
+        if hasattr(win, "lst_inventory_export_columns") and hasattr(self, "inventory_export_items") and self.inventory_export_items:
+            win._populate_inventory_export_columns_ui(self.inventory_export_items)
         if hasattr(win, "ed_cfg_category"):
             win.ed_cfg_category.setText(self.category_text)
         if hasattr(win, "ed_cfg_subcategory"):
@@ -876,29 +914,197 @@ def _is_valid_sqlite_database_file(path):
             conn.close()
 
 
+def _prompt_database_password(parent=None, prompt_text="رمز عبور پایگاه داده را وارد کنید:") -> tuple:
+    """Display a localized Persian RTL password dialog with 'تأیید' and 'انصراف' buttons."""
+    from PySide6.QtWidgets import QInputDialog
+    dlg = QInputDialog(parent)
+    dlg.setWindowTitle("ورود به پایگاه داده")
+    dlg.setLabelText(prompt_text)
+    dlg.setTextEchoMode(QLineEdit.Password)
+    dlg.setOkButtonText("تأیید")
+    dlg.setCancelButtonText("انصراف")
+    dlg.setLayoutDirection(Qt.RightToLeft)
+    dlg.setInputMode(QInputDialog.TextInput)
+    ok = bool(dlg.exec())
+    return (dlg.textValue() if ok else ""), ok
+
+
+class DatetimeMigrationChoiceDialog(QDialog):
+    """3-button dialog when calendar or time format changes."""
+    MIGRATE_ALL = 1
+    APPLY_NEW_ONLY = 2
+    CANCEL = 0
+
+    def __init__(self, from_cal, to_cal, from_time, to_time, parent=None):
+        super().__init__(parent)
+        self.choice = self.CANCEL
+        self.setWindowTitle("تغییر قالب تقویم و ساعت")
+        self.setLayoutDirection(Qt.RightToLeft)
+        self.setFixedSize(520, 260)
+        self.setWindowModality(Qt.WindowModal)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(14)
+
+        from_cal_name = CALENDAR_NAMES_FA.get(from_cal, from_cal)
+        to_cal_name = CALENDAR_NAMES_FA.get(to_cal, to_cal)
+        from_time_name = TIME_FORMAT_NAMES_FA.get(from_time, from_time)
+        to_time_name = TIME_FORMAT_NAMES_FA.get(to_time, to_time)
+
+        msg = (
+            f"قالب تقویم یا ساعت پایگاه داده تغییر کرده است:\n"
+            f"• تقویم: از «{from_cal_name}» به «{to_cal_name}»\n"
+            f"• ساعت: از «{from_time_name}» به «{to_time_name}»\n\n"
+            f"لطفاً نحوه اعمال این تغییر را مشخص نمایید:"
+        )
+        lbl = QLabel(msg)
+        lbl.setWordWrap(True)
+        lbl.setStyleSheet("font-size: 10pt; line-height: 1.6;")
+        layout.addWidget(lbl)
+
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(10)
+
+        btn_migrate_all = QPushButton("تغییر تاریخ و ساعت تمامی اطلاعات قبلی")
+        btn_migrate_all.setStyleSheet("background-color: #0284c7; color: white; font-weight: bold; padding: 8px 10px; border-radius: 6px;")
+        btn_migrate_all.clicked.connect(self._choose_all)
+
+        btn_new_only = QPushButton("اعمال فقط برای جدید")
+        btn_new_only.setStyleSheet("background-color: #059669; color: white; font-weight: bold; padding: 8px 10px; border-radius: 6px;")
+        btn_new_only.clicked.connect(self._choose_new)
+
+        btn_cancel = QPushButton("انصراف")
+        btn_cancel.setStyleSheet("background-color: #6b7280; color: white; font-weight: bold; padding: 8px 10px; border-radius: 6px;")
+        btn_cancel.clicked.connect(self._choose_cancel)
+
+        btn_layout.addWidget(btn_migrate_all)
+        btn_layout.addWidget(btn_new_only)
+        btn_layout.addWidget(btn_cancel)
+
+        layout.addLayout(btn_layout)
+
+    def _choose_all(self):
+        self.choice = self.MIGRATE_ALL
+        self.accept()
+
+    def _choose_new(self):
+        self.choice = self.APPLY_NEW_ONLY
+        self.accept()
+
+    def _choose_cancel(self):
+        self.choice = self.CANCEL
+        self.reject()
+
+
+class _InventoryColumnChecksProxy:
+    """Compatibility adapter for tests/code accessing win.inventory_export_column_checks[key].isChecked()"""
+    def __init__(self, win):
+        self._win = win
+
+    class _ItemProxy:
+        def __init__(self, is_checked_fn, set_checked_fn):
+            self._is_checked_fn = is_checked_fn
+            self._set_checked_fn = set_checked_fn
+
+        def isChecked(self):
+            return self._is_checked_fn()
+
+        def setChecked(self, val):
+            self._set_checked_fn(val)
+
+    def __getitem__(self, key):
+        def _get():
+            lst = getattr(self._win, "lst_inventory_export_columns", None)
+            if not lst:
+                return False
+            for i in range(lst.count()):
+                it = lst.item(i)
+                if it.data(Qt.UserRole) == key:
+                    return it.checkState() == Qt.Checked
+            return False
+
+        def _set(val):
+            lst = getattr(self._win, "lst_inventory_export_columns", None)
+            if not lst:
+                return
+            for i in range(lst.count()):
+                it = lst.item(i)
+                if it.data(Qt.UserRole) == key:
+                    it.setCheckState(Qt.Checked if val else Qt.Unchecked)
+                    break
+
+        return self._ItemProxy(_get, _set)
+
+    def __len__(self):
+        lst = getattr(self._win, "lst_inventory_export_columns", None)
+        return lst.count() if lst is not None else 0
+
+    def __iter__(self):
+        lst = getattr(self._win, "lst_inventory_export_columns", None)
+        if lst:
+            for i in range(lst.count()):
+                it = lst.item(i)
+                yield it.data(Qt.UserRole)
+
+    def keys(self):
+        return list(self)
+
+    def values(self):
+        return [self[k] for k in self]
+
+    def items(self):
+        lst = getattr(self._win, "lst_inventory_export_columns", None)
+        res = []
+        if lst:
+            for i in range(lst.count()):
+                it = lst.item(i)
+                k = it.data(Qt.UserRole)
+                res.append((k, self[k]))
+        return res
+
+    def __contains__(self, key):
+        lst = getattr(self._win, "lst_inventory_export_columns", None)
+        if not lst:
+            return False
+        for i in range(lst.count()):
+            if lst.item(i).data(Qt.UserRole) == key:
+                return True
+        return False
+
+
 class DatabaseBootstrapDialog(QDialog):
     """First-run wizard for creating a database file or connecting an existing one."""
 
-    def __init__(self, default_path, parent=None):
+    def __init__(self, default_path, parent=None, is_dark_theme: bool = False):
         super().__init__(parent)
         self.setWindowTitle("راه‌اندازی اولیه پایگاه داده")
         self.setLayoutDirection(Qt.RightToLeft)
-        self.setMinimumWidth(560)
+        self.setMinimumWidth(580)
         self.selected_path = None
+        self.is_dark_theme = is_dark_theme
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(18, 18, 18, 16)
         layout.setSpacing(12)
 
+        header_row = QHBoxLayout()
         title = QLabel("برای شروع، پایگاه دادهٔ فروشگاه را انتخاب کنید")
-        title.setStyleSheet("font-size: 16px; font-weight: bold;")
+        title.setStyleSheet("font-size: 15px; font-weight: bold;")
+        header_row.addWidget(title, 1)
+
+        self.btn_theme_toggle = QPushButton()
+        self.btn_theme_toggle.setCursor(Qt.PointingHandCursor)
+        self.btn_theme_toggle.clicked.connect(self._toggle_theme)
+        header_row.addWidget(self.btn_theme_toggle)
+        layout.addLayout(header_row)
+
         detail = QLabel(
             "می‌توانید یک پایگاه دادهٔ جدید بسازید یا فایل پایگاه دادهٔ قبلی خود را به برنامه متصل کنید. "
             "مسیر پیشنهادی قابل ویرایش است."
         )
         detail.setWordWrap(True)
         detail.setObjectName("settingsHint")
-        layout.addWidget(title)
         layout.addWidget(detail)
 
         self.rb_create = QRadioButton("ایجاد پایگاه دادهٔ جدید در مسیر زیر")
@@ -926,6 +1132,44 @@ class DatabaseBootstrapDialog(QDialog):
         buttons.accepted.connect(self._validate_and_accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+        self._apply_theme()
+
+    def _toggle_theme(self):
+        self.is_dark_theme = not self.is_dark_theme
+        try:
+            cfg = load_app_config()
+            cfg["theme"] = "dark" if self.is_dark_theme else "light"
+            save_app_config(cfg)
+        except Exception:
+            pass
+        self._apply_theme()
+
+    def _apply_theme(self):
+        if self.is_dark_theme:
+            self.setStyleSheet(
+                "QDialog { background-color: #0f172a; color: #f8fafc; } "
+                "QLabel { color: #f1f5f9; } "
+                "QRadioButton { color: #f1f5f9; font-size: 11px; } "
+                "QLineEdit { background-color: #1e293b; color: #f8fafc; border: 1px solid #475569; padding: 6px; border-radius: 4px; } "
+                "QPushButton { background-color: #334155; color: #f8fafc; border: 1px solid #64748b; padding: 6px 12px; border-radius: 4px; } "
+            )
+            self.btn_theme_toggle.setText("☀️ حالت روشن")
+            self.btn_theme_toggle.setStyleSheet(
+                "background-color: #334155; color: #f8fafc; border: 1px solid #64748b; border-radius: 6px; padding: 4px 10px; font-weight: bold;"
+            )
+        else:
+            self.setStyleSheet(
+                "QDialog { background-color: #f8fafc; color: #0f172a; } "
+                "QLabel { color: #0f172a; } "
+                "QRadioButton { color: #0f172a; font-size: 11px; } "
+                "QLineEdit { background-color: #ffffff; color: #0f172a; border: 1px solid #cbd5e1; padding: 6px; border-radius: 4px; } "
+                "QPushButton { background-color: #f1f5f9; color: #0f172a; border: 1px solid #cbd5e1; padding: 6px 12px; border-radius: 4px; } "
+            )
+            self.btn_theme_toggle.setText("🌙 حالت تاریک")
+            self.btn_theme_toggle.setStyleSheet(
+                "background-color: #f1f5f9; color: #0f172a; border: 1px solid #cbd5e1; border-radius: 6px; padding: 4px 10px; font-weight: bold;"
+            )
 
     def _browse(self):
         current = self.ed_path.text().strip()
@@ -1017,7 +1261,11 @@ def select_startup_database_path(parent=None):
             base_dir = os.path.dirname(base_dir)
         default_path = resolve_new_database_filename(base_dir)
 
-    dialog = DatabaseBootstrapDialog(default_path, parent)
+    is_dark = (config.get("theme", "light") == "dark")
+    if is_dark:
+        dialog = DatabaseBootstrapDialog(default_path, parent, is_dark_theme=True)
+    else:
+        dialog = DatabaseBootstrapDialog(default_path, parent)
     if _is_valid_sqlite_database_file(default_path):
         dialog.rb_existing.setChecked(True)
     if dialog.exec() != QDialog.Accepted or not dialog.selected_path:
@@ -1185,6 +1433,21 @@ class MainWindow(QMainWindow):
                 "activeUser",
             }:
                 label.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
+
+    def get_active_calendar(self) -> str:
+        return self.db.get_setting("calendar_format", "jalali") or "jalali"
+
+    def get_active_time_format(self) -> str:
+        return self.db.get_setting("time_format", "24h") or "24h"
+
+    def get_today_date_str(self) -> str:
+        return datetime_format.get_today_date(self.get_active_calendar())
+
+    def get_now_time_str(self) -> str:
+        return datetime_format.get_now_time(self.get_active_time_format())
+
+    def get_now_datetime_str(self) -> str:
+        return datetime_format.get_now_datetime(self.get_active_calendar(), self.get_active_time_format())
 
     def _switch_active_employee(self):
         with self.db.get_connection() as conn:
@@ -2385,10 +2648,7 @@ class MainWindow(QMainWindow):
         )
         if path:
             try:
-                selected_columns = [
-                    key for key, checkbox in self.inventory_export_column_checks.items()
-                    if checkbox.isChecked()
-                ]
+                selected_columns = self._get_selected_inventory_export_columns()
                 if not selected_columns:
                     QMessageBox.warning(
                         self, "خروجی موجودی همکار",
@@ -2586,7 +2846,7 @@ class MainWindow(QMainWindow):
         icon_path = resource_path("assets/daqiq_logo.png")
         service = getattr(self, "license_service", None) or LicenseService(app_version=APP_VERSION)
         dark = self.db.cfg.get("theme", "light") == "dark" if hasattr(self, "db") and self.db else False
-        dlg = LicenseDialog(service, parent=self, icon_path=icon_path, is_dark_theme=dark)
+        dlg = LicenseDialog(service, parent=self, icon_path=icon_path, is_dark_theme=dark, is_startup_gate=False)
         dlg.exec()
         self._apply_employee_permissions()
 
@@ -2690,7 +2950,11 @@ class MainWindow(QMainWindow):
                     and financial_value > 0
                 ):
                     item.setForeground(QColor("#dc2626"))
-                elif receivable_column or row_is_receivable:
+                elif (
+                    (receivable_column or row_is_receivable)
+                    and financial_value is not None
+                    and financial_value > 0
+                ):
                     item.setForeground(QColor("#059669"))
                 elif highlight_col is not None and c_idx == highlight_col:
                     if text_val in ("ناموجود", "کم‌موجود", "تسویه‌نشده"):
@@ -3633,15 +3897,16 @@ class MainWindow(QMainWindow):
         self.cb_war_months.setEditable(True)
         self.cb_war_months.setInsertPolicy(QComboBox.NoInsert)
         self.cb_war_months.setLocale(QLocale.c())
-        if self.cb_war_months.lineEdit():
-            self.cb_war_months.lineEdit().setLocale(QLocale.c())
-            def _normalize_war_input(txt):
-                norm = normalize_digits(txt)
-                if norm != txt and self.cb_war_months.lineEdit():
-                    pos = self.cb_war_months.lineEdit().cursorPosition()
-                    self.cb_war_months.lineEdit().setText(norm)
-                    self.cb_war_months.lineEdit().setCursorPosition(pos)
-            self.cb_war_months.lineEdit().textEdited.connect(_normalize_war_input)
+        war_line_edit = WarrantyLineEdit("", self.cb_war_months)
+        war_line_edit.setLocale(QLocale.c())
+        self.cb_war_months.setLineEdit(war_line_edit)
+        def _normalize_war_input(txt):
+            norm = normalize_digits(txt)
+            if norm != txt:
+                pos = war_line_edit.cursorPosition()
+                war_line_edit.setText(norm)
+                war_line_edit.setCursorPosition(pos)
+        war_line_edit.textEdited.connect(_normalize_war_input)
         self.cb_war_months.setCurrentText("بدون گارانتی")
         self.cb_war_months.setToolTip(
             "مدت را از فهرست انتخاب کنید یا تعداد روز/ماه را دستی وارد کنید."
@@ -3703,7 +3968,7 @@ class MainWindow(QMainWindow):
         grid.addWidget(QLabel("رنگ‌های فروخته‌شده:"), 5, 2)
         grid.addWidget(self.btn_sale_colors, 5, 3, 1, 3)
 
-        grid.addWidget(QLabel("مشخصات فنی کالای فروخته‌شده:"), 6, 0)
+        grid.addWidget(QLabel("مشخصات فنی فروخته‌شده:"), 6, 0)
         grid.addWidget(self.ed_sale_specs, 6, 1, 1, 5)
         grid.addWidget(self.lbl_sale_summary, 7, 0, 1, 6)
 
@@ -6202,8 +6467,9 @@ class MainWindow(QMainWindow):
 
             else:
                 custom_defs = self._get_custom_report_definitions()
+                exp_cfgs = self._get_report_excel_export_configs()
                 if rep_type in custom_defs:
-                    selected_cols = custom_defs[rep_type]
+                    selected_cols = exp_cfgs.get(rep_type, custom_defs[rep_type])
                     headers = list(selected_cols)
                     joined_query = conn.execute("""
                         SELECT s.id as sale_id, s.invoice_number, s.sale_datetime, s.qty,
@@ -6768,7 +7034,7 @@ class MainWindow(QMainWindow):
         btn_reset_default.setMinimumHeight(32)
         btn_reset_default.clicked.connect(self._reset_report_export_cols_default)
 
-        btn_save_report_cfg = QPushButton("💾 ذخیره تنظیمات این گزارش")
+        btn_save_report_cfg = QPushButton("✏️ ویرایش لیست گزارش")
         btn_save_report_cfg.setObjectName("btnSuccess")
         btn_save_report_cfg.setMinimumHeight(36)
         btn_save_report_cfg.clicked.connect(self._save_report_export_config_ui)
@@ -6967,6 +7233,9 @@ class MainWindow(QMainWindow):
             item = self.lst_report_export_columns.takeItem(row)
             self.lst_report_export_columns.insertItem(row - 1, item)
             self.lst_report_export_columns.setCurrentRow(row - 1)
+            self._save_report_export_config_internal()
+            if hasattr(self, "_update_report_live"):
+                self._update_report_live()
 
     def _move_report_export_col_down(self):
         row = self.lst_report_export_columns.currentRow()
@@ -6974,6 +7243,110 @@ class MainWindow(QMainWindow):
             item = self.lst_report_export_columns.takeItem(row)
             self.lst_report_export_columns.insertItem(row + 1, item)
             self.lst_report_export_columns.setCurrentRow(row + 1)
+            self._save_report_export_config_internal()
+            if hasattr(self, "_update_report_live"):
+                self._update_report_live()
+
+    def _move_inventory_export_col_up(self):
+        if not hasattr(self, "lst_inventory_export_columns"):
+            return
+        row = self.lst_inventory_export_columns.currentRow()
+        if row > 0:
+            item = self.lst_inventory_export_columns.takeItem(row)
+            self.lst_inventory_export_columns.insertItem(row - 1, item)
+            self.lst_inventory_export_columns.setCurrentRow(row - 1)
+
+    def _move_inventory_export_col_down(self):
+        if not hasattr(self, "lst_inventory_export_columns"):
+            return
+        row = self.lst_inventory_export_columns.currentRow()
+        if 0 <= row < self.lst_inventory_export_columns.count() - 1:
+            item = self.lst_inventory_export_columns.takeItem(row)
+            self.lst_inventory_export_columns.insertItem(row + 1, item)
+            self.lst_inventory_export_columns.setCurrentRow(row + 1)
+
+    def _set_all_inventory_export_cols(self, checked: bool):
+        if not hasattr(self, "lst_inventory_export_columns"):
+            return
+        st = Qt.Checked if checked else Qt.Unchecked
+        for i in range(self.lst_inventory_export_columns.count()):
+            self.lst_inventory_export_columns.item(i).setCheckState(st)
+
+    def _reset_inventory_export_cols_default(self):
+        default_keys = {"code", "batch_code", "category", "subcategory", "brand_model", "specs"}
+        self._populate_inventory_export_columns_ui(selected_keys=default_keys)
+
+    def _populate_inventory_export_columns_ui(self, items_or_keys=None, selected_keys=None):
+        if not hasattr(self, "lst_inventory_export_columns"):
+            return
+        self.lst_inventory_export_columns.clear()
+
+        all_cols = INVENTORY_EXPORT_AVAILABLE_COLUMNS
+        col_map = dict(all_cols)
+
+        if items_or_keys is not None and isinstance(items_or_keys, list) and items_or_keys and isinstance(items_or_keys[0], tuple):
+            added_keys = set()
+            for key, text, is_checked in items_or_keys:
+                if key in col_map:
+                    it = QListWidgetItem(text or col_map[key])
+                    it.setData(Qt.UserRole, key)
+                    it.setFlags(it.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsDragEnabled)
+                    it.setCheckState(Qt.Checked if is_checked else Qt.Unchecked)
+                    self.lst_inventory_export_columns.addItem(it)
+                    added_keys.add(key)
+            for key, text in all_cols:
+                if key not in added_keys:
+                    it = QListWidgetItem(text)
+                    it.setData(Qt.UserRole, key)
+                    it.setFlags(it.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsDragEnabled)
+                    it.setCheckState(Qt.Unchecked)
+                    self.lst_inventory_export_columns.addItem(it)
+            return
+
+        if items_or_keys is None:
+            raw = self.db.get_setting("colleague_inventory_export_columns", "[]")
+            try:
+                saved_keys = json.loads(raw or "[]")
+            except Exception:
+                saved_keys = []
+            if not saved_keys:
+                saved_keys = ["code", "batch_code", "category", "subcategory", "brand_model", "specs"]
+        else:
+            saved_keys = list(items_or_keys)
+
+        active_checked = set(selected_keys) if selected_keys is not None else set(saved_keys)
+
+        added_keys = set()
+        for key in saved_keys:
+            if key in col_map:
+                it = QListWidgetItem(col_map[key])
+                it.setData(Qt.UserRole, key)
+                it.setFlags(it.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsDragEnabled)
+                it.setCheckState(Qt.Checked if key in active_checked else Qt.Unchecked)
+                self.lst_inventory_export_columns.addItem(it)
+                added_keys.add(key)
+
+        for key, text in all_cols:
+            if key not in added_keys:
+                it = QListWidgetItem(text)
+                it.setData(Qt.UserRole, key)
+                it.setFlags(it.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsDragEnabled)
+                it.setCheckState(Qt.Checked if key in active_checked else Qt.Unchecked)
+                self.lst_inventory_export_columns.addItem(it)
+
+    def _get_selected_inventory_export_columns(self) -> list:
+        if not hasattr(self, "lst_inventory_export_columns"):
+            raw = self.db.get_setting("colleague_inventory_export_columns", "[]")
+            try:
+                return json.loads(raw or "[]")
+            except Exception:
+                return ["code", "batch_code", "category", "subcategory", "brand_model", "specs"]
+        result = []
+        for i in range(self.lst_inventory_export_columns.count()):
+            it = self.lst_inventory_export_columns.item(i)
+            if it.checkState() == Qt.Checked:
+                result.append(it.data(Qt.UserRole))
+        return result
 
     def _set_all_report_export_cols(self, checked: bool):
         state = Qt.Checked if checked else Qt.Unchecked
@@ -7046,8 +7419,10 @@ class MainWindow(QMainWindow):
             )
             return
         self._commit_report_export_settings()
+        if hasattr(self, "_update_report_live"):
+            self._update_report_live()
         QMessageBox.information(
-            self, "ذخیره تنظیمات", f"تنظیمات ستون‌ها و ترتیب خروجی اکسل برای «{report_type}» ذخیره شد."
+            self, "ویرایش لیست گزارش", f"تنظیمات ستون‌ها و ترتیب خروجی اکسل برای «{report_type}» ذخیره شد."
         )
 
     # =========================================================================
@@ -7082,7 +7457,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.lbl_app_version)
 
         lic_btn_row = QHBoxLayout()
-        btn_license_mgmt = QPushButton("📜 مدیریت و وضعیت لایسنس تجاری")
+        btn_license_mgmt = QPushButton("📜 مدیریت و وضعیت لایسنس")
         btn_license_mgmt.setStyleSheet(
             "background-color: #0f766e; color: white; padding: 6px 14px; font-weight: bold; border-radius: 6px;"
         )
@@ -7283,16 +7658,27 @@ class MainWindow(QMainWindow):
         self.cb_win_mode = QComboBox()
         self.cb_win_mode.addItem("تمام‌صفحه", "1")
         self.cb_win_mode.addItem("پنجره معمولی", "0")
-        self.ed_shop_name = SmartLineEdit()
+        self.ed_shop_name = SmartLineEdit(preserve_persian_digits=True)
         self.ed_shop_name.setPlaceholderText("نام فروشگاه را وارد کنید...")
         self.ed_shop_name.setAlignment(Qt.AlignRight)
         self.ed_shop_name.setLayoutDirection(Qt.RightToLeft)
+
+        self.cb_calendar_format = QComboBox()
+        self.cb_calendar_format.addItem("شمسی (پیش‌فرض)", "jalali")
+        self.cb_calendar_format.addItem("قمری", "hijri")
+        self.cb_calendar_format.addItem("میلادی", "gregorian")
+
+        self.cb_time_format = QComboBox()
+        self.cb_time_format.addItem("۲۴ ساعته (پیش‌فرض)", "24h")
+        self.cb_time_format.addItem("۱۲ ساعته (با ق.ظ / ب.ظ)", "12h")
 
         f_gen.addRow("درصد سود پیش‌فرض فروشگاه (%):", self.sp_set_profit)
         f_gen.addRow("حداقل موجودی پیش‌فرض کالاها:", self.sp_default_min_inventory)
         f_gen.addRow("تعداد صفرهای اضافی قیمت:", self.cb_zero_count)
         f_gen.addRow("حالت باز شدن پنجره:", self.cb_win_mode)
         f_gen.addRow("نام فروشگاه:", self.ed_shop_name)
+        f_gen.addRow("قالب تقویم:", self.cb_calendar_format)
+        f_gen.addRow("قالب ساعت:", self.cb_time_format)
         gb_gen.setTitle("")
         layout.addWidget(CollapsibleSection("تنظیمات عمومی فروش و نمایش", gb_gen))
 
@@ -7673,37 +8059,67 @@ class MainWindow(QMainWindow):
 
         gb_inventory_export = QGroupBox("تنظیم ستون‌های خروجی موجودی همکار")
         self.gb_inventory_export = gb_inventory_export
-        inventory_export_layout = QGridLayout(gb_inventory_export)
-        inventory_export_options = [
-            ("code", "کد کالا"), ("batch_code", "کد محموله"),
-            ("product_name", "نام کالا"), ("category", "دسته‌بندی"),
-            ("subcategory", "زیرمجموعه"), ("brand_model", "برند و مدل"),
-            ("description", "توضیحات کالا"), ("reorder_point", "حد سفارش مجدد"),
-            ("specs", "مشخصات فنی کالا"), ("shipment_specs", "مشخصات فنی محموله"),
-            ("supplier", "تأمین‌کننده"), ("buyer", "مسئول خرید"),
-            ("purchase_date", "تاریخ خرید"), ("purchase_invoice", "شماره فاکتور خرید"),
-            ("purchase_status", "وضعیت تسویه خرید"), ("purchase_paid_amount", "مبلغ پرداخت‌شده به تأمین‌کننده"),
-            ("serial_numbers", "شماره سریال"), ("colors", "رنگ‌ها"),
-            ("initial_qty", "تعداد اولیه"), ("sold_qty", "تعداد فروخته‌شده"),
-            ("returned_qty", "تعداد مرجوعی"), ("stock", "موجودی فعلی"),
-            ("shipment_notes", "یادداشت محموله"), ("warranty_history", "سوابق گارانتی فروش"),
-            ("batch_created_at", "زمان ثبت محموله"), ("batch_updated_at", "آخرین ویرایش محموله"),
-            ("suggested_price", "قیمت فروش پیشنهادی"),
-            ("purchase_unit_price", "قیمت خرید واحد"), ("unit_cost_price", "بهای تمام‌شده واحد"),
-            ("extra_cost_total", "هزینه‌های اضافی محموله"),
-            ("upgrade_cost_unit", "هزینه ارتقای واحد"),
-            ("profit_pct", "درصد سود"),
-        ]
-        self.inventory_export_column_checks = {}
-        for index, (key, label_text) in enumerate(inventory_export_options):
-            checkbox = QCheckBox(label_text)
-            checkbox.setChecked(
-                key in {"code", "batch_code", "category", "subcategory", "brand_model", "specs"}
-            )
-            checkbox.setLayoutDirection(Qt.RightToLeft)
-            checkbox.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-            self.inventory_export_column_checks[key] = checkbox
-            inventory_export_layout.addWidget(checkbox, 1 + index // 3, index % 3)
+        inventory_export_layout = QVBoxLayout(gb_inventory_export)
+        inventory_export_layout.setContentsMargins(12, 12, 12, 12)
+        inventory_export_layout.setSpacing(10)
+
+        inv_hint = QLabel(
+            "ستون‌های موردنظر برای خروجی موجودی همکار را انتخاب کرده و با دکمه‌های «انتقال به بالا» و «انتقال به پایین» یا جابجایی با ماوس ترتیب آنها را مشخص نمایید."
+        )
+        inv_hint.setWordWrap(True)
+        inv_hint.setObjectName("settingsHint")
+        inventory_export_layout.addWidget(inv_hint)
+
+        inv_cols_container = QHBoxLayout()
+        inv_cols_container.setSpacing(10)
+
+        self.lst_inventory_export_columns = SmoothScrollListWidget()
+        self.lst_inventory_export_columns.enable_row_toggle = True
+        self.lst_inventory_export_columns.setMinimumHeight(240)
+        self.lst_inventory_export_columns.setMaximumHeight(350)
+        self.lst_inventory_export_columns.setDragDropMode(QAbstractItemView.InternalMove)
+        self.lst_inventory_export_columns.setDefaultDropAction(Qt.MoveAction)
+        inv_cols_container.addWidget(self.lst_inventory_export_columns, 1)
+
+        inv_btn_box = QVBoxLayout()
+        inv_btn_box.setSpacing(8)
+        inv_btn_box.setAlignment(Qt.AlignTop)
+
+        btn_inv_up = QPushButton("⬆️ انتقال به بالا")
+        btn_inv_up.setObjectName("btnSecondary")
+        btn_inv_up.setMinimumHeight(32)
+        btn_inv_up.clicked.connect(self._move_inventory_export_col_up)
+
+        btn_inv_down = QPushButton("⬇️ انتقال به پایین")
+        btn_inv_down.setObjectName("btnSecondary")
+        btn_inv_down.setMinimumHeight(32)
+        btn_inv_down.clicked.connect(self._move_inventory_export_col_down)
+
+        btn_inv_select_all = QPushButton("انتخاب همه")
+        btn_inv_select_all.setMinimumHeight(32)
+        btn_inv_select_all.clicked.connect(lambda: self._set_all_inventory_export_cols(True))
+
+        btn_inv_deselect_all = QPushButton("لغو انتخاب همه")
+        btn_inv_deselect_all.setMinimumHeight(32)
+        btn_inv_deselect_all.clicked.connect(lambda: self._set_all_inventory_export_cols(False))
+
+        btn_inv_reset = QPushButton("بازنشانی به پیش‌فرض")
+        btn_inv_reset.setObjectName("btnDanger")
+        btn_inv_reset.setMinimumHeight(32)
+        btn_inv_reset.clicked.connect(self._reset_inventory_export_cols_default)
+
+        inv_btn_box.addWidget(btn_inv_up)
+        inv_btn_box.addWidget(btn_inv_down)
+        inv_btn_box.addWidget(btn_inv_select_all)
+        inv_btn_box.addWidget(btn_inv_deselect_all)
+        inv_btn_box.addWidget(btn_inv_reset)
+        inv_btn_box.addStretch(1)
+
+        inv_cols_container.addLayout(inv_btn_box)
+        inventory_export_layout.addLayout(inv_cols_container)
+
+        self.inventory_export_column_checks = _InventoryColumnChecksProxy(self)
+        self._populate_inventory_export_columns_ui()
         inventory_export_page = QWidget()
         inventory_export_page_layout = QVBoxLayout(inventory_export_page)
         inventory_export_page_layout.addWidget(gb_inventory_export)
@@ -7874,6 +8290,14 @@ class MainWindow(QMainWindow):
         self.ed_shop_name.setText(
             self.db.get_setting("shop_name", "فروشگاه من") or "فروشگاه من"
         )
+        if hasattr(self, "cb_calendar_format"):
+            active_cal = self.db.get_setting("calendar_format", "jalali") or "jalali"
+            cal_idx = self.cb_calendar_format.findData(active_cal)
+            self.cb_calendar_format.setCurrentIndex(cal_idx if cal_idx >= 0 else 0)
+        if hasattr(self, "cb_time_format"):
+            active_time = self.db.get_setting("time_format", "24h") or "24h"
+            time_idx = self.cb_time_format.findData(active_time)
+            self.cb_time_format.setCurrentIndex(time_idx if time_idx >= 0 else 0)
         try:
             selected_export_columns = json.loads(
                 self.db.get_setting("colleague_inventory_export_columns", "[]") or "[]"
@@ -7884,8 +8308,11 @@ class MainWindow(QMainWindow):
             selected_export_columns = [
                 "code", "batch_code", "category", "subcategory", "brand_model", "specs",
             ]
-        for key, checkbox in self.inventory_export_column_checks.items():
-            checkbox.setChecked(key in selected_export_columns)
+        if hasattr(self, "_populate_inventory_export_columns_ui"):
+            self._populate_inventory_export_columns_ui(selected_export_columns)
+        elif hasattr(self, "inventory_export_column_checks"):
+            for key, checkbox in self.inventory_export_column_checks.items():
+                checkbox.setChecked(key in selected_export_columns)
         self._load_subcategory_caption(
             self.cb_cfg_category.currentText()
         )
@@ -9817,10 +10244,9 @@ class MainWindow(QMainWindow):
                 probe_db = DatabaseManager(target_path)
                 pwd = None
                 if probe_db.is_password_protected() and not probe_db.can_auto_unlock_locally():
-                    from PySide6.QtWidgets import QInputDialog
                     unlocked = False
                     for _ in range(3):
-                        p, ok = QInputDialog.getText(self, "ورود به پایگاه داده", "رمز عبور این پایگاه داده را وارد کنید:", QLineEdit.Password)
+                        p, ok = _prompt_database_password(self, "رمز عبور این پایگاه داده را وارد کنید:")
                         if not ok:
                             break
                         if probe_db.verify_database_password(p):
@@ -9960,6 +10386,35 @@ class MainWindow(QMainWindow):
     def _save_general_settings(self):
         effective_password_policy = self.chk_req_pass.isChecked()
 
+        # Check calendar/time format change
+        current_stored_cal = self.db.get_setting("calendar_format", "jalali") or "jalali"
+        current_stored_time = self.db.get_setting("time_format", "24h") or "24h"
+        target_cal = self.cb_calendar_format.currentData() if hasattr(self, "cb_calendar_format") else current_stored_cal
+        target_time = self.cb_time_format.currentData() if hasattr(self, "cb_time_format") else current_stored_time
+
+        cal_time_changed = (target_cal != current_stored_cal or target_time != current_stored_time)
+        perform_historical_migration = False
+
+        if cal_time_changed:
+            dlg = DatetimeMigrationChoiceDialog(
+                from_cal=current_stored_cal,
+                to_cal=target_cal,
+                from_time=current_stored_time,
+                to_time=target_time,
+                parent=self,
+            )
+            dlg.exec()
+            if dlg.choice == DatetimeMigrationChoiceDialog.CANCEL:
+                return
+            elif dlg.choice == DatetimeMigrationChoiceDialog.MIGRATE_ALL:
+                perform_historical_migration = True
+
+        if perform_historical_migration:
+            migrate_res = migrate_database_datetime(self.db, target_cal, target_time, create_backup=True)
+            if migrate_res.get("status") == "error":
+                QMessageBox.critical(self, "خطا در تبدیل اطلاعات", "خطایی در تبدیل تاریخ اطلاعات قبلی رخ داد.")
+                return
+
         try:
             # Apply taxonomy edits and persist the new configuration atomically.
             # Existing product rows are renamed only after the explicit Save action.
@@ -10077,10 +10532,7 @@ class MainWindow(QMainWindow):
                 self.db.save_product_catalog_config(self._taxonomy_draft, conn=conn)
 
                 shop_name = self.ed_shop_name.text().strip() or "فروشگاه من"
-                selected_export_columns = [
-                    key for key, checkbox in self.inventory_export_column_checks.items()
-                    if checkbox.isChecked()
-                ]
+                selected_export_columns = self._get_selected_inventory_export_columns()
                 if not selected_export_columns:
                     raise ValueError("برای خروجی موجودی همکار دست‌کم یک ستون را انتخاب کنید.")
                 self.db.set_setting("shop_name", shop_name, conn=conn)
@@ -10089,6 +10541,8 @@ class MainWindow(QMainWindow):
                     json.dumps(selected_export_columns, ensure_ascii=False),
                     conn=conn,
                 )
+                self.db.set_setting("calendar_format", target_cal, conn=conn)
+                self.db.set_setting("time_format", target_time, conn=conn)
                 conn.commit()
 
             self.db.cfg["default_profit_pct"] = self.sp_set_profit.value()
@@ -10111,19 +10565,49 @@ class MainWindow(QMainWindow):
 
             if self._staged_db_password_action:
                 action = self._staged_db_password_action.get("action")
-                if action == "set":
-                    req = self._staged_db_startup_prompt if self._staged_db_startup_prompt is not None else self._staged_db_password_action.get("req_startup", True)
-                    self.db.set_database_password(self._staged_db_password_action["new_pwd"], require_startup_prompt=bool(req))
-                elif action == "change":
-                    self.db.change_database_password(
-                        self._staged_db_password_action["old_pwd"],
-                        self._staged_db_password_action["new_pwd"],
-                    )
-                    if self._staged_db_startup_prompt is not None:
-                        self.db.set_startup_password_prompt_required(self._staged_db_startup_prompt)
-                elif action == "remove":
-                    self.db.remove_database_password(self._staged_db_password_action["pwd"])
-                self._staged_db_password_action = None
+                busy_dlg = None
+                try:
+                    if hasattr(self, "btn_save_settings"):
+                        self.btn_save_settings.setEnabled(False)
+                    if hasattr(self, "btn_cancel_settings"):
+                        self.btn_cancel_settings.setEnabled(False)
+                    QApplication.setOverrideCursor(Qt.WaitCursor)
+                    busy_dlg = QDialog(self)
+                    busy_dlg.setWindowTitle("اعمال تنظیمات امنیتی")
+                    busy_dlg.setWindowModality(Qt.WindowModal)
+                    busy_dlg.setLayoutDirection(Qt.RightToLeft)
+                    busy_dlg.setFixedSize(380, 110)
+                    busy_l = QVBoxLayout(busy_dlg)
+                    busy_l.setContentsMargins(16, 16, 16, 16)
+                    busy_l.setSpacing(10)
+                    lbl_busy = QLabel("لطفاً چند لحظه صبر کنید...\nدر حال اعمال رمز عبور و ذخیره تنظیمات...")
+                    lbl_busy.setAlignment(Qt.AlignCenter)
+                    lbl_busy.setStyleSheet("font-size: 10pt; font-weight: bold; color: #0284c7;")
+                    busy_l.addWidget(lbl_busy)
+                    busy_dlg.show()
+                    QApplication.processEvents()
+
+                    if action == "set":
+                        req = self._staged_db_startup_prompt if self._staged_db_startup_prompt is not None else self._staged_db_password_action.get("req_startup", True)
+                        self.db.set_database_password(self._staged_db_password_action["new_pwd"], require_startup_prompt=bool(req))
+                    elif action == "change":
+                        self.db.change_database_password(
+                            self._staged_db_password_action["old_pwd"],
+                            self._staged_db_password_action["new_pwd"],
+                        )
+                        if self._staged_db_startup_prompt is not None:
+                            self.db.set_startup_password_prompt_required(self._staged_db_startup_prompt)
+                    elif action == "remove":
+                        self.db.remove_database_password(self._staged_db_password_action["pwd"])
+                    self._staged_db_password_action = None
+                finally:
+                    if busy_dlg:
+                        busy_dlg.close()
+                    QApplication.restoreOverrideCursor()
+                    if hasattr(self, "btn_save_settings"):
+                        self.btn_save_settings.setEnabled(True)
+                    if hasattr(self, "btn_cancel_settings"):
+                        self.btn_cancel_settings.setEnabled(True)
             elif self._staged_db_startup_prompt is not None and self.db.is_password_protected():
                 self.db.set_startup_password_prompt_required(self._staged_db_startup_prompt)
             self._staged_db_startup_prompt = None
@@ -11076,9 +11560,13 @@ def main():
                 pass
         sys.exit(0)
     if not val_res.is_valid:
+        startup_cfg = load_app_config()
+        startup_dark = startup_cfg.get("theme", "light") == "dark"
         dlg = LicenseDialog(
             service=license_service,
             icon_path=icon_path if os.path.exists(icon_path) else None,
+            is_dark_theme=startup_dark,
+            is_startup_gate=True,
         )
         if dlg.exec() != QDialog.Accepted:
             sys.exit(0)
@@ -11093,10 +11581,9 @@ def main():
 
     # Database Password Startup Check (Item 13, REQ-5)
     if db.is_password_protected() and not db.can_auto_unlock_locally():
-        from PySide6.QtWidgets import QInputDialog
         unlocked = False
         for _ in range(3):
-            pwd, ok = QInputDialog.getText(None, "ورود به پایگاه داده", "رمز عبور پایگاه داده را وارد کنید:", QLineEdit.Password)
+            pwd, ok = _prompt_database_password(None, "رمز عبور پایگاه داده را وارد کنید:")
             if not ok:
                 break
             if db.verify_database_password(pwd):

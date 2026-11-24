@@ -21,6 +21,12 @@ from typing import Dict, List, Optional, Tuple, Any
 
 from .license_models import HardwareIdentityUnavailableError
 
+try:
+    from ._embedded_keys import get_embedded_fp_prefix
+    DEFAULT_FP_PREFIX = get_embedded_fp_prefix()
+except Exception:
+    DEFAULT_FP_PREFIX = "fp_v1:"
+
 # Strict placeholder and invalid value lists
 INVALID_UUID_PATTERNS = {
     "",
@@ -104,8 +110,9 @@ def compute_hardware_fingerprint_from_components(
     serial: Optional[str],
     mfg: Optional[str] = None,
     prod: Optional[str] = None,
+    fp_prefix: Optional[str] = None,
 ) -> Tuple[str, str]:
-    """Compute fp_v1 fingerprint and return (fingerprint, tier_id).
+    """Compute hardware fingerprint and return (fingerprint, tier_id).
 
     Tiers:
     - Tier 1: Valid UUID + Valid Board Serial
@@ -113,6 +120,7 @@ def compute_hardware_fingerprint_from_components(
     - Tier 3: Valid Board Serial + Valid Board Model (Mfg:Prod)
     - Hard Fail: raises HardwareIdentityUnavailableError
     """
+    prefix = fp_prefix if fp_prefix is not None else DEFAULT_FP_PREFIX
     clean_uuid = _clean_string(uuid)
     clean_serial = _clean_string(serial)
     clean_mfg = _clean_string(mfg)
@@ -141,7 +149,7 @@ def compute_hardware_fingerprint_from_components(
     norm = norm.upper()
 
     digest = hashlib.sha256(f"DAQIQ-HWFP-V1|{norm}".encode("utf-8")).hexdigest().lower()
-    return f"fp_v1:{digest}", tier
+    return f"{prefix}{digest}", tier
 
 
 def get_all_available_fingerprint_tiers(
@@ -149,8 +157,10 @@ def get_all_available_fingerprint_tiers(
     serial: Optional[str],
     mfg: Optional[str] = None,
     prod: Optional[str] = None,
+    fp_prefix: Optional[str] = None,
 ) -> Dict[str, str]:
     """Return dictionary of all valid tiers computed for the hardware."""
+    prefix = fp_prefix if fp_prefix is not None else DEFAULT_FP_PREFIX
     tiers: Dict[str, str] = {}
     clean_uuid = _clean_string(uuid)
     clean_serial = _clean_string(serial)
@@ -163,13 +173,13 @@ def get_all_available_fingerprint_tiers(
 
     if uuid_ok and serial_ok:
         c1 = f"V1|UUID={clean_uuid}|BOARD={clean_serial}".upper()
-        tiers["tier1"] = f"fp_v1:{hashlib.sha256(f'DAQIQ-HWFP-V1|{c1}'.encode('utf-8')).hexdigest().lower()}"
+        tiers["tier1"] = f"{prefix}{hashlib.sha256(f'DAQIQ-HWFP-V1|{c1}'.encode('utf-8')).hexdigest().lower()}"
     if uuid_ok and model_ok:
         c2 = f"V1|UUID={clean_uuid}|BOARD_MODEL={clean_mfg}:{clean_prod}".upper()
-        tiers["tier2"] = f"fp_v1:{hashlib.sha256(f'DAQIQ-HWFP-V1|{c2}'.encode('utf-8')).hexdigest().lower()}"
+        tiers["tier2"] = f"{prefix}{hashlib.sha256(f'DAQIQ-HWFP-V1|{c2}'.encode('utf-8')).hexdigest().lower()}"
     if serial_ok and model_ok:
         c3 = f"V1|BOARD={clean_serial}|BOARD_MODEL={clean_mfg}:{clean_prod}".upper()
-        tiers["tier3"] = f"fp_v1:{hashlib.sha256(f'DAQIQ-HWFP-V1|{c3}'.encode('utf-8')).hexdigest().lower()}"
+        tiers["tier3"] = f"{prefix}{hashlib.sha256(f'DAQIQ-HWFP-V1|{c3}'.encode('utf-8')).hexdigest().lower()}"
 
     return tiers
 
@@ -382,16 +392,58 @@ def get_system_hardware_fingerprint_with_tier() -> Tuple[str, str]:
         )
 
 
-def create_device_request_dict(app_version: str = "4.9.2", device_label: str = "") -> Dict[str, Any]:
-    """Generate exact .daqreq dictionary compatible with Daqiq-License-Generator."""
-    fp, tier = get_system_hardware_fingerprint_with_tier()
+def create_device_request_dict(
+    app_version: str = "4.9.3",
+    device_label: str = "",
+    store_name: str = "",
+) -> Dict[str, Any]:
+    """Generate redesigned .daqreq dictionary with machine context and SHA-256 checksum."""
+    import json
+    import platform
+
+    if sys.platform == "win32":
+        provider = NativeWindowsHardwareProvider()
+        u, s, m, p = provider.get_components()
+    else:
+        provider = MockHardwareProvider()
+        u, s, m, p = provider.uuid, provider.serial, provider.mfg, provider.prod
+
+    fp, _ = compute_hardware_fingerprint_from_components(u, s, m, p)
+    tiers = get_all_available_fingerprint_tiers(u, s, m, p)
+    hardware_anchors = {
+        "tier1_hash": tiers.get("tier1"),
+        "tier2_hash": tiers.get("tier2"),
+        "tier3_hash": tiers.get("tier3"),
+    }
+
+    computer_name = platform.node() or os.environ.get("COMPUTERNAME", "")
+    os_info = f"{platform.system()} {platform.release()} ({platform.architecture()[0]})"
+    cpu_model = platform.processor() or ""
     now_iso = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    return {
+
+    resolved_label = device_label or (f"صندوق فروشگاه ({computer_name})" if computer_name else "صندوق فروشگاه")
+
+    req_payload: Dict[str, Any] = {
+        "protocol_version": 1,
         "request_version": 1,
         "product_id": "daqiq.desktop",
-        "generated_at": now_iso,
-        "device_fingerprint": fp,
-        "device_label": device_label or f"صندوق فروشگاه ({tier})",
         "app_version": app_version,
-        "hardware_tier": tier,
+        "device_fingerprint": fp,
+        "hardware_anchors": hardware_anchors,
+        "computer_name": computer_name,
+        "os_info": os_info,
+        "cpu_model": cpu_model,
+        "store_name": store_name,
+        "device_label": resolved_label,
+        "generated_at": now_iso,
+        "generated_at_utc": now_iso,
     }
+
+    canonical_bytes = json.dumps(
+        req_payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    req_payload["checksum_sha256"] = hashlib.sha256(canonical_bytes).hexdigest()
+    return req_payload

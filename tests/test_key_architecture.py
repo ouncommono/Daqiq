@@ -129,7 +129,7 @@ def test_shards_tamper_fails_closed():
             code = f.read()
 
         # Corrupt one byte of salt or shard
-        corrupted_code = code.replace("_BUILD_SALT = b'", "_BUILD_SALT = b'X")
+        corrupted_code = code.replace("_BUILD_SALT = ", "_BUILD_SALT = b'tampered' + ")
 
         ns = {}
         exec(corrupted_code, ns)

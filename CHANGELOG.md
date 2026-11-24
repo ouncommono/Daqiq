@@ -1,3 +1,19 @@
+# Daqiq 4.9.3
+
+## Release Summary & Architectural Enhancements
+
+- **Multi-Calendar & Time Format Engine**: Built a centralized datetime formatting and conversion service (`utils/datetime_format.py` / `datetime_format.py`) with support for Jalali (شمسی), Hijri (قمری via `hijridate`), and Gregorian (میلادی) calendars, as well as 24-hour and 12-hour (ق.ظ / ب.ظ) time formats. Seamlessly handles and normalizes Persian (`۰-۹`) and Arabic (`٠-٩`) digits.
+- **Lossless Atomic Database Migration**: Implemented safe, transactional database date and time migration across all historical sales, batches, upgrades, payments, service records, and audit logs with pre-migration backup protection. Handled via an interactive 3-choice dialog (Migrate All Historical Data, Apply to New Records Only, or Cancel).
+- **Partner Export Reordering & Full Column Suite**: Replaced the static checkbox grid in Partner Export («تنظیمات خروجی موجودی همکار») with a dynamic reorderable list of all 32 shipment and product attributes, featuring Up/Down and drag-and-drop ordering, staging boundaries, and strict persistence in exported Excel files.
+- **Report Export UX & Immediate View Refresh**: Renamed report configuration button to «✏️ ویرایش لیست گزارش» and connected column reordering to immediately refresh the active view in «گزارش های جامع».
+- **Global Eradication of «تجاری»**: Eliminated all occurrences of the Persian word «تجاری» across the entire user interface and licensing dialogs in favor of clean, professional terminology.
+- **Licensing Security Hardening & Registry Removal**: Completely eliminated Windows registry access in licensing storage in favor of multi-location HMAC-SHA256 authenticated High-Water-Mark filesystem anchors resistant to clock rollback tampering. Cleaned `.daqreq` hardware request schema with system details and SHA-256 checksums.
+- **Configurable Build Identity & Sharding**: Made key sharding fully configurable via environment variables (`DAQIQ_LICENSE_PUBLIC_KEY_B64`, `DAQIQ_LICENSE_KEY_ID`, `DAQIQ_LICENSE_FP_PREFIX`) and local config files (`build_license_config.local.json`), supported by comprehensive build and verification documentation.
+- **External Taxonomy Resolution in Onefile Mode**: Enhanced `database.py` to resolve `default_taxonomy.json` and `app_config.json` next to the true executable binary when running under Nuitka onefile cached extraction mode (`NUITKA_ONEFILE_BINARY`).
+- **Comprehensive QA Automation**: Added end-to-end regression tests in `tests/test_v493_features.py` validating calendar conversions, time formatting, atomic DB migrations, dialog choices, export column ordering, UI string invariants, and taxonomy resolution.
+
+---
+
 # Daqiq 4.9.2
 
 ## Release Summary & Architectural Enhancements

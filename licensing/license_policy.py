@@ -308,9 +308,9 @@ class LicenseService:
         self._last_result = val_res
         return val_res
 
-    def export_device_request_file(self, target_path: str, device_label: str = "") -> None:
+    def export_device_request_file(self, target_path: str, device_label: str = "", store_name: str = "") -> None:
         """Export .daqreq JSON file to target path."""
-        req_dict = create_device_request_dict(app_version=self.app_version, device_label=device_label)
+        req_dict = create_device_request_dict(app_version=self.app_version, device_label=device_label, store_name=store_name)
         with open(target_path, "w", encoding="utf-8") as f:
             json.dump(req_dict, f, ensure_ascii=False, indent=2)
 
