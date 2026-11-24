@@ -1,6 +1,15 @@
 # main.py
 import os
 import sys
+
+if __name__ == "__main__" and "--print-paths" in sys.argv[1:]:
+    from utils.paths import format_resolved_paths_report
+    try:
+        print(format_resolved_paths_report(), flush=True)
+    except OSError:
+        pass
+    sys.exit(0)
+
 import json
 import subprocess
 import time
@@ -11728,7 +11737,10 @@ class MainWindow(QMainWindow):
 
 def main():
     if "--print-paths" in sys.argv[1:]:
-        print(format_resolved_paths_report(), flush=True)
+        try:
+            print(format_resolved_paths_report(), flush=True)
+        except OSError:
+            pass
         sys.exit(0)
 
     smoke_log_file = None

@@ -200,29 +200,12 @@ jobs:
           New-Item -ItemType Directory -Force -Path $smokeDir | Out-Null
           Copy-Item "dist/Daqiq_${{ env.APP_VERSION }}.exe" "$smokeDir\Daqiq.exe"
           Copy-Item "dist/default_taxonomy.json" "$smokeDir\default_taxonomy.json"
-          Push-Location "C:\Windows\Temp"
           try {
-            $out = & "$smokeDir\Daqiq.exe" --print-paths
+            python -c "import subprocess, sys; p = subprocess.run([r'C:\daqiq_path_smoke\Daqiq.exe', '--print-paths'], cwd=r'C:\Windows\Temp', capture_output=True, text=True, timeout=30); print(p.stdout); sys.stderr.write(p.stderr); assert p.returncode == 0, p.returncode; assert r'EXECUTABLE_DIR=C:\daqiq_path_smoke' in p.stdout, p.stdout; assert r'DEFAULT_TAXONOMY_PATH=C:\daqiq_path_smoke\default_taxonomy.json' in p.stdout, p.stdout; assert r'AppData\Local\Daqiq' not in p.stdout.split('EXECUTABLE_DIR=')[1].splitlines()[0], p.stdout; print('PASS: Compiled onefile path check verified')"
             if ($LASTEXITCODE -ne 0) {
-              Write-Error "--print-paths exited with code $LASTEXITCODE"
-              exit 1
-            }
-            $outText = ($out -join "`n")
-            Write-Output $outText
-            if ($outText -notmatch "EXECUTABLE_DIR=C:\\daqiq_path_smoke") {
-              Write-Error "EXECUTABLE_DIR did not resolve to $smokeDir!"
-              exit 1
-            }
-            if ($outText -notmatch "DEFAULT_TAXONOMY_PATH=C:\\daqiq_path_smoke\\default_taxonomy\.json") {
-              Write-Error "DEFAULT_TAXONOMY_PATH did not resolve beside outer Daqiq.exe!"
-              exit 1
-            }
-            if ($outText -match "EXECUTABLE_DIR=.*AppData\\Local\\Daqiq") {
-              Write-Error "EXECUTABLE_DIR leaked into Nuitka onefile cache directory!"
               exit 1
             }
           } finally {
-            Pop-Location
             Remove-Item -Recurse -Force $smokeDir -ErrorAction SilentlyContinue
           }
 
