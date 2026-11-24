@@ -91,8 +91,14 @@ def create_key_shards(raw_bytes: bytes, key_id: str, salt: bytes) -> Dict[str, A
     }
 
 
-def generate_embedded_module_source(shards_registry: Dict[str, Dict[str, Any]], salt: bytes) -> str:
+def generate_embedded_module_source(
+    shards_registry: Dict[str, Dict[str, Any]], salt: bytes, fp_prefix: str = "fp_v1:"
+) -> str:
     """Generate Python source code for licensing/_embedded_keys.py."""
+    clean_prefix = fp_prefix.strip() if fp_prefix else "fp_v1:"
+    if not clean_prefix.endswith(":"):
+        clean_prefix += ":"
+
     lines = [
         '# Generated automatically by tools/build_key_shards.py - DO NOT EDIT MANUALLY',
         '"""Anti-tamper Ed25519 public key shards compiled into native C machine code."""',
@@ -101,6 +107,11 @@ def generate_embedded_module_source(shards_registry: Dict[str, Dict[str, Any]], 
         'from typing import Dict, List',
         '',
         f'_BUILD_SALT = {repr(salt)}',
+        f'_FP_PREFIX = {repr(clean_prefix)}',
+        '',
+        'def get_embedded_fp_prefix() -> str:',
+        '    """Return configured hardware fingerprint prefix."""',
+        '    return _FP_PREFIX',
         '',
         '_SHARD_REGISTRY = {',
     ]
@@ -154,14 +165,47 @@ def build_shards(
     manifest_path: str,
     override_key_b64: str = None,
     override_key_id: str = None,
+    override_fp_prefix: str = None,
     extra_keys_json: str = None,
-) -> List[Dict[str, str]]:
-    """Build key shards from environment overrides or manifest file."""
+    local_config_path: str = None,
+) -> Tuple[List[Dict[str, str]], str]:
+    """Build key shards from environment overrides, local config, or manifest file."""
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if local_config_path is None:
+        local_config_path = os.path.join(repo_root, "build_license_config.local.json")
+
+    local_cfg: Dict[str, Any] = {}
+    if os.path.isfile(local_config_path):
+        try:
+            with open(local_config_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    local_cfg = data
+        except Exception as e:
+            print(f"Warning: Failed to parse {local_config_path}: {e}", file=sys.stderr)
+
+    # 1. Resolve Fingerprint Prefix (Priority: Env -> local config -> default 'fp_v1:')
+    fp_prefix = (
+        override_fp_prefix
+        or os.environ.get("DAQIQ_LICENSE_FP_PREFIX")
+        or local_cfg.get("fp_prefix")
+        or "fp_v1:"
+    ).strip()
+    if not fp_prefix.endswith(":"):
+        fp_prefix += ":"
+
+    # 2. Resolve Public Keys (Priority: Env -> local config -> manifest)
     keys_to_process: Dict[str, str] = {}
 
-    if override_key_b64 and override_key_b64.strip():
-        kid = (override_key_id or "daqiq-prod-v1").strip()
-        keys_to_process[kid] = override_key_b64.strip()
+    env_key = (override_key_b64 or os.environ.get("DAQIQ_LICENSE_PUBLIC_KEY_B64") or "").strip()
+    env_kid = (override_key_id or os.environ.get("DAQIQ_LICENSE_KEY_ID") or "").strip()
+
+    if env_key:
+        kid = env_kid or "daqiq-prod-v1"
+        keys_to_process[kid] = env_key
+    elif local_cfg.get("public_key") and str(local_cfg["public_key"]).strip():
+        kid = str(local_cfg.get("key_id") or "daqiq-prod-v1").strip()
+        keys_to_process[kid] = str(local_cfg["public_key"]).strip()
     elif os.path.exists(manifest_path):
         with open(manifest_path, "r", encoding="utf-8") as f:
             manifest_data = json.load(f)
@@ -177,7 +221,7 @@ def build_shards(
             print(f"Warning: Failed to parse DAQIQ_LICENSE_EXTRA_KEYS_JSON: {e}", file=sys.stderr)
 
     if not keys_to_process:
-        raise ValueError("No public keys provided in environment or manifest.")
+        raise ValueError("No public keys provided in environment, local config, or manifest.")
 
     salt = os.urandom(32)
     shards_registry: Dict[str, Dict[str, Any]] = {}
@@ -196,33 +240,39 @@ def build_shards(
         })
 
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
-    source_code = generate_embedded_module_source(shards_registry, salt)
+    source_code = generate_embedded_module_source(shards_registry, salt, fp_prefix=fp_prefix)
 
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(source_code)
 
-    return fingerprints
+    return fingerprints, fp_prefix
 
 
 def main():
     parser = argparse.ArgumentParser(description="Generate anti-tamper Ed25519 public key shards.")
     parser.add_argument("--output", default="licensing/_embedded_keys.py", help="Output Python file path")
     parser.add_argument("--manifest", default="licensing/trusted_keys.json", help="Path to trusted_keys.json")
+    parser.add_argument("--fp-prefix", default=None, help="Hardware fingerprint prefix (e.g. fp_v1:)")
+    parser.add_argument("--local-config", default=None, help="Path to build_license_config.local.json")
     args = parser.parse_args()
 
     env_key = os.environ.get("DAQIQ_LICENSE_PUBLIC_KEY_B64")
     env_kid = os.environ.get("DAQIQ_LICENSE_KEY_ID")
+    env_fp = args.fp_prefix or os.environ.get("DAQIQ_LICENSE_FP_PREFIX")
     env_extra = os.environ.get("DAQIQ_LICENSE_EXTRA_KEYS_JSON")
 
-    fps = build_shards(
+    fps, resolved_fp_prefix = build_shards(
         output_path=args.output,
         manifest_path=args.manifest,
         override_key_b64=env_key,
         override_key_id=env_kid,
+        override_fp_prefix=env_fp,
         extra_keys_json=env_extra,
+        local_config_path=args.local_config,
     )
 
     print(f"Successfully generated embedded key shards at: {args.output}")
+    print(f"  * Configured Fingerprint Prefix: {resolved_fp_prefix}")
     for item in fps:
         print(f"  * Key ID: {item['key_id']} -> Fingerprint: {item['fingerprint']} ({item['display']})")
 
@@ -230,13 +280,15 @@ def main():
     if step_summary:
         try:
             with open(step_summary, "a", encoding="utf-8") as f:
-                f.write("### Embedded Ed25519 License Public Keys (Native C Shards)\n\n")
+                f.write("### Embedded Ed25519 License Configuration (Native C Shards)\n\n")
+                f.write(f"- **Compiled Fingerprint Prefix:** `{resolved_fp_prefix}`\n\n")
                 f.write("| Key ID | SHA-256 Fingerprint | Canonical Base64 |\n")
                 f.write("|---|---|---|\n")
                 for item in fps:
                     f.write(f"| `{item['key_id']}` | `{item['fingerprint']}` | `{item['b64']}` |\n")
                 f.write("\n")
         except Exception as e:
+            print(f"Warning: Failed to write to GITHUB_STEP_SUMMARY: {e}", file=sys.stderr)
             print(f"Warning: Failed to write to GITHUB_STEP_SUMMARY: {e}", file=sys.stderr)
 
 

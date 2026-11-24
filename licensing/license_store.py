@@ -23,9 +23,10 @@ from .license_models import (
 CLOCK_TOLERANCE_SECONDS = 900  # 15 minutes tolerance for standard clock jitter
 DEFAULT_CLOCK_TOLERANCE_SECONDS = 86400  # 24 hours allowable clock skew tolerance
 CLOCK_STATE_FILENAME = "clock_state.json"
+PRIMARY_CLOCK_FILE = ".clock_state.dat"
+RUNTIME_ANCHOR_FILE = ".runtime_anchor.dat"
 LICENSE_FILENAME = "license.daqlic"
 HMAC_SECRET_CONSTANT = b"DAQIQ-CLOCK-GUARD-V2-SECRET-93810482"
-REGISTRY_KEY_PATH = r"Software\Daqiq\Licensing"
 
 
 def get_per_user_dir() -> str:
@@ -49,12 +50,12 @@ def get_machine_wide_dir() -> str:
 
 
 def get_roaming_appdata_dir() -> str:
-    """Return %APPDATA%\\Daqiq\\license or cross-platform equivalent."""
+    """Return %APPDATA%\\Daqiq or cross-platform equivalent."""
     if sys.platform == "win32":
         base = os.environ.get("APPDATA") or os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
     else:
         base = os.path.expanduser("~")
-    path = os.path.join(base, "Daqiq", "license")
+    path = os.path.join(base, "Daqiq")
     return os.path.normpath(path)
 
 
@@ -154,40 +155,20 @@ class LicenseStore:
                     pass
         return removed
 
-    def _read_registry_clock_state(self, device_fingerprint: str) -> Optional[datetime.datetime]:
-        """Read clock state from Windows HKCU registry if available."""
-        if sys.platform != "win32" or self._is_test_env:
-            return None
+    def _write_anchor_atomic(self, directory: str, filename: str, state_dict: dict) -> bool:
+        """Atomically persist clock state to an anchor location, returning True if successful."""
         try:
-            import winreg
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, REGISTRY_KEY_PATH) as key:
-                saved_iso, _ = winreg.QueryValueEx(key, "LastSeen")
-                saved_hmac, _ = winreg.QueryValueEx(key, "HMAC")
-                if saved_iso and saved_hmac:
-                    expected_hmac = _compute_clock_hmac(saved_iso, device_fingerprint)
-                    if hmac.compare_digest(saved_hmac, expected_hmac):
-                        clean_iso = saved_iso.strip()
-                        if clean_iso.endswith("Z"):
-                            clean_iso = clean_iso[:-1] + "+00:00"
-                        parsed = datetime.datetime.fromisoformat(clean_iso)
-                        if parsed.tzinfo is None:
-                            parsed = parsed.replace(tzinfo=datetime.timezone.utc)
-                        return parsed
-        except Exception:
-            pass
-        return None
-
-    def _write_registry_clock_state(self, iso_str: str, hmac_str: str) -> None:
-        """Mirror clock state to Windows HKCU registry."""
-        if sys.platform != "win32" or self._is_test_env:
-            return
-        try:
-            import winreg
-            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, REGISTRY_KEY_PATH) as key:
-                winreg.SetValueEx(key, "LastSeen", 0, winreg.REG_SZ, iso_str)
-                winreg.SetValueEx(key, "HMAC", 0, winreg.REG_SZ, hmac_str)
-        except Exception:
-            pass
+            os.makedirs(directory, exist_ok=True)
+            target = os.path.join(directory, filename)
+            tmp = os.path.join(directory, f"{filename}.{uuid.uuid4().hex}.tmp")
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(state_dict, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, target)
+            return True
+        except (PermissionError, OSError):
+            return False
 
     def check_and_update_clock_state(
         self,
@@ -196,8 +177,10 @@ class LicenseStore:
         now_utc: Optional[datetime.datetime] = None,
         tolerance_sec: int = CLOCK_TOLERANCE_SECONDS,
     ) -> None:
-        """Verify high-water mark across multi-location anchors.
+        """Verify high-water mark across multi-location redundant filesystem anchors.
 
+        Zero registry calls: uses HMAC-SHA256 authenticated High-Water-Mark anchors across
+        at least two independent user-writable non-DB filesystem locations.
         Recovers smoothly if user corrects the clock.
         Perpetual licenses are immune to clock-rollback errors.
         """
@@ -206,37 +189,37 @@ class LicenseStore:
         elif now_utc.tzinfo is None:
             now_utc = now_utc.replace(tzinfo=datetime.timezone.utc)
 
-        # 1. Read file anchor
-        file_last_seen: Optional[datetime.datetime] = None
+        # 1. Read and authenticate all redundant filesystem anchors
+        anchor_files = [PRIMARY_CLOCK_FILE, RUNTIME_ANCHOR_FILE, CLOCK_STATE_FILENAME]
+        verified_timestamps: List[datetime.datetime] = []
+
         for d in self._get_search_dirs():
-            clock_file = os.path.join(d, CLOCK_STATE_FILENAME)
-            if os.path.isfile(clock_file):
-                try:
-                    with open(clock_file, "r", encoding="utf-8") as f:
-                        data = json.load(f)
-                    if isinstance(data, dict):
-                        s_iso = data.get("last_seen_utc")
-                        s_hmac = data.get("hmac_tag")
-                        if s_iso and s_hmac:
-                            expected_hmac = _compute_clock_hmac(s_iso, device_fingerprint)
-                            if hmac.compare_digest(s_hmac, expected_hmac):
-                                clean_iso = s_iso.strip()
-                                if clean_iso.endswith("Z"):
-                                    clean_iso = clean_iso[:-1] + "+00:00"
-                                p = datetime.datetime.fromisoformat(clean_iso)
-                                if p.tzinfo is None:
-                                    p = p.replace(tzinfo=datetime.timezone.utc)
-                                if file_last_seen is None or p > file_last_seen:
-                                    file_last_seen = p
-                except Exception:
-                    pass
+            if not d:
+                continue
+            for a_name in anchor_files:
+                target = os.path.join(d, a_name)
+                if os.path.isfile(target):
+                    try:
+                        with open(target, "r", encoding="utf-8") as f:
+                            data = json.load(f)
+                        if isinstance(data, dict):
+                            s_iso = data.get("last_seen_utc")
+                            s_hmac = data.get("hmac_tag")
+                            if s_iso and s_hmac:
+                                expected_hmac = _compute_clock_hmac(s_iso, device_fingerprint)
+                                if hmac.compare_digest(s_hmac, expected_hmac):
+                                    clean_iso = s_iso.strip()
+                                    if clean_iso.endswith("Z"):
+                                        clean_iso = clean_iso[:-1] + "+00:00"
+                                    p = datetime.datetime.fromisoformat(clean_iso)
+                                    if p.tzinfo is None:
+                                        p = p.replace(tzinfo=datetime.timezone.utc)
+                                    verified_timestamps.append(p)
+                    except Exception:
+                        pass
 
-        # 2. Read registry anchor
-        reg_last_seen = self._read_registry_clock_state(device_fingerprint)
-
-        # High-water mark is maximum verified timestamp
-        candidates = [t for t in (file_last_seen, reg_last_seen) if t is not None]
-        last_seen = max(candidates) if candidates else None
+        # High-water mark is maximum verified timestamp across all anchors
+        last_seen = max(verified_timestamps) if verified_timestamps else None
 
         # Check for clock rollback on subscriptions/trials
         if is_subscription and last_seen is not None:
@@ -255,22 +238,21 @@ class LicenseStore:
         new_iso = new_high.strftime("%Y-%m-%dT%H:%M:%SZ")
         new_hmac = _compute_clock_hmac(new_iso, device_fingerprint)
         state_dict = {
-            "version": 2,
+            "version": 3,
             "last_seen_utc": new_iso,
             "hmac_tag": new_hmac,
         }
 
-        # Write file anchor to primary user directory
-        try:
-            target_dir, target_file = self._resolve_write_target(CLOCK_STATE_FILENAME)
-            tmp_file = os.path.join(target_dir, f"{CLOCK_STATE_FILENAME}.{uuid.uuid4().hex}.tmp")
-            with open(tmp_file, "w", encoding="utf-8") as f:
-                json.dump(state_dict, f, indent=2)
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp_file, target_file)
-        except Exception:
-            pass
+        # 2. Multi-location redundant filesystem writes (Zero Windows Registry calls!)
+        # Primary user directory (%LOCALAPPDATA%\Daqiq\license): .clock_state.dat + clock_state.json
+        if self.user_dir:
+            self._write_anchor_atomic(self.user_dir, PRIMARY_CLOCK_FILE, state_dict)
+            self._write_anchor_atomic(self.user_dir, CLOCK_STATE_FILENAME, state_dict)
 
-        # Write registry mirror
-        self._write_registry_clock_state(new_iso, new_hmac)
+        # Roaming AppData directory (%APPDATA%\Daqiq): .runtime_anchor.dat
+        if self.roaming_dir and self.roaming_dir != self.user_dir:
+            self._write_anchor_atomic(self.roaming_dir, RUNTIME_ANCHOR_FILE, state_dict)
+
+        # Machine-wide directory (%PROGRAMDATA%\Daqiq\license): .runtime_anchor.dat (if writable)
+        if self.machine_dir and self.machine_dir != self.user_dir:
+            self._write_anchor_atomic(self.machine_dir, RUNTIME_ANCHOR_FILE, state_dict)

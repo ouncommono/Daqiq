@@ -52,9 +52,14 @@ def test_device_request_export_protocol_parity():
     req = create_device_request_dict(device_label="Main Cashier")
     assert req["request_version"] == 1
     assert req["product_id"] == "daqiq.desktop"
-    assert req["app_version"] == "4.9.2"
+    assert req["app_version"] == "4.9.3"
     assert req["device_label"] == "Main Cashier"
-    assert req["hardware_tier"] in ("tier1", "tier2", "tier3")
+    assert "hardware_tier" not in req
+    assert "hardware_anchors" in req
+    assert "computer_name" in req
+    assert "os_info" in req
+    assert "cpu_model" in req
+    assert "checksum_sha256" in req
     assert req["device_fingerprint"].startswith("fp_v1:")
     assert len(req["device_fingerprint"]) == 6 + 64
 

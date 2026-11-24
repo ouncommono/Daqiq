@@ -7,4 +7,5 @@ build/
 .pytest_cache/
 *.db
 app_config.json
+build_license_config.local.json
 
