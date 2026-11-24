@@ -124,7 +124,7 @@ def _load_app_version() -> str:
                         return ver
             except Exception:
                 pass
-    return "4.9.4"
+    return "4.9.5"
 
 APP_VERSION = _load_app_version()
 
@@ -135,6 +135,7 @@ if "__compiled__" in globals() or hasattr(sys, "__compiled__"):
 from licensing import (
     LicenseService,
     LicenseDialog,
+    ThemedNoticeDialog,
     ValidationResult,
     ValidationStatus,
 )
@@ -526,7 +527,7 @@ def _center_message_buttons(dialog):
 
 
 class _MessageBoxPolisher(QObject):
-    """Translate standard Qt message-box buttons and center them consistently."""
+    """Translate standard Qt message-box buttons, center them, and ensure readable styling."""
 
     _BUTTON_LABELS = {
         "OK": "تأیید", "Ok": "تأیید", "Cancel": "انصراف",
@@ -546,13 +547,155 @@ class _MessageBoxPolisher(QObject):
                 if button_box is not None:
                     button_box.setCenterButtons(True)
                     for button in button_box.buttons():
-                        translated = self._BUTTON_LABELS.get(button.text())
+                        raw_label = (button.text() or "").replace("&", "").strip()
+                        translated = self._BUTTON_LABELS.get(raw_label)
                         if translated:
                             button.setText(translated)
                         button.setLayoutDirection(Qt.RightToLeft)
+                if isinstance(watched, QMessageBox) and not watched.styleSheet():
+                    is_dark = watched.palette().window().color().lightness() < 128
+                    if is_dark:
+                        qss = (
+                            "QMessageBox { background-color: #0b1220; color: #f8fafc; }"
+                            "QMessageBox QLabel { color: #f8fafc; background: transparent; }"
+                            "QMessageBox QPushButton { background-color: #0284c7; color: #ffffff; "
+                            "border: 1px solid #38bdf8; border-radius: 6px; padding: 6px 16px; "
+                            "min-width: 84px; font-weight: bold; }"
+                            "QMessageBox QPushButton:hover { background-color: #0369a1; }"
+                        )
+                    else:
+                        qss = (
+                            "QMessageBox { background-color: #f4f7fb; color: #0f172a; }"
+                            "QMessageBox QLabel { color: #0f172a; background: transparent; }"
+                            "QMessageBox QPushButton { background-color: #0284c7; color: #ffffff; "
+                            "border: 1px solid #0369a1; border-radius: 6px; padding: 6px 16px; "
+                            "min-width: 84px; font-weight: bold; }"
+                            "QMessageBox QPushButton:hover { background-color: #0369a1; }"
+                        )
+                    watched.setStyleSheet(qss)
         except RuntimeError:
             pass
         return False
+
+
+_ACTIVE_MAIN_WINDOW = None
+_CRASH_HOOK_ACTIVE = False
+_IN_CRASH_HANDLER = False
+
+
+def get_crash_log_path() -> str:
+    """Return persistent path for crash tracebacks under %LOCALAPPDATA%\\Daqiq\\logs."""
+    local_app = os.environ.get("LOCALAPPDATA", "").strip()
+    if local_app:
+        log_dir = os.path.join(local_app, "Daqiq", "logs")
+    else:
+        log_dir = os.path.join(os.path.expanduser("~"), ".daqiq", "logs")
+    try:
+        os.makedirs(log_dir, exist_ok=True)
+    except OSError:
+        log_dir = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(log_dir, "daqiq_crash.log")
+
+
+def write_crash_log(exc_type, exc_value, exc_tb, context: str = "unhandled") -> str:
+    """Write a full timestamped traceback to disk and return the log file path."""
+    import datetime as _dt
+    import platform
+    import traceback
+
+    log_path = get_crash_log_path()
+    tb_text = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+    entry = (
+        "============================================================\n"
+        f"Timestamp (UTC): {_dt.datetime.now(_dt.timezone.utc).isoformat()}\n"
+        f"Daqiq Version: {APP_VERSION}\n"
+        f"Context: {context}\n"
+        f"Platform: {platform.platform()} | Python {platform.python_version()}\n"
+        f"Executable: {sys.executable}\n"
+        "Traceback:\n"
+        f"{tb_text}\n"
+    )
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(entry)
+    except OSError:
+        pass
+    return log_path
+
+
+def _show_fatal_crash_dialog(log_path: str, exc_value: BaseException) -> None:
+    """Display a localized Persian error dialog so console-less Windows builds never vanish silently."""
+    try:
+        is_dark = False
+        try:
+            cfg = load_app_config()
+            is_dark = str(cfg.get("theme", "")).lower() == "dark"
+        except Exception:
+            pass
+        app = QApplication.instance()
+        if app is None:
+            app = QApplication(sys.argv[:1] if sys.argv else ["Daqiq"])
+            app.setLayoutDirection(Qt.RightToLeft)
+        msg = (
+            "متأسفانه خطای غیرمنتظره‌ای هنگام راه‌اندازی یا اجرای برنامه رخ داد.\n"
+            f"گزارش کامل خطا در فایل زیر ذخیره شد:\n{log_path}\n\n"
+            "لطفاً این گزارش را برای پشتیبانی ارسال فرمایید."
+        )
+        dlg = ThemedNoticeDialog(
+            parent=None,
+            title="بروز خطای غیرمنتظره",
+            message=msg,
+            kind="error",
+            is_dark_theme=is_dark,
+            buttons="ok",
+            details=f"{type(exc_value).__name__}: {exc_value}",
+        )
+        dlg.exec()
+    except Exception:
+        pass
+
+
+def handle_unhandled_exception(exc_type, exc_value, exc_tb, context: str = "sys.excepthook", show_dialog: bool = True) -> str:
+    """Log unhandled exceptions cleanly and present Persian crash dialog."""
+    global _IN_CRASH_HANDLER
+    if issubclass(exc_type, (KeyboardInterrupt, SystemExit)):
+        return ""
+    log_path = write_crash_log(exc_type, exc_value, exc_tb, context=context)
+    if show_dialog and not _IN_CRASH_HANDLER:
+        _IN_CRASH_HANDLER = True
+        try:
+            _show_fatal_crash_dialog(log_path, exc_value)
+        finally:
+            _IN_CRASH_HANDLER = False
+    return log_path
+
+
+def install_global_exception_hooks() -> None:
+    """Install sys.excepthook and threading.excepthook once per process."""
+    global _CRASH_HOOK_ACTIVE
+    if _CRASH_HOOK_ACTIVE:
+        return
+    _CRASH_HOOK_ACTIVE = True
+
+    def _sys_hook(exc_type, exc_value, exc_tb):
+        if issubclass(exc_type, (KeyboardInterrupt, SystemExit)):
+            sys.__excepthook__(exc_type, exc_value, exc_tb)
+            return
+        handle_unhandled_exception(exc_type, exc_value, exc_tb, context="sys.excepthook", show_dialog=True)
+
+    def _thread_hook(args):
+        handle_unhandled_exception(
+            args.exc_type,
+            args.exc_value,
+            args.exc_traceback,
+            context=f"threading.excepthook({getattr(args.thread, 'name', 'worker')})",
+            show_dialog=False,
+        )
+
+    sys.excepthook = _sys_hook
+    import threading
+    if hasattr(threading, "excepthook"):
+        threading.excepthook = _thread_hook
 
 
 def _window_title(shop_name: str) -> str:
@@ -11780,6 +11923,12 @@ def main():
     app.setLayoutDirection(Qt.RightToLeft)
     font = QFont("Tahoma", 10)
     app.setFont(font)
+    install_global_exception_hooks()
+    app.setQuitOnLastWindowClosed(False)
+    if not getattr(app, "_daqiq_msg_polisher", None):
+        polisher = _MessageBoxPolisher(app)
+        app.installEventFilter(polisher)
+        app._daqiq_msg_polisher = polisher
 
     if smoke_log_file:
         try:
@@ -11817,57 +11966,83 @@ def main():
                     f.write("STEP 5: Clean exit sys.exit(0)\n")
             except Exception:
                 pass
+        app.setQuitOnLastWindowClosed(True)
         sys.exit(0)
-    if not val_res.is_valid:
-        startup_cfg = load_app_config()
-        startup_dark = startup_cfg.get("theme", "light") == "dark"
-        dlg_icon = resource_path("assets/daqiq_logo.svg")
-        if not os.path.exists(dlg_icon):
-            dlg_icon = icon_path
-        dlg = LicenseDialog(
-            service=license_service,
-            icon_path=dlg_icon if os.path.exists(dlg_icon) else None,
-            is_dark_theme=startup_dark,
-            is_startup_gate=True,
-        )
-        if dlg.exec() != QDialog.Accepted:
-            sys.exit(0)
-        val_res = license_service.check_license()
+
+    exit_code = 0
+    try:
         if not val_res.is_valid:
+            startup_cfg = load_app_config()
+            startup_dark = startup_cfg.get("theme", "light") == "dark"
+            dlg_icon = resource_path("assets/daqiq_logo.svg")
+            if not os.path.exists(dlg_icon):
+                dlg_icon = icon_path
+            dlg = LicenseDialog(
+                service=license_service,
+                icon_path=dlg_icon if os.path.exists(dlg_icon) else None,
+                is_dark_theme=startup_dark,
+                is_startup_gate=True,
+            )
+            if dlg.exec() != QDialog.Accepted:
+                app.setQuitOnLastWindowClosed(True)
+                sys.exit(0)
+            val_res = license_service.check_license()
+            if not val_res.is_valid:
+                app.setQuitOnLastWindowClosed(True)
+                sys.exit(0)
+
+        selected_db_path = select_startup_database_path()
+        if not selected_db_path:
+            app.setQuitOnLastWindowClosed(True)
+            sys.exit(0)
+        db = DatabaseManager(selected_db_path)
+
+        # Database Password Startup Check (Item 13, REQ-5)
+        if db.is_password_protected() and not db.can_auto_unlock_locally():
+            unlocked = False
+            for _ in range(3):
+                pwd, ok = _prompt_database_password(None, "رمز عبور پایگاه داده را وارد کنید:")
+                if not ok:
+                    break
+                if db.verify_database_password(pwd):
+                    unlocked = True
+                    break
+                else:
+                    QMessageBox.warning(None, "رمز نادرست", "رمز عبور واردشده برای پایگاه داده صحیح نیست.")
+            if not unlocked:
+                app.setQuitOnLastWindowClosed(True)
+                sys.exit(0)
+
+        active_emp = None
+        active_emp, accepted = _resolve_startup_employee(db)
+        if not accepted:
+            app.setQuitOnLastWindowClosed(True)
             sys.exit(0)
 
-    selected_db_path = select_startup_database_path()
-    if not selected_db_path:
-        sys.exit(0)
-    db = DatabaseManager(selected_db_path)
+        win = MainWindow(db, active_emp, license_service=license_service)
+        global _ACTIVE_MAIN_WINDOW
+        _ACTIVE_MAIN_WINDOW = win
+        if bool(db.cfg.get("default_window_maximized", True)):
+            win.showMaximized()
+        else:
+            win.show()
+        app.processEvents()
+        app.setQuitOnLastWindowClosed(True)
+        exit_code = app.exec()
+    except Exception as exc:
+        app.setQuitOnLastWindowClosed(True)
+        handle_unhandled_exception(
+            type(exc),
+            exc,
+            exc.__traceback__,
+            context="main.startup",
+            show_dialog=True,
+        )
+        sys.exit(1)
+    finally:
+        _ACTIVE_MAIN_WINDOW = None
 
-    # Database Password Startup Check (Item 13, REQ-5)
-    if db.is_password_protected() and not db.can_auto_unlock_locally():
-        unlocked = False
-        for _ in range(3):
-            pwd, ok = _prompt_database_password(None, "رمز عبور پایگاه داده را وارد کنید:")
-            if not ok:
-                break
-            if db.verify_database_password(pwd):
-                unlocked = True
-                break
-            else:
-                QMessageBox.warning(None, "رمز نادرست", "رمز عبور واردشده برای پایگاه داده صحیح نیست.")
-        if not unlocked:
-            sys.exit(0)
-
-    active_emp = None
-    active_emp, accepted = _resolve_startup_employee(db)
-    if not accepted:
-        sys.exit(0)
-
-    win = MainWindow(db, active_emp, license_service=license_service)
-    if bool(db.cfg.get("default_window_maximized", True)):
-        win.showMaximized()
-    else:
-        win.show()
-
-    sys.exit(app.exec())
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":

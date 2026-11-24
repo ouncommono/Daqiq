@@ -21,13 +21,13 @@ from PySide6.QtWidgets import (
     QDialog,
     QVBoxLayout,
     QHBoxLayout,
+    QGridLayout,
     QLabel,
     QPushButton,
     QLineEdit,
     QPlainTextEdit,
     QFileDialog,
     QGroupBox,
-    QMessageBox,
     QFrame,
     QSizePolicy,
     QScrollArea,
@@ -118,6 +118,278 @@ def _build_dark_palette() -> QPalette:
     return pal
 
 
+class ThemedNoticeDialog(QDialog):
+    """Self-contained theme-aware Persian RTL alert/confirmation dialog."""
+
+    _KIND_META = {
+        "info": ("ℹ", "#0284c7", "#e0f2fe", "#0c4a6e"),
+        "success": ("✓", "#16a34a", "#dcfce7", "#064e3b"),
+        "warning": ("!", "#d97706", "#fef3c7", "#451a03"),
+        "error": ("✕", "#dc2626", "#fee2e2", "#450a0a"),
+        "danger": ("✕", "#dc2626", "#fee2e2", "#450a0a"),
+        "question": ("؟", "#0284c7", "#e0f2fe", "#0c4a6e"),
+    }
+
+    def __init__(
+        self,
+        parent=None,
+        title: str = "",
+        message: str = "",
+        *,
+        kind: str = "info",
+        is_dark_theme: Optional[bool] = None,
+        buttons: str = "ok",
+        destructive: bool = False,
+        details: str = "",
+    ):
+        super().__init__(parent)
+        if is_dark_theme is None:
+            is_dark_theme = bool(getattr(parent, "is_dark_theme", False))
+        self.is_dark_theme = bool(is_dark_theme)
+        self.kind = kind if kind in self._KIND_META else "info"
+        self.buttons_mode = buttons
+        self.destructive = bool(destructive)
+        self.result_button = "no" if buttons == "yes_no" else "ok"
+
+        self.setObjectName("DaqiqNoticeDialogRoot")
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setAutoFillBackground(True)
+        self.setLayoutDirection(Qt.RightToLeft)
+        self.setModal(True)
+        self.setWindowTitle(title or "اعلان سیستم")
+        self.setMinimumWidth(420)
+        self.setMaximumWidth(620)
+        if parent is not None and hasattr(parent, "windowIcon") and not parent.windowIcon().isNull():
+            self.setWindowIcon(parent.windowIcon())
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(18, 16, 18, 16)
+        root.setSpacing(12)
+
+        # Header card with icon badge + Persian title
+        self.header_card = QFrame()
+        self.header_card.setObjectName("noticeBodyCard")
+        card_layout = QVBoxLayout(self.header_card)
+        card_layout.setContentsMargins(16, 14, 16, 14)
+        card_layout.setSpacing(10)
+
+        top_row = QHBoxLayout()
+        top_row.setSpacing(12)
+
+        symbol, accent_hex, _, _ = self._KIND_META[self.kind]
+        self.lbl_icon = QLabel(symbol)
+        self.lbl_icon.setObjectName("noticeIconBadge")
+        self.lbl_icon.setAlignment(Qt.AlignCenter)
+        self.lbl_icon.setFixedSize(40, 40)
+        top_row.addWidget(self.lbl_icon, 0, Qt.AlignTop)
+
+        text_col = QVBoxLayout()
+        text_col.setSpacing(6)
+        self.lbl_title = QLabel(title or "اعلان")
+        self.lbl_title.setObjectName("noticeTitleLabel")
+        self.lbl_title.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.lbl_title.setWordWrap(True)
+        text_col.addWidget(self.lbl_title)
+
+        self.lbl_message = QLabel(message or "")
+        self.lbl_message.setObjectName("noticeMessageLabel")
+        self.lbl_message.setAlignment(Qt.AlignRight | Qt.AlignTop)
+        self.lbl_message.setWordWrap(True)
+        self.lbl_message.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        text_col.addWidget(self.lbl_message)
+
+        top_row.addLayout(text_col, 1)
+        card_layout.addLayout(top_row)
+
+        if details:
+            self.txt_details = QPlainTextEdit()
+            self.txt_details.setObjectName("noticeDetailsEdit")
+            self.txt_details.setReadOnly(True)
+            self.txt_details.setLayoutDirection(Qt.LeftToRight)
+            self.txt_details.setPlainText(details)
+            self.txt_details.setFixedHeight(96)
+            card_layout.addWidget(self.txt_details)
+        else:
+            self.txt_details = None
+
+        root.addWidget(self.header_card)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(10)
+        btn_row.addStretch(1)
+
+        self.btn_ok = None
+        self.btn_yes = None
+        self.btn_no = None
+        self._action_buttons = []
+
+        if self.buttons_mode == "yes_no":
+            self.btn_yes = QPushButton("بله")
+            self.btn_yes.setObjectName("noticeDangerBtn" if self.destructive else "noticePrimaryBtn")
+            self.btn_yes.setCursor(Qt.PointingHandCursor)
+            self.btn_yes.clicked.connect(self._accept_yes)
+            btn_row.addWidget(self.btn_yes)
+
+            self.btn_no = QPushButton("خیر")
+            self.btn_no.setObjectName("noticeSecondaryBtn")
+            self.btn_no.setCursor(Qt.PointingHandCursor)
+            self.btn_no.setDefault(True)
+            self.btn_no.clicked.connect(self._reject_no)
+            btn_row.addWidget(self.btn_no)
+            self._action_buttons = [self.btn_yes, self.btn_no]
+        else:
+            self.btn_ok = QPushButton("تأیید")
+            self.btn_ok.setObjectName("noticeDangerBtn" if self.kind in ("error", "danger") else "noticePrimaryBtn")
+            self.btn_ok.setCursor(Qt.PointingHandCursor)
+            self.btn_ok.setDefault(True)
+            self.btn_ok.clicked.connect(self._accept_ok)
+            btn_row.addWidget(self.btn_ok)
+            self._action_buttons = [self.btn_ok]
+
+        btn_row.addStretch(1)
+        root.addLayout(btn_row)
+
+        self._accent_hex = accent_hex
+        self._apply_theme()
+
+    def _accept_ok(self):
+        self.result_button = "ok"
+        self.accept()
+
+    def _accept_yes(self):
+        self.result_button = "yes"
+        self.accept()
+
+    def _reject_no(self):
+        self.result_button = "no"
+        self.reject()
+
+    def buttons(self):
+        """Return action QPushButtons for consistent dialog inspection."""
+        return list(self._action_buttons)
+
+    def _apply_theme(self):
+        _, accent_hex, light_badge_bg, dark_badge_bg = self._KIND_META[self.kind]
+        if self.is_dark_theme:
+            pal = _build_dark_palette()
+            bg = "#0b1220"
+            card_bg = "#111c30"
+            border = "#2a3b58"
+            title_fg = "#f8fafc"
+            msg_fg = "#e2e8f0"
+            badge_bg = dark_badge_bg
+            badge_fg = "#f8fafc"
+            sec_bg = "#1e293b"
+            sec_hover = "#334155"
+            sec_fg = "#f8fafc"
+            sec_border = "#64748b"
+            input_bg = "#0f172a"
+        else:
+            pal = _build_light_palette()
+            bg = "#f4f7fb"
+            card_bg = "#ffffff"
+            border = "#cbd5e1"
+            title_fg = "#0f172a"
+            msg_fg = "#1e293b"
+            badge_bg = light_badge_bg
+            badge_fg = accent_hex
+            sec_bg = "#e2e8f0"
+            sec_hover = "#cbd5e1"
+            sec_fg = "#0f172a"
+            sec_border = "#94a3b8"
+            input_bg = "#f8fafc"
+
+        self.setPalette(pal)
+        qss = f"""
+        QDialog#DaqiqNoticeDialogRoot {{
+            background-color: {bg};
+            color: {title_fg};
+            font-family: "Tahoma", "Vazirmatn", "Segoe UI", sans-serif;
+        }}
+        #DaqiqNoticeDialogRoot QFrame#noticeBodyCard {{
+            background-color: {card_bg};
+            border: 1px solid {border};
+            border-radius: 10px;
+        }}
+        #DaqiqNoticeDialogRoot QLabel#noticeIconBadge {{
+            background-color: {badge_bg};
+            color: {badge_fg};
+            border: 2px solid {accent_hex};
+            border-radius: 20px;
+            font-size: 17px;
+            font-weight: bold;
+        }}
+        #DaqiqNoticeDialogRoot QLabel#noticeTitleLabel {{
+            background: transparent;
+            color: {title_fg};
+            font-size: 14px;
+            font-weight: bold;
+        }}
+        #DaqiqNoticeDialogRoot QLabel#noticeMessageLabel {{
+            background: transparent;
+            color: {msg_fg};
+            font-size: 12px;
+            line-height: 1.45;
+        }}
+        #DaqiqNoticeDialogRoot QPlainTextEdit#noticeDetailsEdit {{
+            background-color: {input_bg};
+            color: {msg_fg};
+            border: 1px solid {border};
+            border-radius: 6px;
+            padding: 6px;
+            font-family: "Consolas", "Courier New", monospace;
+            font-size: 11px;
+        }}
+        #DaqiqNoticeDialogRoot QPushButton {{
+            min-width: 96px;
+            min-height: 32px;
+            border-radius: 7px;
+            padding: 6px 18px;
+            font-size: 12px;
+            font-weight: bold;
+        }}
+        #DaqiqNoticeDialogRoot QPushButton#noticePrimaryBtn {{
+            background-color: #0284c7;
+            color: #ffffff;
+            border: 1px solid #0369a1;
+        }}
+        #DaqiqNoticeDialogRoot QPushButton#noticePrimaryBtn:hover {{
+            background-color: #0369a1;
+        }}
+        #DaqiqNoticeDialogRoot QPushButton#noticePrimaryBtn:pressed {{
+            background-color: #075985;
+        }}
+        #DaqiqNoticeDialogRoot QPushButton#noticeDangerBtn {{
+            background-color: #dc2626;
+            color: #ffffff;
+            border: 1px solid #b91c1c;
+        }}
+        #DaqiqNoticeDialogRoot QPushButton#noticeDangerBtn:hover {{
+            background-color: #b91c1c;
+        }}
+        #DaqiqNoticeDialogRoot QPushButton#noticeDangerBtn:pressed {{
+            background-color: #991b1b;
+        }}
+        #DaqiqNoticeDialogRoot QPushButton#noticeSecondaryBtn {{
+            background-color: {sec_bg};
+            color: {sec_fg};
+            border: 1px solid {sec_border};
+        }}
+        #DaqiqNoticeDialogRoot QPushButton#noticeSecondaryBtn:hover {{
+            background-color: {sec_hover};
+        }}
+        """
+        self.setStyleSheet(qss)
+        st = self.style()
+        for w in [self] + self.findChildren(QWidget):
+            try:
+                st.unpolish(w)
+                st.polish(w)
+                w.update()
+            except Exception:
+                pass
+
+
 class LicenseDialog(QDialog):
     """Persian RTL activation and license status dialog with 100% isolated Light/Dark theming."""
 
@@ -174,13 +446,17 @@ class LicenseDialog(QDialog):
         main_layout.setContentsMargins(16, 14, 16, 12)
         main_layout.setSpacing(10)
 
-        # Header section
+        # Header section (symmetrical 3-column grid so title stays geometrically centered)
         self.header_frame = QFrame()
         self.header_frame.setObjectName("licHeaderFrame")
         self.header_frame.setFrameShape(QFrame.NoFrame)
-        h_layout = QHBoxLayout(self.header_frame)
-        h_layout.setContentsMargins(14, 12, 14, 12)
-        h_layout.setSpacing(12)
+        self.header_grid = QGridLayout(self.header_frame)
+        self.header_grid.setContentsMargins(14, 12, 14, 12)
+        self.header_grid.setHorizontalSpacing(12)
+        self.header_grid.setVerticalSpacing(0)
+        self.header_grid.setColumnStretch(0, 0)
+        self.header_grid.setColumnStretch(1, 1)
+        self.header_grid.setColumnStretch(2, 0)
 
         # Crisp HiDPI vector logo
         self.icon_lbl = QLabel()
@@ -191,20 +467,20 @@ class LicenseDialog(QDialog):
         logo_pix = _render_crisp_logo_pixmap(self.icon_path, target_px=58, dpr=dpr)
         if logo_pix is not None and not logo_pix.isNull():
             self.icon_lbl.setPixmap(logo_pix)
-        h_layout.addWidget(self.icon_lbl, 0, Qt.AlignVCenter)
+        self.header_grid.addWidget(self.icon_lbl, 0, 0, Qt.AlignLeading | Qt.AlignVCenter)
 
         title_vbox = QVBoxLayout()
         title_vbox.setSpacing(4)
         self.title_lbl = QLabel("سامانه مدیریت و فعال‌سازی لایسنس دقیق")
         self.title_lbl.setObjectName("licHeaderTitle")
-        self.title_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.title_lbl.setAlignment(Qt.AlignCenter)
         self.sub_lbl = QLabel("بررسی وضعیت اعتبار، دریافت شناسه دستگاه و فعال‌سازی نرم‌افزار")
         self.sub_lbl.setObjectName("licHeaderSubtitle")
-        self.sub_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.sub_lbl.setAlignment(Qt.AlignCenter)
         self.sub_lbl.setWordWrap(True)
         title_vbox.addWidget(self.title_lbl)
         title_vbox.addWidget(self.sub_lbl)
-        h_layout.addLayout(title_vbox, 1)
+        self.header_grid.addLayout(title_vbox, 0, 1)
 
         # Theme toggle button in header
         self.btn_theme_toggle = QPushButton()
@@ -212,9 +488,10 @@ class LicenseDialog(QDialog):
         self.btn_theme_toggle.setCursor(Qt.PointingHandCursor)
         self.btn_theme_toggle.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.btn_theme_toggle.clicked.connect(self._toggle_theme)
-        h_layout.addWidget(self.btn_theme_toggle, 0, Qt.AlignVCenter)
+        self.header_grid.addWidget(self.btn_theme_toggle, 0, 2, Qt.AlignTrailing | Qt.AlignVCenter)
 
         main_layout.addWidget(self.header_frame)
+        self._sync_header_symmetry()
 
         # Scrollable container for middle contents
         self.scroll_area = QScrollArea()
@@ -418,6 +695,20 @@ class LicenseDialog(QDialog):
         self.lbl_key_fp.setToolTip("برای کپی کردن شناسه امنیتی برنامه کلیک کنید")
         self.lbl_key_fp.mousePressEvent = self._copy_key_fingerprint
         main_layout.addWidget(self.lbl_key_fp)
+
+    def _sync_header_symmetry(self):
+        """Match left and right header column widths so title remains centered."""
+        if not hasattr(self, "header_grid"):
+            return
+        toggle_w = int(self.btn_theme_toggle.sizeHint().width() or 0)
+        icon_w = int(self.icon_lbl.width() or 64)
+        side_w = max(icon_w, toggle_w, 132)
+        self.header_grid.setColumnMinimumWidth(0, side_w)
+        self.header_grid.setColumnMinimumWidth(2, side_w)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._sync_header_symmetry()
 
     def _toggle_theme(self):
         """Toggle between Dark and Light mode and apply immediately."""
@@ -683,6 +974,7 @@ class LicenseDialog(QDialog):
         """
         self.setStyleSheet(qss)
         self._style_status_badge()
+        self._sync_header_symmetry()
 
         # Force Qt style re-polish across the dialog tree to eliminate any parent QSS cache bleed
         st = self.style()
@@ -865,6 +1157,26 @@ class LicenseDialog(QDialog):
                 self.btn_copy_fp.setText("کپی شد ✓")
                 self._hw_fp_revert_timer.start(2500)
 
+    def _show_notice(
+        self,
+        title: str,
+        message: str,
+        *,
+        kind: str = "info",
+        buttons: str = "ok",
+        destructive: bool = False,
+    ) -> int:
+        dlg = ThemedNoticeDialog(
+            parent=self,
+            title=title,
+            message=message,
+            kind=kind,
+            is_dark_theme=self.is_dark_theme,
+            buttons=buttons,
+            destructive=destructive,
+        )
+        return dlg.exec()
+
     def _export_request_flow(self):
         """Prompt user to save .daqreq hardware request file."""
         path, _ = QFileDialog.getSaveFileName(
@@ -877,16 +1189,16 @@ class LicenseDialog(QDialog):
             return
         try:
             self.service.export_device_request_file(path)
-            QMessageBox.information(
-                self,
+            self._show_notice(
                 "ذخیره موفق",
                 f"فایل مشخصات سیستم با موفقیت ذخیره شد:\n{path}\n\nلطفاً این فایل را برای پشتیبانی ارسال فرمایید.",
+                kind="success",
             )
         except Exception as e:
-            QMessageBox.critical(
-                self,
+            self._show_notice(
                 "خطا در ذخیره فایل",
                 f"امکان ذخیره فایل مشخصات سیستم وجود ندارد:\n{e}",
+                kind="error",
             )
 
     def _import_license_file_flow(self):
@@ -903,17 +1215,17 @@ class LicenseDialog(QDialog):
     def _import_from_path(self, path: str):
         res = self.service.import_license_file(path)
         if res.is_valid:
-            QMessageBox.information(
-                self,
+            self._show_notice(
                 "فعال‌سازی موفق",
                 "لایسنس با موفقیت بررسی و بر روی این سیستم فعال شد.",
+                kind="success",
             )
         else:
             msg = res.message_fa or "فایل لایسنس انتخاب‌شده معتبر نیست."
-            QMessageBox.warning(
-                self,
+            self._show_notice(
                 "خطا در فعال‌سازی",
                 msg,
+                kind="warning",
             )
         self.refresh_status()
 
@@ -923,32 +1235,36 @@ class LicenseDialog(QDialog):
             return
         res = self.service.import_license_token(token)
         if res.is_valid:
-            QMessageBox.information(
-                self,
+            self._show_notice(
                 "فعال‌سازی موفق",
                 "لایسنس با موفقیت بررسی و ثبت شد.",
+                kind="success",
             )
             self.txt_token.clear()
             self.token_frame.setVisible(False)
         else:
             msg = res.message_fa or "کد واردشده معتبر نیست."
-            QMessageBox.warning(
-                self,
+            self._show_notice(
                 "خطا در فعال‌سازی",
                 msg,
+                kind="warning",
             )
         self.refresh_status()
 
     def _remove_license_flow(self):
         """Remove active license after user confirmation."""
-        confirm = QMessageBox.question(
-            self,
+        confirm = self._show_notice(
             "تأیید حذف لایسنس",
             "آیا از حذف لایسنس فعال از روی این سیستم اطمینان دارید؟\nپس از حذف، تا زمان ثبت لایسنس جدید، دسترسی به بخش‌های برنامه متوقف خواهد شد.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+            kind="question",
+            buttons="yes_no",
+            destructive=True,
         )
-        if confirm == QMessageBox.Yes:
+        if confirm == QDialog.Accepted:
             self.service.remove_license()
-            QMessageBox.information(self, "حذف لایسنس", "لایسنس با موفقیت از این سیستم حذف شد.")
+            self._show_notice(
+                "حذف لایسنس",
+                "لایسنس با موفقیت از این سیستم حذف شد.",
+                kind="info",
+            )
             self.refresh_status()

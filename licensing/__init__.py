@@ -46,7 +46,7 @@ from .license_policy import (
     ALL_LICENSE_FEATURES,
     FEATURE_LABELS_FA,
 )
-from .license_dialog import LicenseDialog
+from .license_dialog import LicenseDialog, ThemedNoticeDialog
 
 __all__ = [
     "CustomerInfo",
@@ -79,4 +79,5 @@ __all__ = [
     "ALL_LICENSE_FEATURES",
     "FEATURE_LABELS_FA",
     "LicenseDialog",
+    "ThemedNoticeDialog",
 ]

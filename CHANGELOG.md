@@ -1,3 +1,13 @@
+# Daqiq 4.9.5
+
+## Critical Hotfix & License Window UI Polish
+
+- **Startup Lifecycle & Crash Safety Net**: Set `app.setQuitOnLastWindowClosed(False)` across the multi-dialog startup sequence (`LicenseDialog` → `DatabaseBootstrapDialog` → password prompt → employee login) until `MainWindow.show()`/`showMaximized()` completes, retained a persistent `MainWindow` reference across `app.exec()`, and installed global `sys.excepthook` + `threading.excepthook` crash logging (`%LOCALAPPDATA%\Daqiq\logs\daqiq_crash.log`) with a localized Persian error dialog (`بروز خطای غیرمنتظره`) so console-less Windows builds never terminate silently.
+- **License Window Centered Header**: Replaced the unbalanced header `QHBoxLayout` in `LicenseDialog` with a symmetrical 3-column `QGridLayout` dynamically equalizing the logo and theme-toggle columns so «سامانه مدیریت و فعال‌سازی لایسنس دقیق» stays geometrically centered in both Light and Dark themes.
+- **Theme-Aware Persian Notification Dialogs**: Added self-contained `ThemedNoticeDialog` replacing raw `QMessageBox` popups inside `LicenseDialog` (`.daqreq` export, license activation/validation errors, license deletion confirmation) with explicit Light/Dark isolation, RTL Persian buttons (`تأیید`, `بله`, `خیر`), and crisp high-contrast button borders; enhanced startup `_MessageBoxPolisher` for consistent Persian button localization on startup dialogs.
+
+---
+
 # Daqiq 4.9.4
 
 ## Release Summary & Commercial Store Hardening

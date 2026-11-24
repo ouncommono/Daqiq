@@ -300,7 +300,7 @@ def cmd_verify_license(args):
         res = verifier.validate_license(
             envelope=envelope,
             current_hardware_fingerprint=target_fp,
-            current_app_version="4.9.4",
+            current_app_version="4.9.5",
         )
         print("-" * 70)
         print(f"  Evaluation Status:  {res.status.value}")

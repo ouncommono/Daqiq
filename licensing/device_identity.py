@@ -477,7 +477,7 @@ def _read_cpu_model_clean() -> str:
 
 
 def create_device_request_dict(
-    app_version: str = "4.9.4",
+    app_version: str = "4.9.5",
     device_label: str = "",
     store_name: str = "",
     fp_prefix: Optional[str] = None,

@@ -353,7 +353,7 @@ class LicenseVerifier:
         self,
         envelope: LicenseEnvelope,
         current_hardware_fingerprint: str,
-        current_app_version: str = "4.9.4",
+        current_app_version: str = "4.9.5",
         now_utc: Optional[datetime.datetime] = None,
         available_hardware_tiers: Optional[Dict[str, str]] = None,
     ) -> ValidationResult:
