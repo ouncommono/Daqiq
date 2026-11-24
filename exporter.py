@@ -148,6 +148,42 @@ def _style_worksheet_professional(ws, title: str, headers: list, data_rows: list
         ws.column_dimensions[col_letter].width = min(max(max_len + 5, 13), 42)
 
 
+INVENTORY_EXPORT_AVAILABLE_COLUMNS = [
+    ("code", "کد کالا"),
+    ("batch_code", "کد محموله"),
+    ("product_name", "نام کالا"),
+    ("category", "دسته‌بندی"),
+    ("subcategory", "زیرمجموعه"),
+    ("brand_model", "برند و مدل"),
+    ("description", "توضیحات کالا"),
+    ("reorder_point", "حد سفارش مجدد"),
+    ("specs", "مشخصات فنی کالا"),
+    ("shipment_specs", "مشخصات فنی محموله"),
+    ("supplier", "تأمین‌کننده"),
+    ("buyer", "مسئول خرید"),
+    ("purchase_date", "تاریخ خرید"),
+    ("purchase_invoice", "شماره فاکتور خرید"),
+    ("purchase_status", "وضعیت تسویه خرید"),
+    ("purchase_paid_amount", "مبلغ پرداخت‌شده به تأمین‌کننده"),
+    ("serial_numbers", "شماره سریال"),
+    ("colors", "رنگ‌ها"),
+    ("initial_qty", "تعداد اولیه"),
+    ("sold_qty", "تعداد فروخته‌شده"),
+    ("returned_qty", "تعداد مرجوعی"),
+    ("stock", "موجودی فعلی"),
+    ("shipment_notes", "یادداشت محموله"),
+    ("warranty_history", "سوابق گارانتی فروش"),
+    ("batch_created_at", "زمان ثبت محموله"),
+    ("batch_updated_at", "آخرین ویرایش محموله"),
+    ("suggested_price", "قیمت فروش (پیشنهادی)"),
+    ("purchase_unit_price", "قیمت خرید واحد"),
+    ("unit_cost_price", "بهای تمام‌شده واحد"),
+    ("extra_cost_total", "هزینه‌های اضافی محموله"),
+    ("upgrade_cost_unit", "هزینه ارتقای واحد"),
+    ("profit_pct", "درصد سود"),
+]
+
+
 def export_safe_inventory_excel(
     db: DatabaseManager,
     file_path: str,
@@ -155,40 +191,7 @@ def export_safe_inventory_excel(
     included_columns=None,
 ):
     """Export one row per stocked shipment with configurable product/shipment fields."""
-    column_definitions = [
-        ("code", "کد کالا"),
-        ("batch_code", "کد محموله"),
-        ("product_name", "نام کالا"),
-        ("category", "دسته‌بندی"),
-        ("subcategory", "زیرمجموعه"),
-        ("brand_model", "برند و مدل"),
-        ("description", "توضیحات کالا"),
-        ("reorder_point", "حد سفارش مجدد"),
-        ("specs", "مشخصات فنی کالا"),
-        ("shipment_specs", "مشخصات فنی محموله"),
-        ("supplier", "تأمین‌کننده"),
-        ("buyer", "مسئول خرید"),
-        ("purchase_date", "تاریخ خرید"),
-        ("purchase_invoice", "شماره فاکتور خرید"),
-        ("purchase_status", "وضعیت تسویه خرید"),
-        ("purchase_paid_amount", "مبلغ پرداخت‌شده به تأمین‌کننده"),
-        ("serial_numbers", "شماره سریال"),
-        ("colors", "رنگ‌ها"),
-        ("initial_qty", "تعداد اولیه"),
-        ("sold_qty", "تعداد فروخته‌شده"),
-        ("returned_qty", "تعداد مرجوعی"),
-        ("stock", "موجودی فعلی"),
-        ("shipment_notes", "یادداشت محموله"),
-        ("warranty_history", "سوابق گارانتی فروش"),
-        ("batch_created_at", "زمان ثبت محموله"),
-        ("batch_updated_at", "آخرین ویرایش محموله"),
-        ("suggested_price", "قیمت فروش (پیشنهادی)"),
-        ("purchase_unit_price", "قیمت خرید واحد"),
-        ("unit_cost_price", "بهای تمام‌شده واحد"),
-        ("extra_cost_total", "هزینه‌های اضافی محموله"),
-        ("upgrade_cost_unit", "هزینه ارتقای واحد"),
-        ("profit_pct", "درصد سود"),
-    ]
+    column_definitions = INVENTORY_EXPORT_AVAILABLE_COLUMNS
     labels = dict(column_definitions)
     if included_columns is None:
         selected_columns = [
