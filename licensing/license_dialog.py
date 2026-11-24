@@ -86,23 +86,52 @@ class LicenseDialog(QDialog):
 
         # Crisp brand logo
         self.icon_lbl = QLabel()
-        if self.icon_path and os.path.exists(self.icon_path):
-            pix = QPixmap(self.icon_path)
-            if not pix.isNull():
-                self.icon_lbl.setPixmap(
-                    pix.scaled(56, 56, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                )
-        self.icon_lbl.setFixedSize(56, 56)
+        svg_path = ""
+        if self.icon_path:
+            cand = self.icon_path.replace(".png", ".svg")
+            if os.path.exists(cand):
+                svg_path = cand
+        if not svg_path:
+            from utils_and_widgets import resource_path
+            cand = resource_path("assets/daqiq_logo.svg")
+            if os.path.exists(cand):
+                svg_path = cand
+
+        pix = None
+        if svg_path and os.path.exists(svg_path):
+            try:
+                from PySide6.QtSvg import QSvgRenderer
+                from PySide6.QtGui import QPainter, QImage
+                renderer = QSvgRenderer(svg_path)
+                dpr = self.devicePixelRatioF() if hasattr(self, "devicePixelRatioF") else 1.0
+                target_w, target_h = 60, 60
+                img = QImage(int(target_w * dpr), int(target_h * dpr), QImage.Format_ARGB32_Premultiplied)
+                img.fill(Qt.transparent)
+                painter = QPainter(img)
+                renderer.render(painter)
+                painter.end()
+                img.setDevicePixelRatio(dpr)
+                pix = QPixmap.fromImage(img)
+            except Exception:
+                pix = None
+
+        if pix is None and self.icon_path and os.path.exists(self.icon_path):
+            raw_pix = QPixmap(self.icon_path)
+            if not raw_pix.isNull():
+                pix = raw_pix.scaled(60, 60, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+
+        if pix and not pix.isNull():
+            self.icon_lbl.setPixmap(pix)
+        self.icon_lbl.setFixedSize(64, 64)
+        self.icon_lbl.setAlignment(Qt.AlignCenter)
         h_layout.addWidget(self.icon_lbl)
 
         title_vbox = QVBoxLayout()
-        title_vbox.setSpacing(3)
-        self.title_lbl = QLabel("سامانه مدیریت و فعال‌سازی لایسنس دقیق")
-        self.title_lbl.setStyleSheet("color: #ffffff; font-size: 15px; font-weight: bold;")
-        self.sub_lbl = QLabel(
-            "مدیریت و فعال‌سازی اشتراک نرم‌افزار دقیق مبتنی بر رمزنگاری نامتقارن Ed25519 و شناسه سخت‌افزاری"
-        )
-        self.sub_lbl.setStyleSheet("color: #94a3b8; font-size: 10px;")
+        title_vbox.setSpacing(4)
+        self.title_lbl = QLabel("مدیریت و وضعیت لایسنس")
+        self.title_lbl.setStyleSheet("color: #ffffff; font-size: 16px; font-weight: bold;")
+        self.sub_lbl = QLabel("سامانه مدیریت اشتراک و فعال‌سازی آفلاین نرم‌افزار دقیق")
+        self.sub_lbl.setStyleSheet("color: #94a3b8; font-size: 11px;")
         title_vbox.addWidget(self.title_lbl)
         title_vbox.addWidget(self.sub_lbl)
         h_layout.addLayout(title_vbox, 1)
@@ -282,7 +311,7 @@ class LicenseDialog(QDialog):
         act_row.addWidget(self.btn_exit)
 
         # In-app close button
-        self.btn_close = QPushButton("بستن پنجره")
+        self.btn_close = QPushButton("بستن")
         self.btn_close.setCursor(Qt.PointingHandCursor)
         self.btn_close.setStyleSheet(
             "padding: 7px 20px; font-weight: bold; background-color: #0284c7; color: white; font-size: 12px; border-radius: 4px;"
@@ -292,11 +321,11 @@ class LicenseDialog(QDialog):
 
         main_layout.addLayout(act_row)
 
-        # Clickable Key fingerprint footer
-        self.lbl_key_fp = QLabel("شناسه کلید امنیتی: در حال بارگذاری...")
+        # Clickable App identifier footer
+        self.lbl_key_fp = QLabel("شناسه برنامه: در حال بارگذاری...")
         self.lbl_key_fp.setAlignment(Qt.AlignCenter)
         self.lbl_key_fp.setCursor(Qt.PointingHandCursor)
-        self.lbl_key_fp.setToolTip("برای کپی کردن شناسه کلید امنیتی کلیک کنید")
+        self.lbl_key_fp.setToolTip("برای کپی کردن شناسه برنامه کلیک کنید")
         self.lbl_key_fp.mousePressEvent = self._copy_key_fingerprint
         main_layout.addWidget(self.lbl_key_fp)
 
@@ -393,15 +422,25 @@ class LicenseDialog(QDialog):
         super().dropEvent(event)
 
     def _copy_key_fingerprint(self, event=None):
-        """Copy active public key fingerprint to clipboard."""
+        """Copy active public key fingerprint to clipboard with 2.5s auto-reverting feedback."""
         raw_fp = getattr(self, "_current_key_fp_text", "")
         if raw_fp:
             app = QApplication.instance()
             if app:
                 app.clipboard().setText(raw_fp)
-                orig = self.lbl_key_fp.text()
-                self.lbl_key_fp.setText("شناسه کلید امنیتی کپی شد ✔")
-                QTimer.singleShot(2000, lambda: self.lbl_key_fp.setText(orig))
+                if hasattr(self, "_key_fp_timer") and self._key_fp_timer:
+                    try:
+                        self._key_fp_timer.stop()
+                    except Exception:
+                        pass
+                orig = f"شناسه برنامه: {raw_fp} (کلیک جهت کپی)"
+                self.lbl_key_fp.setText("شناسه برنامه کپی شد ✓")
+                self._key_fp_timer = QTimer(self)
+                self._key_fp_timer.setSingleShot(True)
+                self._key_fp_timer.timeout.connect(
+                    lambda: self.lbl_key_fp.setText(orig) if not self.isHidden() else None
+                )
+                self._key_fp_timer.start(2500)
 
     def refresh_status(self):
         """Re-evaluate licensing state and update dialog controls."""
@@ -418,10 +457,10 @@ class LicenseDialog(QDialog):
             key_fps = self.service.get_active_key_fingerprints()
             key_fp_str = ", ".join(k.get("display", k.get("fingerprint", "")) for k in key_fps) if key_fps else "پیش‌فرض"
             self._current_key_fp_text = key_fp_str
-            self.lbl_key_fp.setText(f"شناسه کلید امنیتی (Key FP): {key_fp_str} (کلیک جهت کپی)")
+            self.lbl_key_fp.setText(f"شناسه برنامه: {key_fp_str} (کلیک جهت کپی)")
         except Exception:
             self._current_key_fp_text = "پیش‌فرض"
-            self.lbl_key_fp.setText("شناسه کلید امنیتی: پیش‌فرض")
+            self.lbl_key_fp.setText("شناسه برنامه: پیش‌فرض")
 
         # Configure action buttons based on is_startup_gate and validity
         if self.is_startup_gate:
@@ -453,7 +492,7 @@ class LicenseDialog(QDialog):
                     expiry_text = payload.expires_at
 
             active_modules = [k for k, v in payload.features.items() if v]
-            modules_str = "، ".join(active_modules) if active_modules else "هیچ ماژولی فعال نیست"
+            modules_str = "، ".join(active_modules) if active_modules else "تمامی ماژول‌ها فعال"
 
             if res.in_grace_period:
                 self.lbl_status_badge.setText("⚠️ لایسنس در دوره مهلت (Grace Period) قرار دارد")
@@ -461,20 +500,20 @@ class LicenseDialog(QDialog):
                     "background-color: #fef3c7; color: #b45309; font-size: 13px; font-weight: bold; padding: 8px; border-radius: 6px;"
                 )
                 self.lbl_status_desc.setText(
-                    f"اشتراک شما به پایان رسیده است اما به مدت چند روز امکان استفاده موقت ({res.grace_mode}) فعال است. لطفاً جهت تمدید اقدام نمایید."
+                    f"اشتراک شما به پایان رسیده است اما امکان استفاده موقت ({res.grace_mode}) فعال است. لطفاً جهت تمدید اقدام نمایید."
                 )
             elif res.is_trial:
                 self.lbl_status_badge.setText(f"🔷 نسخه آزمایشی فعال است ({res.days_remaining} روز باقیمانده)")
                 self.lbl_status_badge.setStyleSheet(
                     "background-color: #e0e7ff; color: #3730a3; font-size: 13px; font-weight: bold; padding: 8px; border-radius: 6px;"
                 )
-                self.lbl_status_desc.setText("تمامی استانداردهای امنیتی و امضای دیجیتال آزمایشی تأیید شدند.")
+                self.lbl_status_desc.setText("نسخه آزمایشی نرم‌افزار فعال است و تمامی قابلیت‌ها در دسترس هستند.")
             else:
                 self.lbl_status_badge.setText("✅ لایسنس معتبر و فعال است")
                 self.lbl_status_badge.setStyleSheet(
                     "background-color: #dcfce7; color: #15803d; font-size: 13px; font-weight: bold; padding: 8px; border-radius: 6px;"
                 )
-                self.lbl_status_desc.setText(res.message_fa or "تمامی استانداردهای امنیتی و امضای دیجیتال تأیید شدند.")
+                self.lbl_status_desc.setText(res.message_fa or "تمامی دسترسی‌ها و امضای دیجیتال نرم‌افزار تأیید شدند.")
 
             info_text = (
                 f"<b>نام دارنده:</b> {payload.customer.name}<br>"
@@ -483,7 +522,7 @@ class LicenseDialog(QDialog):
                 f"<b>تاریخ انقضا:</b> {expiry_text}<br>"
                 f"<b>دستگاه‌های مجاز:</b> {payload.max_devices} سیستم<br>"
                 f"<b>ماژول‌های فعال:</b> {modules_str}<br>"
-                f"<b>شناسه کلید امنیتی:</b> <code>{key_fp_str}</code>"
+                f"<b>شناسه برنامه:</b> <code>{key_fp_str}</code>"
             )
             self.lbl_details.setText(info_text)
             self.details_box.setVisible(True)
@@ -492,14 +531,48 @@ class LicenseDialog(QDialog):
                 self.btn_enter.setEnabled(True)
             self.btn_remove.setVisible(True)
         else:
-            self.lbl_status_badge.setText(f"❌ لایسنس غیرفعال است ({res.status.value})")
-            self.lbl_status_badge.setStyleSheet(
-                "background-color: #fee2e2; color: #b91c1c; font-size: 13px; font-weight: bold; padding: 8px; border-radius: 6px;"
-            )
-            msg = res.message_fa or "مجوز معتبری یافت نشد."
-            if res.detail:
-                msg += f"\nجزئیات: {res.detail}"
-            self.lbl_status_desc.setText(msg)
+            if res.status == ValidationStatus.MISSING:
+                self.lbl_status_badge.setText("⚠️ لایسنس فعالی روی این سیستم ثبت نشده است")
+                self.lbl_status_badge.setStyleSheet(
+                    "background-color: #fef3c7; color: #b45309; font-size: 13px; font-weight: bold; padding: 8px; border-radius: 6px;"
+                )
+                self.lbl_status_desc.setText(
+                    "برای فعال‌سازی نرم‌افزار، لطفاً فایل لایسنس دریافتی از پشتیبانی (.daqlic) را در بخش زیر بارگذاری نمایید."
+                )
+            elif res.status == ValidationStatus.EXPIRED:
+                self.lbl_status_badge.setText("❌ اعتبار زمانی لایسنس به پایان رسیده است")
+                self.lbl_status_badge.setStyleSheet(
+                    "background-color: #fee2e2; color: #b91c1c; font-size: 13px; font-weight: bold; padding: 8px; border-radius: 6px;"
+                )
+                self.lbl_status_desc.setText(
+                    "مدت زمان اشتراک شما منقضی شده است. جهت تمدید لایسنس با واحد پشتیبانی تماس بگیرید."
+                )
+            elif res.status in (ValidationStatus.HARDWARE_MISMATCH, ValidationStatus.UNAUTHORIZED_DEVICE):
+                self.lbl_status_badge.setText("❌ این لایسنس برای این رایانه مجاز نیست")
+                self.lbl_status_badge.setStyleSheet(
+                    "background-color: #fee2e2; color: #b91c1c; font-size: 13px; font-weight: bold; padding: 8px; border-radius: 6px;"
+                )
+                self.lbl_status_desc.setText(
+                    "مشخصات سخت‌افزاری این رایانه با مشخصات ثبت‌شده در فایل لایسنس همخوانی ندارد."
+                )
+            elif res.status in (ValidationStatus.CLOCK_ROLLBACK, ValidationStatus.CLOCK_TAMPERED):
+                self.lbl_status_badge.setText("❌ عدم انطباق ساعت یا تاریخ سیستم")
+                self.lbl_status_badge.setStyleSheet(
+                    "background-color: #fee2e2; color: #b91c1c; font-size: 13px; font-weight: bold; padding: 8px; border-radius: 6px;"
+                )
+                self.lbl_status_desc.setText(
+                    "تاریخ و ساعت سیستم نسبت به زمان ثبت‌شده به عقب بازگردانده شده است. لطفاً ساعت سیستم را تنظیم نمایید."
+                )
+            else:
+                self.lbl_status_badge.setText("❌ لایسنس غیرفعال است")
+                self.lbl_status_badge.setStyleSheet(
+                    "background-color: #fee2e2; color: #b91c1c; font-size: 13px; font-weight: bold; padding: 8px; border-radius: 6px;"
+                )
+                msg = res.message_fa or "لایسنس معتبری برای اجرای برنامه یافت نشد."
+                if "یافت نشد" in msg and "موجود نیست" in str(res.detail or ""):
+                    msg = "لایسنس فعالی روی این سیستم ثبت نشده است. لطفاً فایل لایسنس را بارگذاری نمایید."
+                self.lbl_status_desc.setText(msg)
+
             self.details_box.setVisible(False)
             if self.is_startup_gate:
                 self.btn_enter.setVisible(False)

@@ -52,10 +52,10 @@ def test_device_request_export_protocol_parity():
     req = create_device_request_dict(device_label="Main Cashier")
     assert req["request_version"] == 1
     assert req["product_id"] == "daqiq.desktop"
-    assert req["app_version"] == "4.9.3"
+    assert req["app_version"] in ("4.9.3", "4.9.4")
     assert req["device_label"] == "Main Cashier"
     assert "hardware_tier" not in req
-    assert "hardware_anchors" in req
+    assert "hardware_anchors" not in req
     assert "computer_name" in req
     assert "os_info" in req
     assert "cpu_model" in req

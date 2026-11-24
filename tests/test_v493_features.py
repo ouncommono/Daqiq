@@ -79,15 +79,15 @@ def test_persian_and_arabic_digits_normalization():
 # ---------------------------------------------------------------------------
 
 def test_time_conversions_24h_to_12h():
-    """Verify 24h to 12h format conversions with Persian markers."""
+    """Verify 24h to 12h format conversions with AM/PM markers."""
     # Afternoon
-    assert dtf.convert_time("14:30:15", "24h", "12h") == "02:30:15 ب.ظ"
+    assert dtf.convert_time("14:30:15", "24h", "12h") == "02:30:15 PM"
     # Morning
-    assert dtf.convert_time("09:15:00", "24h", "12h") == "09:15:00 ق.ظ"
-    # Midnight (00:00 -> 12:00 ق.ظ)
-    assert dtf.convert_time("00:00:00", "24h", "12h") == "12:00:00 ق.ظ"
-    # Noon (12:00 -> 12:00 ب.ظ)
-    assert dtf.convert_time("12:00:00", "24h", "12h") == "12:00:00 ب.ظ"
+    assert dtf.convert_time("09:15:00", "24h", "12h") == "09:15:00 AM"
+    # Midnight (00:00 -> 12:00 AM)
+    assert dtf.convert_time("00:00:00", "24h", "12h") == "12:00:00 AM"
+    # Noon (12:00 -> 12:00 PM)
+    assert dtf.convert_time("12:00:00", "24h", "12h") == "12:00:00 PM"
 
 
 def test_time_conversions_12h_to_24h():
@@ -112,7 +112,7 @@ def test_combined_datetime_conversions():
         to_cal="gregorian",
         to_time_fmt="12h",
     )
-    assert conv == "2024/08/10 02:30:00 ب.ظ"
+    assert conv == "2024/08/10 02:30:00 PM"
 
     roundtrip = dtf.convert_datetime_str(
         conv,
@@ -186,10 +186,10 @@ def test_database_datetime_migration_with_backup(tmp_path):
     with db.get_connection() as conn:
         b_row = conn.execute("SELECT purchase_date, created_at FROM batches WHERE batch_code='B-1'").fetchone()
         assert b_row["purchase_date"] == "2024/08/10"
-        assert b_row["created_at"] == "2024/08/10 10:15:00 ق.ظ"
+        assert b_row["created_at"] == "2024/08/10 10:15:00 AM"
 
         s_row = conn.execute("SELECT sale_datetime, warranty_start, warranty_end FROM sales WHERE invoice_number='INV-101'").fetchone()
-        assert s_row["sale_datetime"] == "2024/08/10 02:30:00 ب.ظ"
+        assert s_row["sale_datetime"] == "2024/08/10 02:30:00 PM"
         assert s_row["warranty_start"] == "2024/08/10"
         assert s_row["warranty_end"] == "2025/08/11"
 
@@ -197,7 +197,7 @@ def test_database_datetime_migration_with_backup(tmp_path):
         assert p_row["payment_date"] == "2024/08/10"
 
         a_row = conn.execute("SELECT action_time FROM audit_logs WHERE id=1").fetchone()
-        assert a_row["action_time"] == "2024/08/10 02:40:00 ب.ظ"
+        assert a_row["action_time"] == "2024/08/10 02:40:00 PM"
 
     # Migrate back to Jalali / 24h (lossless roundtrip)
     res_back = dtf.migrate_database_datetime(db, target_cal="jalali", target_time_fmt="24h", create_backup=False)

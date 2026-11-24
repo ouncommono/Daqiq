@@ -241,43 +241,69 @@ Values are cleaned by trimming, removing internal punctuation, and converting to
 
 ---
 
-## 5. Feature Entitlement & Tab Mapping
+## 5. Feature Entitlement & Tab Mapping (Granular Registry)
 
-Daqiq enforces entitlements directly on its 10 main application tabs. Feature keys in `payload.features` correspond exactly to tab modules:
+Daqiq enforces entitlements directly on its 10 main application tabs as well as granular sub-capabilities.
 
-| Tab Index | Tab Title (Persian RTL) | License Feature Key | Default Policy |
-|---|---|---|---|
-| `0` | 📊 داشبورد | `dashboard` | `false` if omitted |
-| `1` | 📦 مدیریت کالاها | `products` | `false` if omitted |
-| `2` | 🚚 ثبت خرید و محموله‌ها | `batches` | `false` if omitted |
-| `3` | 🛒 ثبت فروش | `sales` | `false` if omitted |
-| `4` | 🛠️ میز خدمت | `services` | `false` if omitted |
-| `5` | 🔧 ارتقای کالا | `upgrades` | `false` if omitted |
-| `6` | 💳 تأمین‌کنندگان | `suppliers_payments` | `false` if omitted |
-| `7` | 📈 گزارش‌های جامع | `reports` | `false` if omitted |
-| `8` | 👤 مدیریت کاربران | `employees` | `false` if omitted |
-| `9` | ⚙️ تنظیمات | `settings` | `false` if omitted |
+### 5.1 Core Tab Modules & Aliases
+| Tab Index | Tab Title (Persian RTL) | Primary Key | Recognized Aliases | Default Policy |
+|---|---|---|---|---|
+| `0` | 📊 داشبورد | `dashboard` | `dashboard` | `true` if omitted |
+| `1` | 📦 مدیریت کالاها | `products` | `products`, `inventory` | `true` if omitted |
+| `2` | 🚚 ثبت خرید و محموله‌ها | `batches` | `batches`, `purchases` | `true` if omitted |
+| `3` | 🛒 ثبت فروش | `sales` | `sales` | `true` if omitted |
+| `4` | 🛠️ میز خدمت | `services` | `services`, `upgrades` | `true` if omitted |
+| `5` | 🔧 ارتقای کالا | `upgrades` | `upgrades`, `services` | `true` if omitted |
+| `6` | 💳 تأمین‌کنندگان | `suppliers_payments` | `suppliers_payments`, `suppliers` | `true` if omitted |
+| `7` | 📈 گزارش‌های جامع | `reports` | `reports` | `true` if omitted |
+| `8` | 👤 مدیریت کاربران | `employees` | `employees`, `users` | `true` if omitted |
+| `9` | ⚙️ تنظیمات | `settings` | `settings` | `true` if omitted |
+
+### 5.2 Sub-Capabilities & Action Entitlements
+| Feature Key | Description | Default Policy |
+|---|---|---|
+| `excel_report_export` | خروجی فایل اکسل گزارش‌های جامع | `true` if omitted |
+| `partner_export` | خروجی اختصاصی اکسل موجودی همکار با ترتیب سفارشی ستون‌ها | `true` if omitted |
+| `auto_backup` | فعال‌سازی زمان‌بندی و چرخش خودکار نسخه‌های پشتیبان | `true` if omitted |
+| `manual_backup_restore` | ایجاد و بازیابی دستی فایل‌های پشتیبان | `true` if omitted |
+| `database_encryption` | رمزنگاری پایگاه داده SQLite با الگوریتم امنیتی | `true` if omitted |
+| `multi_database` | سوئیچ و اتصال به چند پایگاه داده همزمان | `true` if omitted |
+| `barcode_scanner` | پردازش مستقیم ورودی بارکدخوان (Keyboard Wedge) | `true` if omitted |
+| `audit_logs` | ثبت و ردیابی وقایع و لاگ‌های امنیتی کاربران | `true` if omitted |
+| `taxonomy_import_export` | درون‌ریزی و برون‌بری ساختار طبقه‌بندی کالاها و خدمات | `true` if omitted |
+| `custom_calendar_formats` | تبدیل و تغییر تقویم (شمسی / قمری / میلادی) و قالب ساعت | `true` if omitted |
+| `report_builder` | فیلترهای پیشرفته و ویرایش ستون‌های گزارش‌گیری | `true` if omitted |
 
 **Enforcement Policy:**
-- When a feature key evaluates to `false`, the corresponding tab is disabled and cannot be activated via sidebar, tab clicks, quick-action shortcuts, or navigation events.
-- Attempting to switch to an unlicensed tab displays a polite Persian information prompt:
-  > «این بخش در لایسنس فعال شما مجاز نیست. جهت ارتقا یا فعال‌سازی این ماژول با پشتیبانی تماس بگیرید.»
-- Full commercial licenses specify all 10 features as `true`.
+- When a tab feature key evaluates to `false`, the tab displays a clean, dedicated `LockedTabWidget` informational screen informing the user that access to this module is not enabled in their active license, complete with an action button to open **«مدیریت و وضعیت لایسنس»**.
+- All omitted keys in older/full licenses default to `true` for 100% backward compatibility.
 - Commercial feature entitlements operate independently from database employee role permissions (`employees` table).
 
 ---
 
 ## 6. Device Request File Contract (`.daqreq`)
 
-When a customer commissions a new PC or adds a terminal to a multi-device store license, Companion App A or the Daqiq Desktop Activation Dialog generates a `.daqreq` file:
+When a customer commissions a new PC or adds a terminal to a multi-device store license, the Daqiq Desktop Activation Dialog generates a clean, standardized `.daqreq` file:
 
 ```json
 {
+  "protocol_version": 1,
   "request_version": 1,
   "product_id": "daqiq.desktop",
-  "generated_at": "2026-11-22T00:00:00Z",
+  "app_version": "4.9.4",
   "device_fingerprint": "fp_v1:b8782278c4c15107a8fd2a5d21718e3328c8baeac5d1a3f0664701ac2983e52e",
-  "device_label": "صندوق اصلی فروشگاه (Main Terminal)",
+  "computer_name": "DESKTOP-STORE1",
+  "os_info": "Windows 11 (64bit)",
+  "cpu_model": "Intel(R) Core(TM) i5-12400F",
+  "store_name": "فروشگاه نمونه",
+  "device_label": "صندوق اصلی",
+  "generated_at": "2026-11-24T14:00:00Z",
+  "generated_at_utc": "2026-11-24T14:00:00Z",
+  "checksum_sha256": "<canonical-sha256-hexdigest>"
+}
+```
+
+*Note:* Redundant tier hashes (`hardware_anchors`) and hardcoded terminal labels have been eliminated. The primary identifier is `device_fingerprint` with human-readable Windows processor brand information.
   "app_version": "4.9.2",
   "hardware_tier": "tier1"
 }

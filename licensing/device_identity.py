@@ -392,12 +392,30 @@ def get_system_hardware_fingerprint_with_tier() -> Tuple[str, str]:
         )
 
 
+def get_human_readable_cpu_model() -> str:
+    """Read clean CPU model from Windows registry HKLM or fallback to platform.processor()."""
+    import platform
+    if sys.platform == "win32":
+        try:
+            import winreg
+            with winreg.OpenKey(
+                winreg.HKEY_LOCAL_MACHINE,
+                r"HARDWARE\DESCRIPTION\System\CentralProcessor\0",
+            ) as key:
+                name, _ = winreg.QueryValueEx(key, "ProcessorNameString")
+                if name:
+                    return " ".join(str(name).split())
+        except Exception:
+            pass
+    return " ".join(str(platform.processor() or "").split())
+
+
 def create_device_request_dict(
-    app_version: str = "4.9.3",
+    app_version: str = "4.9.4",
     device_label: str = "",
     store_name: str = "",
 ) -> Dict[str, Any]:
-    """Generate redesigned .daqreq dictionary with machine context and SHA-256 checksum."""
+    """Generate clean .daqreq dictionary with machine context and SHA-256 checksum."""
     import json
     import platform
 
@@ -409,19 +427,13 @@ def create_device_request_dict(
         u, s, m, p = provider.uuid, provider.serial, provider.mfg, provider.prod
 
     fp, _ = compute_hardware_fingerprint_from_components(u, s, m, p)
-    tiers = get_all_available_fingerprint_tiers(u, s, m, p)
-    hardware_anchors = {
-        "tier1_hash": tiers.get("tier1"),
-        "tier2_hash": tiers.get("tier2"),
-        "tier3_hash": tiers.get("tier3"),
-    }
 
     computer_name = platform.node() or os.environ.get("COMPUTERNAME", "")
     os_info = f"{platform.system()} {platform.release()} ({platform.architecture()[0]})"
-    cpu_model = platform.processor() or ""
+    cpu_model = get_human_readable_cpu_model()
     now_iso = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    resolved_label = device_label or (f"صندوق فروشگاه ({computer_name})" if computer_name else "صندوق فروشگاه")
+    resolved_label = device_label or store_name or computer_name or ""
 
     req_payload: Dict[str, Any] = {
         "protocol_version": 1,
@@ -429,15 +441,15 @@ def create_device_request_dict(
         "product_id": "daqiq.desktop",
         "app_version": app_version,
         "device_fingerprint": fp,
-        "hardware_anchors": hardware_anchors,
         "computer_name": computer_name,
         "os_info": os_info,
         "cpu_model": cpu_model,
         "store_name": store_name,
-        "device_label": resolved_label,
         "generated_at": now_iso,
         "generated_at_utc": now_iso,
     }
+    if resolved_label:
+        req_payload["device_label"] = resolved_label
 
     canonical_bytes = json.dumps(
         req_payload,

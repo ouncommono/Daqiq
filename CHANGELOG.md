@@ -1,3 +1,29 @@
+# Daqiq 4.9.4
+
+## Release Summary & Architectural Enhancements
+
+- **Centralized Executable & External Path Resolution (`utils/paths.py`)**: Guarantees that both `default_taxonomy.json` and `app_config.json` resolve strictly next to the true outer application executable (`NUITKA_ONEFILE_BINARY` / `sys.argv[0]` / `sys.executable`), completely preventing resolution inside temporary Nuitka extraction cache folders. If `default_taxonomy.json` is missing next to `Daqiq.exe`, catalog taxonomy remains gracefully empty without fallback injection.
+- **Multi-Origin Calendar & AM/PM 12-Hour Engine**:
+  - Enforced standard `AM` and `PM` formatting (e.g. `02:35 PM` / `09:10 AM`) instead of legacy Persian markers, while keeping the parser tolerant of all formats.
+  - Bulletproof mixed-origin conversion tracking via `db_calendar_segments` metadata and smart year-range heuristic detection (Gregorian `1900..2199`, Hijri `1435..1650`, Jalali `1200..1434`). Enables multi-step conversions (e.g. older Jalali records + newer Hijri future-only records converted accurately to Gregorian with zero data corruption).
+  - Synchronized live top-bar clock and User Management («مدیریت کاربران») with the active calendar and time format.
+- **«ثبت خرید و محموله‌ها» (Purchase Tab) Precision Layout & Timestamps**:
+  - Relocated «تاریخ خرید» down next to «رنگ‌های این محموله» on Row 4, col 0-1, shifting preceding fields smoothly up in order (`تعداد خرید`, `قیمت خرید واحد`, `هزینه جانبی کل`, `قیمت فروش پیشنهادی`, `وضعیت تسویه`, `مبلغ پرداخت‌شده`).
+  - Purchases now persist both date AND time (`ساعت`) in the database matching retail sales precision.
+- **«ثبت فروش» (Sales Tab) Precision Upgrades & RTL Polish**:
+  - Added visible, editable «تاریخ فروش» widget directly between «انقضای گارانتی» and «رنگ‌های فروخته‌شده» on Row 5, col 2-3, defaulting to current date/time and persisting user selection into `sale_datetime`.
+  - Corrected «محموله موجود» tooltip visual RTL right-alignment to match «انتخاب کالا» across all items.
+  - Implemented smart digits-only selection in «مدت گارانتی» (`WarrantyLineEdit`) on click without mouse-release wiping.
+  - Verified exact Persian label `مشخصات فنی فروخته‌شده`.
+- **Licensing Security, Granular Entitlements & Dialog Polish**:
+  - Cleaned `.daqreq` export schema: removed redundant `hardware_anchors` tier hashes, added real human-readable Windows CPU model from registry, eliminated hardcoded machine labels.
+  - Expanded granular module entitlement registry with backward-compatible aliases and default-to-true behavior.
+  - Overhauled license dialog with crisp vector SVG logo rendering at high DPI, concise Persian copy, removed developer jargon (`فایل لایسنس یافت نشد`), right/center text alignment, and clickable «شناسه برنامه» with auto-reverting copy confirmation.
+- **Zero Database Schema Changes**: 0 bytes of diff verified on `database.py` and `default_taxonomy.json` (`APP_VERSION = "4.8.4"` and `SCHEMA_VERSION = 484`).
+- **Comprehensive Headless QA Suite**: Added `tests/test_v494_features.py` covering all new features with 100% pass rate under `QT_QPA_PLATFORM=offscreen`.
+
+---
+
 # Daqiq 4.9.3
 
 ## Release Summary & Architectural Enhancements

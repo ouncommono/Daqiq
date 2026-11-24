@@ -85,21 +85,18 @@ def strip_bidi_controls(value) -> str:
 
 
 def mixed_bidi_tooltip(value) -> str:
-    """Render mixed Persian/English tooltip lines with explicit paragraph direction."""
+    """Render Persian tooltip lines with clean visual right-alignment in RTL."""
+    lines = str(value or "").splitlines()
     rendered = []
-    for line in str(value or "").splitlines():
-        direction = "ltr" if re.search(r"[A-Za-z]", line) else "rtl"
-        alignment = "left" if direction == "ltr" else "right"
+    for line in lines:
         rendered.append(
-            f'<div dir="{direction}" align="{alignment}" '
-            f'style="direction:{direction}; text-align:{alignment}; '
-            f'width:100%; white-space:pre-wrap;">'
+            f'<div dir="rtl" align="right" '
+            f'style="direction:rtl; text-align:right; width:100%; white-space:pre-wrap;">'
             f'{html.escape(line)}</div>'
         )
     return (
         '<html dir="rtl"><body dir="rtl" align="right" '
-        'style="direction:rtl; text-align:right; width:100%; '
-        'margin:0; padding:4px;">'
+        'style="direction:rtl; text-align:right; width:100%; margin:0; padding:4px;">'
         + "".join(rendered)
         + "</body></html>"
     )
@@ -433,21 +430,31 @@ class SmartLineEdit(QLineEdit):
 class WarrantyLineEdit(SmartLineEdit):
     """فیلد ویرایش مدت گارانتی با انتخاب هوشمند صرفاً بخش عددی هنگام کلیک یا فوکوس."""
 
+    def __init__(self, text="", parent=None):
+        super().__init__(text, parent)
+        self._press_pos = None
+
     def mousePressEvent(self, event):
+        self._press_pos = event.pos()
         super().mousePressEvent(event)
-        self._select_digits_only()
+
+    def mouseReleaseEvent(self, event):
+        super().mouseReleaseEvent(event)
+        press_pos = getattr(self, "_press_pos", None)
+        drag_dist = (event.pos() - press_pos).manhattanLength() if press_pos else 0
+        if drag_dist < QApplication.startDragDistance():
+            self._select_digits_only()
 
     def focusInEvent(self, event):
         super().focusInEvent(event)
-        self._select_digits_only()
+        QTimer.singleShot(0, self._select_digits_only)
 
     def _select_digits_only(self):
-        txt = self.text().strip()
-        m = re.match(r"^([0-9\u06f0-\u06f9]+)", txt)
+        txt = self.text()
+        m = re.search(r"([0-9\u06f0-\u06f9\u0660-\u0669]+)", txt)
         if m:
-            start = m.start(1)
-            length = len(m.group(1))
-            QTimer.singleShot(0, lambda: self.setSelection(start, length))
+            start, end = m.span(1)
+            self.setSelection(start, end - start)
 
 
 class PriceInput(QLineEdit):

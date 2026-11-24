@@ -77,6 +77,39 @@ When the workflow runs, GitHub Actions injects these environment variables durin
 
 ---
 
+## Licensing Identity Configuration
+
+Daqiq's cryptographic verification identity consists of three build-time parameters:
+1. `public_key`: 32-byte Ed25519 public key (Base64 or Hex).
+2. `key_id`: Key identifier string (default: `daqiq-prod-v1`).
+3. `fp_prefix`: Hardware fingerprint prefix (default: `fp_v1:`).
+
+### Workflow A: GitHub Actions CI/CD Builds
+Configure repository secrets/variables in GitHub:
+- `DAQIQ_LICENSE_PUBLIC_KEY_B64`: Base64-encoded raw 32-byte public key.
+- `DAQIQ_LICENSE_KEY_ID`: Key ID (e.g. `daqiq-prod-v1`).
+- `DAQIQ_LICENSE_FP_PREFIX`: Hardware prefix (e.g. `fp_v1:`).
+
+The CI pipeline compiles these parameters into obfuscated native C byte shards via `tools/build_key_shards.py` and displays the active key fingerprints in the `$GITHUB_STEP_SUMMARY`.
+
+### Workflow B: Frictionless Local Builds
+For fast local testing or private compilations without editing code:
+1. Copy `build_license_config.example.json` to `build_license_config.local.json` (gitignored):
+   ```json
+   {
+     "public_key": "tZwFxuCGOF+WZqVF+PeKwpoIpOZovHLFRVSQxGaXJXA=",
+     "key_id": "daqiq-prod-v1",
+     "fp_prefix": "fp_v1:"
+   }
+   ```
+2. Or use the CLI helper:
+   ```powershell
+   python tools/license_key_tool.py set-public-key --key "<PUBLIC_KEY_B64>" --key-id "daqiq-prod-v1" --fp-prefix "fp_v1:"
+   ```
+3. Run `python scripts/build_nuitka.py --mode onefile` or `build_exe.bat`.
+
+---
+
 ## Building from Source
 
 ### Prerequisites
@@ -103,7 +136,7 @@ pip install -r requirements-build.txt
   python scripts/build_nuitka.py --mode onefile
   python scripts/verify_nuitka_build.py --mode onefile
   ```
-The optimized executable will be created at `dist/Daqiq_4.9.3.exe` with sibling `dist/default_taxonomy.json` and `dist/SHA256SUMS.txt`.
+The optimized executable will be created at `dist/Daqiq_4.9.4.exe` with sibling `dist/default_taxonomy.json` and `dist/SHA256SUMS.txt`.
 
 ---
 

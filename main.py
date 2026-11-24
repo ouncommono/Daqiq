@@ -92,7 +92,12 @@ from datetime_format import (
     TIME_FORMAT_12H,
     CALENDAR_NAMES_FA,
     TIME_FORMAT_NAMES_FA,
+    get_today_date,
+    get_now_time,
+    get_now_datetime,
+    format_datetime_display,
     migrate_database_datetime,
+    record_future_calendar_switch,
 )
 
 def _load_app_version() -> str:
@@ -105,7 +110,7 @@ def _load_app_version() -> str:
                     return ver
         except Exception:
             pass
-    return "4.9.3"
+    return "4.9.4"
 
 APP_VERSION = _load_app_version()
 
@@ -1071,6 +1076,63 @@ class _InventoryColumnChecksProxy:
             if lst.item(i).data(Qt.UserRole) == key:
                 return True
         return False
+
+
+class LockedTabWidget(QWidget):
+    """Clean informational locked-access page shown when a tab is not entitled by the active license."""
+
+    def __init__(self, tab_title: str, on_manage_license=None, parent=None):
+        super().__init__(parent)
+        self.setLayoutDirection(Qt.RightToLeft)
+        layout = QVBoxLayout(self)
+        layout.setAlignment(Qt.AlignCenter)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(14)
+
+        card = QFrame()
+        card.setFrameShape(QFrame.StyledPanel)
+        card.setMaximumWidth(520)
+        card.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        card.setStyleSheet(
+            "QFrame { background-color: rgba(239, 68, 68, 0.04); border: 1px solid rgba(239, 68, 68, 0.25); border-radius: 12px; }"
+        )
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(32, 32, 32, 32)
+        card_layout.setSpacing(14)
+        card_layout.setAlignment(Qt.AlignCenter)
+
+        icon_lbl = QLabel("🔒")
+        icon_lbl.setAlignment(Qt.AlignCenter)
+        icon_lbl.setStyleSheet("font-size: 42px; border: none; background: transparent;")
+        card_layout.addWidget(icon_lbl)
+
+        clean_title = tab_title.lstrip("📊📦🚚🛒🛠️🔧💳📈👤⚙️ ").strip()
+        heading = QLabel(f"دسترسی به بخش «{clean_title}» در لایسنس فعال نیست")
+        heading.setAlignment(Qt.AlignCenter)
+        heading.setWordWrap(True)
+        heading.setStyleSheet("font-size: 15px; font-weight: bold; color: #dc2626; border: none; background: transparent;")
+        card_layout.addWidget(heading)
+
+        desc = QLabel(
+            "برای فعال‌سازی یا ارتقای اشتراک نرم‌افزار جهت استفاده از این بخش، "
+            "لطفاً با واحد فروش و پشتیبانی تماس حاصل فرمایید."
+        )
+        desc.setAlignment(Qt.AlignCenter)
+        desc.setWordWrap(True)
+        desc.setStyleSheet("font-size: 11px; color: #64748b; line-height: 1.6; border: none; background: transparent;")
+        card_layout.addWidget(desc)
+
+        btn_manage = QPushButton("🔑 مدیریت و وضعیت لایسنس")
+        btn_manage.setCursor(Qt.PointingHandCursor)
+        btn_manage.setMinimumHeight(40)
+        btn_manage.setStyleSheet(
+            "background-color: #0284c7; color: white; font-weight: bold; padding: 8px 24px; border-radius: 6px; font-size: 12px;"
+        )
+        if on_manage_license:
+            btn_manage.clicked.connect(on_manage_license)
+        card_layout.addWidget(btn_manage, 0, Qt.AlignCenter)
+
+        layout.addWidget(card, 0, Qt.AlignCenter)
 
 
 class DatabaseBootstrapDialog(QDialog):
@@ -2107,7 +2169,17 @@ class MainWindow(QMainWindow):
                 else True
             )
             self.tabs.setTabEnabled(index, emp_allowed and lic_allowed)
-            if not lic_allowed:
+            if index in getattr(self, "_tab_containers", {}):
+                content_widget, locked_widget = self._tab_containers[index]
+                if not lic_allowed:
+                    content_widget.setVisible(False)
+                    locked_widget.setVisible(True)
+                    self.tabs.setTabToolTip(index, "این بخش در لایسنس فعال شما مجاز نیست.")
+                else:
+                    content_widget.setVisible(True)
+                    locked_widget.setVisible(False)
+                    self.tabs.setTabToolTip(index, "")
+            elif not lic_allowed:
                 self.tabs.setTabToolTip(index, "این بخش در لایسنس فعال شما مجاز نیست.")
 
         for permission_key, widget in getattr(
@@ -2627,15 +2699,16 @@ class MainWindow(QMainWindow):
         self._restart_backup_timer()
 
     def _update_clock(self):
-        now = jdatetime.datetime.now()
-        w_day = PERSIAN_WEEKDAYS.get(now.weekday(), "")
-        date_str = now.strftime("%Y/%m/%d")
-        time_str = now.strftime("%H:%M:%S")
+        cal = self.db.get_setting("calendar_format", "jalali") or "jalali"
+        time_fmt = self.db.get_setting("time_format", "24h") or "24h"
+        date_str = get_today_date(cal)
+        time_str = get_now_time(time_fmt)
+        cal_name = CALENDAR_NAMES_FA.get(cal, "شمسی")
         self.lbl_live_clock.setText(
             f"📅 {date_str}  |  ⏰ {time_str}"
         )
         self.lbl_live_clock.setToolTip(
-            f"تاریخ شمسی: {w_day} {date_str}\nساعت محلی: {time_str}"
+            f"تقویم فعال: {cal_name}\nتاریخ: {date_str}\nساعت محلی: {time_str}"
         )
 
     def _export_safe_inventory(self):
@@ -2712,11 +2785,26 @@ class MainWindow(QMainWindow):
         table.sortItems(column, next_order)
 
     def _add_scrollable_tab(self, tab: QWidget, title: str):
-        """Wrap each page in a scroll area so compact windows never crush form controls."""
+        """Wrap each page in a scroll area with a locked-module fallback component."""
         tab.setMinimumWidth(940)
         scroll = SmoothScrollArea()
         scroll.setWidget(tab)
-        return self.tabs.addTab(scroll, title)
+
+        container = QWidget()
+        c_layout = QVBoxLayout(container)
+        c_layout.setContentsMargins(0, 0, 0, 0)
+        c_layout.setSpacing(0)
+        c_layout.addWidget(scroll, 1)
+
+        locked_widget = LockedTabWidget(title, on_manage_license=self._open_license_dialog)
+        locked_widget.setVisible(False)
+        c_layout.addWidget(locked_widget, 1)
+
+        idx = self.tabs.addTab(container, title)
+        if not hasattr(self, "_tab_containers"):
+            self._tab_containers = {}
+        self._tab_containers[idx] = (scroll, locked_widget)
+        return idx
 
     def _add_table_search(self, parent_layout, table, key, placeholder):
         """Keep the existing search position while reserving stable space for action buttons."""
@@ -3391,22 +3479,22 @@ class MainWindow(QMainWindow):
         grid.addWidget(QLabel("شماره فاکتور:"), 1, 4)
         grid.addWidget(self.ed_batch_inv, 1, 5)
 
-        grid.addWidget(QLabel("تاریخ خرید:"), 2, 0)
-        grid.addWidget(self.dt_batch_date, 2, 1)
-        grid.addWidget(QLabel("تعداد خرید:"), 2, 2)
-        grid.addWidget(self.cb_batch_qty, 2, 3)
-        grid.addWidget(QLabel("قیمت خرید واحد (تومان):"), 2, 4)
-        grid.addWidget(self.pr_batch_buy, 2, 5)
+        grid.addWidget(QLabel("تعداد خرید:"), 2, 0)
+        grid.addWidget(self.cb_batch_qty, 2, 1)
+        grid.addWidget(QLabel("قیمت خرید واحد (تومان):"), 2, 2)
+        grid.addWidget(self.pr_batch_buy, 2, 3)
+        grid.addWidget(QLabel("هزینه جانبی کل (تومان):"), 2, 4)
+        grid.addWidget(self.pr_batch_extra, 2, 5)
 
-        grid.addWidget(QLabel("هزینه جانبی کل (تومان):"), 3, 0)
-        grid.addWidget(self.pr_batch_extra, 3, 1)
-        grid.addWidget(QLabel("قیمت فروش پیشنهادی:"), 3, 2)
-        grid.addWidget(self.pr_batch_suggest, 3, 3)
-        grid.addWidget(QLabel("وضعیت تسویه:"), 3, 4)
-        grid.addWidget(self.cb_batch_status, 3, 5)
+        grid.addWidget(QLabel("قیمت فروش پیشنهادی:"), 3, 0)
+        grid.addWidget(self.pr_batch_suggest, 3, 1)
+        grid.addWidget(QLabel("وضعیت تسویه:"), 3, 2)
+        grid.addWidget(self.cb_batch_status, 3, 3)
+        grid.addWidget(QLabel("مبلغ پرداخت‌شده:"), 3, 4)
+        grid.addWidget(self.pr_batch_paid, 3, 5)
 
-        grid.addWidget(QLabel("مبلغ پرداخت‌شده:"), 4, 0)
-        grid.addWidget(self.pr_batch_paid, 4, 1)
+        grid.addWidget(QLabel("تاریخ خرید:"), 4, 0)
+        grid.addWidget(self.dt_batch_date, 4, 1)
         grid.addWidget(QLabel("رنگ‌های این محموله:"), 4, 2)
         grid.addWidget(self.btn_batch_colors, 4, 3, 1, 3)
 
@@ -3574,7 +3662,8 @@ class MainWindow(QMainWindow):
         self._select_default_operator(self.cb_batch_buyer)
         self.ed_batch_inv.clear()
         self.ed_batch_serial.clear()
-        self.dt_batch_date.set_date(jdatetime.date.today().strftime("%Y/%m/%d"))
+        cal = self.db.get_setting("calendar_format", "jalali") or "jalali"
+        self.dt_batch_date.set_date(get_today_date(cal))
         self.cb_batch_qty.setCurrentText("1")
         self.pr_batch_buy.set_value(0)
         self.pr_batch_extra.set_value(0)
@@ -3630,11 +3719,14 @@ class MainWindow(QMainWindow):
             specifications = self.ed_batch_serial.text().strip()
             batch_serial = self.ed_batch_serial_number.text().strip()
             batch_code = self.ed_batch_code.text().strip()
+            time_fmt = self.db.get_setting("time_format", "24h") or "24h"
+            now_time = get_now_time(time_fmt)
+            purchase_dt = f"{self.dt_batch_date.get_date()} {now_time}"
             batch_values = (
                 supplier_id,
                 self.cb_batch_buyer.currentData(),
                 self.ed_batch_inv.text().strip(),
-                self.dt_batch_date.get_date(),
+                purchase_dt,
                 self.cb_batch_qty.get_qty(),
                 self.pr_batch_buy.get_value(),
                 self.pr_batch_extra.get_value(),
@@ -3708,7 +3800,8 @@ class MainWindow(QMainWindow):
         self.selected_batch_id = int(self.tbl_batches.item(r, 0).text())
         self.ed_batch_code.setText(self.tbl_batches.item(r, 1).text())
         self.ed_batch_inv.setText(self.tbl_batches.item(r, 7).text())
-        self.dt_batch_date.set_date(self.tbl_batches.item(r, 8).text())
+        raw_b_date = self.tbl_batches.item(r, 8).text().strip()
+        self.dt_batch_date.set_date(raw_b_date.split()[0] if raw_b_date else "")
         self.cb_batch_qty.setCurrentText(self.tbl_batches.item(r, 9).text())
         self.pr_batch_buy.set_value(
             int(self.tbl_batches.item(r, 12).text().replace(",", ""))
@@ -3786,12 +3879,18 @@ class MainWindow(QMainWindow):
             )
             specifications = self.ed_batch_serial.text().strip()
             batch_serial = self.ed_batch_serial_number.text().strip()
+            time_fmt = self.db.get_setting("time_format", "24h") or "24h"
+            with self.db.get_connection() as conn:
+                cur_b = conn.execute("SELECT purchase_date FROM batches WHERE id=?", (self.selected_batch_id,)).fetchone()
+                cur_dt = cur_b["purchase_date"] if cur_b else ""
+                cur_time = cur_dt[11:] if len(cur_dt) > 10 else get_now_time(time_fmt)
+            purchase_dt = f"{self.dt_batch_date.get_date()} {cur_time}".strip()
             self.db.update_batch(
                 self.selected_batch_id,
                 supplier_id,
                 self.cb_batch_buyer.currentData(),
                 self.ed_batch_inv.text().strip(),
-                self.dt_batch_date.get_date(),
+                purchase_dt,
                 self.cb_batch_qty.get_qty(),
                 self.pr_batch_buy.get_value(),
                 self.pr_batch_extra.get_value(),
@@ -3919,6 +4018,7 @@ class MainWindow(QMainWindow):
         for label, days in warranty_options:
             self.cb_war_months.addItem(label, days)
         self.dt_war_end = JalaliDateEdit(default_today=False)
+        self.dt_sale_date = JalaliDateEdit(default_today=True)
         self.ed_sale_serial = SmartLineEdit("")
         self.ed_sale_serial.setPlaceholderText("اسکن بارکدخوان یا تایپ شماره سریال...")
         self.ed_sale_serial.setToolTip("شماره سریال یا بارکد کالا را وارد کنید یا با بارکدخوان اسکن نمایید.")
@@ -3965,8 +4065,10 @@ class MainWindow(QMainWindow):
 
         grid.addWidget(QLabel("انقضای گارانتی:"), 5, 0)
         grid.addWidget(self.dt_war_end, 5, 1)
-        grid.addWidget(QLabel("رنگ‌های فروخته‌شده:"), 5, 2)
-        grid.addWidget(self.btn_sale_colors, 5, 3, 1, 3)
+        grid.addWidget(QLabel("تاریخ فروش:"), 5, 2)
+        grid.addWidget(self.dt_sale_date, 5, 3)
+        grid.addWidget(QLabel("رنگ‌های فروخته‌شده:"), 5, 4)
+        grid.addWidget(self.btn_sale_colors, 5, 5)
 
         grid.addWidget(QLabel("مشخصات فنی فروخته‌شده:"), 6, 0)
         grid.addWidget(self.ed_sale_specs, 6, 1, 1, 5)
@@ -4326,6 +4428,8 @@ class MainWindow(QMainWindow):
         self.cb_war_months.setCurrentIndex(0)
         self.dt_war_start.set_date("")
         self.dt_war_end.set_date("")
+        cal = self.db.get_setting("calendar_format", "jalali") or "jalali"
+        self.dt_sale_date.set_date(get_today_date(cal))
         self.ed_sale_serial.clear()
         self.tbl_sales.clearSelection()
         self.cb_sale_qty.setCurrentText("1")
@@ -4426,10 +4530,10 @@ class MainWindow(QMainWindow):
                 "تعداد رنگ‌های انتخاب‌شده نمی‌تواند از تعداد فروش بیشتر باشد."
             )
             return
-        now_dt = (
-            f"{jdatetime.date.today().strftime('%Y/%m/%d')} "
-            f"{jdatetime.datetime.now().strftime('%H:%M:%S')}"
-        )
+        time_fmt = self.db.get_setting("time_format", "24h") or "24h"
+        now_time = get_now_time(time_fmt)
+        sale_date = self.dt_sale_date.get_date()
+        now_dt = f"{sale_date} {now_time}"
         try:
             war_days = self._get_warranty_days()
             self.db.add_sale(
@@ -4580,6 +4684,8 @@ class MainWindow(QMainWindow):
             self.cb_war_months.setCurrentIndex(0)
         # Duration changes recalculate this field; restore the stored value last.
         self.dt_war_end.set_date(sale["warranty_end"] or "")
+        sale_dt_str = str(sale["sale_datetime"] or "").strip()
+        self.dt_sale_date.set_date(sale_dt_str.split()[0] if sale_dt_str else "")
 
 
     def _update_selected_sale(self):
@@ -4614,6 +4720,15 @@ class MainWindow(QMainWindow):
                 colors=selected_colors,
                 customer_phone=self.ed_sale_phone.text().strip(),
             )
+            if self.dt_sale_date.get_date():
+                time_fmt = self.db.get_setting("time_format", "24h") or "24h"
+                with self.db.get_connection() as conn:
+                    cur_s = conn.execute("SELECT sale_datetime FROM sales WHERE id=?", (self.selected_sale_id,)).fetchone()
+                    cur_val = cur_s["sale_datetime"] if cur_s else ""
+                    cur_time = cur_val[11:] if len(cur_val) > 10 else get_now_time(time_fmt)
+                    new_dt = f"{self.dt_sale_date.get_date()} {cur_time}".strip()
+                    conn.execute("UPDATE sales SET sale_datetime=? WHERE id=?", (new_dt, self.selected_sale_id))
+                    conn.commit()
             self.refresh_all_data()
             QMessageBox.information(self, "اصلاح فروش", "ردیف فروش با موفقیت اصلاح شد.")
         except Exception as e:
@@ -6746,12 +6861,15 @@ class MainWindow(QMainWindow):
             )
             return
         hashed = hash_password(raw_pass) if raw_pass else ""
+        cal = self.db.get_setting("calendar_format", "jalali") or "jalali"
+        time_fmt = self.db.get_setting("time_format", "24h") or "24h"
+        now_dt = get_now_datetime(cal_type=cal, time_fmt=time_fmt)
         try:
             with self.db.get_connection() as conn:
                 conn.execute(
                     """
-                    INSERT INTO employees (name, role, phone, password, permissions, is_active)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    INSERT INTO employees (name, role, phone, password, permissions, is_active, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     (
                         name,
@@ -6760,6 +6878,8 @@ class MainWindow(QMainWindow):
                         hashed,
                         self.cb_emp_perm.currentText(),
                         1 if self.chk_emp_active.isChecked() else 0,
+                        now_dt,
+                        now_dt,
                     ),
                 )
                 conn.commit()
@@ -6794,6 +6914,9 @@ class MainWindow(QMainWindow):
             return
         old_raw = normalize_digits(self.ed_emp_old_pass.text().strip())
         new_raw = normalize_digits(self.ed_emp_pass.text().strip())
+        cal = self.db.get_setting("calendar_format", "jalali") or "jalali"
+        time_fmt = self.db.get_setting("time_format", "24h") or "24h"
+        now_dt = get_now_datetime(cal_type=cal, time_fmt=time_fmt)
 
         with self.db.get_connection() as conn:
             emp = conn.execute(
@@ -6832,7 +6955,7 @@ class MainWindow(QMainWindow):
 
                 conn.execute(
                     """
-                    UPDATE employees SET name=?, role=?, phone=?, password=?, permissions=?, is_active=?
+                    UPDATE employees SET name=?, role=?, phone=?, password=?, permissions=?, is_active=?, updated_at=?
                     WHERE id=?
                 """,
                     (
@@ -6842,13 +6965,14 @@ class MainWindow(QMainWindow):
                         hash_password(new_raw),
                         self.cb_emp_perm.currentText(),
                         1 if self.chk_emp_active.isChecked() else 0,
+                        now_dt,
                         self.selected_emp_id,
                     ),
                 )
             else:
                 conn.execute(
                     """
-                    UPDATE employees SET name=?, role=?, phone=?, permissions=?, is_active=?
+                    UPDATE employees SET name=?, role=?, phone=?, permissions=?, is_active=?, updated_at=?
                     WHERE id=?
                 """,
                     (
@@ -6857,6 +6981,7 @@ class MainWindow(QMainWindow):
                         self.ed_emp_phone.text().strip(),
                         self.cb_emp_perm.currentText(),
                         1 if self.chk_emp_active.isChecked() else 0,
+                        now_dt,
                         self.selected_emp_id,
                     ),
                 )
@@ -8237,10 +8362,15 @@ class MainWindow(QMainWindow):
         settings_container_layout.setContentsMargins(0, 0, 0, 0)
         settings_container_layout.setSpacing(0)
 
+        settings_content = QWidget()
+        s_layout = QVBoxLayout(settings_content)
+        s_layout.setContentsMargins(0, 0, 0, 0)
+        s_layout.setSpacing(0)
+
         tab.setMinimumWidth(940)
         scroll = SmoothScrollArea()
         scroll.setWidget(tab)
-        settings_container_layout.addWidget(scroll, 1)
+        s_layout.addWidget(scroll, 1)
 
         floating_bar = QWidget()
         floating_bar.setObjectName("floatingSettingsBar")
@@ -8265,9 +8395,17 @@ class MainWindow(QMainWindow):
         floating_layout.addWidget(btn_save_set, 1)
         floating_layout.addWidget(btn_cancel_set, 1)
 
-        settings_container_layout.addWidget(floating_bar, 0)
+        s_layout.addWidget(floating_bar, 0)
+        settings_container_layout.addWidget(settings_content, 1)
+
+        locked_widget = LockedTabWidget("⚙️ تنظیمات", on_manage_license=self._open_license_dialog)
+        locked_widget.setVisible(False)
+        settings_container_layout.addWidget(locked_widget, 1)
 
         self._settings_tab_index = self.tabs.addTab(settings_container, "⚙️ تنظیمات")
+        if not hasattr(self, "_tab_containers"):
+            self._tab_containers = {}
+        self._tab_containers[self._settings_tab_index] = (settings_content, locked_widget)
         self._load_general_settings_form()
 
     def _load_general_settings_form(self):
@@ -10408,6 +10546,10 @@ class MainWindow(QMainWindow):
                 return
             elif dlg.choice == DatetimeMigrationChoiceDialog.MIGRATE_ALL:
                 perform_historical_migration = True
+            elif dlg.choice == DatetimeMigrationChoiceDialog.FUTURE_ONLY:
+                record_future_calendar_switch(
+                    self.db, current_stored_cal, current_stored_time, target_cal, target_time
+                )
 
         if perform_historical_migration:
             migrate_res = migrate_database_datetime(self.db, target_cal, target_time, create_backup=True)
@@ -10624,6 +10766,7 @@ class MainWindow(QMainWindow):
 
         self._apply_product_catalog_config()
         self.refresh_all_data()
+        self._update_clock()
         self._refresh_multi_db_combo()
         self._restart_backup_timer()
         self._refresh_visual_layout()
@@ -11251,6 +11394,8 @@ class MainWindow(QMainWindow):
         self._populate_table_safely(self.tbl_suppliers, data)
 
     def _refresh_employees_table(self):
+        active_cal = self.db.get_setting("calendar_format", "jalali") or "jalali"
+        active_time = self.db.get_setting("time_format", "24h") or "24h"
         with self.db.get_connection() as conn:
             rows = self._execute_scoped_query(
                 conn,
@@ -11267,9 +11412,9 @@ class MainWindow(QMainWindow):
                 r["permissions"],
                 "بله" if r["password"] else "خیر",
                 "فعال" if r["is_active"] else "غیرفعال",
-                format_iso_to_jalali(r["created_at"]),
-                format_iso_to_jalali(r["updated_at"]),
-                format_iso_to_jalali(r["last_login_at"]),
+                format_datetime_display(r["created_at"], target_cal=active_cal, target_time_fmt=active_time),
+                format_datetime_display(r["updated_at"], target_cal=active_cal, target_time_fmt=active_time),
+                format_datetime_display(r["last_login_at"], target_cal=active_cal, target_time_fmt=active_time),
             ]
             for r in rows
         ]

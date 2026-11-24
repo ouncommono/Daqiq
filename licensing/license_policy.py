@@ -23,11 +23,13 @@ from .device_identity import (
     create_device_request_dict,
 )
 
-# Canonical list of 10 feature keys mapped directly to Daqiq application tabs
+# Canonical list of feature keys mapped directly to Daqiq application tabs and capabilities
 TAB_MODULE_TO_FEATURE: Dict[str, str] = {
     "dashboard": "dashboard",
     "products": "products",
+    "inventory": "products",
     "batches": "batches",
+    "purchases": "batches",
     "sales": "sales",
     "services": "services",
     "upgrades": "upgrades",
@@ -35,7 +37,21 @@ TAB_MODULE_TO_FEATURE: Dict[str, str] = {
     "suppliers_payments": "suppliers_payments",
     "reports": "reports",
     "employees": "employees",
+    "users": "employees",
     "settings": "settings",
+}
+
+FEATURE_ALIASES: Dict[str, List[str]] = {
+    "purchases": ["purchases", "batches"],
+    "batches": ["batches", "purchases"],
+    "inventory": ["inventory", "products"],
+    "products": ["products", "inventory"],
+    "users": ["users", "employees"],
+    "employees": ["employees", "users"],
+    "suppliers": ["suppliers", "suppliers_payments"],
+    "suppliers_payments": ["suppliers_payments", "suppliers"],
+    "upgrades": ["upgrades", "services"],
+    "services": ["services", "upgrades"],
 }
 
 
@@ -321,8 +337,7 @@ class LicenseService:
         return ok
 
     def is_feature_enabled(self, feature_id: str) -> bool:
-        """Check whether a specific module/tab feature is authorized in the active license."""
-        canonical_key = TAB_MODULE_TO_FEATURE.get(feature_id, feature_id)
+        """Check whether a specific module/tab or sub-capability is authorized in the active license."""
         if self._last_result is None or not self._last_result.is_valid:
             res = self.check_license()
             if not res.is_valid:
@@ -332,8 +347,24 @@ class LicenseService:
         if not lic:
             return False
 
-        # Default deny: omitted keys evaluate to False
-        return bool(lic.payload.features.get(canonical_key, False))
+        features = lic.payload.features
+        canonical_key = TAB_MODULE_TO_FEATURE.get(feature_id, feature_id)
+        candidate_keys = list(FEATURE_ALIASES.get(feature_id, [canonical_key]))
+        if canonical_key not in candidate_keys:
+            candidate_keys.append(canonical_key)
+
+        # If any alias is explicitly disabled (False), return False
+        for k in candidate_keys:
+            if k in features and not features[k]:
+                return False
+
+        # If any alias is explicitly enabled (True), return True
+        for k in candidate_keys:
+            if k in features and features[k]:
+                return True
+
+        # Default for omitted keys is True for 100% backward compatibility
+        return True
 
     def is_write_allowed(self) -> bool:
         """Return True if write operations are permitted (False if readonly grace period)."""
