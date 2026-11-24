@@ -13,6 +13,7 @@ import jdatetime
 import time
 import hashlib
 from decimal import Decimal, ROUND_HALF_EVEN
+from utils import datetime_format
 
 APP_VERSION = "4.8.4"
 SCHEMA_VERSION = 484
@@ -31,7 +32,7 @@ EXPECTED_SCHEMA_COLUMNS = {
     "suppliers": ("id", "name", "phone", "address", "notes", "created_at", "updated_at"),
     "customers": ("id", "name", "phone", "notes", "created_at", "updated_at"),
     "products": ("id", "code", "serial_number", "name", "category", "sub_category", "brand", "model", "specs_json", "description", "reorder_point", "default_profit_pct", "is_active", "created_at", "updated_at"),
-    "batches": ("id", "batch_code", "product_id", "serial_numbers", "supplier_id", "buyer_employee_id", "invoice_number", "purchase_date", "initial_qty", "sold_qty", "returned_qty", "remaining_qty", "unit_purchase_price", "extra_cost_total", "upgrade_cost_unit", "unit_cost_price", "suggested_sell_price", "profit_pct", "paid_amount", "settlement_status", "colors_json", "initial_specs", "final_specs", "supplier_name_snapshot", "notes", "created_at", "updated_at"),
+    "batches": ("id", "batch_code", "product_id", "serial_numbers", "supplier_id", "buyer_employee_id", "invoice_number", "purchase_date", "purchase_time", "initial_qty", "sold_qty", "returned_qty", "remaining_qty", "unit_purchase_price", "extra_cost_total", "upgrade_cost_unit", "unit_cost_price", "suggested_sell_price", "profit_pct", "paid_amount", "settlement_status", "colors_json", "initial_specs", "final_specs", "supplier_name_snapshot", "notes", "created_at", "updated_at"),
     "upgrades": ("id", "target_batch_id", "part_batch_id", "technician_id", "target_qty", "part_qty_used", "stock_deducted_qty", "part_unit_cost", "labor_cost_unit", "added_cost_unit", "upgrade_date", "serial_number", "manual_part_description", "old_specs", "new_specs", "notes", "created_at", "updated_at"),
     "sales": ("id", "invoice_number", "product_id", "batch_id", "serial_number", "seller_employee_id", "customer_name", "customer_phone", "qty", "returned_qty", "suggested_unit_price", "actual_unit_price", "unit_cost_price", "unit_discount", "total_discount", "price_Markup_unit", "unit_profit", "total_profit", "total_amount", "paid_amount", "settlement_status", "sale_datetime", "warranty_company", "warranty_start", "warranty_months", "warranty_days", "warranty_end", "specifications", "colors_json", "notes", "created_at", "updated_at"),
     "service_catalog": ("id", "code", "service_type", "name", "default_fee", "default_side_cost", "description", "is_active", "created_at", "updated_at"),
@@ -47,10 +48,19 @@ def validate_schema_column_order(conn):
         actual_columns = tuple(
             row["name"] for row in conn.execute(f"PRAGMA table_info({table_name})")
         )
-        if actual_columns != expected_columns:
-            raise RuntimeError(
-                f"ساختار ستون‌های جدول {table_name} با قرارداد نسخه {APP_VERSION} سازگار نیست."
-            )
+        if actual_columns == expected_columns:
+            continue
+        # Backward-compatible ALTER TABLE ADD COLUMN on pre-v4.9.4 batches tables
+        if (
+            table_name == "batches"
+            and "purchase_time" in actual_columns
+            and tuple(c for c in actual_columns if c != "purchase_time")
+            == tuple(c for c in expected_columns if c != "purchase_time")
+        ):
+            continue
+        raise RuntimeError(
+            f"ساختار ستون‌های جدول {table_name} با قرارداد نسخه {APP_VERSION} سازگار نیست."
+        )
 
 
 def round_integer_division(numerator, denominator):
@@ -376,13 +386,28 @@ class SecureCredentialStore:
                 pass
 
 
+from utils.paths import (
+    get_app_config_path as _get_app_config_path_obj,
+    get_default_taxonomy_path as _get_default_taxonomy_path_obj,
+    get_executable_dir as _get_executable_dir_obj,
+)
+
+
+def get_executable_dir():
+    """Return the real outer directory containing Daqiq.exe (or source root)."""
+    return str(_get_executable_dir_obj())
+
+
 def get_default_taxonomy_path():
-    """Return path to default_taxonomy.json located directly alongside app_config.json or the executable."""
+    """Return path to default_taxonomy.json located directly alongside Daqiq.exe."""
     onefile_bin = os.environ.get("NUITKA_ONEFILE_BINARY")
-    if onefile_bin and os.path.isfile(onefile_bin):
-        return os.path.join(os.path.dirname(os.path.abspath(onefile_bin)), "default_taxonomy.json")
-    config_dir = os.path.dirname(os.path.abspath(get_config_file_path()))
-    return os.path.join(config_dir, "default_taxonomy.json")
+    if onefile_bin and str(onefile_bin).strip():
+        return str(_get_default_taxonomy_path_obj())
+    if not getattr(sys, "frozen", False):
+        cfg_dir = os.path.dirname(os.path.abspath(get_config_file_path()))
+        if os.path.normcase(cfg_dir) != os.path.normcase(str(_get_executable_dir_obj())):
+            return os.path.join(cfg_dir, "default_taxonomy.json")
+    return str(_get_default_taxonomy_path_obj())
 
 
 def load_default_taxonomy_from_seed():
@@ -401,22 +426,7 @@ def load_default_taxonomy_from_seed():
 
 def get_config_file_path():
     """Keep portable settings beside the executable whenever that location is writable."""
-    onefile_bin = os.environ.get("NUITKA_ONEFILE_BINARY")
-    if onefile_bin and os.path.isfile(onefile_bin):
-        app_dir = os.path.dirname(os.path.abspath(onefile_bin))
-    else:
-        app_dir = os.path.dirname(os.path.abspath(
-            sys.executable if getattr(sys, "frozen", False) else __file__
-        ))
-    local_path = os.path.join(app_dir, "app_config.json")
-    try:
-        probe = local_path + ".write-test"
-        with open(probe, "w", encoding="utf-8") as handle:
-            handle.write("")
-        os.remove(probe)
-        return local_path
-    except OSError:
-        return os.path.join(get_app_data_dir(), "app_config.json")
+    return str(_get_app_config_path_obj())
 
 
 CONFIG_FILE = get_config_file_path()
@@ -846,6 +856,7 @@ class DatabaseManager:
                     buyer_employee_id INTEGER,
                     invoice_number TEXT DEFAULT '',
                     purchase_date TEXT NOT NULL CHECK (length(trim(purchase_date)) > 0),
+                    purchase_time TEXT NOT NULL DEFAULT '',
                     initial_qty INTEGER NOT NULL CHECK (initial_qty > 0),
                     sold_qty INTEGER NOT NULL DEFAULT 0 CHECK (sold_qty >= 0),
                     returned_qty INTEGER NOT NULL DEFAULT 0 CHECK (returned_qty >= 0),
@@ -1021,6 +1032,10 @@ class DatabaseManager:
                     updated_at TEXT NOT NULL DEFAULT ''
                 )
             """)
+
+            batch_cols = {row["name"] for row in conn.execute("PRAGMA table_info(batches)")}
+            if "purchase_time" not in batch_cols:
+                conn.execute("ALTER TABLE batches ADD COLUMN purchase_time TEXT NOT NULL DEFAULT ''")
 
             validate_schema_column_order(conn)
 
@@ -1460,8 +1475,30 @@ class DatabaseManager:
             return
         self.set_setting("product_catalog_config", serialized)
 
+    def _active_datetime_prefs(self, conn=None):
+        """Return active (calendar_format, time_format) from settings without opening nested connections."""
+        cal = "jalali"
+        tf = "24h"
+        try:
+            if conn is not None:
+                rows = conn.execute(
+                    "SELECT key, value FROM settings WHERE key IN ('calendar_format', 'time_format')"
+                ).fetchall()
+                for row in rows:
+                    if row["key"] == "calendar_format" and row["value"]:
+                        cal = row["value"]
+                    elif row["key"] == "time_format" and row["value"]:
+                        tf = row["value"]
+            else:
+                cal = self.get_setting("calendar_format", "jalali") or "jalali"
+                tf = self.get_setting("time_format", "24h") or "24h"
+        except Exception:
+            pass
+        return cal, tf
+
     def log_audit(self, conn, action_type, details):
-        now_str = jdatetime.datetime.now().strftime("%Y/%m/%d %H:%M:%S")
+        cal, tf = self._active_datetime_prefs(conn=conn)
+        now_str = datetime_format.get_now_datetime(cal, tf)
         conn.execute(
             "INSERT INTO audit_logs (action_time, action_type, details) VALUES (?, ?, ?)",
             (now_str, action_type, details),
@@ -2044,6 +2081,7 @@ class DatabaseManager:
         settlement_status=None,
         colors=None,
         supplier_name=None,
+        purchase_time="",
     ):
         """Create a purchase shipment and all linked records atomically."""
         product_id = self._batch_integer(product_id, "کالا", minimum=1)
@@ -2064,6 +2102,11 @@ class DatabaseManager:
         purchase_date = str(purchase_date or "").strip()
         if not purchase_date:
             raise ValueError("تاریخ خرید وارد نشده است.")
+        purchase_time = str(purchase_time or "").strip()
+        if not purchase_time and " " in purchase_date:
+            parts = purchase_date.split(" ", 1)
+            purchase_date = parts[0].strip()
+            purchase_time = parts[1].strip()
         invoice_number = str(invoice_number or "").strip()
         serial_numbers = str(serial_numbers or "").strip()
         initial_specs = str(initial_specs or "").strip()
@@ -2106,16 +2149,16 @@ class DatabaseManager:
                 """
                 INSERT INTO batches (
                     batch_code, product_id, supplier_id, buyer_employee_id, invoice_number,
-                    purchase_date, initial_qty, sold_qty, returned_qty, remaining_qty,
+                    purchase_date, purchase_time, initial_qty, sold_qty, returned_qty, remaining_qty,
                     unit_purchase_price, extra_cost_total, upgrade_cost_unit, unit_cost_price,
                     suggested_sell_price, profit_pct, settlement_status, paid_amount,
                     serial_numbers, initial_specs, final_specs, notes, supplier_name_snapshot,
                     colors_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     batch_code, product_id, supplier_id, buyer_employee_id, invoice_number,
-                    purchase_date, initial_qty, initial_qty, unit_purchase_price,
+                    purchase_date, purchase_time, initial_qty, initial_qty, unit_purchase_price,
                     extra_cost_total, unit_cost_price, suggested_sell_price, profit_pct,
                     status, paid_amount, serial_numbers, initial_specs, initial_specs,
                     notes, supplier_snapshot, color_json,
@@ -2159,6 +2202,7 @@ class DatabaseManager:
         batch_code=None,
         colors=None,
         supplier_name=None,
+        purchase_time=None,
     ):
         """Update a shipment under a write lock while preserving sold/returned stock."""
         batch_id = self._batch_integer(batch_id, "شناسه محموله", minimum=1)
@@ -2181,6 +2225,11 @@ class DatabaseManager:
         purchase_date = str(purchase_date or "").strip()
         if not purchase_date:
             raise ValueError("تاریخ خرید وارد نشده است.")
+        purchase_time = str(purchase_time or "").strip()
+        if not purchase_time and " " in purchase_date:
+            parts = purchase_date.split(" ", 1)
+            purchase_date = parts[0].strip()
+            purchase_time = parts[1].strip()
         invoice_number = str(invoice_number or "").strip()
         serial_numbers = str(serial_numbers or "").strip()
         notes = str(notes or "").strip()
@@ -2194,7 +2243,7 @@ class DatabaseManager:
             old = conn.execute(
                 """
                 SELECT id, batch_code, product_id, supplier_id, buyer_employee_id,
-                       invoice_number, purchase_date, initial_qty, sold_qty,
+                       invoice_number, purchase_date, purchase_time, initial_qty, sold_qty,
                        returned_qty, remaining_qty, unit_purchase_price,
                        extra_cost_total, upgrade_cost_unit, unit_cost_price,
                        suggested_sell_price, profit_pct, paid_amount,
@@ -2253,11 +2302,16 @@ class DatabaseManager:
                 json.dumps(self._normalize_color_list(colors), ensure_ascii=False)
                 if colors is not None else old["colors_json"] or "[]"
             )
+            new_purchase_time = (
+                str(purchase_time).strip()
+                if purchase_time is not None
+                else str(old["purchase_time"] or "").strip()
+            )
             conn.execute(
                 """
                 UPDATE batches SET
                     batch_code=?, product_id=?, supplier_id=?, buyer_employee_id=?,
-                    invoice_number=?, purchase_date=?, initial_qty=?, remaining_qty=?,
+                    invoice_number=?, purchase_date=?, purchase_time=?, initial_qty=?, remaining_qty=?,
                     unit_purchase_price=?, extra_cost_total=?, unit_cost_price=?,
                     suggested_sell_price=?, profit_pct=?, settlement_status=?, paid_amount=?,
                     serial_numbers=?, initial_specs=?, notes=?, supplier_name_snapshot=?,
@@ -2267,7 +2321,7 @@ class DatabaseManager:
                 (
                     (batch_code or old["batch_code"]).strip(),
                     new_product_id, supplier_id, buyer_employee_id, invoice_number,
-                    purchase_date, new_initial_qty, new_remaining, unit_purchase_price,
+                    purchase_date, new_purchase_time, new_initial_qty, new_remaining, unit_purchase_price,
                     extra_cost_total, unit_cost_price, suggested_sell_price, profit_pct,
                     status, paid_amount, serial_numbers,
                     initial_specs if initial_specs is not None else old["initial_specs"],
@@ -2749,6 +2803,7 @@ class DatabaseManager:
         specifications=None,
         colors=None,
         customer_phone="",
+        sale_datetime=None,
     ):
         new_qty = self._batch_integer(new_qty, "تعداد فروش", minimum=1)
         sale_id = self._batch_integer(sale_id, "شناسه فروش", minimum=1)
@@ -2845,12 +2900,21 @@ class DatabaseManager:
                     else ("تسویه‌نشده" if paid_amount == 0 else "تسویه جزئی")
                 )
 
+            new_sale_dt = old_sale["sale_datetime"]
+            if sale_datetime is not None and str(sale_datetime).strip():
+                candidate_dt = str(sale_datetime).strip()
+                if " " not in candidate_dt and old_sale["sale_datetime"] and " " in str(old_sale["sale_datetime"]):
+                    time_tail = str(old_sale["sale_datetime"]).split(" ", 1)[1].strip()
+                    new_sale_dt = f"{candidate_dt} {time_tail}".strip()
+                else:
+                    new_sale_dt = candidate_dt
+
             conn.execute(
                 """
                 UPDATE sales SET seller_employee_id=?, customer_name=?, customer_phone=?, qty=?,
                 suggested_unit_price=?, actual_unit_price=?, unit_discount=?, total_discount=?,
                 price_Markup_unit=?, unit_profit=?, total_profit=?, total_amount=?,
-                paid_amount=?, settlement_status=?, warranty_company=?, warranty_start=?,
+                paid_amount=?, settlement_status=?, sale_datetime=?, warranty_company=?, warranty_start=?,
                 warranty_months=?, warranty_days=?, warranty_end=?, serial_number=?, notes=?,
                 specifications=?, colors_json=?
                 WHERE id=?
@@ -2870,6 +2934,7 @@ class DatabaseManager:
                     total_amount,
                     paid_amount,
                     status,
+                    new_sale_dt,
                     warranty_company,
                     warranty_start,
                     int(warranty_months),
@@ -2961,7 +3026,8 @@ class DatabaseManager:
         default_side_cost = self._batch_integer(default_side_cost, "هزینه جانبی پیش‌فرض")
         name_clean = name.strip()
         type_clean = service_type.strip()
-        now_date = jdatetime.date.today().strftime("%Y/%m/%d")
+        cal, _tf = self._active_datetime_prefs()
+        now_date = datetime_format.get_today_date(cal)
 
         with self.get_connection() as conn:
             target_id = service_id
@@ -3446,9 +3512,8 @@ class DatabaseManager:
                     pass
             raise
 
-        self.cfg["last_backup_time"] = jdatetime.datetime.now().strftime(
-            "%Y/%m/%d %H:%M:%S"
-        )
+        cal, tf = self._active_datetime_prefs()
+        self.cfg["last_backup_time"] = datetime_format.get_now_datetime(cal, tf)
         self.cfg["backup_dir"] = os.path.dirname(database_path) or "."
         if automatic:
             database_key = os.path.normcase(database_path)

@@ -1,3 +1,18 @@
+# Daqiq 4.9.4
+
+## Release Summary & Commercial Store Hardening
+
+- **Offline Licensing Hardening & Zero Registry Dependency (`REQ-01`..`REQ-05`, `REQ-10`)**: Replaced all Windows Registry usage with dual-location HMAC-SHA256 authenticated filesystem clock-rollback anchors (`.clock_state.dat` + `.runtime_anchor.dat`). Streamlined `.daqreq` by removing redundant `hardware_anchors` and hardcoded `"صندوق فروشگاه"`, added live synced `store_name` (including pre-DB startup gate), and extracted genuine CPU brand names from SMBIOS Type 4 (`Processor Version`) via `GetSystemFirmwareTable('RSMB')`.
+- **Configurable Key Identity (`fp_prefix`, `key_id`, `public_key`)**: Unified per-field precedence (`Env > build_license_config.local.json > trusted_keys.json` defaults) across `tools/build_key_shards.py`, `.github/workflows/ci.yml`, and new `scripts/build_local.py` (restoring tracked `_embedded_keys.py` cleanly after local builds).
+- **Theme-Isolated License Dialog (`REQ-06`)**: Rebuilt `LicenseDialog` with `#LicenseDialogRoot` CSS isolation, explicit `QPalette` Light/Dark resets eliminating dark QSS bleed, crisp HiDPI SVG logo, concise RTL Persian copy, click-to-copy `شناسه امنیتی برنامه` footer with safe auto-revert timers, responsive scroll area, and clean `بستن` footer action.
+- **Authoritative Outer Executable Path Resolution (`REQ-07`)**: Added `utils/paths.py` (`get_executable_dir()`, `--print-paths`) resolving the true outer `Daqiq.exe` directory instead of Nuitka onefile cached extraction folders or `NUITKA_ONEFILE_PARENT` integer PIDs; proved in Windows CI from a separate working directory.
+- **Granular Module & Sub-Feature Licensing (`REQ-11`)**: Enforced 14 granular sub-feature entitlements alongside 10 core tab locks, uniform «تنظیمات»-style locked-access dialog with direct `مدیریت لایسنس 🔑` shortcut, non-flashing tab interception, and silent startup selection of the first unlocked tab.
+- **Sales & Purchases UX Upgrades (`REQ-08`, `REQ-12`, `REQ-13`)**: Fixed «محموله موجود» tooltip RTL alignment, fixed «مدت گارانتی» digit-only click selection via `MouseButtonRelease` event filter, moved `تاریخ خرید` next to `رنگ‌های این محموله` and shifted remaining purchase fields cleanly up, added `batches.purchase_time` (`ساعت خرید`) alongside `تاریخ خرید` across tables/reports/Excel with backward-compatible auto-migration, and added editable `تاریخ فروش` directly between `انقضای گارانتی` and `رنگ‌های فروخته‌شده` with dynamic warranty expiry recalculation.
+- **Multi-Origin Calendar, AM/PM & Chronological Ordering (`REQ-09`)**: Standardized 12h formatting to English `AM`/`PM`, enabled dynamic `sqlite_master` discovery and deterministic per-cell origin conversion across mixed-calendar DBs, synced live clock/user management/date pickers (`JalaliDateEdit` + `JalaliCalendarDialog`), and added chronological 24h-normalized sorting and date-range filtering.
+- **Headless QA & Node 24 CI/CD (`REQ-14`, `REQ-15`)**: Added `tests/conftest.py` fail-fast modal `.exec()` interceptor, comprehensive `tests/test_v494_features.py`, and `--print-paths` Windows CI verification on Node 24 actions.
+
+---
+
 # Daqiq 4.9.3
 
 ## Release Summary & Architectural Enhancements

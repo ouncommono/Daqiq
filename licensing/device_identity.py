@@ -204,24 +204,27 @@ class NativeWindowsHardwareProvider(HardwareIdentitySource):
     def __init__(self):
         self._cached_components: Optional[Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]] = None
 
-    def _query_native_smbios(self) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
-        """Extract UUID and BaseBoard directly from SMBIOS via GetSystemFirmwareTable."""
+    def _query_native_smbios_with_cpu(
+        self,
+    ) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str], Optional[str]]:
+        """Extract UUID, BaseBoard, and CPU Processor Version (Type 4) from SMBIOS via GetSystemFirmwareTable."""
         uuid_str: Optional[str] = None
         serial_str: Optional[str] = None
         mfg_str: Optional[str] = None
         prod_str: Optional[str] = None
+        cpu_str: Optional[str] = None
 
         try:
             kernel32 = ctypes.windll.kernel32
             RSMB = 0x52534D42  # 'RSMB'
             buf_size = kernel32.GetSystemFirmwareTable(RSMB, 0, None, 0)
             if not buf_size:
-                return None, None, None, None
+                return None, None, None, None, None
 
             buf = ctypes.create_string_buffer(buf_size)
             r = kernel32.GetSystemFirmwareTable(RSMB, 0, buf, buf_size)
             if r == 0:
-                return None, None, None, None
+                return None, None, None, None, None
 
             raw = bytes(buf)
             data = raw[8:]  # Skip RSMB header
@@ -265,10 +268,54 @@ class NativeWindowsHardwareProvider(HardwareIdentitySource):
                     mfg_str = get_str(formatted[4])
                     prod_str = get_str(formatted[5])
                     serial_str = get_str(formatted[7])
+                elif stype == 4 and length >= 0x12 and not cpu_str:
+                    # SMBIOS Type 4 (Processor Information): Processor Type 0x03 = Central Processor, offset 0x10 = Processor Version
+                    proc_type = formatted[5] if length > 5 else 0x03
+                    candidate_cpu = _clean_string(get_str(formatted[0x10]))
+                    if candidate_cpu and candidate_cpu.lower() not in INVALID_SERIAL_KEYWORDS:
+                        if proc_type == 0x03 or not cpu_str:
+                            cpu_str = candidate_cpu
         except Exception:
             pass
 
-        return uuid_str, serial_str, mfg_str, prod_str
+        return uuid_str, serial_str, mfg_str, prod_str, cpu_str
+
+    def _query_native_smbios(self) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
+        """Extract UUID and BaseBoard directly from SMBIOS via GetSystemFirmwareTable."""
+        u, s, m, p, _ = self._query_native_smbios_with_cpu()
+        return u, s, m, p
+
+    def get_cpu_model(self) -> str:
+        """Return real human-readable CPU model from SMBIOS Type 4 with clean non-winreg fallback."""
+        _, _, _, _, cpu_smbios = self._query_native_smbios_with_cpu()
+        if cpu_smbios:
+            return cpu_smbios
+        # Non-winreg fallback via PowerShell CIM Win32_Processor (only if SMBIOS Type 4 empty/junk)
+        try:
+            cmd = [
+                "powershell.exe",
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                "(Get-CimInstance Win32_Processor -OperationTimeoutSec 3 | Select-Object -First 1 -ExpandProperty Name)",
+            ]
+            proc = subprocess.run(
+                cmd,
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                timeout=4.0,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000),
+            )
+            if proc.returncode == 0:
+                cleaned = _clean_string(proc.stdout)
+                if cleaned and cleaned.lower() not in INVALID_SERIAL_KEYWORDS:
+                    return cleaned
+        except Exception:
+            pass
+        return _clean_string(os.environ.get("PROCESSOR_IDENTIFIER", ""))
 
     def _query_powershell_fallback(self) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
         """Fallback querying Win32_ComputerSystemProduct and Win32_BaseBoard via CIM."""
@@ -392,12 +439,50 @@ def get_system_hardware_fingerprint_with_tier() -> Tuple[str, str]:
         )
 
 
+def _resolve_synced_store_name(explicit_store_name: str = "") -> str:
+    """Resolve live store_name from explicit parameter, app_config.json, or active DB."""
+    if explicit_store_name and str(explicit_store_name).strip():
+        return str(explicit_store_name).strip()
+    try:
+        from database import load_app_config
+        cfg = load_app_config()
+        synced = str(cfg.get("last_store_name") or "").strip()
+        if synced:
+            return synced
+    except Exception:
+        pass
+    return ""
+
+
+def _read_cpu_model_clean() -> str:
+    """Return human-readable CPU model without winreg or platform.processor() junk."""
+    if sys.platform == "win32":
+        cpu = NativeWindowsHardwareProvider().get_cpu_model()
+        if cpu:
+            return cpu
+    # Linux / macOS non-Windows CI clean CPU brand extraction
+    try:
+        if os.path.isfile("/proc/cpuinfo"):
+            with open("/proc/cpuinfo", "r", encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    if line.lower().startswith("model name"):
+                        _, val = line.split(":", 1)
+                        cleaned = _clean_string(val)
+                        if cleaned:
+                            return cleaned
+    except Exception:
+        pass
+    import platform
+    return _clean_string(platform.machine() or platform.processor())
+
+
 def create_device_request_dict(
-    app_version: str = "4.9.3",
+    app_version: str = "4.9.4",
     device_label: str = "",
     store_name: str = "",
+    fp_prefix: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Generate redesigned .daqreq dictionary with machine context and SHA-256 checksum."""
+    """Generate clean, standard .daqreq dictionary with SMBIOS CPU model, synced store_name, and SHA-256 checksum."""
     import json
     import platform
 
@@ -408,36 +493,28 @@ def create_device_request_dict(
         provider = MockHardwareProvider()
         u, s, m, p = provider.uuid, provider.serial, provider.mfg, provider.prod
 
-    fp, _ = compute_hardware_fingerprint_from_components(u, s, m, p)
-    tiers = get_all_available_fingerprint_tiers(u, s, m, p)
-    hardware_anchors = {
-        "tier1_hash": tiers.get("tier1"),
-        "tier2_hash": tiers.get("tier2"),
-        "tier3_hash": tiers.get("tier3"),
-    }
+    fp, _ = compute_hardware_fingerprint_from_components(u, s, m, p, fp_prefix=fp_prefix)
 
     computer_name = platform.node() or os.environ.get("COMPUTERNAME", "")
     os_info = f"{platform.system()} {platform.release()} ({platform.architecture()[0]})"
-    cpu_model = platform.processor() or ""
+    cpu_model = _read_cpu_model_clean()
+    resolved_store_name = _resolve_synced_store_name(store_name)
     now_iso = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-    resolved_label = device_label or (f"صندوق فروشگاه ({computer_name})" if computer_name else "صندوق فروشگاه")
 
     req_payload: Dict[str, Any] = {
         "protocol_version": 1,
         "request_version": 1,
         "product_id": "daqiq.desktop",
-        "app_version": app_version,
         "device_fingerprint": fp,
-        "hardware_anchors": hardware_anchors,
+        "store_name": resolved_store_name,
         "computer_name": computer_name,
         "os_info": os_info,
         "cpu_model": cpu_model,
-        "store_name": store_name,
-        "device_label": resolved_label,
-        "generated_at": now_iso,
+        "app_version": app_version,
         "generated_at_utc": now_iso,
     }
+    if device_label and str(device_label).strip():
+        req_payload["device_label"] = str(device_label).strip()
 
     canonical_bytes = json.dumps(
         req_payload,

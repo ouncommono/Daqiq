@@ -23,11 +23,46 @@ from .device_identity import (
     create_device_request_dict,
 )
 
-# Canonical list of 10 feature keys mapped directly to Daqiq application tabs
+# Canonical list of 10 core application tab feature keys + aliases
+CORE_TAB_FEATURES = (
+    "dashboard",
+    "products",
+    "batches",
+    "sales",
+    "services",
+    "upgrades",
+    "suppliers_payments",
+    "reports",
+    "employees",
+    "settings",
+)
+
+# Granular sub-feature entitlements mapped to their parent tab for legacy/full backward compatibility
+SUBFEATURE_PARENT_TAB: Dict[str, str] = {
+    "excel_report_export": "reports",
+    "partner_export": "products",
+    "report_builder": "reports",
+    "auto_backup": "settings",
+    "manual_backup_restore": "settings",
+    "database_encryption": "settings",
+    "multi_database": "settings",
+    "barcode_scanner": "sales",
+    "audit_logs": "reports",
+    "taxonomy_import_export": "settings",
+    "custom_calendar_formats": "settings",
+    "profit_analytics": "reports",
+    "price_edit": "sales",
+    "batch_delete": "batches",
+}
+
+ALL_LICENSE_FEATURES = CORE_TAB_FEATURES + tuple(SUBFEATURE_PARENT_TAB.keys())
+
 TAB_MODULE_TO_FEATURE: Dict[str, str] = {
     "dashboard": "dashboard",
     "products": "products",
+    "inventory": "products",
     "batches": "batches",
+    "purchases": "batches",
     "sales": "sales",
     "services": "services",
     "upgrades": "upgrades",
@@ -35,7 +70,35 @@ TAB_MODULE_TO_FEATURE: Dict[str, str] = {
     "suppliers_payments": "suppliers_payments",
     "reports": "reports",
     "employees": "employees",
+    "users": "employees",
     "settings": "settings",
+}
+
+FEATURE_LABELS_FA: Dict[str, str] = {
+    "dashboard": "داشبورد",
+    "products": "مدیریت کالاها",
+    "batches": "ثبت خرید و محموله‌ها",
+    "sales": "ثبت فروش",
+    "services": "میز خدمت",
+    "upgrades": "ارتقای کالا",
+    "suppliers_payments": "تأمین‌کنندگان و پرداخت‌ها",
+    "reports": "گزارش‌های جامع",
+    "employees": "مدیریت کاربران",
+    "settings": "تنظیمات",
+    "excel_report_export": "خروجی اکسل گزارش‌ها",
+    "partner_export": "خروجی موجودی همکار",
+    "report_builder": "ساخت و ویرایش گزارش‌های سفارشی",
+    "auto_backup": "پشتیبان‌گیری خودکار",
+    "manual_backup_restore": "پشتیبان‌گیری و بازیابی دستی",
+    "database_encryption": "رمزگذاری پایگاه داده",
+    "multi_database": "مدیریت چند پایگاه داده",
+    "barcode_scanner": "اسکنر بارکد",
+    "audit_logs": "گزارش‌های ممیزی",
+    "taxonomy_import_export": "ورود و خروج ساختار کالاها و خدمات",
+    "custom_calendar_formats": "تغییر قالب تقویم و ساعت",
+    "profit_analytics": "تحلیل سود و گزارش‌های سودآوری",
+    "price_edit": "ویرایش قیمت فروش در فاکتور",
+    "batch_delete": "حذف محموله خرید",
 }
 
 
@@ -48,13 +111,15 @@ class LicenseService:
         verifier: Optional[LicenseVerifier] = None,
         hardware_provider: Optional[HardwareIdentitySource] = None,
         clock_provider: Optional[Callable[[], datetime.datetime]] = None,
-        app_version: str = "4.9.2",
+        app_version: str = "4.9.4",
+        store_name_provider: Optional[Callable[[], str]] = None,
     ):
         self.store = store or LicenseStore()
         self.verifier = verifier or LicenseVerifier()
         self._hardware_provider = hardware_provider
         self.clock_provider = clock_provider or (lambda: datetime.datetime.now(datetime.timezone.utc))
         self.app_version = app_version
+        self.store_name_provider = store_name_provider
 
         self._cached_fingerprint: Optional[str] = None
         self._cached_tiers: Optional[Dict[str, str]] = None
@@ -86,9 +151,29 @@ class LicenseService:
     def check_license(self, force_reload: bool = False) -> ValidationResult:
         """Load stored license, acquire hardware identity, verify signature and boundaries."""
         if not force_reload and self._last_result is not None and self._last_result.is_valid:
-            # Re-verify time boundary even for cached valid results
+            # Re-verify clock-rollback and time boundary even for cached valid results
             now_utc = self.clock_provider()
             env = self._last_result.license
+            if env:
+                is_sub = env.payload.license_type in ("subscription", "trial")
+                skew_sec = (env.payload.max_clock_skew_hours or 24) * 3600
+                try:
+                    current_fp = self.get_hardware_fingerprint()
+                    self.store.check_and_update_clock_state(
+                        device_fingerprint=current_fp,
+                        is_subscription=is_sub,
+                        now_utc=now_utc,
+                        tolerance_sec=skew_sec,
+                    )
+                except ClockRollbackError as e:
+                    self._last_result = ValidationResult(
+                        status=ValidationStatus.CLOCK_TAMPERED,
+                        is_valid=False,
+                        license=env,
+                        message_fa=STATUS_MESSAGES_FA[ValidationStatus.CLOCK_TAMPERED],
+                        detail=str(e),
+                    )
+                    return self._last_result
             if env and env.payload.license_type in ("subscription", "trial") and env.payload.expires_at:
                 from .license_verifier import parse_iso8601_utc
                 dt_exp = parse_iso8601_utc(env.payload.expires_at)
@@ -156,7 +241,7 @@ class LicenseService:
                 is_valid=False,
                 license=None,
                 message_fa=STATUS_MESSAGES_FA[ValidationStatus.MISSING],
-                detail="فایل لایسنس بر روی سیستم موجود نیست.",
+                detail="",
             )
             self._last_result = res
             return res
@@ -309,8 +394,18 @@ class LicenseService:
         return val_res
 
     def export_device_request_file(self, target_path: str, device_label: str = "", store_name: str = "") -> None:
-        """Export .daqreq JSON file to target path."""
-        req_dict = create_device_request_dict(app_version=self.app_version, device_label=device_label, store_name=store_name)
+        """Export clean .daqreq JSON file to target path with live store_name sync."""
+        resolved_store = (store_name or "").strip()
+        if not resolved_store and self.store_name_provider is not None:
+            try:
+                resolved_store = str(self.store_name_provider() or "").strip()
+            except Exception:
+                resolved_store = ""
+        req_dict = create_device_request_dict(
+            app_version=self.app_version,
+            device_label=device_label,
+            store_name=resolved_store,
+        )
         with open(target_path, "w", encoding="utf-8") as f:
             json.dump(req_dict, f, ensure_ascii=False, indent=2)
 
@@ -321,7 +416,7 @@ class LicenseService:
         return ok
 
     def is_feature_enabled(self, feature_id: str) -> bool:
-        """Check whether a specific module/tab feature is authorized in the active license."""
+        """Check whether a tab module or granular sub-feature is authorized in the active license."""
         canonical_key = TAB_MODULE_TO_FEATURE.get(feature_id, feature_id)
         if self._last_result is None or not self._last_result.is_valid:
             res = self.check_license()
@@ -332,8 +427,20 @@ class LicenseService:
         if not lic:
             return False
 
-        # Default deny: omitted keys evaluate to False
-        return bool(lic.payload.features.get(canonical_key, False))
+        features = lic.payload.features or {}
+        if canonical_key in features:
+            return bool(features[canonical_key])
+
+        # Backward compatibility for legacy/full licenses that omit new granular sub-feature flags:
+        # Sub-features default to their parent tab's authorization (or True if parent is enabled/full).
+        if canonical_key in SUBFEATURE_PARENT_TAB:
+            parent_tab = SUBFEATURE_PARENT_TAB[canonical_key]
+            if parent_tab in features:
+                return bool(features[parent_tab])
+            return all(bool(features.get(t, False)) for t in CORE_TAB_FEATURES)
+
+        # Core tab keys default to deny if explicitly omitted from a partial license
+        return False
 
     def is_write_allowed(self) -> bool:
         """Return True if write operations are permitted (False if readonly grace period)."""

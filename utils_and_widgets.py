@@ -54,11 +54,13 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import (
     Qt,
     Signal,
+    QEvent,
     QModelIndex,
     QSortFilterProxyModel,
     QPropertyAnimation,
     QEasingCurve,
     QAbstractAnimation,
+    QTimer,
 )
 from PySide6.QtGui import QIntValidator
 from PySide6.QtWidgets import QSizePolicy
@@ -165,6 +167,20 @@ def auto_capitalize_english(text: str) -> str:
     return normalize_digits(text).upper()
 
 
+from utils.datetime_format import (
+    CALENDAR_GREGORIAN,
+    CALENDAR_HIJRI,
+    CALENDAR_JALALI,
+    CALENDAR_LOOKUP,
+    add_calendar_days,
+    convert_date,
+    detect_date_calendar,
+    from_gregorian_date,
+    get_calendar_month_days,
+    get_today_date,
+    to_gregorian_date,
+)
+
 def add_jalali_months(start_date_str: str, months: int) -> str:
     try:
         parts = [int(x) for x in normalize_digits(start_date_str).split("/")]
@@ -172,25 +188,19 @@ def add_jalali_months(start_date_str: str, months: int) -> str:
         total_m = (m - 1) + int(months)
         ny = y + (total_m // 12)
         nm = (total_m % 12) + 1
-        if nm <= 6:
-            max_d = 31
-        elif nm <= 11:
-            max_d = 30
-        else:
-            is_leap = jdatetime.date(ny, 1, 1).isleap()
-            max_d = 30 if is_leap else 29
+        max_d = get_calendar_month_days(ny, nm, detect_date_calendar(start_date_str))
         nd = min(d, max_d)
         return f"{ny:04d}/{nm:02d}/{nd:02d}"
     except Exception:
         return start_date_str
 
 
-def add_jalali_days(start_date_str: str, days: int) -> str:
-    """Add exact calendar days to a Jalali date."""
+def add_jalali_days(start_date_str: str, days: int, cal_type: str | None = None) -> str:
+    """Add exact calendar days respecting the active/detected calendar."""
     try:
-        parts = [int(x) for x in normalize_digits(start_date_str).split("/")]
-        result = jdatetime.date(parts[0], parts[1], parts[2]) + datetime.timedelta(days=int(days))
-        return result.strftime("%Y/%m/%d")
+        cal = cal_type or detect_date_calendar(start_date_str)
+        res = add_calendar_days(start_date_str, int(days), cal)
+        return res or start_date_str
     except Exception:
         return start_date_str
 
@@ -433,21 +443,63 @@ class SmartLineEdit(QLineEdit):
 class WarrantyLineEdit(SmartLineEdit):
     """فیلد ویرایش مدت گارانتی با انتخاب هوشمند صرفاً بخش عددی هنگام کلیک یا فوکوس."""
 
-    def mousePressEvent(self, event):
-        super().mousePressEvent(event)
-        self._select_digits_only()
+    _DIGITS_PREFIX_RE = re.compile(r"^\s*([0-9\u06f0-\u06f9]+)")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._had_focus_on_press = False
+        self._digits_selected_on_press = False
+        self._press_pos = None
+        self.installEventFilter(self)
+
+    def _digits_span(self):
+        match = self._DIGITS_PREFIX_RE.match(self.text())
+        if not match:
+            return None
+        return match.start(1), match.end(1) - match.start(1)
+
+    def eventFilter(self, watched, event):
+        if watched is self:
+            etype = event.type()
+            if etype == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+                self._had_focus_on_press = self.hasFocus()
+                span = self._digits_span()
+                self._digits_selected_on_press = bool(
+                    span is not None
+                    and self.hasSelectedText()
+                    and self.selectionStart() == span[0]
+                    and len(self.selectedText()) == span[1]
+                )
+                self._press_pos = (
+                    event.position().toPoint() if hasattr(event, "position") else event.pos()
+                )
+            elif etype == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
+                release_pos = (
+                    event.position().toPoint() if hasattr(event, "position") else event.pos()
+                )
+                dragged = False
+                if self._press_pos is not None:
+                    dragged = (release_pos - self._press_pos).manhattanLength() > 4
+                self._press_pos = None
+                # Ignore drags or an already-active selection so manual cursor edits still work.
+                if not dragged and not self.hasSelectedText() and not (
+                    self._had_focus_on_press and self._digits_selected_on_press
+                ):
+                    self._schedule_select_digits_only()
+        return super().eventFilter(watched, event)
 
     def focusInEvent(self, event):
         super().focusInEvent(event)
-        self._select_digits_only()
+        if event.reason() != Qt.MouseFocusReason:
+            self._schedule_select_digits_only()
+
+    def _schedule_select_digits_only(self):
+        QTimer.singleShot(0, self, self._select_digits_only)
 
     def _select_digits_only(self):
-        txt = self.text().strip()
-        m = re.match(r"^([0-9\u06f0-\u06f9]+)", txt)
-        if m:
-            start = m.start(1)
-            length = len(m.group(1))
-            QTimer.singleShot(0, lambda: self.setSelection(start, length))
+        span = self._digits_span()
+        if span is not None:
+            self.setSelection(span[0], span[1])
 
 
 class PriceInput(QLineEdit):
@@ -620,14 +672,71 @@ class QuantitySelector(QComboBox):
         return max(1, int(clean)) if clean else 1
 
 
+_CALENDAR_TITLES = {
+    CALENDAR_JALALI: "انتخاب تاریخ شمسی",
+    CALENDAR_HIJRI: "انتخاب تاریخ قمری",
+    CALENDAR_GREGORIAN: "انتخاب تاریخ میلادی",
+}
+
+_CALENDAR_YEAR_BOUNDS = {
+    CALENDAR_JALALI: (1400, 1600),
+    CALENDAR_HIJRI: (1400, 1550),
+    CALENDAR_GREGORIAN: (1950, 2150),
+}
+
+_CALENDAR_MONTHS = {
+    CALENDAR_JALALI: [
+        "فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور",
+        "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند",
+    ],
+    CALENDAR_HIJRI: [
+        "محرم", "صفر", "ربیع‌الاول", "ربیع‌الثانی", "جمادی‌الاول", "جمادی‌الثانی",
+        "رجب", "شعبان", "رمضان", "شوال", "ذیقعده", "ذیحجه",
+    ],
+    CALENDAR_GREGORIAN: [
+        "ژانویه (Jan)", "فوریه (Feb)", "مارس (Mar)", "آوریل (Apr)",
+        "مه (May)", "ژوئن (Jun)", "ژوئیه (Jul)", "اوت (Aug)",
+        "سپتامبر (Sep)", "اکتبر (Oct)", "نوامبر (Nov)", "دسامبر (Dec)",
+    ],
+}
+
+
+def _resolve_ancestor_calendar(widget, explicit_cal=None) -> str:
+    if explicit_cal:
+        return CALENDAR_LOOKUP.get(explicit_cal, CALENDAR_JALALI)
+    ancestor = widget
+    while ancestor is not None:
+        if hasattr(ancestor, "get_active_calendar"):
+            try:
+                return CALENDAR_LOOKUP.get(ancestor.get_active_calendar(), CALENDAR_JALALI)
+            except Exception:
+                pass
+        if hasattr(ancestor, "get_calendar_format"):
+            try:
+                return CALENDAR_LOOKUP.get(ancestor.get_calendar_format(), CALENDAR_JALALI)
+            except Exception:
+                pass
+        if hasattr(ancestor, "db") and getattr(ancestor, "db", None) is not None:
+            try:
+                return CALENDAR_LOOKUP.get(
+                    ancestor.db.get_setting("calendar_format", CALENDAR_JALALI),
+                    CALENDAR_JALALI,
+                )
+            except Exception:
+                pass
+        ancestor = ancestor.parentWidget() if hasattr(ancestor, "parentWidget") else None
+    return CALENDAR_JALALI
+
+
 class JalaliCalendarDialog(QDialog):
     """
-    بند ۸: پنجره بزرگ‌تر تقویم شمسی گرافیکی با خوانایی کامل اعداد سال و ماه
+    پنجره گرافیکی انتخاب تاریخ مطابق با تقویم فعال برنامه (شمسی / قمری / میلادی)
     """
 
-    def __init__(self, initial_date_str, parent=None):
+    def __init__(self, initial_date_str, parent=None, cal_format=None):
         super().__init__(parent)
-        self.setWindowTitle("انتخاب تاریخ شمسی")
+        self.cal_format = _resolve_ancestor_calendar(parent, cal_format)
+        self.setWindowTitle(_CALENDAR_TITLES.get(self.cal_format, "انتخاب تاریخ"))
         self.setLayoutDirection(Qt.RightToLeft)
         self.setFixedSize(470, 438)
         self.selected_date = initial_date_str
@@ -662,16 +771,21 @@ class JalaliCalendarDialog(QDialog):
             f"QPushButton:hover {{ border: 1px solid {colors['selected']}; }}"
         )
 
+        y_min, y_max = _CALENDAR_YEAR_BOUNDS.get(self.cal_format, (1350, 1600))
         try:
-            p = [int(x) for x in normalize_digits(initial_date_str).split("/")]
-            self.cur_year, self.cur_month, self.cur_day = p[0], p[1], p[2]
-        except Exception:
-            today = jdatetime.date.today()
-            self.cur_year, self.cur_month, self.cur_day = (
-                today.year,
-                today.month,
-                today.day,
+            normalized_init = convert_date(
+                initial_date_str,
+                detect_date_calendar(initial_date_str, self.cal_format),
+                self.cal_format,
             )
+            p = [int(x) for x in normalize_digits(normalized_init).split("/")]
+            self.cur_year, self.cur_month, self.cur_day = p[0], p[1], p[2]
+            if not (y_min <= self.cur_year <= y_max):
+                raise ValueError("Out of calendar bounds")
+        except Exception:
+            today_str = get_today_date(self.cal_format)
+            p = [int(x) for x in today_str.split("/")]
+            self.cur_year, self.cur_month, self.cur_day = p[0], p[1], p[2]
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 10, 12, 10)
@@ -687,13 +801,13 @@ class JalaliCalendarDialog(QDialog):
 
         self.cb_year = QComboBox()
         self.cb_year.setEditable(True)
-        self.cb_year.addItems([str(year) for year in range(1400, 1601)])
+        self.cb_year.addItems([str(year) for year in range(y_min, y_max + 1)])
         self.cb_year.setInsertPolicy(QComboBox.NoInsert)
         self.cb_year.setCurrentText(str(self.cur_year))
         self.cb_year.setMinimumHeight(38)
         self.cb_year.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.cb_year.lineEdit().setAlignment(Qt.AlignCenter)
-        self.cb_year.lineEdit().setValidator(QIntValidator(1400, 1600, self.cb_year))
+        self.cb_year.lineEdit().setValidator(QIntValidator(y_min, y_max, self.cb_year))
         self.cb_year.setStyleSheet("font-size: 15px; font-weight: bold;")
         self.cb_year.currentTextChanged.connect(self._refresh_grid)
 
@@ -701,23 +815,10 @@ class JalaliCalendarDialog(QDialog):
         self.cb_month.setMinimumHeight(38)
         self.cb_month.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.cb_month.setStyleSheet("font-size: 15px; font-weight: bold;")
-        months = [
-            "فروردین",
-            "اردیبهشت",
-            "خرداد",
-            "تیر",
-            "مرداد",
-            "شهریور",
-            "مهر",
-            "آبان",
-            "آذر",
-            "دی",
-            "بهمن",
-            "اسفند",
-        ]
+        months = _CALENDAR_MONTHS.get(self.cal_format, _CALENDAR_MONTHS[CALENDAR_JALALI])
         for idx, m in enumerate(months, 1):
             self.cb_month.addItem(f"{idx:02d} - {m}", idx)
-        self.cb_month.setCurrentIndex(self.cur_month - 1)
+        self.cb_month.setCurrentIndex(max(0, min(11, self.cur_month - 1)))
         self.cb_month.currentIndexChanged.connect(self._refresh_grid)
 
         self.cb_day = QComboBox()
@@ -798,11 +899,12 @@ class JalaliCalendarDialog(QDialog):
         self._refresh_grid()
 
     def _go_today(self):
-        t = jdatetime.date.today()
-        self.cb_year.setCurrentText(str(t.year))
-        self.cb_month.setCurrentIndex(t.month - 1)
-        self.cb_day.setCurrentIndex(t.day - 1)
-        self.selected_date = t.strftime("%Y/%m/%d")
+        today_str = get_today_date(self.cal_format)
+        ty, tm, td = [int(x) for x in today_str.split("/")]
+        self.cb_year.setCurrentText(str(ty))
+        self.cb_month.setCurrentIndex(tm - 1)
+        self.cb_day.setCurrentIndex(td - 1)
+        self.selected_date = today_str
         self.accept()
 
     def _on_day_combo_activated(self, index):
@@ -810,7 +912,7 @@ class JalaliCalendarDialog(QDialog):
             year = int(normalize_digits(self.cb_year.currentText()))
             month = int(self.cb_month.currentData())
             day = int(self.cb_day.itemText(index))
-            jdatetime.date(year, month, day)
+            to_gregorian_date(year, month, day, self.cal_format)
         except (TypeError, ValueError):
             return
         self.selected_date = f"{year:04d}/{month:02d}/{day:02d}"
@@ -832,24 +934,20 @@ class JalaliCalendarDialog(QDialog):
             year = int(raw_year)
         except (TypeError, ValueError):
             return
-        if not 1400 <= year <= 1600:
+        y_min, y_max = _CALENDAR_YEAR_BOUNDS.get(self.cal_format, (1350, 1600))
+        if not y_min <= year <= y_max:
             return
 
         month = self.cb_month.currentData()
         if month is None:
             return
         try:
-            first_day = jdatetime.date(year, int(month), 1)
+            first_greg = to_gregorian_date(year, int(month), 1, self.cal_format)
+            max_days = get_calendar_month_days(year, int(month), self.cal_format)
         except (TypeError, ValueError):
             return
-        start_weekday = first_day.weekday()
-
-        if month <= 6:
-            max_days = 31
-        elif month <= 11:
-            max_days = 30
-        else:
-            max_days = 30 if first_day.isleap() else 29
+        # Grid columns run Sat (0) .. Fri (6). Python date.weekday(): Mon=0 .. Sun=6 -> Sat=(wd+2)%7
+        start_weekday = (first_greg.weekday() + 2) % 7
 
         for day_index in range(self.cb_day.count()):
             item = self.cb_day.model().item(day_index)
@@ -862,6 +960,8 @@ class JalaliCalendarDialog(QDialog):
 
         for day in range(1, max_days + 1):
             index = start_weekday + day - 1
+            if index >= len(self.day_buttons):
+                break
             button = self.day_buttons[index]
             button.setText(str(day))
             button.setEnabled(1)
@@ -877,7 +977,6 @@ class JalaliCalendarDialog(QDialog):
                     "border-radius: 6px;"
                 )
 
-
     def _on_day_clicked(self):
         btn = self.sender()
         if not btn.text():
@@ -888,10 +987,11 @@ class JalaliCalendarDialog(QDialog):
         except (TypeError, ValueError):
             return
         m = self.cb_month.currentData()
-        if m is None or not 1400 <= y <= 1600:
+        y_min, y_max = _CALENDAR_YEAR_BOUNDS.get(self.cal_format, (1350, 1600))
+        if m is None or not y_min <= y <= y_max:
             return
         try:
-            jdatetime.date(y, int(m), d)
+            to_gregorian_date(y, int(m), d, self.cal_format)
         except ValueError:
             return
         self.selected_date = f"{y:04d}/{int(m):02d}/{d:02d}"
@@ -900,13 +1000,16 @@ class JalaliCalendarDialog(QDialog):
 
 class JalaliDateEdit(QWidget):
     """
-    مورد ۷: فیلد تاریخ شمسی ۳ کادره با ترتیب و پرش خودکار از روز -> ماه -> سال
+    فیلد تاریخ ۳ کادره (روز / ماه / سال) منطبق با تقویم فعال برنامه (شمسی، قمری، میلادی)
     """
 
     dateChanged = Signal(str)
 
-    def __init__(self, default_today=True, parent=None):
+    def __init__(self, default_today=True, parent=None, calendar_format=None):
         super().__init__(parent)
+        self._explicit_calendar_format = (
+            CALENDAR_LOOKUP.get(calendar_format, CALENDAR_JALALI) if calendar_format else None
+        )
         self.setLayoutDirection(Qt.RightToLeft)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -955,8 +1058,33 @@ class JalaliDateEdit(QWidget):
         self.ed_month.textEdited.connect(self._on_month_edited)
         self.ed_year.textEdited.connect(self._on_year_edited)
 
+        self._update_calendar_tooltip()
         if default_today:
-            self.set_date(jdatetime.date.today().strftime("%Y/%m/%d"))
+            self.set_date(get_today_date(self.get_calendar_format()))
+
+    def get_calendar_format(self) -> str:
+        return _resolve_ancestor_calendar(self, self._explicit_calendar_format)
+
+    def _update_calendar_tooltip(self):
+        cal = self.get_calendar_format()
+        self.btn_cal.setToolTip(
+            {
+                CALENDAR_JALALI: "انتخاب از تقویم شمسی",
+                CALENDAR_HIJRI: "انتخاب از تقویم قمری",
+                CALENDAR_GREGORIAN: "انتخاب از تقویم میلادی",
+            }.get(cal, "انتخاب از تقویم")
+        )
+
+    def set_calendar_format(self, cal_type: str, convert_existing: bool = False):
+        target = CALENDAR_LOOKUP.get(cal_type, CALENDAR_JALALI)
+        old_cal = self.get_calendar_format()
+        self._explicit_calendar_format = target
+        self._update_calendar_tooltip()
+        if convert_existing:
+            current = self.get_date()
+            if current:
+                detected = detect_date_calendar(current, fallback_cal=old_cal)
+                self.set_date(convert_date(current, detected, target))
 
     def _clean_num(self, line_edit):
         txt = normalize_digits(line_edit.text())
@@ -990,7 +1118,9 @@ class JalaliDateEdit(QWidget):
         self.dateChanged.emit(self.get_date())
 
     def _open_calendar(self):
-        dlg = JalaliCalendarDialog(self.get_date(), self)
+        cal = self.get_calendar_format()
+        self._update_calendar_tooltip()
+        dlg = JalaliCalendarDialog(self.get_date(), self, cal_format=cal)
         if dlg.exec() == QDialog.Accepted:
             self.set_date(dlg.selected_date)
 
