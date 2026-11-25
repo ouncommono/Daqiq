@@ -48,6 +48,10 @@ def make_mock_service(is_valid: bool, features: dict = None, fp: str = "fp_v1:mo
             "reports": True,
             "employees": True,
             "settings": True,
+            "customers": True,
+            "installments": True,
+            "charts_analytics": True,
+            "word_export": True,
         }
         if features:
             default_features.update(features)
@@ -150,17 +154,17 @@ def test_tab_entitlements_enforcement(qapp, tmp_path):
     db = DatabaseManager(str(tmp_path / "test.db"))
     win = MainWindow(db, active_employee=None, license_service=service)
 
-    # 10 tabs mapping:
+    # 12 tabs mapping:
     # 0: dashboard, 1: products, 2: batches, 3: sales, 4: services,
-    # 5: upgrades, 6: suppliers, 7: reports, 8: employees, 9: settings
-    assert win.tabs.count() == 10
+    # 5: upgrades, 6: suppliers, 7: customers, 8: reports, 9: charts, 10: employees, 11: settings
+    assert win.tabs.count() == 12
     assert win.tabs.isTabEnabled(0) is True  # dashboard
     assert win.tabs.isTabEnabled(1) is True  # products
     assert win.tabs.isTabEnabled(2) is False # batches: DISABLED
     assert win.tabs.isTabEnabled(3) is True  # sales
     assert win.tabs.isTabEnabled(4) is False # services: DISABLED
     assert win.tabs.isTabEnabled(5) is True  # upgrades
-    assert win.tabs.isTabEnabled(9) is True  # settings
+    assert win.tabs.isTabEnabled(11) is True  # settings
 
 
 def test_clicking_disabled_tab_shows_persian_notice(qapp, tmp_path):
@@ -187,11 +191,11 @@ def test_clicking_disabled_tab_shows_persian_notice(qapp, tmp_path):
 
 
 def test_all_10_tabs_enabled_on_full_license(qapp, tmp_path):
-    """Verify full commercial license preserves all 10 production tabs."""
+    """Verify full commercial license preserves all 12 production tabs."""
     service = make_mock_service(is_valid=True)
     db = DatabaseManager(str(tmp_path / "test.db"))
     win = MainWindow(db, active_employee=None, license_service=service)
 
-    assert win.tabs.count() == 10
-    for i in range(10):
+    assert win.tabs.count() == 12
+    for i in range(12):
         assert win.tabs.isTabEnabled(i) is True

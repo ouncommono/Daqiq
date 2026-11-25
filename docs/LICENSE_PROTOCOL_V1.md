@@ -1,8 +1,8 @@
-# Daqiq Offline Licensing Protocol Specification (v1.7 — v4.9.10)
+# Daqiq Offline Licensing Protocol Specification (v1.8 — v4.10.0)
 
-**Document Version:** 1.7.0
+**Document Version:** 1.8.0
 **Target Product:** Daqiq Desktop (`daqiq.desktop`)
-**Release:** v4.9.10
+**Release:** v4.10.0
 **Security Boundary:** Asymmetric Ed25519 Signatures, Native Win32 SMBIOS Hardware Fingerprinting (`GetSystemFirmwareTable('RSMB')`), Redundant Filesystem HMAC-SHA256 High-Water-Mark Clock Anchors (Zero Windows Registry), Native C-Compiled XOR-Sharded Public Keys.
 
 ---
@@ -59,7 +59,7 @@ Core Tab Modules (10):
 - `employees` (alias `users`) — مدیریت کاربران
 - `settings` — تنظیمات
 
-Granular Sub-Features (16):
+Granular Sub-Features (20):
 - `excel_report_export` — خروجی اکسل گزارش‌ها
 - `partner_export` — خروجی موجودی همکار
 - `report_builder` — ساخت و ویرایش گزارش‌های سفارشی
@@ -76,8 +76,12 @@ Granular Sub-Features (16):
 - `batch_delete` — حذف محموله خرید
 - `print_invoices` — چاپ فاکتورها و گزارش‌ها (پیش‌فرض فعال در صورت نبود کلید در لایسنس‌های قبلی)
 - `backup_export` — پشتیبان‌گیری و خروجی اطلاعات (پیش‌فرض فعال در صورت نبود کلید در لایسنس‌های قبلی)
+- `customers` — مدیریت مشتریان (پیش‌فرض فعال در صورت نبود کلید در لایسنس‌های قبلی)
+- `installments` — فروش و پرداخت اقساطی (پیش‌فرض فعال در صورت نبود کلید در لایسنس‌های قبلی)
+- `charts_analytics` — گزارش‌های نموداری و تحلیل‌ها (پیش‌فرض فعال در صورت نبود کلید در لایسنس‌های قبلی)
+- `word_export` — خروجی قابل ویرایش Word (پیش‌فرض فعال در صورت نبود کلید در لایسنس‌های قبلی)
 
-**Backward Compatibility Policy:** Omitted granular sub-feature keys in legacy/full `.daqlic` licenses automatically inherit their parent tab's authorization (`True` when the parent tab is enabled or all 10 core tabs are enabled; `print_invoices` and `backup_export` default to `True` when omitted so legacy/partial licenses retain printing and export capabilities). Explicit `false` values always take precedence and deny access. Also during `readonly` grace period, database backups (`backup_export`), JSON/Excel exports, and viewing/printing remain active while mutating settings (`report_builder`, catalog structure, and transactions) are locked.
+**Backward Compatibility Policy:** Omitted granular sub-feature keys in legacy/full `.daqlic` licenses automatically inherit their parent tab's authorization (`True` when the parent tab is enabled or all 10 core tabs are enabled; `print_invoices`, `backup_export`, `customers`, `installments`, `charts_analytics`, and `word_export` default to `True` when omitted so legacy `.daqlic` files issued for v4.9.x retain all capabilities cleanly). Explicit `false` values always take precedence and deny access. Also during `readonly` grace period, database backups (`backup_export`), JSON/Excel exports, and viewing/printing remain active while mutating settings (`report_builder`, catalog structure, and transactions) are locked.
 
 ### 1.4 Zero-Registry Clock-Rollback Guard
 Windows Registry (`winreg`) is completely absent from Daqiq. High-water-mark timestamps are authenticated with HMAC-SHA256 bound to `device_fingerprint` and stored redundantly across:

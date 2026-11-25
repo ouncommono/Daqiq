@@ -20,7 +20,7 @@ def get_version(repo_root: Path) -> str:
     v_path = repo_root / "VERSION"
     if v_path.is_file():
         return v_path.read_text(encoding="utf-8").strip()
-    return "4.9.10"
+    return "4.10.0"
 
 
 def compute_sha256(file_path: Path) -> str:
@@ -68,6 +68,8 @@ def build(mode: str, repo_root: Path, skip_shards: bool = False) -> int:
         # Prune unused heavy Qt plugins and translations (PySide6.QtPrintSupport is included explicitly below)
         "--include-qt-plugins=sensible,platforms,styles,imageformats",
         "--include-module=PySide6.QtPrintSupport",
+        "--include-package=docx",
+        "--include-package=lxml",
         "--noinclude-qt-translations",
         # Prune test and dev packages from payload
         "--noinclude-pytest-mode=nofollow",
@@ -209,7 +211,7 @@ def build_troubleshooter(mode: str, repo_root: Path, version: str) -> int:
         "--noinclude-unittest-mode=nofollow",
         "--noinclude-pydoc-mode=nofollow",
         "--noinclude-IPython-mode=nofollow",
-        "--nofollow-import-to=PySide6,PyQt5,PyQt6,shiboken6,main,database,licensing,utils,ui,tools,pytest,unittest,doctest,pydoc,tkinter,turtle,setuptools,pip,wheel",
+        "--nofollow-import-to=PySide6,PyQt5,PyQt6,shiboken6,main,database,licensing,utils,ui,charts,tools,pytest,unittest,doctest,pydoc,tkinter,turtle,setuptools,pip,wheel",
         "--windows-console-mode=attach",
         f"--windows-icon-from-ico={repo_root / 'assets' / 'daqiq_logo.ico'}",
         "--company-name=ouncommono",

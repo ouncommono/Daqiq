@@ -187,9 +187,16 @@ def apply_dialog_theme(dialog, is_dark=None, *, parent=None, db=None, include_me
             color: {fg};
             border: 1px solid {border};
             border-radius: 8px;
-            margin-top: 10px;
-            padding-top: 12px;
+            margin-top: 12px;
+            padding-top: 14px;
             font-weight: bold;
+        }}
+        QGroupBox::title {{
+            subcontrol-origin: margin;
+            subcontrol-position: top right;
+            right: 12px;
+            padding: 0 8px;
+            color: {muted};
         }}
         QLineEdit, QPlainTextEdit, QComboBox, QSpinBox {{
             background-color: {input_bg};
@@ -1388,8 +1395,12 @@ class DynamicSpecsWidget(QGroupBox):
     ویجت زیرمجموعه‌ها و مشخصات فنی کالا مبتنی بر تنظیمات پویای پایگاه داده (فاقد هرگونه ساختار هاردکدشده در سورس)
     """
 
-    def __init__(self, parent=None):
-        super().__init__("انتخاب زیرمجموعه و مشخصات فنی کالا", parent)
+    def __init__(self, parent=None, *, external_sub_combo=None, external_sub_label=None):
+        super().__init__("مشخصات فنی کالا", parent)
+        self.setLayoutDirection(Qt.RightToLeft)
+        self.setAlignment(Qt.AlignRight)
+        self._external_sub_combo = external_sub_combo
+        self._external_sub_label = external_sub_label
         self.main_layout = QVBoxLayout(self)
         self.form_widget = QWidget()
         self.form_layout = QFormLayout(self.form_widget)
@@ -1397,12 +1408,12 @@ class DynamicSpecsWidget(QGroupBox):
         self.form_layout.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
         self.form_layout.setFormAlignment(Qt.AlignRight | Qt.AlignTop)
         self.form_layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
-        self.form_layout.setHorizontalSpacing(12)
-        self.form_layout.setVerticalSpacing(9)
+        self.form_layout.setHorizontalSpacing(10)
+        self.form_layout.setVerticalSpacing(7)
         self.form_scroll = SmoothScrollArea(self)
         self.form_scroll.setWidget(self.form_widget)
         self.form_scroll.setWidgetResizable(True)
-        self.form_scroll.setMinimumHeight(150)
+        self.form_scroll.setMinimumHeight(80)
         self.form_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.form_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.form_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -1410,8 +1421,10 @@ class DynamicSpecsWidget(QGroupBox):
         self.current_category = ""
         self.fields = {}
         self._custom_field_widgets = {}
-        self.cb_sub = None
+        self.cb_sub = self._external_sub_combo
         self._custom_field_callback = None
+        if self._external_sub_combo is not None:
+            self._external_sub_combo.currentTextChanged.connect(self._notify_custom_field_callback)
 
     def set_custom_field_callback(self, callback):
         """Store bound callbacks weakly to avoid cycle."""
@@ -1436,7 +1449,7 @@ class DynamicSpecsWidget(QGroupBox):
                 item.widget().deleteLater()
         self.fields.clear()
         self._custom_field_widgets.clear()
-        self.cb_sub = None
+        self.cb_sub = self._external_sub_combo
 
     def _apply_compact_form_layouts(self):
         """Keep RTL field captions compact while giving editors consistent spacing."""
@@ -1478,25 +1491,37 @@ class DynamicSpecsWidget(QGroupBox):
 
     def set_subcategory_label(self, label: str):
         """Customize the caption associated with the category-specific subcategory selector."""
+        clean = str(label or "زیرمجموعه").strip() or "زیرمجموعه"
+        if self._external_sub_label is not None:
+            self._external_sub_label.setText(f"{clean}:")
+            return
         if self.cb_sub is None:
             return
         label_widget = self.form_layout.labelForField(self.cb_sub)
         if label_widget is not None:
-            label_widget.setText(f"{str(label or 'زیرمجموعه').strip()}:")
+            label_widget.setText(f"{clean}:")
 
     def set_category(self, category: str):
         self.current_category = str(category or "").strip()
         self._clear_form()
 
-        self.cb_sub = SearchableComboBox()
         is_other = normalize_catalog_label(self.current_category) == normalize_catalog_label("سایر موارد")
-        self.cb_sub.setEditable(is_other)
-        if is_other:
-            self.cb_sub.setToolTip("زیرمجموعه را انتخاب کنید یا نام دلخواه را تایپ کنید")
+        if self._external_sub_combo is not None:
+            self.cb_sub = self._external_sub_combo
+            self.cb_sub.setEditable(is_other)
+            if is_other:
+                self.cb_sub.setToolTip("زیرمجموعه را انتخاب کنید یا نام دلخواه را تایپ کنید")
+            else:
+                self.cb_sub.setToolTip("زیرمجموعه را از فهرست انتخاب کنید")
         else:
-            self.cb_sub.setToolTip("زیرمجموعه را از فهرست انتخاب کنید")
-        self.cb_sub.currentTextChanged.connect(self._notify_custom_field_callback)
-        self.form_layout.addRow("زیرمجموعه:", self.cb_sub)
+            self.cb_sub = SearchableComboBox()
+            self.cb_sub.setEditable(is_other)
+            if is_other:
+                self.cb_sub.setToolTip("زیرمجموعه را انتخاب کنید یا نام دلخواه را تایپ کنید")
+            else:
+                self.cb_sub.setToolTip("زیرمجموعه را از فهرست انتخاب کنید")
+            self.cb_sub.currentTextChanged.connect(self._notify_custom_field_callback)
+            self.form_layout.addRow("زیرمجموعه:", self.cb_sub)
         self._apply_compact_form_layouts()
 
     def apply_custom_catalog(self, subcategories=None, custom_fields=None):

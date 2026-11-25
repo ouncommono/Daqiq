@@ -1039,7 +1039,7 @@ def test_fresh_schema_has_v3_physical_column_order_and_metadata(manager):
             "paid_amount", "settlement_status", "sale_datetime", "warranty_company",
             "warranty_start", "warranty_months", "warranty_days", "warranty_end",
             "specifications", "colors_json", "notes",
-            "created_at", "updated_at", "row_version",
+            "created_at", "updated_at", "row_version", "customer_id", "payment_type",
         ],
         "service_records": [
             "id", "invoice_number", "service_id", "seller_employee_id",
@@ -1268,6 +1268,7 @@ def test_v330_greenfield_schema_contracts_and_stock_balance_constraints(manager)
         ],
         "customers": [
             "id", "name", "phone", "notes", "created_at", "updated_at", "row_version",
+            "national_id", "address", "last_modified_by", "last_modified_at",
         ],
         "products": [
             "id", "code", "serial_number", "name", "category", "sub_category", "brand", "model",
@@ -1297,7 +1298,7 @@ def test_v330_greenfield_schema_contracts_and_stock_balance_constraints(manager)
             "paid_amount", "settlement_status", "sale_datetime", "warranty_company",
             "warranty_start", "warranty_months", "warranty_days", "warranty_end",
             "specifications", "colors_json", "notes",
-            "created_at", "updated_at", "row_version",
+            "created_at", "updated_at", "row_version", "customer_id", "payment_type",
         ],
         "service_catalog": [
             "id", "code", "service_type", "name", "default_fee", "default_side_cost",

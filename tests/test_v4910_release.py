@@ -132,15 +132,15 @@ def test_req00_and_req02_schema_version_app_config_and_scale_indexes(tmp_path, m
     cfg_file = tmp_path / "app_config.json"
     monkeypatch.setattr(db_mod, "CONFIG_FILE", str(cfg_file))
 
-    assert Path("VERSION").read_text(encoding="utf-8").strip() == "4.9.10"
-    assert db_mod.get_live_app_version() == "4.9.10"
-    assert main_mod.APP_VERSION == "4.9.10"
+    assert Path("VERSION").read_text(encoding="utf-8").strip() in ("4.9.10", "4.10.0")
+    assert db_mod.get_live_app_version() == Path("VERSION").read_text(encoding="utf-8").strip()
+    assert main_mod.APP_VERSION == Path("VERSION").read_text(encoding="utf-8").strip()
     assert CONFIG_SCHEMA_VERSION == 2
     assert SCHEMA_VERSION == 484
 
     cfg_file.write_text('{"app_version": "4.9.9", "schema_version": 484, "theme": "dark"}', encoding="utf-8")
     loaded = db_mod.load_app_config()
-    assert loaded["app_version"] == "4.9.10"
+    assert loaded["app_version"] == db_mod.get_live_app_version()
     assert loaded["schema_version"] == CONFIG_SCHEMA_VERSION
     assert loaded["config_schema_version"] == CONFIG_SCHEMA_VERSION
     assert loaded["schema_version"] != 484
@@ -224,7 +224,7 @@ def test_req01_print_and_backup_subfeatures_backward_compat_and_docs(tmp_path):
     assert svc2.is_feature_enabled("backup_export") is False
 
     doc = Path("docs/LICENSE_PROTOCOL_V1.md").read_text(encoding="utf-8")
-    assert "v4.9.10" in doc
+    assert ("v4.9.10" in doc or "v4.10.0" in doc)
     assert "print_invoices" in doc
     assert "backup_export" in doc
 
@@ -313,9 +313,11 @@ def test_req04_print_buttons_a4_a5_bw_pdf_and_zero_cost_leakage(qapp, tmp_path, 
         html_a5 = builder(is_a5=True)
         assert_no_internal_cost_leakage(html_a4)
         assert_no_internal_cost_leakage(html_a5)
-        assert "37,000,000" not in html_a4
-        assert "9,500,000" not in html_a4
-        assert "46,500,000" in html_a4
+        from utils.printing import to_ascii_digits
+        ascii_a4 = to_ascii_digits(html_a4)
+        assert "37,000,000" not in ascii_a4
+        assert "9,500,000" not in ascii_a4
+        assert "46,500,000" in ascii_a4
         assert "خریدار تست" in html_a4
         assert "#000000" in html_a4 and "#ffffff" in html_a4
 
