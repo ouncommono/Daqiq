@@ -56,9 +56,20 @@ SUBFEATURE_PARENT_TAB: Dict[str, str] = {
     "batch_delete": "batches",
     "print_invoices": "reports",
     "backup_export": "settings",
+    "customers": "sales",
+    "installments": "customers",
+    "charts_analytics": "reports",
+    "word_export": "reports",
 }
 
-OPTIONAL_DEFAULT_TRUE_FEATURES = frozenset({"print_invoices", "backup_export"})
+OPTIONAL_DEFAULT_TRUE_FEATURES = frozenset({
+    "print_invoices",
+    "backup_export",
+    "customers",
+    "installments",
+    "charts_analytics",
+    "word_export",
+})
 
 ALL_LICENSE_FEATURES = CORE_TAB_FEATURES + tuple(SUBFEATURE_PARENT_TAB.keys())
 
@@ -73,7 +84,9 @@ TAB_MODULE_TO_FEATURE: Dict[str, str] = {
     "upgrades": "upgrades",
     "suppliers": "suppliers_payments",
     "suppliers_payments": "suppliers_payments",
+    "customers": "customers",
     "reports": "reports",
+    "charts": "charts_analytics",
     "employees": "employees",
     "users": "employees",
     "settings": "settings",
@@ -140,6 +153,10 @@ FEATURE_LABELS_FA: Dict[str, str] = {
     "light_theme": "حالت روشن",
     "print_invoices": "چاپ فاکتورها و گزارش‌ها",
     "backup_export": "پشتیبان‌گیری و خروجی اطلاعات",
+    "customers": "مدیریت مشتریان",
+    "installments": "فروش و پرداخت اقساطی",
+    "charts_analytics": "گزارش‌های نموداری و تحلیل‌ها",
+    "word_export": "خروجی قابل ویرایش Word",
 }
 
 
@@ -191,7 +208,7 @@ class LicenseService:
         verifier: Optional[LicenseVerifier] = None,
         hardware_provider: Optional[HardwareIdentitySource] = None,
         clock_provider: Optional[Callable[[], datetime.datetime]] = None,
-        app_version: str = "4.9.10",
+        app_version: str = "4.10.0",
         store_name_provider: Optional[Callable[[], str]] = None,
     ):
         self.store = store or LicenseStore()

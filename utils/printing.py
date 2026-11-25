@@ -1,14 +1,22 @@
 # utils/printing.py
-"""Monochrome (black & white) A4/A5 RTL invoice and report printing for Daqiq."""
+"""Commercial monochrome (black & white) A5/A4 RTL printing & editable Word (.docx) export for Daqiq."""
 
 from __future__ import annotations
 
 import html
+import io
 import os
-from typing import Any, Dict, Iterable, List, Optional, Sequence
+from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
-from PySide6.QtCore import Qt, QMarginsF
-from PySide6.QtGui import QFont, QPageLayout, QPageSize, QTextDocument
+from docx import Document
+from docx.enum.table import WD_TABLE_ALIGNMENT, WD_ALIGN_VERTICAL
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml import OxmlElement, parse_xml
+from docx.oxml.ns import nsdecls, qn
+from docx.shared import Mm, Pt, RGBColor
+from PySide6.QtCore import QBuffer, QIODevice, QMarginsF, QPointF, QRectF, QSizeF, Qt
+from PySide6.QtGui import QColor, QFont, QImage, QPageLayout, QPageSize, QPainter, QTextDocument
 from PySide6.QtPrintSupport import QPrintDialog, QPrintPreviewWidget, QPrinter
 from PySide6.QtWidgets import (
     QComboBox,
@@ -21,7 +29,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-# Forbidden internal terms on customer-facing sales invoices (cost/profit/margin protection)
+# Strictly excluded internal financial/technical terms on customer-facing invoices
 FORBIDDEN_SALES_INVOICE_TERMS = (
     "بهای تمام‌شده",
     "بهای تمام شده",
@@ -29,330 +37,201 @@ FORBIDDEN_SALES_INVOICE_TERMS = (
     "سود واحد",
     "سود کل",
     "سود خالص",
+    "سود فروش",
     "درصد سود",
     "قیمت پیشنهادی",
+    "هزینه ارتقا",
+    "کد محموله",
+    "کارمزد",
     "unit_cost_price",
     "unit_profit",
     "total_profit",
 )
 
 PAPER_SIZE_MAP = {
-    "A4": QPageSize.PageSizeId.A4,
     "A5": QPageSize.PageSizeId.A5,
+    "A4": QPageSize.PageSizeId.A4,
 }
+
+_ASCII_TO_PERSIAN = str.maketrans("0123456789,", "۰۱۲۳۴۵۶۷۸۹٬")
+_PERSIAN_TO_ASCII = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩٬", "01234567890123456789,")
+
+
+def to_persian_digits(text: Any) -> str:
+    """Convert ASCII digits & commas into clean Persian digits and separator."""
+    if text is None:
+        return ""
+    return str(text).translate(_ASCII_TO_PERSIAN)
+
+
+def to_ascii_digits(text: Any) -> str:
+    """Normalize Persian/Arabic numerals to ASCII digits for parsing."""
+    if text is None:
+        return ""
+    return str(text).translate(_PERSIAN_TO_ASCII)
+
+
+def _fmt_int_fa(val: Any) -> str:
+    if val is None or isinstance(val, bool):
+        return "۰"
+    if isinstance(val, (int, float)):
+        return to_persian_digits(f"{int(round(val)):,}")
+    clean = to_ascii_digits(str(val)).replace(",", "").strip()
+    if clean.lstrip("-").isdigit():
+        return to_persian_digits(f"{int(clean):,}")
+    return to_persian_digits(str(val).strip() or "۰")
 
 
 def _esc(val: Any) -> str:
     return html.escape("" if val is None else str(val), quote=True)
 
 
-def _norm_num(val: Any) -> str:
-    if val is None:
-        return "0"
-    if isinstance(val, bool):
-        return "0"
-    if isinstance(val, (int, float)):
-        return f"{int(round(val)):,}"
-    text = str(val).strip()
-    return text or "0"
-
-
-def assert_no_internal_cost_leakage(rendered_html: str) -> None:
-    """Verify no internal cost, margin, or profit label leaks into customer invoices."""
-    lowered = rendered_html.lower()
+def assert_no_internal_cost_leakage(rendered_text: str) -> None:
+    """Verify no internal cost, margin, batch ID, or profit term leaks into customer invoices."""
+    lowered = to_ascii_digits(rendered_text).lower()
     for term in FORBIDDEN_SALES_INVOICE_TERMS:
         if term.lower() in lowered:
             raise ValueError(f"Internal financial term leaked into customer invoice: {term}")
 
 
-def _base_print_css(is_a5: bool = False) -> str:
-    font_px = "9.5pt" if is_a5 else "10.5pt"
-    head_px = "13pt" if is_a5 else "15pt"
-    sub_px = "8.5pt" if is_a5 else "9.5pt"
-    cell_pad = "4px 6px" if is_a5 else "6px 8px"
-    return f"""
-    <style>
-      @page {{ margin: 10mm; }}
-      body {{
-        direction: rtl;
-        font-family: 'Tahoma', 'Segoe UI', Arial, sans-serif;
-        font-size: {font_px};
-        color: #000000;
-        background-color: #ffffff;
-        margin: 0;
-        padding: 4px;
-      }}
-      .doc-box {{
-        border: 1.5px solid #000000;
-        padding: 10px 12px;
-        margin-bottom: 14px;
-        page-break-inside: avoid;
-      }}
-      .header-table {{
-        width: 100%;
-        border-collapse: collapse;
-        border-bottom: 2px solid #000000;
-        margin-bottom: 8px;
-      }}
-      .header-table td {{
-        border: none;
-        padding: 3px 4px;
-        vertical-align: middle;
-      }}
-      .shop-name {{
-        font-size: {head_px};
-        font-weight: bold;
-        color: #000000;
-      }}
-      .doc-title {{
-        font-size: {head_px};
-        font-weight: bold;
-        text-align: center;
-        border: 1.5px solid #000000;
-        background-color: #efefef;
-        padding: 4px 12px;
-      }}
-      .meta-grid {{
-        width: 100%;
-        border-collapse: collapse;
-        margin-bottom: 8px;
-        font-size: {sub_px};
-      }}
-      .meta-grid td {{
-        border: 1px solid #555555;
-        padding: 4px 7px;
-        background-color: #fafafa;
-      }}
-      table.items {{
-        width: 100%;
-        border-collapse: collapse;
-        margin-top: 6px;
-        margin-bottom: 8px;
-      }}
-      table.items th {{
-        background-color: #e5e5e5;
-        color: #000000;
-        font-weight: bold;
-        border: 1px solid #000000;
-        padding: {cell_pad};
-        text-align: center;
-      }}
-      table.items td {{
-        border: 1px solid #222222;
-        padding: {cell_pad};
-        color: #000000;
-        text-align: center;
-      }}
-      table.items tr:nth-child(even) td {{
-        background-color: #f8f8f8;
-      }}
-      td.right, th.right {{ text-align: right; }}
-      .summary-table {{
-        width: 56%;
-        margin-right: auto;
-        margin-left: 0;
-        border-collapse: collapse;
-        margin-top: 6px;
-      }}
-      .summary-table td {{
-        border: 1px solid #000000;
-        padding: 4px 8px;
-      }}
-      .summary-table td.lbl {{
-        background-color: #efefef;
-        font-weight: bold;
-        text-align: right;
-      }}
-      .summary-table td.val {{
-        font-weight: bold;
-        text-align: left;
-      }}
-      .footer-sign {{
-        width: 100%;
-        border-collapse: collapse;
-        margin-top: 14px;
-        font-size: {sub_px};
-      }}
-      .footer-sign td {{
-        width: 50%;
-        padding: 8px 6px 2px 6px;
-        text-align: center;
-        border-top: 1px dashed #666666;
-      }}
-      .muted-note {{
-        font-size: {sub_px};
-        margin-top: 6px;
-        color: #111111;
-      }}
-    </style>
-    """
+@dataclass
+class PrintDocumentSpec:
+    """Unified structured document representation powering both B&W A5/A4 Print and Editable Word (.docx)."""
+
+    section_key: str
+    title: str
+    shop_name: str = "فروشگاه دقیق"
+    shop_phone: str = ""
+    print_time: str = ""
+    meta_pairs: List[Tuple[str, str]] = field(default_factory=list)
+    headers: List[str] = field(default_factory=list)
+    rows: List[List[str]] = field(default_factory=list)
+    right_align_cols: set[int] = field(default_factory=set)
+    col_widths_pct: Optional[List[int]] = None
+    summary_pairs: List[Tuple[str, str]] = field(default_factory=list)
+    notes: str = ""
+    signatures: Optional[Tuple[str, str]] = None
+    chart_png_bytes: Optional[bytes] = None
+    customer_privacy_strict: bool = False
 
 
-def _wrap_html_doc(body_html: str, title: str, is_a5: bool = False) -> str:
-    return (
-        "<!DOCTYPE html>"
-        "<html lang='fa' dir='rtl'>"
-        f"<head><meta charset='utf-8'><title>{_esc(title)}</title>"
-        f"{_base_print_css(is_a5=is_a5)}</head>"
-        f"<body>{body_html}</body></html>"
+# ---------------------------------------------------------------------------
+# Spec Builders for ALL 12 Store Sections
+# ---------------------------------------------------------------------------
+
+def build_sales_invoice_spec(
+    records: Sequence[Dict[str, Any]],
+    shop_info: Optional[Dict[str, Any]] = None,
+) -> PrintDocumentSpec:
+    """Customer-only concise Sales Invoice («فاکتور فروش»): zero internal cost, profit, batch, or tech jargon."""
+    shop = shop_info or {}
+    shop_name = str(shop.get("shop_name") or "فروشگاه دقیق").strip()
+    shop_phone = str(shop.get("phone") or "").strip()
+    print_time = to_persian_digits(str(shop.get("print_time") or "-").strip())
+
+    first = records[0] if records else {}
+    inv_nos = list(dict.fromkeys(str(r.get("invoice_number") or "").strip() for r in records if str(r.get("invoice_number") or "").strip()))
+    inv_display = "، ".join(inv_nos) if inv_nos else "-"
+    customer = str(first.get("customer_name") or "").strip()
+    cust_phone = str(first.get("customer_phone") or "").strip()
+    sale_dt = to_persian_digits(str(first.get("sale_datetime") or print_time or "-").strip())
+
+    meta: List[Tuple[str, str]] = [
+        ("شماره فاکتور", inv_display),
+        ("تاریخ و ساعت", sale_dt),
+    ]
+    if customer and customer != "-":
+        meta.append(("خریدار", customer))
+    if cust_phone and cust_phone != "-":
+        meta.append(("تلفن خریدار", to_persian_digits(cust_phone)))
+
+    rows: List[List[str]] = []
+    grand_total = 0
+    grand_discount = 0
+    grand_paid = 0
+    any_installment = False
+    has_warranty = False
+    clean_notes: List[str] = []
+
+    for r in records:
+        w = str(r.get("warranty_text") or "").strip()
+        if w and w not in ("ندارد", "-", "بدون گارانتی"):
+            has_warranty = True
+
+    headers = ["ردیف", "شرح کالا"]
+    right_cols = {1}
+    if has_warranty:
+        headers.append("گارانتی")
+        widths = [7, 41, 16, 8, 14, 14]
+    else:
+        widths = [7, 51, 10, 16, 16]
+    headers.extend(["تعداد", "فی (تومان)", "مبلغ کل (تومان)"])
+
+    for idx, item in enumerate(records, 1):
+        qty = int(item.get("qty") or 0)
+        unit_price = int(item.get("actual_unit_price") or 0)
+        disc = int(item.get("total_discount") or 0)
+        line_total = int(item.get("total_amount") or 0)
+        paid = int(item.get("paid_amount") or 0)
+        grand_total += line_total
+        grand_discount += disc
+        grand_paid += paid
+        if str(item.get("payment_type") or "").lower() in ("installment", "credit") or (line_total > paid and paid >= 0):
+            any_installment = True
+
+        # Concise customer-facing item label (never technical batch codes/internal specs)
+        title = str(item.get("product_title") or item.get("description") or "کالا").strip()
+        row = [to_persian_digits(idx), title]
+        if has_warranty:
+            w = str(item.get("warranty_text") or "").strip()
+            row.append(to_persian_digits(w if w and w != "-" else "ندارد"))
+        row.extend([_fmt_int_fa(qty), _fmt_int_fa(unit_price), _fmt_int_fa(line_total)])
+        rows.append(row)
+
+        n = str(item.get("notes") or "").strip()
+        if n and not any(bad in n.lower() for bad in FORBIDDEN_SALES_INVOICE_TERMS):
+            clean_notes.append(n)
+
+    summary: List[Tuple[str, str]] = []
+    if grand_discount > 0:
+        summary.append(("تخفیف کل", f"{_fmt_int_fa(grand_discount)} تومان"))
+    summary.append(("جمع کل قابل پرداخت", f"{_fmt_int_fa(grand_total)} تومان"))
+    remaining = max(0, grand_total - grand_paid)
+    if any_installment or remaining > 0:
+        summary.append(("مبلغ پرداخت‌شده / پیش‌پرداخت", f"{_fmt_int_fa(grand_paid)} تومان"))
+        summary.append(("مانده حساب", f"{_fmt_int_fa(remaining)} تومان"))
+    else:
+        summary.append(("وضعیت پرداخت", "تسویه‌شده"))
+
+    return PrintDocumentSpec(
+        section_key="sales",
+        title="فاکتور فروش",
+        shop_name=shop_name,
+        shop_phone=to_persian_digits(shop_phone),
+        print_time=print_time,
+        meta_pairs=meta,
+        headers=headers,
+        rows=rows,
+        right_align_cols=right_cols,
+        col_widths_pct=widths,
+        summary_pairs=summary,
+        notes=" | ".join(dict.fromkeys(clean_notes)),
+        signatures=("مهر و امضای فروشنده", "امضای خریدار"),
+        customer_privacy_strict=True,
     )
 
 
-def build_sales_invoice_html(
+def build_purchase_voucher_spec(
     records: Sequence[Dict[str, Any]],
     shop_info: Optional[Dict[str, Any]] = None,
-    *,
-    is_a5: bool = False,
-) -> str:
-    """Build strict customer-only B&W sales invoice HTML (zero internal cost or profit fields)."""
+) -> PrintDocumentSpec:
+    """Clean B&W Purchase / Stock-In Receipt («رسید خرید و ثبت محموله»)."""
     shop = shop_info or {}
     shop_name = str(shop.get("shop_name") or "فروشگاه دقیق").strip()
-    print_time = str(shop.get("print_time") or "").strip()
-    support_phone = str(shop.get("phone") or "").strip()
+    print_time = to_persian_digits(str(shop.get("print_time") or "-").strip())
 
-    # Group rows sharing non-empty invoice_number into unified multi-line invoices.
-    grouped: List[List[Dict[str, Any]]] = []
-    index_by_inv: Dict[str, int] = {}
-    for row in records:
-        inv_no = str(row.get("invoice_number") or "").strip()
-        if inv_no and inv_no in index_by_inv:
-            grouped[index_by_inv[inv_no]].append(row)
-        else:
-            if inv_no:
-                index_by_inv[inv_no] = len(grouped)
-            grouped.append([row])
-
-    sections: List[str] = []
-    for inv_rows in grouped:
-        first = inv_rows[0]
-        inv_no = _esc(first.get("invoice_number") or "-")
-        sale_dt = _esc(first.get("sale_datetime") or print_time or "-")
-        customer = _esc(first.get("customer_name") or "مشتری حضوری")
-        cust_phone = _esc(first.get("customer_phone") or "-")
-        seller = _esc(first.get("seller_name") or "-")
-
-        total_amount_sum = 0
-        total_discount_sum = 0
-        paid_sum = 0
-        statuses: List[str] = []
-        item_trs: List[str] = []
-
-        for idx, item in enumerate(inv_rows, 1):
-            qty = int(item.get("qty") or 0)
-            unit_price = int(item.get("actual_unit_price") or 0)
-            disc = int(item.get("total_discount") or 0)
-            line_total = int(item.get("total_amount") or 0)
-            paid = int(item.get("paid_amount") or 0)
-            total_amount_sum += line_total
-            total_discount_sum += disc
-            paid_sum += paid
-            st = str(item.get("settlement_status") or "").strip()
-            if st and st not in statuses:
-                statuses.append(st)
-
-            desc_parts = [str(item.get("product_title") or item.get("description") or "کالا").strip()]
-            specs = str(item.get("specifications") or "").strip()
-            colors = str(item.get("colors_display") or "").strip()
-            serial = str(item.get("serial_number") or "").strip()
-            if specs:
-                desc_parts.append(f"مشخصات: {specs}")
-            if colors:
-                desc_parts.append(f"رنگ: {colors}")
-            if serial:
-                desc_parts.append(f"سریال: {serial}")
-            warranty = str(item.get("warranty_text") or "").strip()
-
-            item_trs.append(
-                "<tr>"
-                f"<td>{idx}</td>"
-                f"<td>{_esc(item.get('product_code') or '-')}</td>"
-                f"<td class='right'>{'<br>'.join(_esc(p) for p in desc_parts if p)}</td>"
-                f"<td>{qty:,}</td>"
-                f"<td>{unit_price:,}</td>"
-                f"<td>{disc:,}</td>"
-                f"<td>{line_total:,}</td>"
-                f"<td>{_esc(warranty or 'ندارد')}</td>"
-                "</tr>"
-            )
-
-        remaining = max(0, total_amount_sum - paid_sum)
-        status_text = " / ".join(statuses) if statuses else ("تسویه‌شده" if remaining == 0 else "بدهکار")
-
-        notes = [str(r.get("notes") or "").strip() for r in inv_rows if str(r.get("notes") or "").strip()]
-        notes_html = (
-            f"<div class='muted-note'><b>توضیحات:</b> {_esc(' | '.join(dict.fromkeys(notes)))}</div>"
-            if notes
-            else ""
-        )
-        phone_html = f"<div>تلفن فروشگاه: {_esc(support_phone)}</div>" if support_phone else ""
-
-        sections.append(
-            f"""
-            <div class="doc-box">
-              <table class="header-table">
-                <tr>
-                  <td style="width:36%;" class="right"><div class="shop-name">{_esc(shop_name)}</div>{phone_html}</td>
-                  <td style="width:28%;"><div class="doc-title">فاکتور فروش</div></td>
-                  <td style="width:36%; text-align:left;">
-                    <div><b>شماره فاکتور:</b> {inv_no}</div>
-                    <div><b>تاریخ و ساعت:</b> {sale_dt}</div>
-                  </td>
-                </tr>
-              </table>
-              <table class="meta-grid">
-                <tr>
-                  <td><b>خریدار:</b> {customer}</td>
-                  <td><b>شماره تماس:</b> {cust_phone}</td>
-                  <td><b>فروشنده:</b> {seller}</td>
-                </tr>
-              </table>
-              <table class="items">
-                <thead>
-                  <tr>
-                    <th style="width:5%;">ردیف</th>
-                    <th style="width:11%;">کد کالا</th>
-                    <th class="right" style="width:36%;">شرح کالا و مشخصات فنی</th>
-                    <th style="width:7%;">تعداد</th>
-                    <th style="width:12%;">فی واحد (تومان)</th>
-                    <th style="width:10%;">تخفیف</th>
-                    <th style="width:12%;">مبلغ کل (تومان)</th>
-                    <th style="width:12%;">گارانتی</th>
-                  </tr>
-                </thead>
-                <tbody>{''.join(item_trs)}</tbody>
-              </table>
-              <table class="summary-table">
-                <tr><td class="lbl">تخفیف کل فاکتور (تومان)</td><td class="val">{total_discount_sum:,}</td></tr>
-                <tr><td class="lbl">مبلغ قابل پرداخت (تومان)</td><td class="val">{total_amount_sum:,}</td></tr>
-                <tr><td class="lbl">مبلغ پرداخت‌شده (تومان)</td><td class="val">{paid_sum:,}</td></tr>
-                <tr><td class="lbl">مانده حساب مشتری (تومان)</td><td class="val">{remaining:,}</td></tr>
-                <tr><td class="lbl">وضعیت تسویه</td><td class="val">{_esc(status_text)}</td></tr>
-              </table>
-              {notes_html}
-              <table class="footer-sign">
-                <tr><td>مهر و امضای فروشنده</td><td>امضای خریدار / تحویل‌گیرنده</td></tr>
-              </table>
-            </div>
-            """
-        )
-
-    rendered = _wrap_html_doc("".join(sections), "فاکتور فروش", is_a5=is_a5)
-    assert_no_internal_cost_leakage(rendered)
-    return rendered
-
-
-def build_purchase_voucher_html(
-    records: Sequence[Dict[str, Any]],
-    shop_info: Optional[Dict[str, Any]] = None,
-    *,
-    is_a5: bool = False,
-) -> str:
-    """Build monochrome A4/A5 B&W purchase voucher HTML («رسید خرید و ثبت محموله»)."""
-    shop = shop_info or {}
-    shop_name = str(shop.get("shop_name") or "فروشگاه دقیق").strip()
-    print_time = str(shop.get("print_time") or "").strip()
-
-    rows_html: List[str] = []
+    headers = ["ردیف", "کد محموله", "تاریخ و ساعت", "تأمین‌کننده", "کالا", "تعداد", "قیمت خرید واحد", "جمع کل (تومان)"]
+    rows: List[List[str]] = []
     grand_total = 0
     grand_paid = 0
     grand_rem = 0
@@ -363,78 +242,609 @@ def build_purchase_voucher_html(
         grand_total += tot
         grand_paid += paid
         grand_rem += rem
-        specs = str(rec.get("specs") or "").strip()
-        colors = str(rec.get("colors") or "").strip()
-        serials = str(rec.get("serials") or "").strip()
-        details = [str(rec.get("product_title") or "-")]
-        if specs:
-            details.append(f"مشخصات: {specs}")
-        if colors:
-            details.append(f"رنگ: {colors}")
-        if serials:
-            details.append(f"سریال: {serials}")
+        rows.append([
+            to_persian_digits(idx),
+            str(rec.get("batch_code") or "-"),
+            to_persian_digits(rec.get("purchase_date") or "-"),
+            str(rec.get("supplier_name") or "-"),
+            str(rec.get("product_title") or "-"),
+            _fmt_int_fa(rec.get("initial_qty")),
+            _fmt_int_fa(rec.get("unit_purchase_price")),
+            _fmt_int_fa(tot),
+        ])
 
-        rows_html.append(
-            "<tr>"
-            f"<td>{idx}</td>"
-            f"<td>{_esc(rec.get('batch_code') or '-')}</td>"
-            f"<td>{_esc(rec.get('invoice_number') or '-')}</td>"
-            f"<td>{_esc(rec.get('purchase_date') or '-')}</td>"
-            f"<td>{_esc(rec.get('supplier_name') or '-')}</td>"
-            f"<td class='right'>{'<br>'.join(_esc(d) for d in details if d)}</td>"
-            f"<td>{_norm_num(rec.get('initial_qty'))}</td>"
-            f"<td>{_norm_num(rec.get('unit_purchase_price'))}</td>"
-            f"<td>{_norm_num(rec.get('extra_cost_total'))}</td>"
-            f"<td>{tot:,}</td>"
-            f"<td>{paid:,}</td>"
-            f"<td>{rem:,}</td>"
-            f"<td>{_esc(rec.get('settlement_status') or '-')}</td>"
-            "</tr>"
+    return PrintDocumentSpec(
+        section_key="batches",
+        title="رسید خرید و ثبت محموله",
+        shop_name=shop_name,
+        print_time=print_time,
+        meta_pairs=[("تعداد اقلام", to_persian_digits(len(records))), ("تاریخ چاپ", print_time)],
+        headers=headers,
+        rows=rows,
+        right_align_cols={3, 4},
+        col_widths_pct=[6, 11, 14, 15, 22, 8, 12, 12],
+        summary_pairs=[
+            ("جمع کل فاکتورهای خرید", f"{_fmt_int_fa(grand_total)} تومان"),
+            ("جمع پرداخت‌شده", f"{_fmt_int_fa(grand_paid)} تومان"),
+            ("مانده بدهی به تأمین‌کننده", f"{_fmt_int_fa(grand_rem)} تومان"),
+        ],
+        signatures=("امضای انباردار / خریدار", "تأیید مدیریت"),
+    )
+
+
+def build_service_or_upgrade_spec(
+    kind: str,
+    records: Sequence[Dict[str, Any]],
+    shop_info: Optional[Dict[str, Any]] = None,
+) -> PrintDocumentSpec:
+    """Customer-safe B&W Service Receipt («فاکتور خدمات فنی») or Hardware Upgrade Receipt («رسید ارتقای کالا»)."""
+    shop = shop_info or {}
+    shop_name = str(shop.get("shop_name") or "فروشگاه دقیق").strip()
+    print_time = to_persian_digits(str(shop.get("print_time") or "-").strip())
+
+    if kind == "upgrades":
+        headers = ["ردیف", "تاریخ", "شرح کالا / ارتقا", "جزئیات جدید", "تعداد", "مبلغ (تومان)"]
+        rows = []
+        tot = 0
+        for idx, rec in enumerate(records, 1):
+            qty = int(rec.get("target_qty") or 1)
+            unit_add = int(rec.get("added_cost_unit") or 0)
+            line_tot = qty * unit_add
+            tot += line_tot
+            desc = str(rec.get("part_desc") or "ارتقای سخت‌افزاری").strip()
+            rows.append([
+                to_persian_digits(idx),
+                to_persian_digits(rec.get("upgrade_date") or "-"),
+                desc,
+                str(rec.get("new_specs") or "-"),
+                _fmt_int_fa(qty),
+                _fmt_int_fa(line_tot),
+            ])
+        return PrintDocumentSpec(
+            section_key="upgrades",
+            title="رسید ارتقای کالا",
+            shop_name=shop_name,
+            print_time=print_time,
+            meta_pairs=[("تعداد اقلام", to_persian_digits(len(records))), ("تاریخ چاپ", print_time)],
+            headers=headers,
+            rows=rows,
+            right_align_cols={2, 3},
+            col_widths_pct=[7, 15, 28, 28, 8, 14],
+            summary_pairs=[("جمع کل مبلغ ارتقا", f"{_fmt_int_fa(tot)} تومان")],
+            signatures=("امضای کارشناس فنی", "امضای مشتری"),
+            customer_privacy_strict=True,
         )
 
+    headers = ["ردیف", "شماره فاکتور", "تاریخ", "خدمت انجام‌شده", "وضعیت", "مبلغ (تومان)"]
+    rows = []
+    tot_fee = 0
+    tot_paid = 0
+    first = records[0] if records else {}
+    cust = str(first.get("customer_name") or "").strip()
+    meta = [("تعداد ردیف", to_persian_digits(len(records))), ("تاریخ چاپ", print_time)]
+    if cust and cust not in ("-", "مشتری حضوری"):
+        meta.insert(0, ("نام مشتری", cust))
+    for idx, rec in enumerate(records, 1):
+        fee = int(rec.get("service_fee") or 0)
+        paid = int(rec.get("paid_amount") or 0)
+        tot_fee += fee
+        tot_paid += paid
+        sname = str(rec.get("service_name") or "-")
+        desc = str(rec.get("description") or "").strip()
+        service_txt = f"{sname} — {desc}" if desc and desc != "-" else sname
+        rows.append([
+            to_persian_digits(idx),
+            str(rec.get("invoice_number") or "-"),
+            to_persian_digits(rec.get("service_datetime") or "-"),
+            service_txt,
+            str(rec.get("settlement_status") or "تسویه‌شده"),
+            _fmt_int_fa(fee),
+        ])
+    rem = max(0, tot_fee - tot_paid)
+    summary = [("جمع کل هزینه خدمات", f"{_fmt_int_fa(tot_fee)} تومان")]
+    if rem > 0:
+        summary.append(("مبلغ پرداخت‌شده", f"{_fmt_int_fa(tot_paid)} تومان"))
+        summary.append(("مانده حساب", f"{_fmt_int_fa(rem)} تومان"))
+    return PrintDocumentSpec(
+        section_key="service_records",
+        title="فاکتور خدمات و تعمیرات",
+        shop_name=shop_name,
+        print_time=print_time,
+        meta_pairs=meta,
+        headers=headers,
+        rows=rows,
+        right_align_cols={3},
+        col_widths_pct=[7, 13, 16, 36, 13, 15],
+        summary_pairs=summary,
+        signatures=("مهر و امضای مرکز خدمات", "امضای مشتری"),
+        customer_privacy_strict=True,
+    )
+
+
+def build_section_table_spec(
+    section_key: str,
+    raw_headers: Sequence[str],
+    raw_rows: Sequence[Sequence[str]],
+    *,
+    report_title: str = "",
+    summary_text: str = "",
+    shop_info: Optional[Dict[str, Any]] = None,
+    chart_png_bytes: Optional[bytes] = None,
+) -> PrintDocumentSpec:
+    """Build tailored specs for the remaining sections:
+    dashboard_low, dashboard_employees, products, suppliers, service_catalog,
+    employees, customers, reports, and charts."""
+    shop = shop_info or {}
+    shop_name = str(shop.get("shop_name") or "فروشگاه دقیق").strip()
+    print_time = to_persian_digits(str(shop.get("print_time") or "-").strip())
+    col_map = {str(h).strip(): i for i, h in enumerate(raw_headers)}
+
+    def _get(row: Sequence[str], *candidates: str, default: str = "-") -> str:
+        for c in candidates:
+            if c in col_map and col_map[c] < len(row):
+                val = str(row[col_map[c]] or "").strip()
+                if val:
+                    return val
+        return default
+
+    def _to_int(val: str) -> int:
+        clean = to_ascii_digits(val).replace(",", "").replace("+", "").strip()
+        try:
+            return int(clean)
+        except ValueError:
+            return 0
+
+    if section_key == "dashboard_low":
+        headers = ["ردیف", "نام کالا", "دسته‌بندی / محموله", "موجودی فعلی", "حداقل موجودی", "کسری"]
+        rows = []
+        for idx, r in enumerate(raw_rows, 1):
+            cur = _to_int(_get(r, "موجودی فعلی", default="0"))
+            mn = _to_int(_get(r, "حداقل موجودی", default="0"))
+            deficit = max(0, mn - cur)
+            rows.append([
+                to_persian_digits(idx),
+                _get(r, "مشخصات کالا"),
+                _get(r, "کد کالا", "محموله"),
+                _fmt_int_fa(cur),
+                _fmt_int_fa(mn),
+                _fmt_int_fa(deficit),
+            ])
+        return PrintDocumentSpec(
+            section_key=section_key,
+            title="گزارش هشدار موجودی",
+            shop_name=shop_name,
+            print_time=print_time,
+            meta_pairs=[("تعداد کالاهای نیازمند تأمین", to_persian_digits(len(rows))), ("تاریخ چاپ", print_time)],
+            headers=headers,
+            rows=rows,
+            right_align_cols={1, 2},
+            col_widths_pct=[7, 35, 22, 12, 12, 12],
+        )
+
+    if section_key == "dashboard_employees":
+        headers = ["ردیف", "نام فروشنده", "تعداد فروش", "مبلغ کل فروش (تومان)", "تخفیف", "سود (تومان)"]
+        rows = []
+        tot_cnt = 0
+        tot_sales = 0
+        for idx, r in enumerate(raw_rows, 1):
+            cnt = _to_int(_get(r, "تعداد فروش", default="0"))
+            sal = _to_int(_get(r, "مبلغ کل فروش (تومان)", default="0"))
+            tot_cnt += cnt
+            tot_sales += sal
+            rows.append([
+                to_persian_digits(idx),
+                _get(r, "نام فروشنده"),
+                _fmt_int_fa(cnt),
+                _fmt_int_fa(sal),
+                to_persian_digits(_get(r, "تخفیف داده شده", default="۰")),
+                to_persian_digits(_get(r, "سود حاصل از فروش", default="۰")),
+            ])
+        return PrintDocumentSpec(
+            section_key=section_key,
+            title="گزارش عملکرد فروشندگان",
+            shop_name=shop_name,
+            print_time=print_time,
+            meta_pairs=[("تعداد فروشندگان", to_persian_digits(len(rows))), ("تاریخ چاپ", print_time)],
+            headers=headers,
+            rows=rows,
+            right_align_cols={1},
+            col_widths_pct=[7, 29, 13, 21, 14, 16],
+            summary_pairs=[
+                ("مجموع تعداد فروش", f"{_fmt_int_fa(tot_cnt)} عدد"),
+                ("جمع کل فروش", f"{_fmt_int_fa(tot_sales)} تومان"),
+            ],
+        )
+
+    if section_key == "products":
+        headers = ["ردیف", "کد کالا", "عنوان کالا", "دسته‌بندی / زیرمجموعه", "موجودی کل", "تعداد فروش", "وضعیت"]
+        rows = []
+        for idx, r in enumerate(raw_rows, 1):
+            brand_model = " ".join(x for x in (_get(r, "برند", default=""), _get(r, "مدل", default="")) if x).strip() or "-"
+            cat_sub = " / ".join(x for x in (_get(r, "دسته‌بندی", default=""), _get(r, "زیرمجموعه", default="")) if x).strip(" /") or "-"
+            rows.append([
+                to_persian_digits(idx),
+                _get(r, "کد کالا"),
+                brand_model,
+                cat_sub,
+                to_persian_digits(_get(r, "موجودی کل", default="۰")),
+                to_persian_digits(_get(r, "تعداد فروش", default="۰")),
+                _get(r, "وضعیت موجودی"),
+            ])
+        return PrintDocumentSpec(
+            section_key=section_key,
+            title="فهرست و موجودی کالاها",
+            shop_name=shop_name,
+            print_time=print_time,
+            meta_pairs=[("تعداد کالاها", to_persian_digits(len(rows))), ("تاریخ چاپ", print_time)],
+            headers=headers,
+            rows=rows,
+            right_align_cols={2, 3},
+            col_widths_pct=[7, 11, 25, 25, 10, 10, 12],
+        )
+
+    if section_key == "suppliers":
+        headers = ["ردیف", "نام تأمین‌کننده", "تلفن تماس", "تعداد محموله", "جمع خرید (تومان)", "پرداخت‌شده", "مانده بدهی"]
+        rows = []
+        tot_debt = 0
+        for idx, r in enumerate(raw_rows, 1):
+            debt = _to_int(_get(r, "مانده بدهی به تأمین‌کننده (تومان)", default="0"))
+            tot_debt += debt
+            rows.append([
+                to_persian_digits(idx),
+                _get(r, "نام تأمین‌کننده"),
+                to_persian_digits(_get(r, "تلفن تماس")),
+                to_persian_digits(_get(r, "تعداد محموله‌های خرید", default="۰")),
+                to_persian_digits(_get(r, "مجموع مبلغ خرید (تومان)", default="۰")),
+                to_persian_digits(_get(r, "مجموع پرداخت‌شده (تومان)", default="۰")),
+                _fmt_int_fa(debt),
+            ])
+        return PrintDocumentSpec(
+            section_key=section_key,
+            title="صورتحساب تأمین‌کنندگان",
+            shop_name=shop_name,
+            print_time=print_time,
+            meta_pairs=[("تعداد تأمین‌کنندگان", to_persian_digits(len(rows))), ("تاریخ چاپ", print_time)],
+            headers=headers,
+            rows=rows,
+            right_align_cols={1},
+            col_widths_pct=[7, 25, 14, 11, 15, 14, 14],
+            summary_pairs=[("جمع کل مانده بدهی", f"{_fmt_int_fa(tot_debt)} تومان")],
+        )
+
+    if section_key == "customers":
+        headers = ["ردیف", "نام مشتری", "تلفن", "تعداد خرید", "جمع خرید (تومان)", "پرداخت‌شده", "مانده بدهی", "اقساط معوق"]
+        rows = []
+        tot_debt = 0
+        for idx, r in enumerate(raw_rows, 1):
+            debt = _to_int(_get(r, "مانده بدهی (تومان)", "مانده بدهی", default="0"))
+            tot_debt += debt
+            rows.append([
+                to_persian_digits(idx),
+                _get(r, "نام مشتری"),
+                to_persian_digits(_get(r, "شماره تماس", "تلفن تماس")),
+                to_persian_digits(_get(r, "تعداد خرید", default="۰")),
+                to_persian_digits(_get(r, "جمع کل خرید (تومان)", "جمع کل خرید", default="۰")),
+                to_persian_digits(_get(r, "مجموع پرداختی (تومان)", "مجموع پرداختی", default="۰")),
+                _fmt_int_fa(debt),
+                to_persian_digits(_get(r, "اقساط سررسید گذشته", default="۰")),
+            ])
+        return PrintDocumentSpec(
+            section_key="customers",
+            title="صورتحساب مشتریان و وضعیت اقساط",
+            shop_name=shop_name,
+            print_time=print_time,
+            meta_pairs=[("تعداد مشتریان", to_persian_digits(len(rows))), ("تاریخ چاپ", print_time)],
+            headers=headers,
+            rows=rows,
+            right_align_cols={1},
+            col_widths_pct=[6, 22, 13, 9, 15, 14, 12, 9],
+            summary_pairs=[("جمع مطالبات مشتریان", f"{_fmt_int_fa(tot_debt)} تومان")],
+        )
+
+    if section_key == "employees":
+        headers = ["ردیف", "نام کاربر", "نقش / سمت", "تلفن", "سطح دسترسی", "وضعیت", "تاریخ ثبت"]
+        rows = []
+        for idx, r in enumerate(raw_rows, 1):
+            rows.append([
+                to_persian_digits(idx),
+                _get(r, "نام کاربر", "نام و نام خانوادگی"),
+                _get(r, "نقش / سمت", "سمت"),
+                to_persian_digits(_get(r, "تلفن تماس")),
+                _get(r, "سطح دسترسی"),
+                _get(r, "وضعیت فعالیت"),
+                to_persian_digits(_get(r, "تاریخ ایجاد")),
+            ])
+        return PrintDocumentSpec(
+            section_key=section_key,
+            title="فهرست کاربران و سطوح دسترسی",
+            shop_name=shop_name,
+            print_time=print_time,
+            meta_pairs=[("تعداد کاربران", to_persian_digits(len(rows))), ("تاریخ چاپ", print_time)],
+            headers=headers,
+            rows=rows,
+            right_align_cols={1, 2, 4},
+            col_widths_pct=[7, 22, 16, 14, 16, 11, 14],
+        )
+
+    if section_key == "service_catalog":
+        headers = ["ردیف", "کد خدمت", "نوع خدمت", "عنوان خدمت", "هزینه خدمت (تومان)"]
+        rows = []
+        for idx, r in enumerate(raw_rows, 1):
+            rows.append([
+                to_persian_digits(idx),
+                _get(r, "کد خدمت"),
+                _get(r, "نوع خدمت"),
+                _get(r, "عنوان خدمت"),
+                to_persian_digits(_get(r, "هزینه خدمت (تومان)", default="۰")),
+            ])
+        return PrintDocumentSpec(
+            section_key=section_key,
+            title="تعرفه خدمات فنی",
+            shop_name=shop_name,
+            print_time=print_time,
+            meta_pairs=[("تعداد خدمات", to_persian_digits(len(rows))), ("تاریخ چاپ", print_time)],
+            headers=headers,
+            rows=rows,
+            right_align_cols={2, 3},
+            col_widths_pct=[8, 13, 20, 41, 18],
+        )
+
+    title_fallback = {
+        "reports": report_title or "گزارش جامع عملکرد",
+        "charts": report_title or "گزارش نموداری و تحلیلی",
+    }
+    doc_title = str(report_title or title_fallback.get(section_key, "گزارش چاپی")).strip()
+    headers = ["ردیف"] + [str(h) for h in raw_headers]
+    rows = [[to_persian_digits(idx)] + [to_persian_digits(c) for c in r] for idx, r in enumerate(raw_rows, 1)]
+    summary_pairs = [("خلاصه گزارش", to_persian_digits(summary_text))] if summary_text else []
+    return PrintDocumentSpec(
+        section_key=section_key,
+        title=doc_title,
+        shop_name=shop_name,
+        print_time=print_time,
+        meta_pairs=[("تعداد ردیف چاپی", to_persian_digits(len(rows))), ("تاریخ چاپ", print_time)],
+        headers=headers,
+        rows=rows,
+        right_align_cols={1, 2},
+        summary_pairs=summary_pairs,
+        chart_png_bytes=chart_png_bytes,
+    )
+
+
+# ---------------------------------------------------------------------------
+# HTML Renderer (B&W Bold 'B Nazanin' + 'B Titr', Repeating thead, cantSplit)
+# ---------------------------------------------------------------------------
+
+def render_spec_to_html(spec: PrintDocumentSpec, *, is_a5: bool = True) -> str:
+    """Render any PrintDocumentSpec to crisp monochrome RTL HTML optimized for A5/A4 laser printers."""
+    body_pt = "9pt" if is_a5 else "10pt"
+    title_pt = "12pt" if is_a5 else "14pt"
+    meta_pt = "8.2pt" if is_a5 else "9pt"
+    cell_pad = "3.5px 5px" if is_a5 else "5px 7px"
+
+    css = f"""
+    <style>
+      body {{
+        direction: rtl;
+        font-family: 'B Nazanin', 'BNazanin', 'Nazanin', 'Vazirmatn', 'Tahoma', sans-serif;
+        font-size: {body_pt};
+        font-weight: 700;
+        color: #000000;
+        background-color: #ffffff;
+        margin: 0;
+        padding: 0;
+      }}
+      .header-box {{
+        width: 100%;
+        border: 1.5px solid #000000;
+        border-collapse: collapse;
+        margin-bottom: 6px;
+        page-break-inside: avoid;
+      }}
+      .header-box td {{
+        border: none;
+        padding: 5px 8px;
+        vertical-align: middle;
+      }}
+      .shop-name {{
+        font-family: 'B Titr', 'BTitr', 'Titr', 'B Nazanin', 'Tahoma', sans-serif;
+        font-size: {title_pt};
+        font-weight: 700;
+        color: #000000;
+      }}
+      .doc-title {{
+        font-family: 'B Titr', 'BTitr', 'Titr', 'B Nazanin', 'Tahoma', sans-serif;
+        font-size: {title_pt};
+        font-weight: 700;
+        text-align: center;
+        border: 1.5px solid #000000;
+        background-color: #efefef;
+        padding: 4px 10px;
+      }}
+      .meta-grid {{
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 6px;
+        font-size: {meta_pt};
+        page-break-inside: avoid;
+      }}
+      .meta-grid td {{
+        border: 1px solid #222222;
+        padding: 3.5px 6px;
+        background-color: #fafafa;
+      }}
+      table.items {{
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 4px;
+        margin-bottom: 6px;
+        table-layout: fixed;
+      }}
+      table.items thead {{ display: table-header-group; }}
+      table.items tr {{ page-break-inside: avoid; break-inside: avoid; }}
+      table.items th {{
+        font-family: 'B Titr', 'BTitr', 'Titr', 'B Nazanin', 'Tahoma', sans-serif;
+        background-color: #efefef;
+        color: #000000;
+        font-weight: 700;
+        border: 1px solid #000000;
+        padding: {cell_pad};
+        text-align: center;
+      }}
+      table.items td {{
+        border: 1px solid #111111;
+        padding: {cell_pad};
+        color: #000000;
+        font-weight: 700;
+        text-align: center;
+        word-wrap: break-word;
+      }}
+      table.items tr:nth-child(even) td {{
+        background-color: #fafafa;
+      }}
+      td.right, th.right {{ text-align: right; }}
+      .totals-wrap {{
+        page-break-inside: avoid;
+        break-inside: avoid;
+        margin-top: 6px;
+      }}
+      .summary-table {{
+        width: 62%;
+        margin-right: auto;
+        margin-left: 0;
+        border-collapse: collapse;
+      }}
+      .summary-table td {{
+        border: 1px solid #000000;
+        padding: 4px 8px;
+        font-weight: 700;
+      }}
+      .summary-table td.lbl {{
+        background-color: #efefef;
+        text-align: right;
+      }}
+      .summary-table td.val {{
+        text-align: left;
+      }}
+      .footer-sign {{
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 14px;
+        font-size: {meta_pt};
+        page-break-inside: avoid;
+      }}
+      .footer-sign td {{
+        width: 50%;
+        padding: 8px 6px 2px 6px;
+        text-align: center;
+        border-top: 1px dashed #333333;
+      }}
+      .muted-note {{
+        font-size: {meta_pt};
+        margin-top: 5px;
+        border: 1px solid #444444;
+        padding: 4px 7px;
+        background-color: #fafafa;
+      }}
+      .chart-box {{
+        text-align: center;
+        margin: 6px 0;
+        border: 1px solid #000000;
+        padding: 4px;
+        page-break-inside: avoid;
+      }}
+    </style>
+    """
+
+    phone_html = f"<div>تلفن: {_esc(spec.shop_phone)}</div>" if spec.shop_phone else ""
+    meta_tds = "".join(f"<td><b>{_esc(k)}:</b> {_esc(v)}</td>" for k, v in spec.meta_pairs)
+    meta_html = f"<table class='meta-grid'><tr>{meta_tds}</tr></table>" if meta_tds else ""
+
+    chart_html = ""
+    if spec.chart_png_bytes:
+        import base64
+        b64 = base64.b64encode(spec.chart_png_bytes).decode("ascii")
+        max_w = "420" if is_a5 else "620"
+        chart_html = f"<div class='chart-box'><img src='data:image/png;base64,{b64}' width='{max_w}'/></div>"
+
+    ths: List[str] = []
+    for idx, h in enumerate(spec.headers):
+        cls = " class='right'" if idx in spec.right_align_cols else ""
+        w_style = f" style='width:{spec.col_widths_pct[idx]}%;'" if (spec.col_widths_pct and idx < len(spec.col_widths_pct)) else ""
+        ths.append(f"<th{cls}{w_style}>{_esc(h)}</th>")
+
+    trs: List[str] = []
+    for row in spec.rows:
+        tds = []
+        for idx, cell in enumerate(row):
+            cls = " class='right'" if idx in spec.right_align_cols else ""
+            tds.append(f"<td{cls}>{_esc(cell)}</td>")
+        trs.append(f"<tr>{''.join(tds)}</tr>")
+
+    table_html = (
+        f"<table class='items'><thead><tr>{''.join(ths)}</tr></thead><tbody>{''.join(trs)}</tbody></table>"
+        if spec.headers
+        else ""
+    )
+
+    summary_rows = "".join(
+        f"<tr><td class='lbl'>{_esc(k)}</td><td class='val'>{_esc(v)}</td></tr>"
+        for k, v in spec.summary_pairs
+    )
+    summary_html = f"<table class='summary-table'>{summary_rows}</table>" if summary_rows else ""
+    notes_html = f"<div class='muted-note'><b>توضیحات:</b> {_esc(spec.notes)}</div>" if spec.notes else ""
+    sign_html = (
+        f"<table class='footer-sign'><tr><td>{_esc(spec.signatures[0])}</td><td>{_esc(spec.signatures[1])}</td></tr></table>"
+        if spec.signatures
+        else ""
+    )
+
     body = f"""
-    <div class="doc-box">
-      <table class="header-table">
-        <tr>
-          <td style="width:35%;" class="right"><div class="shop-name">{_esc(shop_name)}</div></td>
-          <td style="width:30%;"><div class="doc-title">رسید خرید و ثبت محموله</div></td>
-          <td style="width:35%; text-align:left;">
-            <div><b>تعداد ردیف انتخابی:</b> {len(records)}</div>
-            <div><b>تاریخ چاپ:</b> {_esc(print_time or '-')}</div>
-          </td>
-        </tr>
-      </table>
-      <table class="items">
-        <thead>
-          <tr>
-            <th>ردیف</th>
-            <th>کد محموله</th>
-            <th>شماره فاکتور</th>
-            <th>تاریخ خرید</th>
-            <th>تأمین‌کننده</th>
-            <th class="right">شرح کالا و مشخصات</th>
-            <th>تعداد کل</th>
-            <th>قیمت خرید واحد</th>
-            <th>هزینه جانبی</th>
-            <th>جمع فاکتور</th>
-            <th>پرداخت‌شده</th>
-            <th>مانده بدهی</th>
-            <th>وضعیت</th>
-          </tr>
-        </thead>
-        <tbody>{''.join(rows_html)}</tbody>
-      </table>
-      <table class="summary-table">
-        <tr><td class="lbl">جمع کل فاکتورهای انتخابی (تومان)</td><td class="val">{grand_total:,}</td></tr>
-        <tr><td class="lbl">جمع پرداخت‌شده (تومان)</td><td class="val">{grand_paid:,}</td></tr>
-        <tr><td class="lbl">جمع مانده بدهی (تومان)</td><td class="val">{grand_rem:,}</td></tr>
-      </table>
-      <table class="footer-sign">
-        <tr><td>امضای انباردار / خریدار</td><td>تأیید مدیریت / تأمین‌کننده</td></tr>
-      </table>
+    <table class="header-box">
+      <tr>
+        <td style="width:36%;" class="right"><div class="shop-name">{_esc(spec.shop_name)}</div>{phone_html}</td>
+        <td style="width:32%;"><div class="doc-title">{_esc(spec.title)}</div></td>
+        <td style="width:32%; text-align:left;"><div><b>تاریخ چاپ:</b> {_esc(spec.print_time or '-')}</div></td>
+      </tr>
+    </table>
+    {meta_html}
+    {chart_html}
+    {table_html}
+    <div class="totals-wrap">
+      {summary_html}
+      {notes_html}
+      {sign_html}
     </div>
     """
-    return _wrap_html_doc(body, "رسید خرید و ثبت محموله", is_a5=is_a5)
+
+    full_html = (
+        "<!DOCTYPE html>"
+        "<html lang='fa' dir='rtl'>"
+        f"<head><meta charset='utf-8'><title>{_esc(spec.title)}</title>{css}</head>"
+        f"<body>{body}</body></html>"
+    )
+    if spec.customer_privacy_strict:
+        assert_no_internal_cost_leakage(full_html)
+    return full_html
+
+
+# Backward-compatible HTML entrypoints used cleanly by legacy callers & tests
+def build_sales_invoice_html(
+    records: Sequence[Dict[str, Any]],
+    shop_info: Optional[Dict[str, Any]] = None,
+    *,
+    is_a5: bool = True,
+) -> str:
+    return render_spec_to_html(build_sales_invoice_spec(records, shop_info), is_a5=is_a5)
+
+
+def build_purchase_voucher_html(
+    records: Sequence[Dict[str, Any]],
+    shop_info: Optional[Dict[str, Any]] = None,
+    *,
+    is_a5: bool = True,
+) -> str:
+    return render_spec_to_html(build_purchase_voucher_spec(records, shop_info), is_a5=is_a5)
 
 
 def build_service_or_upgrade_html(
@@ -442,104 +852,9 @@ def build_service_or_upgrade_html(
     records: Sequence[Dict[str, Any]],
     shop_info: Optional[Dict[str, Any]] = None,
     *,
-    is_a5: bool = False,
+    is_a5: bool = True,
 ) -> str:
-    """Build B&W customer Service Invoice («فاکتور خدمات فنی») or Upgrade Voucher («رسید ارتقای کالا»)."""
-    shop = shop_info or {}
-    shop_name = str(shop.get("shop_name") or "فروشگاه دقیق").strip()
-    print_time = str(shop.get("print_time") or "").strip()
-
-    if kind == "upgrades":
-        doc_title = "رسید ارتقای کالا"
-        headers = [
-            "ردیف", "تاریخ ارتقا", "کد محموله هدف", "تعداد هدف", "شرح قطعه / ارتقا",
-            "هزینه افزوده‌شده واحد", "مسئول / تکنسین", "مشخصات جدید", "توضیحات",
-        ]
-        trs: List[str] = []
-        total_added = 0
-        for idx, rec in enumerate(records, 1):
-            qty = int(rec.get("target_qty") or 1)
-            unit_add = int(rec.get("added_cost_unit") or 0)
-            total_added += qty * unit_add
-            trs.append(
-                "<tr>"
-                f"<td>{idx}</td>"
-                f"<td>{_esc(rec.get('upgrade_date') or '-')}</td>"
-                f"<td>{_esc(rec.get('target_batch_code') or '-')}</td>"
-                f"<td>{qty:,}</td>"
-                f"<td class='right'>{_esc(rec.get('part_desc') or '-')}</td>"
-                f"<td>{unit_add:,}</td>"
-                f"<td>{_esc(rec.get('technician_name') or '-')}</td>"
-                f"<td class='right'>{_esc(rec.get('new_specs') or '-')}</td>"
-                f"<td class='right'>{_esc(rec.get('notes') or '-')}</td>"
-                "</tr>"
-            )
-        summary = (
-            f"<table class='summary-table'>"
-            f"<tr><td class='lbl'>جمع هزینه ارتقای انتخابی (تومان)</td><td class='val'>{total_added:,}</td></tr>"
-            f"</table>"
-        )
-    else:
-        doc_title = "فاکتور خدمات و تعمیرات"
-        headers = [
-            "ردیف", "شماره فاکتور", "تاریخ و ساعت", "نوع خدمت", "نام خدمت",
-            "مشتری", "مسئول خدمت", "تعرفه / مبلغ (تومان)", "پرداخت‌شده", "وضعیت تسویه", "شرح",
-        ]
-        trs = []
-        tot_fee = 0
-        tot_paid = 0
-        for idx, rec in enumerate(records, 1):
-            fee = int(rec.get("service_fee") or 0)
-            paid = int(rec.get("paid_amount") or 0)
-            tot_fee += fee
-            tot_paid += paid
-            trs.append(
-                "<tr>"
-                f"<td>{idx}</td>"
-                f"<td>{_esc(rec.get('invoice_number') or '-')}</td>"
-                f"<td>{_esc(rec.get('service_datetime') or '-')}</td>"
-                f"<td>{_esc(rec.get('service_type') or '-')}</td>"
-                f"<td class='right'>{_esc(rec.get('service_name') or '-')}</td>"
-                f"<td>{_esc(rec.get('customer_name') or 'مشتری حضوری')}</td>"
-                f"<td>{_esc(rec.get('technician_name') or '-')}</td>"
-                f"<td>{fee:,}</td>"
-                f"<td>{paid:,}</td>"
-                f"<td>{_esc(rec.get('settlement_status') or '-')}</td>"
-                f"<td class='right'>{_esc(rec.get('description') or '-')}</td>"
-                "</tr>"
-            )
-        summary = (
-            f"<table class='summary-table'>"
-            f"<tr><td class='lbl'>جمع مبلغ خدمات (تومان)</td><td class='val'>{tot_fee:,}</td></tr>"
-            f"<tr><td class='lbl'>جمع دریافتی (تومان)</td><td class='val'>{tot_paid:,}</td></tr>"
-            f"<tr><td class='lbl'>مانده حساب (تومان)</td><td class='val'>{max(0, tot_fee - tot_paid):,}</td></tr>"
-            f"</table>"
-        )
-
-    th_html = "".join(f"<th>{_esc(h)}</th>" for h in headers)
-    body = f"""
-    <div class="doc-box">
-      <table class="header-table">
-        <tr>
-          <td style="width:35%;" class="right"><div class="shop-name">{_esc(shop_name)}</div></td>
-          <td style="width:30%;"><div class="doc-title">{_esc(doc_title)}</div></td>
-          <td style="width:35%; text-align:left;">
-            <div><b>تعداد ردیف:</b> {len(records)}</div>
-            <div><b>تاریخ چاپ:</b> {_esc(print_time or '-')}</div>
-          </td>
-        </tr>
-      </table>
-      <table class="items">
-        <thead><tr>{th_html}</tr></thead>
-        <tbody>{''.join(trs)}</tbody>
-      </table>
-      {summary}
-      <table class="footer-sign">
-        <tr><td>امضای مسئول فنی / فروشگاه</td><td>امضای مشتری</td></tr>
-      </table>
-    </div>
-    """
-    return _wrap_html_doc(body, doc_title, is_a5=is_a5)
+    return render_spec_to_html(build_service_or_upgrade_spec(kind, records, shop_info), is_a5=is_a5)
 
 
 def build_structured_table_report_html(
@@ -549,58 +864,35 @@ def build_structured_table_report_html(
     *,
     summary_text: str = "",
     shop_info: Optional[Dict[str, Any]] = None,
-    is_a5: bool = False,
+    is_a5: bool = True,
 ) -> str:
-    """Build monochrome A4/A5 B&W structured report table HTML («گزارش چاپی ...»)."""
-    shop = shop_info or {}
-    shop_name = str(shop.get("shop_name") or "فروشگاه دقیق").strip()
-    print_time = str(shop.get("print_time") or "").strip()
-
     title = str(report_title or "گزارش چاپی").strip()
     if not title.startswith("گزارش"):
         title = f"گزارش چاپی {title}"
-
-    ths = "".join(f"<th>{_esc(h)}</th>" for h in headers)
-    trs: List[str] = []
-    for row in rows:
-        tds = "".join(f"<td>{_esc(cell)}</td>" for cell in row)
-        trs.append(f"<tr>{tds}</tr>")
-
-    summary_html = (
-        f"<div class='muted-note' style='border:1px solid #000; padding:6px 8px; background:#f3f3f3;'><b>خلاصه:</b> {_esc(summary_text)}</div>"
-        if summary_text
-        else ""
+    return render_spec_to_html(
+        build_section_table_spec(
+            "reports",
+            headers,
+            rows,
+            report_title=title,
+            summary_text=summary_text,
+            shop_info=shop_info,
+        ),
+        is_a5=is_a5,
     )
 
-    body = f"""
-    <div class="doc-box">
-      <table class="header-table">
-        <tr>
-          <td style="width:35%;" class="right"><div class="shop-name">{_esc(shop_name)}</div></td>
-          <td style="width:30%;"><div class="doc-title">{_esc(title)}</div></td>
-          <td style="width:35%; text-align:left;">
-            <div><b>تعداد ردیف چاپی:</b> {len(rows)}</div>
-            <div><b>تاریخ چاپ:</b> {_esc(print_time or '-')}</div>
-          </td>
-        </tr>
-      </table>
-      <table class="items">
-        <thead><tr>{ths}</tr></thead>
-        <tbody>{''.join(trs)}</tbody>
-      </table>
-      {summary_html}
-    </div>
-    """
-    return _wrap_html_doc(body, title, is_a5=is_a5)
 
+# ---------------------------------------------------------------------------
+# Multi-Page Printer / PDF Engine with Running Persian Page Numbers
+# ---------------------------------------------------------------------------
 
 def configure_printer(
     printer: QPrinter,
-    paper_size: str = "A4",
+    paper_size: str = "A5",
     orientation: str = "portrait",
 ) -> None:
-    """Configure QPrinter paper size (A4/A5), orientation, and monochrome B&W color mode."""
-    size_id = PAPER_SIZE_MAP.get(str(paper_size or "A4").strip().upper(), QPageSize.PageSizeId.A4)
+    """Configure QPrinter paper size (A5 default / A4), orientation, >= 9mm margins & B&W GrayScale."""
+    size_id = PAPER_SIZE_MAP.get(str(paper_size or "A5").strip().upper(), QPageSize.PageSizeId.A5)
     orient = (
         QPageLayout.Orientation.Landscape
         if str(orientation or "").strip().lower() == "landscape"
@@ -608,27 +900,64 @@ def configure_printer(
     )
     printer.setPageSize(QPageSize(size_id))
     printer.setPageOrientation(orient)
-    printer.setPageMargins(QMarginsF(8, 8, 8, 8), QPageLayout.Unit.Millimeter)
+    printer.setPageMargins(QMarginsF(9, 9, 9, 13), QPageLayout.Unit.Millimeter)
     printer.setColorMode(QPrinter.ColorMode.GrayScale)
 
 
 def render_html_to_printer(html_content: str, printer: QPrinter) -> None:
-    """Render HTML onto the supplied QPrinter cleanly via QTextDocument."""
+    """Render HTML cleanly across dynamic pages with running Persian page footers ('صفحه ۱ از ۳')."""
     doc = QTextDocument()
-    doc.setDefaultFont(QFont("Tahoma", 10))
-    doc.setPageSize(printer.pageRect(QPrinter.Unit.Point).size())
+    doc.setDefaultFont(QFont("B Nazanin", 10, QFont.Weight.Bold))
+    page_rect = printer.pageRect(QPrinter.Unit.Point)
+    body_w = max(120.0, float(page_rect.width()))
+    body_h = max(120.0, float(page_rect.height()) - 18.0)
+    doc.setPageSize(QSizeF(body_w, body_h))
     doc.setHtml(html_content)
-    doc.print_(printer)
+
+    total_pages = max(1, int(doc.pageCount()))
+    painter = QPainter()
+    if not painter.begin(printer):
+        doc.print_(printer)
+        return
+    try:
+        # Scale QTextDocument logical points cleanly onto physical printer DPI coordinates
+        paint_rect = printer.pageLayout().paintRectPixels(printer.resolution())
+        scale_x = paint_rect.width() / body_w if body_w > 0 else 1.0
+        footer_h_pts = 16.0
+        footer_font = QFont("B Nazanin", 8, QFont.Weight.Bold)
+
+        for page_idx in range(total_pages):
+            if page_idx > 0:
+                printer.newPage()
+            painter.save()
+            painter.scale(scale_x, scale_x)
+            y_offset = page_idx * body_h
+            painter.translate(0.0, -y_offset)
+            clip = QRectF(0.0, y_offset, body_w, body_h)
+            doc.drawContents(painter, clip)
+            painter.restore()
+
+            # Running footer in Persian numerals
+            painter.save()
+            painter.scale(scale_x, scale_x)
+            painter.setFont(footer_font)
+            painter.setPen(QColor("#000000"))
+            footer_rect = QRectF(0.0, body_h + 2.0, body_w, footer_h_pts)
+            footer_text = f"صفحه {to_persian_digits(page_idx + 1)} از {to_persian_digits(total_pages)}"
+            painter.drawText(footer_rect, Qt.AlignCenter, footer_text)
+            painter.restore()
+    finally:
+        painter.end()
 
 
 def render_html_to_pdf(
     html_content: str,
     pdf_path: str,
     *,
-    paper_size: str = "A4",
+    paper_size: str = "A5",
     orientation: str = "portrait",
 ) -> str:
-    """Render invoice/report HTML directly to a B&W A4 or A5 PDF via QtPrintSupport."""
+    """Render invoice/report HTML directly to a B&W A5 or A4 PDF via QtPrintSupport."""
     out_path = os.path.abspath(pdf_path)
     out_dir = os.path.dirname(out_path)
     if out_dir:
@@ -641,24 +970,301 @@ def render_html_to_pdf(
     return out_path
 
 
+# ---------------------------------------------------------------------------
+# Native Editable Word (.docx) Export with Authentic RTL & Complex-Script XML
+# ---------------------------------------------------------------------------
+
+def _set_paragraph_rtl(paragraph) -> None:
+    pPr = paragraph._p.get_or_add_pPr()
+    bidi = OxmlElement("w:bidi")
+    bidi.set(qn("w:val"), "1")
+    pPr.append(bidi)
+
+
+def _format_persian_run(
+    run,
+    *,
+    font_name: str = "B Nazanin",
+    size_pt: float = 9.0,
+    bold: bool = True,
+) -> None:
+    run.bold = bold
+    run.font.name = font_name
+    run.font.size = Pt(size_pt)
+    run.font.color.rgb = RGBColor(0x00, 0x00, 0x00)
+    rPr = run._r.get_or_add_rPr()
+    rFonts = rPr.find(qn("w:rFonts"))
+    if rFonts is None:
+        rFonts = OxmlElement("w:rFonts")
+        rPr.append(rFonts)
+    rFonts.set(qn("w:ascii"), font_name)
+    rFonts.set(qn("w:hAnsi"), font_name)
+    rFonts.set(qn("w:cs"), font_name)
+
+    rtl = OxmlElement("w:rtl")
+    rtl.set(qn("w:val"), "1")
+    rPr.append(rtl)
+    if bold and rPr.find(qn("w:bCs")) is None:
+        bCs = OxmlElement("w:bCs")
+        rPr.append(bCs)
+    sz_half_pt = str(int(round(size_pt * 2)))
+    if rPr.find(qn("w:szCs")) is None:
+        szCs = OxmlElement("w:szCs")
+        szCs.set(qn("w:val"), sz_half_pt)
+        rPr.append(szCs)
+
+
+def _set_table_rtl_and_borders(table) -> None:
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    tblPr = table._tbl.tblPr
+    bidi_vis = OxmlElement("w:bidiVisual")
+    tblPr.append(bidi_vis)
+    borders = parse_xml(
+        f'<w:tblBorders {nsdecls("w")}>'
+        '<w:top w:val="single" w:sz="6" w:space="0" w:color="000000"/>'
+        '<w:bottom w:val="single" w:sz="6" w:space="0" w:color="000000"/>'
+        '<w:left w:val="single" w:sz="4" w:space="0" w:color="000000"/>'
+        '<w:right w:val="single" w:sz="4" w:space="0" w:color="000000"/>'
+        '<w:insideH w:val="single" w:sz="4" w:space="0" w:color="222222"/>'
+        '<w:insideV w:val="single" w:sz="4" w:space="0" w:color="222222"/>'
+        "</w:tblBorders>"
+    )
+    tblPr.append(borders)
+
+
+def _shade_cell(cell, hex_fill: str) -> None:
+    tcPr = cell._tc.get_or_add_tcPr()
+    shd = parse_xml(f'<w:shd {nsdecls("w")} w:fill="{hex_fill}"/>')
+    tcPr.append(shd)
+
+
+def _add_page_number_field(run) -> None:
+    fld1 = OxmlElement("w:fldChar")
+    fld1.set(qn("w:fldCharType"), "begin")
+    instr = OxmlElement("w:instrText")
+    instr.set(qn("xml:space"), "preserve")
+    instr.text = " PAGE "
+    fld2 = OxmlElement("w:fldChar")
+    fld2.set(qn("w:fldCharType"), "separate")
+    fld3 = OxmlElement("w:fldChar")
+    fld3.set(qn("w:fldCharType"), "end")
+    run._r.append(fld1)
+    run._r.append(instr)
+    run._r.append(fld2)
+    run._r.append(fld3)
+
+
+def _add_numpages_field(run) -> None:
+    fld1 = OxmlElement("w:fldChar")
+    fld1.set(qn("w:fldCharType"), "begin")
+    instr = OxmlElement("w:instrText")
+    instr.set(qn("xml:space"), "preserve")
+    instr.text = " NUMPAGES "
+    fld2 = OxmlElement("w:fldChar")
+    fld2.set(qn("w:fldCharType"), "separate")
+    fld3 = OxmlElement("w:fldChar")
+    fld3.set(qn("w:fldCharType"), "end")
+    run._r.append(fld1)
+    run._r.append(instr)
+    run._r.append(fld2)
+    run._r.append(fld3)
+
+
+def export_spec_to_docx(
+    spec: PrintDocumentSpec,
+    docx_path: str,
+    *,
+    paper_size: str = "A5",
+    orientation: str = "portrait",
+) -> str:
+    """Export any PrintDocumentSpec to a fully editable Word (.docx) with true RTL & B Nazanin/B Titr XML."""
+    if spec.customer_privacy_strict:
+        probe_blob = " ".join([spec.title, *spec.headers, *(c for r in spec.rows for c in r), spec.notes])
+        assert_no_internal_cost_leakage(probe_blob)
+
+    is_a5 = str(paper_size or "A5").strip().upper() == "A5"
+    is_land = str(orientation or "").strip().lower() == "landscape"
+    body_pt = 9.0 if is_a5 else 10.0
+    head_pt = 12.0 if is_a5 else 14.0
+
+    doc = Document()
+    sec = doc.sections[0]
+    w_mm, h_mm = (148, 210) if is_a5 else (210, 297)
+    if is_land:
+        w_mm, h_mm = h_mm, w_mm
+    sec.page_width = Mm(w_mm)
+    sec.page_height = Mm(h_mm)
+    sec.top_margin = Mm(9)
+    sec.bottom_margin = Mm(11)
+    sec.right_margin = Mm(9)
+    sec.left_margin = Mm(9)
+
+    # Header band
+    hdr_tbl = doc.add_table(rows=1, cols=3)
+    _set_table_rtl_and_borders(hdr_tbl)
+    c0, c1, c2 = hdr_tbl.rows[0].cells
+    p0 = c0.paragraphs[0]
+    _set_paragraph_rtl(p0)
+    p0.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    _format_persian_run(p0.add_run(spec.shop_name), font_name="B Titr", size_pt=head_pt, bold=True)
+    if spec.shop_phone:
+        p0_sub = c0.add_paragraph()
+        _set_paragraph_rtl(p0_sub)
+        p0_sub.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        _format_persian_run(p0_sub.add_run(f"تلفن: {spec.shop_phone}"), font_name="B Nazanin", size_pt=body_pt - 0.5, bold=True)
+
+    _shade_cell(c1, "EFEFEF")
+    p1 = c1.paragraphs[0]
+    _set_paragraph_rtl(p1)
+    p1.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    _format_persian_run(p1.add_run(spec.title), font_name="B Titr", size_pt=head_pt, bold=True)
+
+    p2 = c2.paragraphs[0]
+    _set_paragraph_rtl(p2)
+    p2.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    _format_persian_run(p2.add_run(f"تاریخ چاپ: {spec.print_time or '-'}"), font_name="B Nazanin", size_pt=body_pt - 0.5, bold=True)
+
+    # Metadata strip
+    if spec.meta_pairs:
+        m_tbl = doc.add_table(rows=1, cols=len(spec.meta_pairs))
+        _set_table_rtl_and_borders(m_tbl)
+        for idx, (mk, mv) in enumerate(spec.meta_pairs):
+            cell = m_tbl.rows[0].cells[idx]
+            _shade_cell(cell, "FAFAFA")
+            p = cell.paragraphs[0]
+            _set_paragraph_rtl(p)
+            p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+            _format_persian_run(p.add_run(f"{mk}: {mv}"), font_name="B Nazanin", size_pt=body_pt - 0.5, bold=True)
+
+    # Chart snapshot if present
+    if spec.chart_png_bytes:
+        cp = doc.add_paragraph()
+        _set_paragraph_rtl(cp)
+        cp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        cp.add_run().add_picture(io.BytesIO(spec.chart_png_bytes), width=Mm(max(90, w_mm - 26)))
+
+    # Data table with w:tblHeader (repeating header across pages) & w:cantSplit (never split rows mid-page)
+    if spec.headers:
+        tbl = doc.add_table(rows=1 + len(spec.rows), cols=len(spec.headers))
+        _set_table_rtl_and_borders(tbl)
+        hdr_row = tbl.rows[0]
+        hdr_trPr = hdr_row._tr.get_or_add_trPr()
+        hdr_trPr.append(OxmlElement("w:tblHeader"))
+        hdr_trPr.append(OxmlElement("w:cantSplit"))
+
+        for c_idx, h_text in enumerate(spec.headers):
+            cell = hdr_row.cells[c_idx]
+            cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+            _shade_cell(cell, "EFEFEF")
+            p = cell.paragraphs[0]
+            _set_paragraph_rtl(p)
+            p.alignment = WD_ALIGN_PARAGRAPH.RIGHT if c_idx in spec.right_align_cols else WD_ALIGN_PARAGRAPH.CENTER
+            _format_persian_run(p.add_run(str(h_text)), font_name="B Titr", size_pt=body_pt, bold=True)
+
+        for r_idx, row_vals in enumerate(spec.rows, 1):
+            row_obj = tbl.rows[r_idx]
+            row_trPr = row_obj._tr.get_or_add_trPr()
+            row_trPr.append(OxmlElement("w:cantSplit"))
+            for c_idx, val in enumerate(row_vals):
+                if c_idx >= len(spec.headers):
+                    continue
+                cell = row_obj.cells[c_idx]
+                cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+                if r_idx % 2 == 0:
+                    _shade_cell(cell, "FAFAFA")
+                p = cell.paragraphs[0]
+                _set_paragraph_rtl(p)
+                p.alignment = WD_ALIGN_PARAGRAPH.RIGHT if c_idx in spec.right_align_cols else WD_ALIGN_PARAGRAPH.CENTER
+                _format_persian_run(p.add_run(str(val)), font_name="B Nazanin", size_pt=body_pt, bold=True)
+
+    # Summary block
+    if spec.summary_pairs:
+        sp_p = doc.add_paragraph()
+        sp_p.paragraph_format.space_before = Pt(4)
+        sp_p.paragraph_format.space_after = Pt(2)
+        s_tbl = doc.add_table(rows=len(spec.summary_pairs), cols=2)
+        _set_table_rtl_and_borders(s_tbl)
+        for idx, (sk, sv) in enumerate(spec.summary_pairs):
+            row_trPr = s_tbl.rows[idx]._tr.get_or_add_trPr()
+            row_trPr.append(OxmlElement("w:cantSplit"))
+            lc, vc = s_tbl.rows[idx].cells[0], s_tbl.rows[idx].cells[1]
+            _shade_cell(lc, "EFEFEF")
+            lp = lc.paragraphs[0]
+            _set_paragraph_rtl(lp)
+            lp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+            _format_persian_run(lp.add_run(sk), font_name="B Nazanin", size_pt=body_pt, bold=True)
+            vp = vc.paragraphs[0]
+            _set_paragraph_rtl(vp)
+            vp.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            _format_persian_run(vp.add_run(sv), font_name="B Nazanin", size_pt=body_pt, bold=True)
+
+    if spec.notes:
+        np = doc.add_paragraph()
+        _set_paragraph_rtl(np)
+        np.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        _format_persian_run(np.add_run(f"توضیحات: {spec.notes}"), font_name="B Nazanin", size_pt=body_pt - 0.5, bold=True)
+
+    if spec.signatures:
+        sig_p = doc.add_paragraph()
+        sig_p.paragraph_format.space_before = Pt(8)
+        sig_tbl = doc.add_table(rows=1, cols=2)
+        _set_table_rtl_and_borders(sig_tbl)
+        sig_tbl.rows[0]._tr.get_or_add_trPr().append(OxmlElement("w:cantSplit"))
+        for idx, s_lbl in enumerate(spec.signatures):
+            p = sig_tbl.rows[0].cells[idx].paragraphs[0]
+            _set_paragraph_rtl(p)
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            _format_persian_run(p.add_run(f"{s_lbl}\n\n"), font_name="B Nazanin", size_pt=body_pt, bold=True)
+
+    # Word page number footer
+    ftr = sec.footer
+    fp = ftr.paragraphs[0]
+    _set_paragraph_rtl(fp)
+    fp.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    _format_persian_run(fp.add_run("صفحه "), font_name="B Nazanin", size_pt=8.5, bold=True)
+    r_pg = fp.add_run()
+    _format_persian_run(r_pg, font_name="B Nazanin", size_pt=8.5, bold=True)
+    _add_page_number_field(r_pg)
+    _format_persian_run(fp.add_run(" از "), font_name="B Nazanin", size_pt=8.5, bold=True)
+    r_num = fp.add_run()
+    _format_persian_run(r_num, font_name="B Nazanin", size_pt=8.5, bold=True)
+    _add_numpages_field(r_num)
+
+    out_path = os.path.abspath(docx_path)
+    out_dir = os.path.dirname(out_path)
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
+    doc.save(out_path)
+    return out_path
+
+
+# ---------------------------------------------------------------------------
+# Print Preview Dialog (A5 Default + A4 Toggle + Editable Word .docx Export)
+# ---------------------------------------------------------------------------
+
 class PrintPreviewDialog(QDialog):
-    """Commercial monochrome B&W RTL print preview dialog with A4/A5 switch, PDF export & Print."""
+    """Commercial monochrome B&W RTL print preview dialog defaulting to A5 with A4 toggle, PDF & Word export."""
 
     def __init__(
         self,
-        html_or_builder,
+        spec_or_builder,
         *,
         title: str = "پیش‌نمایش چاپ",
-        default_paper: str = "A4",
+        default_paper: str = "A5",
+        word_export_guard: Optional[Callable[[], bool]] = None,
         parent=None,
     ):
         super().__init__(parent)
-        self._html_or_builder = html_or_builder
+        self._spec_or_builder = spec_or_builder
+        self._word_export_guard = word_export_guard
         self.setLayoutDirection(Qt.RightToLeft)
         self.setWindowTitle(title)
-        self.resize(940, 720)
+        self.resize(960, 740)
 
-        self.printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+        is_offscreen = str(os.environ.get("QT_QPA_PLATFORM") or "").strip().lower() == "offscreen"
+        self.printer = QPrinter(
+            QPrinter.PrinterMode.ScreenResolution if is_offscreen else QPrinter.PrinterMode.HighResolution
+        )
         configure_printer(self.printer, paper_size=default_paper, orientation="portrait")
 
         root = QVBoxLayout(self)
@@ -670,9 +1276,9 @@ class PrintPreviewDialog(QDialog):
 
         toolbar.addWidget(QLabel("اندازه کاغذ:"))
         self.cb_paper = QComboBox()
-        self.cb_paper.addItem("A4 (۲۱۰ × ۲۹۷ میلی‌متر)", "A4")
         self.cb_paper.addItem("A5 (۱۴۸ × ۲۱۰ میلی‌متر)", "A5")
-        if str(default_paper).upper() == "A5":
+        self.cb_paper.addItem("A4 (۲۱۰ × ۲۹۷ میلی‌متر)", "A4")
+        if str(default_paper or "A5").upper() == "A4":
             self.cb_paper.setCurrentIndex(1)
         self.cb_paper.currentIndexChanged.connect(self._apply_page_settings)
         toolbar.addWidget(self.cb_paper)
@@ -696,16 +1302,19 @@ class PrintPreviewDialog(QDialog):
         toolbar.addWidget(btn_fit)
         toolbar.addStretch(1)
 
-        btn_save_pdf = QPushButton("📄 ذخیره PDF")
-        btn_save_pdf.clicked.connect(self._save_pdf)
-        btn_print = QPushButton("🖨️ چاپ نهایی")
-        btn_print.setObjectName("btnSuccess")
-        btn_print.clicked.connect(self._print_document)
+        self.btn_save_docx = QPushButton("📝 خروجی Word (.docx)")
+        self.btn_save_docx.clicked.connect(self._save_docx)
+        self.btn_save_pdf = QPushButton("📄 ذخیره PDF")
+        self.btn_save_pdf.clicked.connect(self._save_pdf)
+        self.btn_print = QPushButton("🖨️ چاپ نهایی")
+        self.btn_print.setObjectName("btnSuccess")
+        self.btn_print.clicked.connect(self._print_document)
         btn_close = QPushButton("بستن")
         btn_close.clicked.connect(self.reject)
 
-        toolbar.addWidget(btn_save_pdf)
-        toolbar.addWidget(btn_print)
+        toolbar.addWidget(self.btn_save_docx)
+        toolbar.addWidget(self.btn_save_pdf)
+        toolbar.addWidget(self.btn_print)
         toolbar.addWidget(btn_close)
         root.addLayout(toolbar)
 
@@ -713,20 +1322,57 @@ class PrintPreviewDialog(QDialog):
         self.preview.paintRequested.connect(self._on_paint_requested)
         root.addWidget(self.preview, 1)
 
+    def current_spec(self) -> Optional[PrintDocumentSpec]:
+        attached = getattr(self._spec_or_builder, "spec", None)
+        if isinstance(attached, PrintDocumentSpec):
+            return attached
+        val = self._spec_or_builder() if callable(self._spec_or_builder) else self._spec_or_builder
+        if isinstance(val, PrintDocumentSpec):
+            return val
+        return None
+
     def current_html(self) -> str:
-        is_a5 = str(self.cb_paper.currentData() or "A4").upper() == "A5"
-        if callable(self._html_or_builder):
-            return self._html_or_builder(is_a5=is_a5)
-        return str(self._html_or_builder)
+        is_a5 = str(self.cb_paper.currentData() or "A5").upper() == "A5"
+        if isinstance(self._spec_or_builder, PrintDocumentSpec):
+            return render_spec_to_html(self._spec_or_builder, is_a5=is_a5)
+        if callable(self._spec_or_builder):
+            try:
+                res = self._spec_or_builder(is_a5=is_a5)
+            except TypeError:
+                res = self._spec_or_builder()
+            if isinstance(res, PrintDocumentSpec):
+                return render_spec_to_html(res, is_a5=is_a5)
+            return str(res)
+        return str(self._spec_or_builder)
 
     def _on_paint_requested(self, printer: QPrinter) -> None:
         render_html_to_printer(self.current_html(), printer)
 
     def _apply_page_settings(self) -> None:
-        paper = str(self.cb_paper.currentData() or "A4")
+        paper = str(self.cb_paper.currentData() or "A5")
         orient = str(self.cb_orientation.currentData() or "portrait")
         configure_printer(self.printer, paper_size=paper, orientation=orient)
         self.preview.updatePreview()
+
+    def _save_docx(self) -> None:
+        if callable(self._word_export_guard) and not self._word_export_guard():
+            return
+        spec = self.current_spec()
+        if spec is None:
+            QMessageBox.warning(self, "خروجی Word", "قالب داده‌های این سند برای تبدیل به Word آماده نیست.")
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, "ذخیره فایل قابل ویرایش Word", "Daqiq_Document.docx", "Word Document (*.docx)"
+        )
+        if not path:
+            return
+        try:
+            paper = str(self.cb_paper.currentData() or "A5")
+            orient = str(self.cb_orientation.currentData() or "portrait")
+            saved = export_spec_to_docx(spec, path, paper_size=paper, orientation=orient)
+            QMessageBox.information(self, "خروجی Word", f"فایل قابل ویرایش Word با موفقیت ذخیره شد:\n{saved}")
+        except Exception as exc:
+            QMessageBox.critical(self, "خطا در ذخیره Word", str(exc))
 
     def _save_pdf(self) -> None:
         path, _ = QFileDialog.getSaveFileName(
@@ -735,7 +1381,7 @@ class PrintPreviewDialog(QDialog):
         if not path:
             return
         try:
-            paper = str(self.cb_paper.currentData() or "A4")
+            paper = str(self.cb_paper.currentData() or "A5")
             orient = str(self.cb_orientation.currentData() or "portrait")
             render_html_to_pdf(
                 self.current_html(), path, paper_size=paper, orientation=orient
@@ -750,3 +1396,21 @@ class PrintPreviewDialog(QDialog):
         if dlg.exec() == QDialog.DialogCode.Accepted:
             render_html_to_printer(self.current_html(), self.printer)
             self.accept()
+
+    def _release_preview_widgets(self) -> None:
+        preview = getattr(self, "preview", None)
+        if preview is not None:
+            try:
+                preview.setParent(None)
+                preview.deleteLater()
+            except RuntimeError:
+                pass
+            self.preview = None
+
+    def closeEvent(self, event) -> None:
+        self._release_preview_widgets()
+        super().closeEvent(event)
+
+    def done(self, result: int) -> None:
+        self._release_preview_widgets()
+        super().done(result)

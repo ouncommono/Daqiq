@@ -45,9 +45,9 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
 
     window = MainWindow(manager, active_employee=None)
     try:
-        assert window.tabs.count() == 10
+        assert window.tabs.count() == 12
         assert window.chk_upg_consume_stock.isChecked()
-        assert window.tabs.tabText(9).endswith("تنظیمات")
+        assert window.tabs.tabText(window.tabs.count() - 1).endswith("تنظیمات")
         assert window.lbl_app_version.text() in ("دقیق | نسخه برنامه: 4.8.4", f"دقیق | نسخه برنامه: {main_module.APP_VERSION}")
         assert [window.catalog_tabs.tabText(i) for i in range(window.catalog_tabs.count())] == [
             "مدیریت کالاها",
@@ -142,7 +142,7 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
         assert window.dt_batch_date.ed_day.width() >= 48
         assert window.dt_batch_date.ed_month.width() >= 48
         assert window.dt_batch_date.width() < 250
-        assert window.tabs.widget(9).findChild(SmoothScrollArea) is not None
+        assert window.tabs.widget(window.tabs.count() - 1).findChild(SmoothScrollArea) is not None
         assert isinstance(window.lst_cfg_subcategories, main_module.SmoothScrollListWidget)
         assert isinstance(window.lst_cfg_attributes, main_module.SmoothScrollListWidget)
         assert isinstance(window.lst_cfg_colors, main_module.SmoothScrollListWidget)

@@ -59,6 +59,62 @@ def resolve_executable_dir(explicit_exe_dir: Optional[Path] = None) -> Path:
     return Path.cwd().resolve()
 
 
+def _find_pids_win32_snapshot(my_pid: int) -> List[int]:
+    """Enumerate running Daqiq main processes using Win32 CreateToolhelp32Snapshot (never matches Troubleshooter)."""
+    import ctypes
+    from ctypes import wintypes
+
+    TH32CS_SNAPPROCESS = 0x00000002
+    INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
+
+    class PROCESSENTRY32W(ctypes.Structure):
+        _fields_ = [
+            ("dwSize", wintypes.DWORD),
+            ("cntUsage", wintypes.DWORD),
+            ("th32ProcessID", wintypes.DWORD),
+            ("th32DefaultHeapID", ctypes.POINTER(ctypes.c_ulong)),
+            ("th32ModuleID", wintypes.DWORD),
+            ("cntThreads", wintypes.DWORD),
+            ("th32ParentProcessID", wintypes.DWORD),
+            ("pcPriClassBase", wintypes.LONG),
+            ("dwFlags", wintypes.DWORD),
+            ("szExeFile", wintypes.WCHAR * 260),
+        ]
+
+    k32 = ctypes.windll.kernel32
+    k32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+    k32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    k32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
+    k32.Process32FirstW.restype = wintypes.BOOL
+    k32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(PROCESSENTRY32W)]
+    k32.Process32NextW.restype = wintypes.BOOL
+    k32.CloseHandle.argtypes = [wintypes.HANDLE]
+    k32.CloseHandle.restype = wintypes.BOOL
+
+    snap = k32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
+    if not snap or snap == INVALID_HANDLE_VALUE:
+        return []
+    found: List[int] = []
+    try:
+        pe = PROCESSENTRY32W()
+        pe.dwSize = ctypes.sizeof(PROCESSENTRY32W)
+        ok = k32.Process32FirstW(snap, ctypes.byref(pe))
+        while ok:
+            img = str(pe.szExeFile or "").lower().strip()
+            pid = int(pe.th32ProcessID)
+            if (
+                "troubleshooter" not in img
+                and (img == "daqiq.exe" or (img.startswith("daqiq_") and img.endswith(".exe")))
+                and pid != my_pid
+                and pid not in found
+            ):
+                found.append(pid)
+            ok = k32.Process32NextW(snap, ctypes.byref(pe))
+    finally:
+        k32.CloseHandle(snap)
+    return found
+
+
 def find_running_daqiq_pids(process_lister=None) -> List[int]:
     """Detect running Daqiq main executable processes (excluding Troubleshooter itself)."""
     if process_lister is not None:
@@ -75,27 +131,32 @@ def find_running_daqiq_pids(process_lister=None) -> List[int]:
             timeout=10,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
-        if proc.returncode != 0:
-            return []
-        for line in proc.stdout.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            parts = [p.strip().strip('"') for p in line.split('","')]
-            if len(parts) < 2:
-                continue
-            image_name = parts[0].lower()
-            if "troubleshooter" in image_name:
-                continue
-            if image_name == "daqiq.exe" or (image_name.startswith("daqiq_") and image_name.endswith(".exe")):
-                try:
-                    pid = int(parts[1])
-                except ValueError:
+        if proc.returncode == 0:
+            for line in proc.stdout.splitlines():
+                line = line.strip()
+                if not line:
                     continue
-                if pid != my_pid and pid not in pids:
-                    pids.append(pid)
+                parts = [p.strip().strip('"') for p in line.split('","')]
+                if len(parts) < 2:
+                    continue
+                image_name = parts[0].lower()
+                if "troubleshooter" in image_name:
+                    continue
+                if image_name == "daqiq.exe" or (image_name.startswith("daqiq_") and image_name.endswith(".exe")):
+                    try:
+                        pid = int(parts[1])
+                    except ValueError:
+                        continue
+                    if pid != my_pid and pid not in pids:
+                        pids.append(pid)
     except Exception:
-        return []
+        pass
+    try:
+        for pid in _find_pids_win32_snapshot(my_pid):
+            if pid not in pids:
+                pids.append(pid)
+    except Exception:
+        pass
     return pids
 
 

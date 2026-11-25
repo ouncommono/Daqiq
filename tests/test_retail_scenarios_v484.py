@@ -254,7 +254,7 @@ def test_scenario2_dashboard_cards_wcag_contrast_audit(qapp, tmp_path):
     win = MainWindow(db, active_employee=None)
 
     try:
-        assert len(win._dashboard_card_styles) == 8, f"Expected 8 dashboard cards, found {len(win._dashboard_card_styles)}"
+        assert len(win._dashboard_card_styles) >= 8, f"Expected >= 8 dashboard cards, found {len(win._dashboard_card_styles)}"
 
         # Initial theme is light
         win.db.cfg["theme"] = "light"

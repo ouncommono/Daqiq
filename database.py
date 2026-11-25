@@ -1,5 +1,7 @@
 # database.py
+from __future__ import annotations
 import os
+from typing import Any, Dict, List, Optional, Set, Tuple
 import sys
 import json
 import re
@@ -107,6 +109,8 @@ ROW_VERSION_TABLES = (
     "service_catalog",
     "service_records",
     "payments",
+    "installment_plans",
+    "installment_payments",
 )
 
 
@@ -128,7 +132,7 @@ def get_live_app_version() -> str:
                     return text
         except OSError:
             pass
-    return "4.9.10"
+    return "4.10.0"
 
 SQLITE_INTEGER_MIN = -(1 << 63)
 SQLITE_INTEGER_MAX = (1 << 63) - 1
@@ -142,16 +146,18 @@ EXPECTED_SCHEMA_COLUMNS = {
     "access_level_scope_levels": ("access_level_name", "selected_access_level_name"),
     "access_level_scope_users": ("access_level_name", "employee_id"),
     "suppliers": ("id", "name", "phone", "address", "notes", "created_at", "updated_at", "row_version"),
-    "customers": ("id", "name", "phone", "notes", "created_at", "updated_at", "row_version"),
+    "customers": ("id", "name", "phone", "notes", "created_at", "updated_at", "row_version", "national_id", "address", "last_modified_by", "last_modified_at"),
     "products": ("id", "code", "serial_number", "name", "category", "sub_category", "brand", "model", "specs_json", "description", "reorder_point", "default_profit_pct", "is_active", "created_at", "updated_at", "row_version"),
     "batches": ("id", "batch_code", "product_id", "serial_numbers", "supplier_id", "buyer_employee_id", "invoice_number", "purchase_date", "initial_qty", "sold_qty", "returned_qty", "remaining_qty", "unit_purchase_price", "extra_cost_total", "upgrade_cost_unit", "unit_cost_price", "suggested_sell_price", "profit_pct", "paid_amount", "settlement_status", "colors_json", "initial_specs", "final_specs", "supplier_name_snapshot", "notes", "created_at", "updated_at", "row_version"),
     "upgrades": ("id", "target_batch_id", "part_batch_id", "technician_id", "target_qty", "part_qty_used", "stock_deducted_qty", "part_unit_cost", "labor_cost_unit", "added_cost_unit", "upgrade_date", "serial_number", "manual_part_description", "old_specs", "new_specs", "notes", "created_at", "updated_at", "row_version"),
-    "sales": ("id", "invoice_number", "product_id", "batch_id", "serial_number", "seller_employee_id", "customer_name", "customer_phone", "qty", "returned_qty", "suggested_unit_price", "actual_unit_price", "unit_cost_price", "unit_discount", "total_discount", "price_Markup_unit", "unit_profit", "total_profit", "total_amount", "paid_amount", "settlement_status", "sale_datetime", "warranty_company", "warranty_start", "warranty_months", "warranty_days", "warranty_end", "specifications", "colors_json", "notes", "created_at", "updated_at", "row_version"),
+    "sales": ("id", "invoice_number", "product_id", "batch_id", "serial_number", "seller_employee_id", "customer_name", "customer_phone", "qty", "returned_qty", "suggested_unit_price", "actual_unit_price", "unit_cost_price", "unit_discount", "total_discount", "price_Markup_unit", "unit_profit", "total_profit", "total_amount", "paid_amount", "settlement_status", "sale_datetime", "warranty_company", "warranty_start", "warranty_months", "warranty_days", "warranty_end", "specifications", "colors_json", "notes", "created_at", "updated_at", "row_version", "customer_id", "payment_type"),
     "service_catalog": ("id", "code", "service_type", "name", "default_fee", "default_side_cost", "description", "is_active", "created_at", "updated_at", "row_version"),
     "service_price_history": ("id", "service_id", "change_date", "old_fee", "new_fee", "created_at", "updated_at"),
     "service_records": ("id", "invoice_number", "service_id", "seller_employee_id", "technician_employee_id", "service_type", "service_name", "customer_name", "historical_tariff", "service_fee", "side_cost", "paid_amount", "net_profit", "settlement_status", "service_datetime", "description", "created_at", "updated_at", "row_version"),
     "payments": ("id", "ref_type", "ref_id", "amount", "payment_date", "notes", "created_at", "updated_at", "row_version"),
     "audit_logs": ("id", "action_time", "action_type", "details", "created_at", "updated_at"),
+    "installment_plans": ("id", "sale_id", "customer_id", "total_bill", "down_payment", "financed_amount", "installment_count", "interval_days", "start_due_date", "status", "notes", "last_modified_by", "last_modified_at", "created_at", "updated_at", "row_version"),
+    "installment_payments": ("id", "plan_id", "installment_no", "due_date", "due_amount", "paid_amount", "paid_date", "status", "notes", "last_modified_by", "last_modified_at", "created_at", "updated_at", "row_version"),
 }
 
 def validate_schema_column_order(conn):
@@ -1222,12 +1228,16 @@ class DatabaseManager:
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS customers (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL,
+                    name TEXT NOT NULL CHECK (length(trim(name)) > 0),
                     phone TEXT DEFAULT '',
                     notes TEXT DEFAULT '',
                     created_at TEXT NOT NULL DEFAULT '',
                     updated_at TEXT NOT NULL DEFAULT '',
-                    row_version INTEGER NOT NULL DEFAULT 1
+                    row_version INTEGER NOT NULL DEFAULT 1,
+                    national_id TEXT DEFAULT '',
+                    address TEXT DEFAULT '',
+                    last_modified_by TEXT DEFAULT '',
+                    last_modified_at TEXT DEFAULT ''
                 )
             """)
 
@@ -1358,9 +1368,13 @@ class DatabaseManager:
                     created_at TEXT NOT NULL DEFAULT '',
                     updated_at TEXT NOT NULL DEFAULT '',
                     row_version INTEGER NOT NULL DEFAULT 1,
+                    customer_id INTEGER,
+                    payment_type TEXT NOT NULL DEFAULT 'cash'
+                        CHECK (payment_type IN ('cash', 'installment', 'partial')),
                     FOREIGN KEY(product_id) REFERENCES products(id),
                     FOREIGN KEY(batch_id) REFERENCES batches(id),
-                    FOREIGN KEY(seller_employee_id) REFERENCES employees(id)
+                    FOREIGN KEY(seller_employee_id) REFERENCES employees(id),
+                    FOREIGN KEY(customer_id) REFERENCES customers(id) ON DELETE SET NULL
                 )
             """)
 
@@ -1445,7 +1459,53 @@ class DatabaseManager:
                 )
             """)
 
-            # Backward-compatible additive upgrade for v4.9.8 databases lacking row_version
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS installment_plans (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    sale_id INTEGER NOT NULL UNIQUE,
+                    customer_id INTEGER NOT NULL,
+                    total_bill INTEGER NOT NULL CHECK (total_bill >= 0),
+                    down_payment INTEGER NOT NULL DEFAULT 0 CHECK (down_payment >= 0),
+                    financed_amount INTEGER NOT NULL CHECK (financed_amount >= 0),
+                    installment_count INTEGER NOT NULL CHECK (installment_count > 0),
+                    interval_days INTEGER NOT NULL DEFAULT 30 CHECK (interval_days > 0),
+                    start_due_date TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL DEFAULT 'active'
+                        CHECK (status IN ('active', 'completed', 'cancelled')),
+                    notes TEXT DEFAULT '',
+                    last_modified_by TEXT DEFAULT '',
+                    last_modified_at TEXT DEFAULT '',
+                    created_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT '',
+                    row_version INTEGER NOT NULL DEFAULT 1,
+                    FOREIGN KEY(sale_id) REFERENCES sales(id) ON DELETE CASCADE,
+                    FOREIGN KEY(customer_id) REFERENCES customers(id) ON DELETE CASCADE
+                )
+            """)
+
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS installment_payments (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    plan_id INTEGER NOT NULL,
+                    installment_no INTEGER NOT NULL CHECK (installment_no > 0),
+                    due_date TEXT NOT NULL,
+                    due_amount INTEGER NOT NULL CHECK (due_amount >= 0),
+                    paid_amount INTEGER NOT NULL DEFAULT 0 CHECK (paid_amount >= 0),
+                    paid_date TEXT DEFAULT '',
+                    status TEXT NOT NULL DEFAULT 'pending'
+                        CHECK (status IN ('pending', 'partial', 'paid')),
+                    notes TEXT DEFAULT '',
+                    last_modified_by TEXT DEFAULT '',
+                    last_modified_at TEXT DEFAULT '',
+                    created_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT '',
+                    row_version INTEGER NOT NULL DEFAULT 1,
+                    UNIQUE(plan_id, installment_no),
+                    FOREIGN KEY(plan_id) REFERENCES installment_plans(id) ON DELETE CASCADE
+                )
+            """)
+
+            # Backward-compatible additive upgrade for existing v4 databases (row_version + v4.10.0 additive columns)
             if existing_tables:
                 for rv_table in ROW_VERSION_TABLES:
                     if rv_table in existing_tables:
@@ -1457,6 +1517,29 @@ class DatabaseManager:
                             conn.execute(
                                 f"ALTER TABLE {rv_table} ADD COLUMN row_version INTEGER NOT NULL DEFAULT 1"
                             )
+                additive_tail_columns = {
+                    "customers": (
+                        ("national_id", "TEXT DEFAULT ''"),
+                        ("address", "TEXT DEFAULT ''"),
+                        ("last_modified_by", "TEXT DEFAULT ''"),
+                        ("last_modified_at", "TEXT DEFAULT ''"),
+                    ),
+                    "sales": (
+                        ("customer_id", "INTEGER REFERENCES customers(id) ON DELETE SET NULL"),
+                        ("payment_type", "TEXT NOT NULL DEFAULT 'cash'"),
+                    ),
+                }
+                for tbl_name, col_defs in additive_tail_columns.items():
+                    if tbl_name in existing_tables:
+                        cols_existing = {
+                            row["name"]
+                            for row in conn.execute(f"PRAGMA table_info({tbl_name})").fetchall()
+                        }
+                        for col_name, col_def in col_defs:
+                            if col_name not in cols_existing:
+                                conn.execute(
+                                    f"ALTER TABLE {tbl_name} ADD COLUMN {col_name} {col_def}"
+                                )
 
             validate_schema_column_order(conn)
 
@@ -1481,6 +1564,7 @@ class DatabaseManager:
                 "products", "batches", "sales", "upgrades", "service_catalog",
                 "service_records", "suppliers", "customers", "payments",
                 "service_price_history", "audit_logs",
+                "installment_plans", "installment_payments",
             )
             for table_name in activity_tables:
                 conn.execute(f"DROP TRIGGER IF EXISTS trg_{table_name}_updated_at_insert")
@@ -1585,6 +1669,7 @@ class DatabaseManager:
             for table_name in (
                 "products", "batches", "sales", "upgrades", "service_catalog",
                 "service_records", "suppliers", "employees", "customers", "payments",
+                "installment_plans", "installment_payments",
             ):
                 conn.execute(
                     f"CREATE INDEX IF NOT EXISTS idx_{table_name}_activity "
@@ -1626,6 +1711,13 @@ class DatabaseManager:
                 "CREATE INDEX IF NOT EXISTS idx_services_service_datetime ON service_records(service_datetime DESC, id DESC)",
                 "CREATE INDEX IF NOT EXISTS idx_upgrades_upgrade_date ON upgrades(upgrade_date DESC, id DESC)",
                 "CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone)",
+                "CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(name)",
+                "CREATE INDEX IF NOT EXISTS idx_sales_customer_id ON sales(customer_id, sale_datetime DESC, id DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_sales_payment_type ON sales(payment_type, sale_datetime DESC, id DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_inst_plans_customer ON installment_plans(customer_id, status, id DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_inst_plans_sale ON installment_plans(sale_id)",
+                "CREATE INDEX IF NOT EXISTS idx_inst_pay_plan ON installment_payments(plan_id, installment_no)",
+                "CREATE INDEX IF NOT EXISTS idx_inst_pay_due ON installment_payments(status, due_date, id)",
             ):
                 conn.execute(index_sql)
 
@@ -2276,6 +2368,11 @@ class DatabaseManager:
                        remaining_qty=remaining_qty+? WHERE id=?""",
                     (sale["qty"], sale["qty"], sale["batch_id"]),
                 )
+            conn.execute(
+                "DELETE FROM installment_payments WHERE plan_id IN (SELECT id FROM installment_plans WHERE sale_id=?)",
+                (sale["id"],),
+            )
+            conn.execute("DELETE FROM installment_plans WHERE sale_id=?", (sale["id"],))
             conn.execute("DELETE FROM payments WHERE ref_type='sale' AND ref_id=?", (sale["id"],))
             conn.execute("DELETE FROM sales WHERE id=?", (sale["id"],))
 
@@ -3104,6 +3201,10 @@ class DatabaseManager:
         colors=None,
         customer_phone="",
         expected_batch_row_version=None,
+        customer_id=None,
+        payment_type="cash",
+        installment_plan=None,
+        operator_name="",
     ):
         qty = self._batch_integer(qty, "تعداد فروش", minimum=1)
         product_id = self._batch_integer(product_id, "کالا", minimum=1)
@@ -3117,9 +3218,34 @@ class DatabaseManager:
         notes = str(notes or "").strip()
         specifications = str(specifications or "").strip()
         sale_datetime = str(sale_datetime or "").strip()
+        resolved_payment_type = str(payment_type or "cash").strip().lower()
+        if resolved_payment_type not in ("cash", "installment", "partial"):
+            resolved_payment_type = "cash"
+        if installment_plan:
+            resolved_payment_type = "installment"
+            down_p = self._batch_integer(
+                installment_plan.get("down_payment", paid_amount),
+                "پیش‌پرداخت",
+            )
+            inst_count = self._batch_integer(
+                installment_plan.get("count", 1),
+                "تعداد اقساط",
+                minimum=1,
+            )
+            inst_interval = self._batch_integer(
+                installment_plan.get("interval_days", 30),
+                "فاصله اقساط (روز)",
+                minimum=1,
+            )
+            inst_start_due = str(
+                installment_plan.get("start_due_date") or sale_datetime.split(" ")[0]
+            ).strip()
+            if not inst_start_due:
+                raise ValueError("تاریخ سررسید قسط اول مشخص نشده است.")
+            paid_amount = down_p
 
         def _tx(conn):
-            nonlocal invoice_number, paid_amount, suggested_unit_price, actual_unit_price
+            nonlocal invoice_number, paid_amount, suggested_unit_price, actual_unit_price, customer_id
             batch = conn.execute("""SELECT id, batch_code, product_id, serial_numbers, supplier_id, buyer_employee_id, invoice_number,
             purchase_date, initial_qty, sold_qty, returned_qty, remaining_qty,
             unit_purchase_price, extra_cost_total, upgrade_cost_unit, unit_cost_price,
@@ -3193,16 +3319,42 @@ class DatabaseManager:
             total_amount = self._batch_integer(
                 actual_unit_price * qty, "مبلغ کل فاکتور"
             )
-            if settlement_status in ("تسویه‌شده", "تسویه‌نشده", "تسویه جزئی"):
-                status = settlement_status
-            else:
-                if paid_amount >= total_amount:
-                    status = "تسویه‌شده"
-                    paid_amount = total_amount
-                elif paid_amount == 0:
-                    status = "تسویه‌نشده"
+            if installment_plan:
+                if paid_amount > total_amount:
+                    raise ValueError("پیش‌پرداخت نمی‌تواند بیشتر از مبلغ کل فاکتور باشد.")
+                financed_amount = total_amount - paid_amount
+                if financed_amount <= 0:
+                    raise ValueError("برای فروش اقساطی باید مبلغی پس از پیش‌پرداخت باقی بماند.")
+                if customer_id is None and customer_name:
+                    customer_id = self.get_or_create_customer(
+                        customer_name,
+                        phone=customer_phone,
+                        conn=conn,
+                        operator_name=operator_name,
+                    )
+                if customer_id is None:
+                    raise ValueError("برای فروش اقساطی، انتخاب یا ثبت نام مشتری الزامی است.")
+                status = "تسویه جزئی" if paid_amount > 0 else "تسویه‌نشده"
+            elif customer_id is None and customer_name and customer_name != "مشتری حضوری":
+                # Auto-link matching existing customer record without failing on anonymous cash sales
+                row_cust = conn.execute(
+                    "SELECT id FROM customers WHERE name=? AND (?='' OR phone=?) ORDER BY id DESC LIMIT 1",
+                    (customer_name, customer_phone, customer_phone),
+                ).fetchone()
+                if row_cust:
+                    customer_id = int(row_cust["id"])
+
+            if not installment_plan:
+                if settlement_status in ("تسویه‌شده", "تسویه‌نشده", "تسویه جزئی"):
+                    status = settlement_status
                 else:
-                    status = "تسویه جزئی"
+                    if paid_amount >= total_amount:
+                        status = "تسویه‌شده"
+                        paid_amount = total_amount
+                    elif paid_amount == 0:
+                        status = "تسویه‌نشده"
+                    else:
+                        status = "تسویه جزئی"
 
             cur = conn.cursor()
             cur.execute(
@@ -3213,8 +3365,8 @@ class DatabaseManager:
                     unit_discount, total_discount, price_Markup_unit, unit_profit, total_profit,
                     total_amount, paid_amount, settlement_status, sale_datetime,
                     warranty_company, warranty_start, warranty_months, warranty_days, warranty_end,
-                    specifications, colors_json, notes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    specifications, colors_json, notes, customer_id, payment_type
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     invoice_number,
@@ -3245,6 +3397,8 @@ class DatabaseManager:
                     str(specifications or ""),
                     json.dumps(normalized_colors or [], ensure_ascii=False),
                     notes,
+                    int(customer_id) if customer_id is not None else None,
+                    resolved_payment_type,
                 ),
             )
             sale_id = cur.lastrowid
@@ -3264,9 +3418,29 @@ class DatabaseManager:
                 cur.execute(
                     """
                     INSERT INTO payments (ref_type, ref_id, amount, payment_date, notes)
-                    VALUES ('sale', ?, ?, ?, 'دریافت وجه هنگام فروش')
+                    VALUES ('sale', ?, ?, ?, ?)
                 """,
-                    (sale_id, paid_amount, sale_datetime.split(" ")[0]),
+                    (
+                        sale_id,
+                        paid_amount,
+                        sale_datetime.split(" ")[0],
+                        "پیش‌پرداخت فروش اقساطی" if installment_plan else "دریافت وجه هنگام فروش",
+                    ),
+                )
+
+            if installment_plan:
+                self._create_installment_plan_tx(
+                    conn=conn,
+                    sale_id=int(sale_id),
+                    customer_id=int(customer_id),
+                    total_bill=total_amount,
+                    down_payment=paid_amount,
+                    count=inst_count,
+                    start_due_date=inst_start_due,
+                    interval_days=inst_interval,
+                    notes=str(installment_plan.get("notes") or "").strip(),
+                    operator_name=operator_name,
+                    cal_type=installment_plan.get("cal_type") or self.cfg.get("calendar_type", "jalali"),
                 )
 
             self.log_audit(
@@ -3504,6 +3678,11 @@ class DatabaseManager:
             )
             if stock_update.rowcount != 1:
                 raise ValueError("موجودی مصرف‌شدهٔ محموله با سابقهٔ فروش سازگار نیست.")
+            conn.execute(
+                "DELETE FROM installment_payments WHERE plan_id IN (SELECT id FROM installment_plans WHERE sale_id=?)",
+                (sale_id,),
+            )
+            conn.execute("DELETE FROM installment_plans WHERE sale_id=?", (sale_id,))
             conn.execute("DELETE FROM payments WHERE ref_type='sale' AND ref_id=?", (sale_id,))
             conn.execute("DELETE FROM sales WHERE id=?", (sale_id,))
             self.log_audit(
@@ -4356,3 +4535,670 @@ class DatabaseManager:
             SecureCredentialStore.store_database_credential(self.db_path, self._encryption_key)
         self.cfg.pop("local_db_unlock_tokens", None)
         save_app_config(self.cfg)
+
+    # =========================================================================
+    # مشتریان، فروش اقساطی و آمار نموداری (v4.10.0 - REQ-05, REQ-06, REQ-00)
+    # =========================================================================
+    @staticmethod
+    def build_installment_schedule(
+        financed_amount: int,
+        count: int,
+        start_due_date: str,
+        interval_days: int = 30,
+        cal_type: Optional[str] = None,
+    ) -> list[dict]:
+        """Build an exact integer installment schedule putting division remainder onto the final installment."""
+        total = int(financed_amount)
+        if total < 0:
+            raise ValueError("مبلغ اقساط نمی‌تواند منفی باشد.")
+        n = int(count)
+        if n <= 0:
+            raise ValueError("تعداد اقساط باید بزرگ‌تر از صفر باشد.")
+        step_days = int(interval_days)
+        if step_days <= 0:
+            raise ValueError("فاصله زمانی اقساط باید حداقل یک روز باشد.")
+        start_date = str(start_due_date or "").strip()
+        if not start_date:
+            raise ValueError("تاریخ سررسید قسط اول وارد نشده است.")
+
+        from datetime import timedelta
+
+        active_cal = cal_type or datetime_format.CALENDAR_JALALI
+        base_greg = datetime_format.parse_date_to_gregorian(start_date, fallback_cal=active_cal)
+        base_amt, remainder = divmod(total, n)
+        rows = []
+        for idx in range(n):
+            amt = base_amt + (remainder if idx == n - 1 else 0)
+            if base_greg is not None:
+                target_g = base_greg + timedelta(days=idx * step_days)
+                ny, nm, nd = datetime_format.from_gregorian_date(target_g, active_cal)
+                due = f"{ny:04d}/{nm:02d}/{nd:02d}"
+            else:
+                due = start_date
+            rows.append({
+                "installment_no": idx + 1,
+                "due_date": due,
+                "due_amount": int(amt),
+            })
+        return rows
+
+    def get_or_create_customer(
+        self,
+        name: str,
+        phone: str = "",
+        national_id: str = "",
+        address: str = "",
+        notes: str = "",
+        *,
+        conn=None,
+        operator_name: str = "",
+    ) -> int:
+        clean_name = str(name or "").strip()
+        if not clean_name:
+            raise ValueError("نام مشتری نمی‌تواند خالی باشد.")
+        clean_phone = str(phone or "").strip()
+        clean_nid = str(national_id or "").strip()
+        clean_addr = str(address or "").strip()
+        clean_notes = str(notes or "").strip()
+        mod_by = str(operator_name or "").strip()
+        mod_at = time.strftime("%Y-%m-%d %H:%M:%S")
+
+        def _resolve(connection):
+            if clean_phone:
+                row = connection.execute(
+                    "SELECT id FROM customers WHERE name=? AND phone=? ORDER BY id DESC LIMIT 1",
+                    (clean_name, clean_phone),
+                ).fetchone()
+            else:
+                row = connection.execute(
+                    "SELECT id FROM customers WHERE name=? ORDER BY id DESC LIMIT 1",
+                    (clean_name,),
+                ).fetchone()
+            if row:
+                return int(row["id"])
+            cur = connection.execute(
+                """
+                INSERT INTO customers (name, phone, notes, national_id, address, last_modified_by, last_modified_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (clean_name, clean_phone, clean_notes, clean_nid, clean_addr, mod_by, mod_at),
+            )
+            return int(cur.lastrowid)
+
+        if conn is not None:
+            return _resolve(conn)
+        return self.run_write_transaction(_resolve)
+
+    def add_customer(
+        self,
+        name: str,
+        phone: str = "",
+        national_id: str = "",
+        address: str = "",
+        notes: str = "",
+        operator_name: str = "",
+    ) -> int:
+        clean_name = str(name or "").strip()
+        if not clean_name:
+            raise ValueError("نام مشتری را وارد کنید.")
+        mod_by = str(operator_name or "").strip()
+        mod_at = time.strftime("%Y-%m-%d %H:%M:%S")
+
+        def _tx(conn):
+            cur = conn.execute(
+                """
+                INSERT INTO customers (name, phone, notes, national_id, address, last_modified_by, last_modified_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    clean_name,
+                    str(phone or "").strip(),
+                    str(notes or "").strip(),
+                    str(national_id or "").strip(),
+                    str(address or "").strip(),
+                    mod_by,
+                    mod_at,
+                ),
+            )
+            cid = int(cur.lastrowid)
+            self.log_audit(conn, "ثبت مشتری جدید", f"شناسه: {cid} | نام: {clean_name}")
+            return cid
+
+        return self.run_write_transaction(_tx)
+
+    def update_customer(
+        self,
+        customer_id: int,
+        name: str,
+        phone: str = "",
+        national_id: str = "",
+        address: str = "",
+        notes: str = "",
+        operator_name: str = "",
+        expected_row_version: Optional[int] = None,
+    ) -> None:
+        cid = self._batch_integer(customer_id, "شناسه مشتری", minimum=1)
+        clean_name = str(name or "").strip()
+        if not clean_name:
+            raise ValueError("نام مشتری نمی‌تواند خالی باشد.")
+        mod_by = str(operator_name or "").strip()
+        mod_at = time.strftime("%Y-%m-%d %H:%M:%S")
+
+        def _tx(conn):
+            if expected_row_version is not None:
+                self._check_row_version(conn, "customers", cid, expected_row_version, "مشتری")
+            conn.execute(
+                """
+                UPDATE customers
+                SET name=?, phone=?, national_id=?, address=?, notes=?,
+                    last_modified_by=?, last_modified_at=?
+                WHERE id=?
+                """,
+                (
+                    clean_name,
+                    str(phone or "").strip(),
+                    str(national_id or "").strip(),
+                    str(address or "").strip(),
+                    str(notes or "").strip(),
+                    mod_by,
+                    mod_at,
+                    cid,
+                ),
+            )
+            self.log_audit(conn, "ویرایش مشتری", f"شناسه: {cid} | نام: {clean_name}")
+
+        self.run_write_transaction(_tx)
+
+    def delete_customer(
+        self,
+        customer_id: int,
+        expected_row_version: Optional[int] = None,
+    ) -> None:
+        cid = self._batch_integer(customer_id, "شناسه مشتری", minimum=1)
+
+        def _tx(conn):
+            if expected_row_version is not None:
+                self._check_row_version(conn, "customers", cid, expected_row_version, "مشتری")
+            active_plan = conn.execute(
+                "SELECT id FROM installment_plans WHERE customer_id=? AND status='active' LIMIT 1",
+                (cid,),
+            ).fetchone()
+            if active_plan:
+                raise ValueError(
+                    "این مشتری دارای طرح فروش اقساطی فعال است. ابتدا اقساط تسویه یا فاکتور مربوطه حذف شود."
+                )
+            conn.execute("UPDATE sales SET customer_id=NULL WHERE customer_id=?", (cid,))
+            conn.execute("DELETE FROM customers WHERE id=?", (cid,))
+            self.log_audit(conn, "حذف مشتری", f"شناسه مشتری: {cid}")
+
+        self.run_write_transaction(_tx)
+
+    def _create_installment_plan_tx(
+        self,
+        conn,
+        *,
+        sale_id: int,
+        customer_id: int,
+        total_bill: int,
+        down_payment: int,
+        count: int,
+        start_due_date: str,
+        interval_days: int = 30,
+        notes: str = "",
+        operator_name: str = "",
+        cal_type: Optional[str] = None,
+    ) -> int:
+        financed = self._sqlite_integer(total_bill - down_payment, "مبلغ باقی‌مانده اقساط")
+        if financed <= 0:
+            raise ValueError("مبلغ تقسیط‌شده باید بیشتر از صفر باشد.")
+        schedule = self.build_installment_schedule(
+            financed_amount=financed,
+            count=count,
+            start_due_date=start_due_date,
+            interval_days=interval_days,
+            cal_type=cal_type,
+        )
+        mod_by = str(operator_name or "").strip()
+        mod_at = time.strftime("%Y-%m-%d %H:%M:%S")
+        cur = conn.execute(
+            """
+            INSERT INTO installment_plans (
+                sale_id, customer_id, total_bill, down_payment, financed_amount,
+                installment_count, interval_days, start_due_date, status, notes,
+                last_modified_by, last_modified_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
+            """,
+            (
+                sale_id,
+                customer_id,
+                total_bill,
+                down_payment,
+                financed,
+                count,
+                interval_days,
+                start_due_date,
+                notes,
+                mod_by,
+                mod_at,
+            ),
+        )
+        plan_id = int(cur.lastrowid)
+        conn.executemany(
+            """
+            INSERT INTO installment_payments (
+                plan_id, installment_no, due_date, due_amount, paid_amount, paid_date,
+                status, notes, last_modified_by, last_modified_at
+            ) VALUES (?, ?, ?, ?, 0, '', 'pending', '', ?, ?)
+            """,
+            [
+                (plan_id, item["installment_no"], item["due_date"], item["due_amount"], mod_by, mod_at)
+                for item in schedule
+            ],
+        )
+        return plan_id
+
+    def pay_installment(
+        self,
+        installment_id: int,
+        pay_amount: int,
+        payment_date: str,
+        notes: str = "",
+        operator_name: str = "",
+        expected_row_version: Optional[int] = None,
+    ) -> dict:
+        iid = self._batch_integer(installment_id, "شناسه قسط", minimum=1)
+        amt = self._batch_integer(pay_amount, "مبلغ پرداختی قسط", minimum=1)
+        p_date = str(payment_date or "").strip()
+        if not p_date:
+            raise ValueError("تاریخ پرداخت قسط مشخص نشده است.")
+        clean_notes = str(notes or "").strip()
+        mod_by = str(operator_name or "").strip()
+        mod_at = time.strftime("%Y-%m-%d %H:%M:%S")
+
+        def _tx(conn):
+            if expected_row_version is not None:
+                self._check_row_version(conn, "installment_payments", iid, expected_row_version, "قسط")
+            row = conn.execute(
+                """
+                SELECT ip.*, p.sale_id, p.customer_id
+                FROM installment_payments ip
+                JOIN installment_plans p ON p.id = ip.plan_id
+                WHERE ip.id=?
+                """,
+                (iid,),
+            ).fetchone()
+            if not row:
+                raise ValueError("قسط انتخاب‌شده یافت نشد.")
+            rem_due = int(row["due_amount"]) - int(row["paid_amount"])
+            if rem_due <= 0:
+                raise ValueError("این قسط قبلاً به‌طور کامل تسویه شده است.")
+            if amt > rem_due:
+                raise ValueError(
+                    f"مبلغ پرداختی ({amt:,} تومان) نمی‌تواند از مانده همین قسط ({rem_due:,} تومان) بیشتر باشد."
+                )
+            new_paid = int(row["paid_amount"]) + amt
+            new_status = "paid" if new_paid >= int(row["due_amount"]) else "partial"
+            merged_note = clean_notes or str(row["notes"] or "")
+            conn.execute(
+                """
+                UPDATE installment_payments
+                SET paid_amount=?, paid_date=?, status=?, notes=?,
+                    last_modified_by=?, last_modified_at=?
+                WHERE id=?
+                """,
+                (new_paid, p_date, new_status, merged_note, mod_by, mod_at, iid),
+            )
+            sale_id = int(row["sale_id"])
+            sale_row = conn.execute(
+                "SELECT total_amount, paid_amount FROM sales WHERE id=?", (sale_id,)
+            ).fetchone()
+            if sale_row:
+                new_sale_paid = min(int(sale_row["total_amount"]), int(sale_row["paid_amount"]) + amt)
+                sale_status = "تسویه‌شده" if new_sale_paid >= int(sale_row["total_amount"]) else "تسویه جزئی"
+                conn.execute(
+                    "UPDATE sales SET paid_amount=?, settlement_status=? WHERE id=?",
+                    (new_sale_paid, sale_status, sale_id),
+                )
+            conn.execute(
+                """
+                INSERT INTO payments (ref_type, ref_id, amount, payment_date, notes)
+                VALUES ('sale', ?, ?, ?, ?)
+                """,
+                (sale_id, amt, p_date.split(" ")[0], f"پرداخت قسط شماره {row['installment_no']}"),
+            )
+            open_cnt = conn.execute(
+                "SELECT COUNT(*) FROM installment_payments WHERE plan_id=? AND status <> 'paid'",
+                (int(row["plan_id"]),),
+            ).fetchone()[0]
+            plan_status = "completed" if int(open_cnt) == 0 else "active"
+            conn.execute(
+                "UPDATE installment_plans SET status=?, last_modified_by=?, last_modified_at=? WHERE id=?",
+                (plan_status, mod_by, mod_at, int(row["plan_id"])),
+            )
+            self.log_audit(
+                conn,
+                "ثبت پرداخت قسط",
+                f"قسط #{row['installment_no']} طرح {row['plan_id']} | مبلغ: {amt:,}",
+            )
+            return {
+                "installment_id": iid,
+                "plan_id": int(row["plan_id"]),
+                "plan_status": plan_status,
+                "new_paid": new_paid,
+                "status": new_status,
+            }
+
+        return self.run_write_transaction(_tx)
+
+    def list_customers_with_ledgers(
+        self,
+        today_str: str = "",
+        search_text: str = "",
+        limit: Optional[int] = None,
+        offset: int = 0,
+    ) -> list[dict]:
+        """Single-query SQL aggregation of customers, total purchases, debt, and overdue installments (zero N+1)."""
+        q_filter = ""
+        params = [str(today_str or "").strip()]
+        clean_search = str(search_text or "").strip()
+        if clean_search:
+            like = f"%{clean_search}%"
+            q_filter = "WHERE (c.name LIKE ? OR c.phone LIKE ? OR c.national_id LIKE ? OR c.address LIKE ? OR c.notes LIKE ?)"
+            params.extend([like, like, like, like, like])
+        limit_sql = ""
+        if limit is not None and int(limit) > 0:
+            limit_sql = f" LIMIT {int(limit)} OFFSET {max(0, int(offset))}"
+        sql = f"""
+            WITH sale_agg AS (
+                SELECT
+                    customer_id,
+                    COUNT(*) AS invoice_count,
+                    COALESCE(SUM(total_amount), 0) AS total_purchases,
+                    COALESCE(SUM(paid_amount), 0) AS total_paid,
+                    COALESCE(SUM(MAX(0, total_amount - paid_amount)), 0) AS remaining_debt
+                FROM sales
+                WHERE customer_id IS NOT NULL
+                GROUP BY customer_id
+            ),
+            inst_agg AS (
+                SELECT
+                    p.customer_id,
+                    COALESCE(SUM(CASE WHEN ip.status <> 'paid' THEN 1 ELSE 0 END), 0) AS open_installments,
+                    COALESCE(SUM(CASE WHEN ip.status <> 'paid' AND ? <> '' AND substr(ip.due_date, 1, 10) < substr(?, 1, 10) THEN 1 ELSE 0 END), 0) AS overdue_count
+                FROM installment_plans p
+                JOIN installment_payments ip ON ip.plan_id = p.id
+                WHERE p.status = 'active'
+                GROUP BY p.customer_id
+            )
+            SELECT
+                c.id, c.name, c.phone, c.national_id, c.address, c.notes,
+                c.created_at, c.updated_at, c.row_version, c.last_modified_by, c.last_modified_at,
+                COALESCE(sa.invoice_count, 0) AS invoice_count,
+                COALESCE(sa.total_purchases, 0) AS total_purchases,
+                COALESCE(sa.total_paid, 0) AS total_paid,
+                COALESCE(sa.remaining_debt, 0) AS remaining_debt,
+                COALESCE(ia.open_installments, 0) AS open_installments,
+                COALESCE(ia.overdue_count, 0) AS overdue_count
+            FROM customers c
+            LEFT JOIN sale_agg sa ON sa.customer_id = c.id
+            LEFT JOIN inst_agg ia ON ia.customer_id = c.id
+            {q_filter}
+            ORDER BY COALESCE(sa.remaining_debt, 0) DESC, c.updated_at DESC, c.id DESC
+            {limit_sql}
+        """
+        full_params = [params[0], params[0]] + params[1:]
+        with self.get_connection() as conn:
+            return [dict(r) for r in conn.execute(sql, full_params).fetchall()]
+
+    def get_customer_sales_and_installments(self, customer_id: int) -> dict:
+        cid = int(customer_id)
+        with self.get_connection() as conn:
+            cust = conn.execute("SELECT * FROM customers WHERE id=?", (cid,)).fetchone()
+            sales_rows = conn.execute(
+                """
+                SELECT s.id, s.invoice_number, s.sale_datetime, s.qty, s.total_amount, s.paid_amount,
+                       s.settlement_status, s.payment_type,
+                       COALESCE(p.category || ' - ' || p.brand || ' ' || p.model, p.name, '-') AS product_label
+                FROM sales s
+                LEFT JOIN products p ON p.id = s.product_id
+                WHERE s.customer_id=?
+                ORDER BY s.sale_datetime DESC, s.id DESC
+                """,
+                (cid,),
+            ).fetchall()
+            installments_rows = conn.execute(
+                """
+                SELECT ip.*, pl.sale_id, s.invoice_number
+                FROM installment_payments ip
+                JOIN installment_plans pl ON pl.id = ip.plan_id
+                LEFT JOIN sales s ON s.id = pl.sale_id
+                WHERE pl.customer_id=?
+                ORDER BY ip.due_date ASC, ip.installment_no ASC, ip.id ASC
+                """,
+                (cid,),
+            ).fetchall()
+            return {
+                "customer": dict(cust) if cust else None,
+                "sales": [dict(r) for r in sales_rows],
+                "installments": [dict(r) for r in installments_rows],
+            }
+
+    def get_installments_overview(self, today_str: str = "") -> dict:
+        t_date = str(today_str or "").strip()[:10]
+        with self.get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT
+                    COALESCE(SUM(CASE WHEN ip.status <> 'paid' THEN MAX(0, ip.due_amount - ip.paid_amount) ELSE 0 END), 0) AS total_unpaid_installments,
+                    COALESCE(SUM(CASE WHEN ip.status <> 'paid' AND ? <> '' AND substr(ip.due_date, 1, 10) < ? THEN 1 ELSE 0 END), 0) AS overdue_count,
+                    COALESCE(SUM(CASE WHEN ip.status <> 'paid' AND ? <> '' AND substr(ip.due_date, 1, 10) < ? THEN MAX(0, ip.due_amount - ip.paid_amount) ELSE 0 END), 0) AS overdue_amount,
+                    COALESCE(SUM(CASE WHEN ip.status <> 'paid' THEN 1 ELSE 0 END), 0) AS open_count
+                FROM installment_payments ip
+                JOIN installment_plans pl ON pl.id = ip.plan_id
+                WHERE pl.status = 'active'
+                """,
+                (t_date, t_date, t_date, t_date),
+            ).fetchone()
+            cust_debt = conn.execute(
+                "SELECT COALESCE(SUM(MAX(0, total_amount - paid_amount)), 0) FROM sales WHERE settlement_status <> 'تسویه‌شده'"
+            ).fetchone()[0]
+            return {
+                "total_receivables": int(cust_debt or 0),
+                "total_unpaid_installments": int(row["total_unpaid_installments"] or 0) if row else 0,
+                "overdue_count": int(row["overdue_count"] or 0) if row else 0,
+                "overdue_amount": int(row["overdue_amount"] or 0) if row else 0,
+                "open_count": int(row["open_count"] or 0) if row else 0,
+            }
+
+    def get_chart_analytics_data(
+        self,
+        date_from: str = "",
+        date_to: str = "",
+        seller_employee_id: Optional[int] = None,
+        category: str = "",
+        top_n: int = 10,
+        visible_employee_ids: Optional[set] = None,
+    ) -> dict:
+        """Fast SQL GROUP BY aggregations for 50k+ sales across all native QPainter charts."""
+        clauses = ["1=1"]
+        params = []
+        d_from = str(date_from or "").strip()[:10]
+        d_to = str(date_to or "").strip()[:10]
+        if d_from:
+            clauses.append("substr(s.sale_datetime, 1, 10) >= ?")
+            params.append(d_from)
+        if d_to:
+            clauses.append("substr(s.sale_datetime, 1, 10) <= ?")
+            params.append(d_to)
+        if seller_employee_id is not None:
+            clauses.append("s.seller_employee_id = ?")
+            params.append(int(seller_employee_id))
+        elif visible_employee_ids is not None:
+            if not visible_employee_ids:
+                return {
+                    "best_selling": [], "most_profitable": [], "time_trend": [],
+                    "by_category": [], "by_seller": [], "payment_mix": {},
+                }
+            marks = ",".join("?" for _ in visible_employee_ids)
+            clauses.append(f"s.seller_employee_id IN ({marks})")
+            params.extend(sorted(visible_employee_ids))
+        clean_cat = str(category or "").strip()
+        if clean_cat and clean_cat != "همه دسته‌ها":
+            clauses.append("p.category = ?")
+            params.append(clean_cat)
+
+        where_sql = " AND ".join(clauses)
+        n_lim = max(1, min(50, int(top_n or 10)))
+
+        with self.get_connection() as conn:
+            best_selling = [
+                {
+                    "label": (
+                        f"{r['category'] or ''} {r['brand'] or ''} {r['model'] or ''}".strip()
+                        or str(r["name"] or r["code"] or "-")
+                    ),
+                    "qty": int(r["tot_qty"] or 0),
+                    "revenue": int(r["tot_rev"] or 0),
+                    "profit": int(r["tot_prof"] or 0),
+                }
+                for r in conn.execute(
+                    f"""
+                    SELECT p.code, p.category, p.brand, p.model, p.name,
+                           COALESCE(SUM(s.qty), 0) AS tot_qty,
+                           COALESCE(SUM(s.total_amount), 0) AS tot_rev,
+                           COALESCE(SUM(s.total_profit), 0) AS tot_prof
+                    FROM sales s
+                    JOIN products p ON p.id = s.product_id
+                    WHERE {where_sql}
+                    GROUP BY s.product_id
+                    ORDER BY tot_qty DESC, tot_rev DESC
+                    LIMIT {n_lim}
+                    """,
+                    params,
+                ).fetchall()
+            ]
+            most_profitable = [
+                {
+                    "label": (
+                        f"{r['category'] or ''} {r['brand'] or ''} {r['model'] or ''}".strip()
+                        or str(r["name"] or r["code"] or "-")
+                    ),
+                    "profit": int(r["tot_prof"] or 0),
+                    "revenue": int(r["tot_rev"] or 0),
+                    "qty": int(r["tot_qty"] or 0),
+                }
+                for r in conn.execute(
+                    f"""
+                    SELECT p.code, p.category, p.brand, p.model, p.name,
+                           COALESCE(SUM(s.total_profit), 0) AS tot_prof,
+                           COALESCE(SUM(s.total_amount), 0) AS tot_rev,
+                           COALESCE(SUM(s.qty), 0) AS tot_qty
+                    FROM sales s
+                    JOIN products p ON p.id = s.product_id
+                    WHERE {where_sql}
+                    GROUP BY s.product_id
+                    ORDER BY tot_prof DESC, tot_rev DESC
+                    LIMIT {n_lim}
+                    """,
+                    params,
+                ).fetchall()
+            ]
+            time_trend = [
+                {
+                    "date": str(r["d_bucket"] or "-"),
+                    "revenue": int(r["tot_rev"] or 0),
+                    "profit": int(r["tot_prof"] or 0),
+                    "qty": int(r["tot_qty"] or 0),
+                }
+                for r in conn.execute(
+                    f"""
+                    SELECT substr(s.sale_datetime, 1, 10) AS d_bucket,
+                           COALESCE(SUM(s.total_amount), 0) AS tot_rev,
+                           COALESCE(SUM(s.total_profit), 0) AS tot_prof,
+                           COALESCE(SUM(s.qty), 0) AS tot_qty
+                    FROM sales s
+                    JOIN products p ON p.id = s.product_id
+                    WHERE {where_sql} AND length(trim(s.sale_datetime)) >= 10
+                    GROUP BY d_bucket
+                    ORDER BY d_bucket ASC
+                    LIMIT 90
+                    """,
+                    params,
+                ).fetchall()
+            ]
+            by_category = [
+                {
+                    "label": str(r["cat"] or "سایر"),
+                    "revenue": int(r["tot_rev"] or 0),
+                    "profit": int(r["tot_prof"] or 0),
+                    "qty": int(r["tot_qty"] or 0),
+                }
+                for r in conn.execute(
+                    f"""
+                    SELECT COALESCE(NULLIF(trim(p.category), ''), 'سایر') AS cat,
+                           COALESCE(SUM(s.total_amount), 0) AS tot_rev,
+                           COALESCE(SUM(s.total_profit), 0) AS tot_prof,
+                           COALESCE(SUM(s.qty), 0) AS tot_qty
+                    FROM sales s
+                    JOIN products p ON p.id = s.product_id
+                    WHERE {where_sql}
+                    GROUP BY cat
+                    ORDER BY tot_rev DESC
+                    LIMIT 20
+                    """,
+                    params,
+                ).fetchall()
+            ]
+            by_seller = [
+                {
+                    "label": str(r["seller_name"] or "نامشخص"),
+                    "revenue": int(r["tot_rev"] or 0),
+                    "profit": int(r["tot_prof"] or 0),
+                    "qty": int(r["tot_qty"] or 0),
+                    "invoices": int(r["inv_cnt"] or 0),
+                }
+                for r in conn.execute(
+                    f"""
+                    SELECT COALESCE(NULLIF(trim(e.name), ''), 'نامشخص') AS seller_name,
+                           COALESCE(SUM(s.total_amount), 0) AS tot_rev,
+                           COALESCE(SUM(s.total_profit), 0) AS tot_prof,
+                           COALESCE(SUM(s.qty), 0) AS tot_qty,
+                           COUNT(*) AS inv_cnt
+                    FROM sales s
+                    JOIN products p ON p.id = s.product_id
+                    LEFT JOIN employees e ON e.id = s.seller_employee_id
+                    WHERE {where_sql}
+                    GROUP BY seller_name
+                    ORDER BY tot_rev DESC
+                    LIMIT 20
+                    """,
+                    params,
+                ).fetchall()
+            ]
+            pm_row = conn.execute(
+                f"""
+                SELECT
+                    COALESCE(SUM(CASE WHEN COALESCE(s.payment_type, 'cash') = 'cash' THEN s.total_amount ELSE 0 END), 0) AS cash_total,
+                    COALESCE(SUM(CASE WHEN s.payment_type = 'installment' THEN s.paid_amount ELSE 0 END), 0) AS inst_collected,
+                    COALESCE(SUM(CASE WHEN s.payment_type = 'installment' THEN MAX(0, s.total_amount - s.paid_amount) ELSE 0 END), 0) AS inst_outstanding,
+                    COALESCE(SUM(CASE WHEN COALESCE(s.payment_type, 'cash') <> 'installment' AND s.settlement_status <> 'تسویه‌شده' THEN MAX(0, s.total_amount - s.paid_amount) ELSE 0 END), 0) AS credit_outstanding
+                FROM sales s
+                JOIN products p ON p.id = s.product_id
+                WHERE {where_sql}
+                """,
+                params,
+            ).fetchone()
+            payment_mix = {
+                "cash_total": int(pm_row["cash_total"] or 0) if pm_row else 0,
+                "installment_collected": int(pm_row["inst_collected"] or 0) if pm_row else 0,
+                "installment_outstanding": int(pm_row["inst_outstanding"] or 0) if pm_row else 0,
+                "credit_outstanding": int(pm_row["credit_outstanding"] or 0) if pm_row else 0,
+            }
+            return {
+                "best_selling": best_selling,
+                "most_profitable": most_profitable,
+                "time_trend": time_trend,
+                "by_category": by_category,
+                "by_seller": by_seller,
+                "payment_mix": payment_mix,
+            }

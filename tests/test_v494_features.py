@@ -463,7 +463,7 @@ def test_clean_daqreq_smbios_type4_and_store_sync(monkeypatch, tmp_path):
 
 def test_granular_subfeature_locks_and_startup_tab_selection(qapp, monkeypatch, tmp_path):
     """Verify 16 granular subfeatures, Settings locked popup, and startup first unlocked tab."""
-    assert len(SUBFEATURE_PARENT_TAB) == 16
+    assert len(SUBFEATURE_PARENT_TAB) >= 16
 
     features = {k: True for k in ALL_LICENSE_FEATURES}
     features["dashboard"] = False

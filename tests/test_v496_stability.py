@@ -173,7 +173,7 @@ def test_unmocked_startup_new_db_real_event_loop(tmp_path, monkeypatch, qapp, wi
     assert exc_info.value.code == 0
     assert observed["visible"] is True
     assert observed["quit_on_last"] is True
-    assert observed["tabs"] == 10
+    assert observed["tabs"] == 12
     if with_taxonomy:
         assert "لپ‌تاپ" in observed["cats"]
     else:
