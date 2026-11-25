@@ -92,12 +92,16 @@ def create_key_shards(raw_bytes: bytes, key_id: str, salt: bytes) -> Dict[str, A
 
 
 def generate_embedded_module_source(
-    shards_registry: Dict[str, Dict[str, Any]], salt: bytes, fp_prefix: str = "fp_v1:"
+    shards_registry: Dict[str, Dict[str, Any]],
+    salt: bytes,
+    fp_prefix: str = "fp_v1:",
+    support_phone: str = "09193352435",
 ) -> str:
     """Generate Python source code for licensing/_embedded_keys.py."""
     clean_prefix = fp_prefix.strip() if fp_prefix else "fp_v1:"
     if not clean_prefix.endswith(":"):
         clean_prefix += ":"
+    clean_phone = str(support_phone or "").strip() or "09193352435"
 
     lines = [
         '# Generated automatically by tools/build_key_shards.py - DO NOT EDIT MANUALLY',
@@ -108,10 +112,15 @@ def generate_embedded_module_source(
         '',
         f'_BUILD_SALT = {repr(salt)}',
         f'_FP_PREFIX = {repr(clean_prefix)}',
+        f'_SUPPORT_PHONE = {repr(clean_phone)}',
         '',
         'def get_embedded_fp_prefix() -> str:',
         '    """Return configured hardware fingerprint prefix."""',
         '    return _FP_PREFIX',
+        '',
+        'def get_embedded_support_phone() -> str:',
+        '    """Return build-time configured support phone number."""',
+        '    return _SUPPORT_PHONE',
         '',
         '_SHARD_REGISTRY = {',
     ]
@@ -161,10 +170,11 @@ def generate_embedded_module_source(
 
 
 class ShardResult(list):
-    """List of key fingerprints with attached fp_prefix metadata."""
-    def __init__(self, fps: List[Dict[str, str]], fp_prefix: str):
+    """List of key fingerprints with attached fp_prefix and support_phone metadata."""
+    def __init__(self, fps: List[Dict[str, str]], fp_prefix: str, support_phone: str = "09193352435"):
         super().__init__(fps)
         self.fp_prefix = fp_prefix
+        self.support_phone = support_phone
 
 
 def build_shards(
@@ -175,6 +185,7 @@ def build_shards(
     override_fp_prefix: str = None,
     extra_keys_json: str = None,
     local_config_path: str = None,
+    override_support_phone: str = None,
 ) -> ShardResult:
     """Build key shards from environment overrides, local config, or manifest file."""
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -191,7 +202,7 @@ def build_shards(
         except Exception as e:
             print(f"Warning: Failed to parse {local_config_path}: {e}", file=sys.stderr)
 
-    # 1. Resolve Fingerprint Prefix (Priority: Env -> local config -> default 'fp_v1:')
+    # 1. Resolve Fingerprint Prefix & Support Phone (Priority: Env -> local config -> default)
     fp_prefix = (
         override_fp_prefix
         or os.environ.get("DAQIQ_LICENSE_FP_PREFIX")
@@ -200,6 +211,14 @@ def build_shards(
     ).strip()
     if not fp_prefix.endswith(":"):
         fp_prefix += ":"
+
+    support_phone = (
+        override_support_phone
+        or os.environ.get("DAQIQ_SUPPORT_PHONE")
+        or local_cfg.get("support_phone")
+        or "09193352435"
+    )
+    support_phone = str(support_phone or "").strip() or "09193352435"
 
     # 2. Resolve Key ID & Public Keys (Priority per-field: Env -> local config -> manifest)
     keys_to_process: Dict[str, str] = {}
@@ -260,12 +279,17 @@ def build_shards(
         })
 
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
-    source_code = generate_embedded_module_source(shards_registry, salt, fp_prefix=fp_prefix)
+    source_code = generate_embedded_module_source(
+        shards_registry,
+        salt,
+        fp_prefix=fp_prefix,
+        support_phone=support_phone,
+    )
 
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(source_code)
 
-    return ShardResult(fingerprints, fp_prefix)
+    return ShardResult(fingerprints, fp_prefix, support_phone=support_phone)
 
 
 def main():
@@ -273,12 +297,14 @@ def main():
     parser.add_argument("--output", default="licensing/_embedded_keys.py", help="Output Python file path")
     parser.add_argument("--manifest", default="licensing/trusted_keys.json", help="Path to trusted_keys.json")
     parser.add_argument("--fp-prefix", default=None, help="Hardware fingerprint prefix (e.g. fp_v1:)")
+    parser.add_argument("--support-phone", default=None, help="Vendor support phone number")
     parser.add_argument("--local-config", default=None, help="Path to build_license_config.local.json")
     args = parser.parse_args()
 
     env_key = os.environ.get("DAQIQ_LICENSE_PUBLIC_KEY_B64")
     env_kid = os.environ.get("DAQIQ_LICENSE_KEY_ID")
     env_fp = args.fp_prefix or os.environ.get("DAQIQ_LICENSE_FP_PREFIX")
+    env_phone = args.support_phone or os.environ.get("DAQIQ_SUPPORT_PHONE")
     env_extra = os.environ.get("DAQIQ_LICENSE_EXTRA_KEYS_JSON")
 
     res = build_shards(
@@ -289,12 +315,15 @@ def main():
         override_fp_prefix=env_fp,
         extra_keys_json=env_extra,
         local_config_path=args.local_config,
+        override_support_phone=env_phone,
     )
     fps = list(res)
     resolved_fp_prefix = getattr(res, "fp_prefix", "fp_v1:")
+    resolved_phone = getattr(res, "support_phone", "09193352435")
 
     print(f"Successfully generated embedded key shards at: {args.output}")
     print(f"  * Configured Fingerprint Prefix: {resolved_fp_prefix}")
+    print(f"  * Configured Support Phone:      {resolved_phone}")
     for item in fps:
         print(f"  * Key ID: {item['key_id']} -> Fingerprint: {item['fingerprint']} ({item['display']})")
 
@@ -303,7 +332,8 @@ def main():
         try:
             with open(step_summary, "a", encoding="utf-8") as f:
                 f.write("### Embedded Ed25519 License Configuration (Native C Shards)\n\n")
-                f.write(f"- **Compiled Fingerprint Prefix:** `{resolved_fp_prefix}`\n\n")
+                f.write(f"- **Compiled Fingerprint Prefix:** `{resolved_fp_prefix}`\n")
+                f.write(f"- **Configured Support Phone:** `{resolved_phone}`\n\n")
                 f.write("| Key ID | SHA-256 Fingerprint | Canonical Base64 |\n")
                 f.write("|---|---|---|\n")
                 for item in fps:

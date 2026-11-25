@@ -1,3 +1,14 @@
+# Daqiq 4.9.9
+
+## Multi-PC LAN/SMB Concurrency, Grace Mode Hardening, Standalone Troubleshooter & Commercial UI Polish
+
+- **LAN / SMB Multi-PC SQLite Concurrency & Optimistic Concurrency Control (`database.py`, `main.py`)**: Added network/UNC/mapped-drive path detection (`is_network_database_path`), enforced safe `PRAGMA journal_mode = DELETE`, `synchronous = FULL`, `locking_mode = NORMAL`, and `busy_timeout = 15000` on shared/network databases (preventing WAL/SHM corruption across SMB hosts), centralized serialized write transactions (`run_write_transaction` with `BEGIN IMMEDIATE` + exponential backoff/jitter), added `row_version` OCC tracking on mutable core tables (with backward-compatible additive column upgrade for `v4.9.8` databases), interactive Persian concurrent-edit & concurrent-sale conflict/stock dialogs (`ConcurrencyConflictError`, `InsufficientStockError`), online `conn.backup()` retry safety, and non-intrusive 4s `PRAGMA data_version` polling.
+- **Dual-Mode Grace Period & Configurable Support Phone (`licensing/`, `tools/build_key_shards.py`, `main.py`)**: Added `grace_days_remaining`, Light/Dark theme-aware top-bar warning banner showing remaining days, grace mode (`فقط خواندنی` / `کامل`), and build-time configurable support phone (`DAQIQ_SUPPORT_PHONE` / `"support_phone"`), dual-layer UI + DB `ReadOnlyGraceError` enforcement permitting viewing, backups, and Excel/partner exports in `readonly` grace, and 100% Persian module labels (`FEATURE_LABELS_FA` + localized fallback).
+- **Standalone Decoupled `Daqiq-Troubleshooter.exe` (`troubleshooter/`, `scripts/build_nuitka.py`, `.github/workflows/ci.yml`)**: Built completely isolated reset utility (`--onefile-tempdir-spec="{TEMP}/DaqiqTroubleshooter_{PID}"`, excluded from `Daqiq.exe`) that detects running `Daqiq.exe`, pre-scans `app_config.json` before deletion to whitelist all manual & automatic backups (default & custom `auto_backup_dir`), clears caches/runtime folders/config, and separately prompts to retain or delete DB files while preserving all backups.
+- **Commercial UI/UX & Copy Polish (`main.py`, `licensing/license_dialog.py`)**: Removed `(پیش‌فرض)` suffixes from «شمسی» and «۲۴ ساعته» dropdowns, framed login password policy in a dedicated styled `QGroupBox`, standardized theme button to «حالت تیره» / «حالت روشن», and unified UI terminology (`لایسنس` while retaining conceptual `نوع اشتراک` / `اشتراکی زمان‌دار`).
+
+---
+
 # Daqiq 4.9.8
 
 ## Red-Team License Security Hardening, Battery Taxonomy Sync, Config Parity & Codebase Optimization

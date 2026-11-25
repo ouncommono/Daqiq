@@ -1,5 +1,6 @@
 {
   "public_key": "",
   "key_id": "daqiq-prod-v1",
-  "fp_prefix": "fp_v1:"
+  "fp_prefix": "fp_v1:",
+  "support_phone": "09XXXXXXXXX"
 }

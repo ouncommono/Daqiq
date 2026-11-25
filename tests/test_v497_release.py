@@ -359,7 +359,7 @@ def test_req03_app_config_reconciles_stale_version_and_legacy_keys(monkeypatch, 
     persisted = json.loads(cfg_path.read_text(encoding="utf-8"))
 
     for obj in (cfg, persisted):
-        assert obj["app_version"] == "4.9.8"
+        assert obj["app_version"] == db_mod.get_live_app_version()
         assert obj["theme"] == "dark"
         assert obj["db_path"] == str(db_file)
         assert obj["calendar_type"] == "hijri"

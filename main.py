@@ -63,6 +63,7 @@ from database import (
     generate_timestamped_database_filename, resolve_new_database_filename,
     create_and_initialize_database, SecureCredentialStore,
     SCHEMA_VERSION, round_integer_division, round_percentage_amount,
+    ReadOnlyGraceError, ConcurrencyConflictError, InsufficientStockError,
 )
 from utils_and_widgets import (
     normalize_catalog_label,
@@ -127,7 +128,7 @@ def _load_app_version() -> str:
                         return ver
             except Exception:
                 pass
-    return "4.9.8"
+    return "4.9.9"
 
 APP_VERSION = _load_app_version()
 
@@ -142,7 +143,12 @@ from licensing import (
     ValidationResult,
     ValidationStatus,
 )
-from licensing.license_policy import TAB_MODULE_TO_FEATURE, FEATURE_LABELS_FA
+from licensing.license_policy import (
+    TAB_MODULE_TO_FEATURE,
+    FEATURE_LABELS_FA,
+    get_feature_label_fa,
+    get_grace_mode_label_fa,
+)
 
 # Semantic theme tokens for WCAG AA+ accessible dashboard top report cards
 DASHBOARD_CARD_TOKENS = {
@@ -2369,8 +2375,9 @@ class MainWindow(QMainWindow):
         try:
             self._apply_styles()
             self.btn_theme.setText(
-                "☀️ تم روشن" if self.db.cfg["theme"] == "dark" else "🌙 تم تیره"
+                "☀️ حالت روشن" if self.db.cfg["theme"] == "dark" else "🌙 حالت تیره"
             )
+            self._update_license_banner()
         finally:
             self.setUpdatesEnabled(True)
         self._refresh_dashboard_card_styles()
@@ -2419,15 +2426,25 @@ class MainWindow(QMainWindow):
 
     def _show_license_locked_dialog(self, feature_id_or_name: str):
         """Show the uniform polite Persian locked-access dialog with a shortcut to License Management."""
-        section_label = FEATURE_LABELS_FA.get(feature_id_or_name, feature_id_or_name)
+        section_label = get_feature_label_fa(feature_id_or_name)
+        svc = getattr(self, "license_service", None)
+        support_phone = ""
+        if svc is not None and hasattr(svc, "get_support_phone"):
+            try:
+                support_phone = str(svc.get_support_phone() or "").strip()
+            except Exception:
+                support_phone = ""
         msg = QMessageBox(self)
         msg.setWindowTitle("دسترسی لایسنس")
         msg.setIcon(QMessageBox.Information)
         msg.setLayoutDirection(Qt.RightToLeft)
-        msg.setText(
+        body = (
             f"بخش «{section_label}» در لایسنس فعال شما مجاز نیست.\n"
             "برای تهیه یا فعال‌سازی لایسنس این بخش، از پنجره مدیریت لایسنس اقدام فرمایید."
         )
+        if support_phone:
+            body += f"\nشماره تماس پشتیبانی: {support_phone}"
+        msg.setText(body)
         btn_lic = msg.addButton("مدیریت لایسنس 🔑", QMessageBox.ActionRole)
         msg.addButton("بستن", QMessageBox.AcceptRole)
         _center_message_buttons(msg)
@@ -2499,6 +2516,18 @@ class MainWindow(QMainWindow):
         lic_svc = getattr(self, "license_service", None)
         has_fast_eval = callable(getattr(type(lic_svc), "is_feature_enabled_for_result", None)) if lic_svc is not None else False
         lic_res = lic_svc.check_license() if has_fast_eval else None
+        write_allowed = bool(lic_svc.is_write_allowed()) if lic_svc is not None and hasattr(lic_svc, "is_write_allowed") else True
+        if hasattr(self, "db") and self.db is not None and hasattr(self.db, "set_read_only_mode"):
+            readonly_reason = ""
+            if not write_allowed:
+                support_phone = lic_svc.get_support_phone() if hasattr(lic_svc, "get_support_phone") else ""
+                readonly_reason = (
+                    "لایسنس در دوره مهلت فقط خواندنی قرار دارد؛ امکان مشاهده گزارش‌ها، پشتیبان‌گیری و خروجی اکسل فعال است "
+                    "اما ثبت یا ویرایش داده‌های جدید تا تمدید لایسنس مجاز نیست."
+                )
+                if support_phone:
+                    readonly_reason += f"\nشماره تماس پشتیبانی: {support_phone}"
+            self.db.set_read_only_mode(not write_allowed, readonly_reason)
         self.tabs.blockSignals(True)
         try:
             for index, module in enumerate(tab_modules):
@@ -2562,15 +2591,36 @@ class MainWindow(QMainWindow):
             else:
                 action = None
             if module == "settings":
+                if button in (
+                    getattr(self, "btn_manual_bk", None),
+                    getattr(self, "btn_open_db_dir", None),
+                    getattr(self, "btn_export_prod_tax_section", None),
+                    getattr(self, "btn_export_prod_tax_full", None),
+                    getattr(self, "btn_export_serv_tax_section", None),
+                    getattr(self, "btn_export_serv_tax_full", None),
+                ):
+                    if button is getattr(self, "btn_manual_bk", None):
+                        button.setEnabled("settings.manage_database" in grants)
+                    elif action == "export":
+                        button.setEnabled("settings.view" in grants)
+                    else:
+                        button.setEnabled("settings.manage_database" in grants)
+                    continue
                 if hasattr(self, "gb_access_levels") and self.gb_access_levels.isAncestorOf(button):
                     required_permission = "settings.manage_access"
                 elif hasattr(self, "gb_db") and self.gb_db.isAncestorOf(button):
                     required_permission = "settings.manage_database"
                 else:
                     required_permission = "settings.edit"
-                button.setEnabled(required_permission in grants)
+                enabled = required_permission in grants
+                if not write_allowed and action != "export":
+                    enabled = False
+                button.setEnabled(enabled)
             elif action:
-                button.setEnabled(f"{module}.{action}" in grants)
+                enabled = f"{module}.{action}" in grants
+                if not write_allowed and action in ("create", "edit", "delete"):
+                    enabled = False
+                button.setEnabled(enabled)
 
         if hasattr(self, "cb_rep_emp"):
             self.cb_rep_emp.setEnabled(not is_scoped)
@@ -2597,18 +2647,29 @@ class MainWindow(QMainWindow):
                 checkbox.setEnabled(access_enabled)
         if hasattr(self, "gb_access_levels"):
             self.gb_access_levels.setEnabled(
-                "settings.manage_access" in grants and "settings.view" in grants
+                write_allowed and "settings.manage_access" in grants and "settings.view" in grants
             )
         if hasattr(self, "gb_db"):
             self.gb_db.setEnabled(
                 "settings.manage_database" in grants and "settings.view" in grants
             )
+            for db_mut_btn in (
+                getattr(self, "btn_new_db", None),
+                getattr(self, "btn_open_existing_db", None),
+                getattr(self, "btn_restore_bk", None),
+            ):
+                if db_mut_btn is not None:
+                    db_mut_btn.setEnabled(write_allowed and "settings.manage_database" in grants)
+            if hasattr(self, "btn_manual_bk") and self.btn_manual_bk is not None:
+                self.btn_manual_bk.setEnabled("settings.manage_database" in grants)
         if hasattr(self, "gb_inventory_export"):
             self.gb_inventory_export.setEnabled(
-                "settings.edit" in grants and "settings.view" in grants
+                write_allowed and "settings.edit" in grants and "settings.view" in grants
             )
         if hasattr(self, "pr_sale_actual"):
-            self.pr_sale_actual.setReadOnly(not self._is_license_feature_enabled("price_edit"))
+            self.pr_sale_actual.setReadOnly(
+                (not write_allowed) or (not self._is_license_feature_enabled("price_edit"))
+            )
         if hasattr(self, "btn_switch_user"):
             self.btn_switch_user.setEnabled(True)
 
@@ -2813,7 +2874,7 @@ class MainWindow(QMainWindow):
         btn_switch_user.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         btn_switch_user.clicked.connect(self._switch_active_employee)
 
-        self.btn_theme = QPushButton("☀️ تم روشن" if self.db.cfg.get("theme") == "dark" else "🌙 تم تیره")
+        self.btn_theme = QPushButton("☀️ حالت روشن" if self.db.cfg.get("theme") == "dark" else "🌙 حالت تیره")
         self.btn_theme.clicked.connect(self._toggle_theme)
         self.btn_theme.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self.btn_table_width = QPushButton("↔️ اندازه‌گذاری هوشمند ستون‌ها")
@@ -2839,23 +2900,20 @@ class MainWindow(QMainWindow):
         top_layout.addWidget(title_lbl, 0)
         main_layout.addWidget(top_bar)
 
-        # نوار هشدار وضعیت اشتراک و دوره مهلت لایسنس
+        # نوار هشدار وضعیت لایسنس و دوره مهلت
         self.license_banner_frame = QFrame()
+        self.license_banner_frame.setObjectName("licenseBannerFrame")
         self.license_banner_frame.setVisible(False)
-        self.license_banner_frame.setStyleSheet(
-            "background-color: #fef3c7; border: 1px solid #f59e0b; border-radius: 6px; padding: 6px 12px;"
-        )
         banner_layout = QHBoxLayout(self.license_banner_frame)
-        banner_layout.setContentsMargins(6, 4, 6, 4)
+        banner_layout.setContentsMargins(8, 4, 8, 4)
         self.lbl_license_banner = QLabel()
-        self.lbl_license_banner.setStyleSheet("color: #92400e; font-weight: bold; font-size: 11px;")
-        btn_renew_banner = QPushButton("تمدید / مدیریت لایسنس 🔑")
-        btn_renew_banner.setStyleSheet(
-            "background-color: #d97706; color: white; font-weight: bold; padding: 4px 10px; border-radius: 4px;"
-        )
-        btn_renew_banner.clicked.connect(self._open_license_dialog)
+        self.lbl_license_banner.setObjectName("licenseBannerLabel")
+        self.lbl_license_banner.setWordWrap(True)
+        self.btn_renew_banner = QPushButton("تمدید / مدیریت لایسنس 🔑")
+        self.btn_renew_banner.setObjectName("licenseBannerButton")
+        self.btn_renew_banner.clicked.connect(self._open_license_dialog)
         banner_layout.addWidget(self.lbl_license_banner, 1)
-        banner_layout.addWidget(btn_renew_banner, 0)
+        banner_layout.addWidget(self.btn_renew_banner, 0)
         main_layout.addWidget(self.license_banner_frame)
 
         # --- تب‌های برنامه با ترتیب جدید (بند ۵: تب ارتقای لپ‌تاپ بلافاصله بعد از مدیریت خدمات) ---
@@ -2879,10 +2937,50 @@ class MainWindow(QMainWindow):
         self._apply_employee_permissions()
         self._update_license_banner()
 
-        # بررسی دوره‌ای پس‌زمینه (هر ۱۰ دقیقه بدون ایجاد وقفه در رابط کاربری)
+        # بررسی دوره‌ای پس‌زمینه (هر ۶۰ ثانیه برای لایسنس و هر ۴ ثانیه برای همگام‌سازی شبکه بدون مزاحمت برای فرم‌های در حال ویرایش)
         self._license_timer = QTimer(self)
         self._license_timer.timeout.connect(self._periodic_license_check)
         self._license_timer.start(60000)
+
+        self._sync_timer = QTimer(self)
+        self._sync_timer.timeout.connect(self._poll_external_database_changes)
+        self._sync_timer.start(4000)
+
+    def _has_unsaved_active_form_edits(self) -> bool:
+        """Return True if the user currently has a record open for editing or unsaved form input."""
+        if any(
+            getattr(self, attr, None) is not None
+            for attr in (
+                "selected_product_id",
+                "selected_batch_id",
+                "selected_sale_id",
+                "selected_srv_rec_id",
+                "selected_upgrade_id",
+                "selected_supplier_id",
+            )
+        ):
+            return True
+        for attr in ("ed_prod_brand", "ed_prod_model", "ed_batch_inv", "ed_sale_customer"):
+            w = getattr(self, attr, None)
+            if w is not None and w.isModified():
+                return True
+        return False
+
+    def _poll_external_database_changes(self):
+        """Lightweight PRAGMA data_version polling for multi-PC LAN synchronization."""
+        if not getattr(self, "db", None) or not hasattr(self.db, "poll_external_data_version"):
+            return
+        try:
+            _ver, changed = self.db.poll_external_data_version()
+        except Exception:
+            return
+        if not changed:
+            return
+        if self._has_unsaved_active_form_edits():
+            if hasattr(self, "statusBar") and self.statusBar() is not None:
+                self.statusBar().showMessage("🔄 تغییرات جدیدی از شبکه دریافت شد (فرم فعلی بدون تغییر ماند).", 4000)
+            return
+        self.refresh_all_data()
 
     def _update_license_banner(self, res: Optional[ValidationResult] = None):
         if not getattr(self, "license_service", None):
@@ -2891,14 +2989,49 @@ class MainWindow(QMainWindow):
             return
         if res is None:
             res = self.license_service.check_license()
+
+        is_dark = bool(hasattr(self, "db") and self.db and self.db.cfg.get("theme", "light") == "dark")
+        support_phone = ""
+        if hasattr(self.license_service, "get_support_phone"):
+            try:
+                support_phone = str(self.license_service.get_support_phone() or "").strip()
+            except Exception:
+                support_phone = ""
+
+        def _style_banner(tone: str):
+            if is_dark:
+                palettes = {
+                    "danger": ("#3b1219", "#ef4444", "#fecaca", "#dc2626", "#b91c1c"),
+                    "warning": ("#3b280b", "#f59e0b", "#fde68a", "#d97706", "#b45309"),
+                    "info": ("#1e293b", "#60a5fa", "#bfdbfe", "#2563eb", "#1d4ed8"),
+                }
+            else:
+                palettes = {
+                    "danger": ("#fef2f2", "#ef4444", "#991b1b", "#dc2626", "#b91c1c"),
+                    "warning": ("#fffbeb", "#f59e0b", "#92400e", "#d97706", "#b45309"),
+                    "info": ("#eff6ff", "#3b82f6", "#1e3a8a", "#2563eb", "#1d4ed8"),
+                }
+            bg, border, fg, btn_bg, btn_hover = palettes[tone]
+            self.license_banner_frame.setStyleSheet(
+                f"QFrame#licenseBannerFrame {{ background-color: {bg}; border: 1.5px solid {border}; border-radius: 8px; padding: 6px 12px; }}"
+            )
+            self.lbl_license_banner.setStyleSheet(
+                f"color: {fg}; font-weight: bold; font-size: 12px; background: transparent;"
+            )
+            if hasattr(self, "btn_renew_banner") and self.btn_renew_banner is not None:
+                self.btn_renew_banner.setStyleSheet(
+                    f"QPushButton {{ background-color: {btn_bg}; color: #ffffff; font-weight: bold; "
+                    f"padding: 5px 12px; border-radius: 6px; border: none; }} "
+                    f"QPushButton:hover {{ background-color: {btn_hover}; }}"
+                )
+
         if not res or not res.is_valid or not res.license:
             if hasattr(self, "license_banner_frame"):
                 if res is not None and not res.is_valid:
-                    self.license_banner_frame.setStyleSheet(
-                        "background-color: #fee2e2; border: 1px solid #dc2626; border-radius: 6px; padding: 6px 12px;"
-                    )
-                    self.lbl_license_banner.setStyleSheet("color: #991b1b; font-weight: bold; font-size: 11px;")
+                    _style_banner("danger")
                     msg = res.message_fa or "اعتبار لایسنس به پایان رسیده یا نامعتبر است. دسترسی به بخش‌ها مسدود شد."
+                    if support_phone:
+                        msg += f" | پشتیبانی: {support_phone}"
                     self.lbl_license_banner.setText(f"⛔ {msg}")
                     self.license_banner_frame.setVisible(True)
                 else:
@@ -2907,28 +3040,32 @@ class MainWindow(QMainWindow):
 
         payload = res.license.payload
         if res.in_grace_period:
-            self.license_banner_frame.setStyleSheet(
-                "background-color: #fee2e2; border: 1px solid #ef4444; border-radius: 6px; padding: 6px 12px;"
+            _style_banner("danger" if res.grace_mode == "readonly" else "warning")
+            mode_fa = get_grace_mode_label_fa(res.grace_mode)
+            rem_days = (
+                f"{res.grace_days_remaining} روز باقیمانده"
+                if res.grace_days_remaining is not None
+                else "فعال"
             )
-            self.lbl_license_banner.setStyleSheet("color: #b91c1c; font-weight: bold; font-size: 11px;")
+            mode_note = (
+                "در حالت فقط خواندنی، مشاهده داده‌ها، پشتیبان‌گیری و خروجی اکسل آزاد است."
+                if res.grace_mode == "readonly"
+                else "در دوره مهلت دسترسی کامل، لطفاً پیش از اتمام مهلت لایسنس را تمدید کنید."
+            )
+            phone_part = f" | پشتیبانی: {support_phone}" if support_phone else ""
             self.lbl_license_banner.setText(
-                f"⚠️ توجه: اشتراک لایسنس شما به پایان رسیده و سامانه در دوره مهلت موقت ({res.grace_mode}) قرار دارد. لطفاً جهت تمدید اقدام فرمایید."
+                f"⚠️ دوره مهلت لایسنس ({rem_days} • حالت {mode_fa}): {mode_note}{phone_part}"
             )
             self.license_banner_frame.setVisible(True)
         elif res.days_remaining is not None and res.days_remaining <= (payload.expiry_warning_days or 14):
-            self.license_banner_frame.setStyleSheet(
-                "background-color: #fef3c7; border: 1px solid #f59e0b; border-radius: 6px; padding: 6px 12px;"
-            )
-            self.lbl_license_banner.setStyleSheet("color: #92400e; font-weight: bold; font-size: 11px;")
+            _style_banner("warning")
+            phone_part = f" | پشتیبانی: {support_phone}" if support_phone else ""
             self.lbl_license_banner.setText(
-                f"⚠️ یادآوری اشتراک: {res.days_remaining} روز تا پایان اعتبار لایسنس باقیمانده است. جهت تمدید اشتراک کلیک فرمایید."
+                f"⚠️ یادآوری لایسنس: {res.days_remaining} روز تا پایان اعتبار لایسنس باقیمانده است. جهت تمدید لایسنس کلیک فرمایید.{phone_part}"
             )
             self.license_banner_frame.setVisible(True)
         elif res.is_trial:
-            self.license_banner_frame.setStyleSheet(
-                "background-color: #e0e7ff; border: 1px solid #6366f1; border-radius: 6px; padding: 6px 12px;"
-            )
-            self.lbl_license_banner.setStyleSheet("color: #3730a3; font-weight: bold; font-size: 11px;")
+            _style_banner("info")
             rem_str = f" ({res.days_remaining} روز باقیمانده)" if res.days_remaining is not None else ""
             self.lbl_license_banner.setText(f"🔷 نسخه آزمایشی دقیق فعال است{rem_str}.")
             self.license_banner_frame.setVisible(True)
@@ -3299,7 +3436,7 @@ class MainWindow(QMainWindow):
                 self._apply_styles()
                 self._refresh_dashboard_card_styles()
                 if hasattr(self, "btn_theme"):
-                    self.btn_theme.setText("☀️ تم روشن" if new_theme == "dark" else "🌙 تم تیره")
+                    self.btn_theme.setText("☀️ حالت روشن" if new_theme == "dark" else "🌙 حالت تیره")
         self._update_license_banner()
         self._apply_employee_permissions(select_first_unlocked=False)
 
@@ -3522,6 +3659,7 @@ class MainWindow(QMainWindow):
         tab = QWidget()
         layout = QVBoxLayout(tab)
         self.selected_product_id = None
+        self._selected_product_row_version = None
 
         top_split = QHBoxLayout()
         gb_form = QGroupBox("تعریف و ویرایش کالا (بدون نیاز به نام محصول؛ شناسایی با دسته‌بندی، زیرمجموعه، برند و مدل)")
@@ -3621,6 +3759,7 @@ class MainWindow(QMainWindow):
 
     def _clear_product_form(self):
         self.selected_product_id = None
+        self._selected_product_row_version = None
         self._set_generated_code_placeholder(self.ed_prod_code, "products", "code", "P-")
         self.ed_prod_serial.clear()
         self.cb_prod_cat.setCurrentIndex(0)
@@ -3711,14 +3850,38 @@ class MainWindow(QMainWindow):
 
         with self.db.get_connection() as conn:
             r = conn.execute(
-                "SELECT specs_json, serial_number FROM products WHERE id=?", (self.selected_product_id,)
+                "SELECT specs_json, serial_number, row_version FROM products WHERE id=?", (self.selected_product_id,)
             ).fetchone()
             if r:
+                self._selected_product_row_version = int(r["row_version"]) if "row_version" in r.keys() else 1
                 self.ed_prod_serial.setText(r["serial_number"] or "")
                 if r["specs_json"]:
                     sp_data = json.loads(r["specs_json"])
                     sp_data.pop("رنگ", None)
                     self.specs_widget.set_specs_dict(sp_data)
+
+    def _ask_concurrency_resolution(self, title: str, conflict: ConcurrencyConflictError, summary_lines: list = None) -> str:
+        """Present a clear Persian modal choice when optimistic concurrency detects a concurrent edit."""
+        msg = QMessageBox(self)
+        msg.setWindowTitle(title)
+        msg.setIcon(QMessageBox.Warning)
+        msg.setLayoutDirection(Qt.RightToLeft)
+        details = conflict.message_fa
+        if summary_lines:
+            details += "\n\n" + "\n".join(summary_lines)
+        details += "\n\nآیا می‌خواهید اطلاعات جدید را بارگذاری کنید یا تغییرات فعلی خود را روی نسخه جدید اعمال کنید؟"
+        msg.setText(details)
+        btn_reload = msg.addButton("🔄 بارگذاری اطلاعات جدید", QMessageBox.AcceptRole)
+        btn_overwrite = msg.addButton("✍️ اعمال تغییرات من روی نسخه جدید", QMessageBox.DestructiveRole)
+        msg.addButton("انصراف", QMessageBox.RejectRole)
+        _center_message_buttons(msg)
+        msg.exec()
+        clicked = msg.clickedButton()
+        if clicked is btn_reload:
+            return "reload"
+        if clicked is btn_overwrite:
+            return "overwrite"
+        return "cancel"
 
     def _update_selected_product(self):
         specs = self.specs_widget.get_specs_dict()
@@ -3734,6 +3897,7 @@ class MainWindow(QMainWindow):
                     (code, self.selected_product_id),
                 ).fetchone()
             target_id = self.selected_product_id
+            expected_rv = getattr(self, "_selected_product_row_version", None)
             if duplicate:
                 msg = QMessageBox(self)
                 msg.setWindowTitle("کد کالای تکراری")
@@ -3745,15 +3909,40 @@ class MainWindow(QMainWindow):
                 if msg.clickedButton() != replace_btn:
                     return
                 target_id = int(duplicate["id"])
-            self.db.update_product(
-                target_id, code, "",
-                self.cb_prod_cat.currentText().strip() or "سایر موارد",
-                self.specs_widget.get_sub_category(),
-                self.ed_prod_brand.text().strip(), self.ed_prod_model.text().strip(),
-                specs, self.ed_prod_desc.text().strip(),
-                self.sp_prod_reorder.value(), self.sp_prod_profit.value(),
-                serial_number=serial_number,
-            )
+                expected_rv = None
+            cat_val = self.cb_prod_cat.currentText().strip() or "سایر موارد"
+            sub_val = self.specs_widget.get_sub_category()
+            brand_val = self.ed_prod_brand.text().strip()
+            model_val = self.ed_prod_model.text().strip()
+            desc_val = self.ed_prod_desc.text().strip()
+            reorder_val = self.sp_prod_reorder.value()
+            profit_val = self.sp_prod_profit.value()
+            try:
+                self.db.update_product(
+                    target_id, code, "", cat_val, sub_val, brand_val, model_val,
+                    specs, desc_val, reorder_val, profit_val,
+                    serial_number=serial_number,
+                    expected_row_version=expected_rv,
+                )
+            except ConcurrencyConflictError as conflict:
+                live = conflict.live_row
+                choice = self._ask_concurrency_resolution(
+                    "تعارض ویرایش هم‌زمان کالا",
+                    conflict,
+                    [f"کد زنده: {live.get('code', '')} | عنوان زنده: {live.get('name', '')}"],
+                )
+                if choice == "reload":
+                    self.refresh_all_data()
+                    return
+                if choice == "overwrite":
+                    self.db.update_product(
+                        target_id, code, "", cat_val, sub_val, brand_val, model_val,
+                        specs, desc_val, reorder_val, profit_val,
+                        serial_number=serial_number,
+                        expected_row_version=conflict.actual_version,
+                    )
+                else:
+                    return
             self.selected_product_id = target_id
             self.refresh_all_data()
             QMessageBox.information(self, "ذخیره شد", "اطلاعات کالا با موفقیت اصلاح شد.")
@@ -3782,6 +3971,7 @@ class MainWindow(QMainWindow):
         tab = QWidget()
         layout = QVBoxLayout(tab)
         self.selected_batch_id = None
+        self._selected_batch_row_version = None
 
         gb = QGroupBox("ثبت خرید کالا از تأمین‌کننده (ایجاد محموله جدید)")
         grid = QGridLayout(gb)
@@ -4021,6 +4211,7 @@ class MainWindow(QMainWindow):
 
     def _clear_batch_form(self):
         self.selected_batch_id = None
+        self._selected_batch_row_version = None
         self._set_generated_code_placeholder(self.ed_batch_code, "batches", "batch_code", "C-")
         self.ed_batch_serial_number.clear()
         self.cb_batch_prod.setCurrentIndex(-1)
@@ -4190,13 +4381,16 @@ class MainWindow(QMainWindow):
         with self.db.get_connection() as conn:
             batch_state = conn.execute(
                 """SELECT b.colors_json, b.supplier_id, b.buyer_employee_id, b.serial_numbers,
-                          b.product_id, p.code, p.name, p.category, p.sub_category,
+                          b.product_id, b.row_version, p.code, p.name, p.category, p.sub_category,
                           p.brand, p.model, p.specs_json, p.description
                    FROM batches b JOIN products p ON p.id=b.product_id
                    WHERE b.id=?""",
                 (self.selected_batch_id,),
             ).fetchone()
         if batch_state:
+            self._selected_batch_row_version = (
+                int(batch_state["row_version"]) if "row_version" in batch_state.keys() else 1
+            )
             self.ed_batch_serial_number.setText(batch_state["serial_numbers"] or "")
             product_index = next(
                 (
@@ -4249,7 +4443,7 @@ class MainWindow(QMainWindow):
             )
             specifications = self.ed_batch_serial.text().strip()
             batch_serial = self.ed_batch_serial_number.text().strip()
-            self.db.update_batch(
+            args = (
                 self.selected_batch_id,
                 supplier_id,
                 self.cb_batch_buyer.currentData(),
@@ -4263,9 +4457,29 @@ class MainWindow(QMainWindow):
                 batch_serial,
                 specifications,
                 self.cb_batch_status.currentText(),
-                colors=self._checked_colors(self.btn_batch_colors),
-                supplier_name=supplier_name or None,
             )
+            kwargs = {
+                "colors": self._checked_colors(self.btn_batch_colors),
+                "supplier_name": supplier_name or None,
+                "expected_row_version": getattr(self, "_selected_batch_row_version", None),
+            }
+            try:
+                self.db.update_batch(*args, **kwargs)
+            except ConcurrencyConflictError as conflict:
+                live = conflict.live_row
+                choice = self._ask_concurrency_resolution(
+                    "تعارض ویرایش هم‌زمان محموله",
+                    conflict,
+                    [f"کد محموله: {live.get('batch_code', '')} | موجودی باقیمانده فعلی: {live.get('remaining_qty', '')}"],
+                )
+                if choice == "reload":
+                    self.refresh_all_data()
+                    return
+                if choice == "overwrite":
+                    kwargs["expected_row_version"] = conflict.actual_version
+                    self.db.update_batch(*args, **kwargs)
+                else:
+                    return
             self.refresh_all_data()
             QMessageBox.information(
                 self, "ذخیره شد", "محموله خرید با موفقیت اصلاح شد."
@@ -4299,6 +4513,7 @@ class MainWindow(QMainWindow):
         tab = QWidget()
         layout = QVBoxLayout(tab)
         self.selected_sale_id = None
+        self._selected_sale_row_version = None
 
         gb = QGroupBox("ثبت فروش کالا (جست‌وجوی سریع بر اساس دسته‌بندی، زیرگروه، برند، مدل یا کد کالا)")
         grid = QGridLayout(gb)
@@ -4618,6 +4833,7 @@ class MainWindow(QMainWindow):
                        b.unit_cost_price, b.suggested_sell_price, b.profit_pct, b.paid_amount,
                        b.settlement_status, b.serial_numbers, b.colors_json, b.initial_specs,
                        b.final_specs, b.supplier_name_snapshot, b.notes, b.created_at, b.updated_at,
+                       b.row_version,
                        p.code AS p_code, p.category, p.sub_category, p.brand, p.model,
                    p.specs_json AS product_specs_json, p.description AS product_description
             FROM batches b
@@ -4782,6 +4998,7 @@ class MainWindow(QMainWindow):
 
     def _clear_sale_form(self):
         self.selected_sale_id = None
+        self._selected_sale_row_version = None
         self._set_generated_code_placeholder(self.ed_sale_inv, "sales", "invoice_number", "INV-")
         self.cb_sale_prod.blockSignals(True)
         self.cb_sale_prod.setCurrentIndex(0 if self.cb_sale_prod.count() else -1)
@@ -4935,13 +5152,20 @@ class MainWindow(QMainWindow):
         now_dt = f"{sale_d} {self.get_now_time_str()}".strip() if sale_d else self.get_now_datetime_str()
         try:
             war_days = self._get_warranty_days()
-            self.db.add_sale(
+            sale_kwargs = {
+                "warranty_days": war_days,
+                "specifications": self.ed_sale_specs.text().strip(),
+                "colors": sale_colors,
+                "customer_phone": self.ed_sale_phone.text().strip(),
+                "expected_batch_row_version": batch.get("row_version"),
+            }
+            sale_args = (
                 self.ed_sale_inv.text().strip(),
                 product_id,
                 batch["id"],
                 self.cb_sale_seller.currentData(),
                 self.ed_sale_customer.text().strip(),
-                self.cb_sale_qty.get_qty(),
+                qty_to_sell,
                 self.pr_sale_suggest.get_value(),
                 self.pr_sale_actual.get_value(),
                 self.pr_sale_paid.get_value(),
@@ -4953,11 +5177,27 @@ class MainWindow(QMainWindow):
                 self.ed_sale_serial.text().strip(),
                 "",
                 self.cb_sale_status.currentText(),
-                warranty_days=war_days,
-                specifications=self.ed_sale_specs.text().strip(),
-                colors=self._checked_colors(self.btn_sale_colors),
-                customer_phone=self.ed_sale_phone.text().strip(),
             )
+            try:
+                self.db.add_sale(*sale_args, **sale_kwargs)
+            except InsufficientStockError as stock_err:
+                self.refresh_all_data()
+                QMessageBox.warning(self, "کمبود موجودی", stock_err.message_fa)
+                return
+            except ConcurrencyConflictError as conflict:
+                live = conflict.live_row
+                live_rem = int(live.get("remaining_qty", 0))
+                proceed = _ask_yes_no(
+                    self,
+                    "هشدار فروش هم‌زمان",
+                    f"{conflict.message_fa}\n\nموجودی فعلی: {live_rem} عدد\n"
+                    "آیا می‌خواهید با در نظر گرفتن موجودی جدید، فاکتور فروش را ثبت کنید؟",
+                )
+                if not proceed:
+                    self.refresh_all_data()
+                    return
+                sale_kwargs["expected_batch_row_version"] = conflict.actual_version
+                self.db.add_sale(*sale_args, **sale_kwargs)
             self.refresh_all_data()
             self._set_generated_code_placeholder(
                 self.ed_sale_inv, "sales", "invoice_number", "INV-"
@@ -4995,6 +5235,7 @@ class MainWindow(QMainWindow):
             ).fetchone()
         if not sale:
             return
+        self._selected_sale_row_version = int(sale["row_version"]) if "row_version" in sale.keys() else 1
 
         # Restore selectors in dependency order: product -> batches -> batch -> seller.
         # The requested batch is included even when it has since sold out.
@@ -5104,7 +5345,7 @@ class MainWindow(QMainWindow):
             return
         try:
             war_days = self._get_warranty_days()
-            self.db.update_sale(
+            args = (
                 self.selected_sale_id,
                 self.cb_sale_seller.currentData(),
                 self.ed_sale_customer.text().strip(),
@@ -5119,12 +5360,32 @@ class MainWindow(QMainWindow):
                 self.ed_sale_serial.text().strip(),
                 "",
                 self.cb_sale_status.currentText(),
-                warranty_days=war_days,
-                specifications=self.ed_sale_specs.text().strip(),
-                colors=selected_colors,
-                customer_phone=self.ed_sale_phone.text().strip(),
-                sale_datetime=(self.dt_sale_date.get_date() if hasattr(self, "dt_sale_date") else None),
             )
+            kwargs = {
+                "warranty_days": war_days,
+                "specifications": self.ed_sale_specs.text().strip(),
+                "colors": selected_colors,
+                "customer_phone": self.ed_sale_phone.text().strip(),
+                "sale_datetime": (self.dt_sale_date.get_date() if hasattr(self, "dt_sale_date") else None),
+                "expected_row_version": getattr(self, "_selected_sale_row_version", None),
+            }
+            try:
+                self.db.update_sale(*args, **kwargs)
+            except ConcurrencyConflictError as conflict:
+                live = conflict.live_row
+                choice = self._ask_concurrency_resolution(
+                    "تعارض ویرایش هم‌زمان فاکتور فروش",
+                    conflict,
+                    [f"شماره فاکتور: {live.get('invoice_number', '')} | تعداد فعلی: {live.get('qty', '')}"],
+                )
+                if choice == "reload":
+                    self.refresh_all_data()
+                    return
+                if choice == "overwrite":
+                    kwargs["expected_row_version"] = conflict.actual_version
+                    self.db.update_sale(*args, **kwargs)
+                else:
+                    return
             self.refresh_all_data()
             QMessageBox.information(self, "اصلاح فروش", "ردیف فروش با موفقیت اصلاح شد.")
         except Exception as e:
@@ -8026,20 +8287,29 @@ class MainWindow(QMainWindow):
 
         gb_security = QGroupBox("امنیت و ورود کاربران")
         security_layout = QVBoxLayout(gb_security)
+        security_layout.setContentsMargins(15, 15, 15, 15)
+        security_layout.setSpacing(12)
+
+        gb_login_policy = QGroupBox("سیاست ورود و احراز هویت کارکنان")
+        login_policy_layout = QVBoxLayout(gb_login_policy)
+        login_policy_layout.setContentsMargins(15, 15, 15, 15)
+        login_policy_layout.setSpacing(8)
         self.chk_req_pass = QCheckBox(
             "اجبار ورود با رمز عبور برای تمام کارکنان فعال"
         )
         self.chk_req_pass.toggled.connect(self._confirm_password_policy_change)
         self.chk_req_pass.setToolTip(
-            "در حالت فعال، تمام کارکنان فعال باید رمز داشته باشند و برای ورود آن را وارد کنند."
+            "در حالت فعال، تمام کارکنان فعال باید رمز عبور اختصاصی داشته باشند و هنگام ورود آن را وارد کنند."
         )
         security_hint = QLabel(
-            "پیش از فعال‌سازی، برای تمام کارکنان فعال رمز عبور تعیین کنید."
+            "با فعال‌سازی این گزینه، ورود هر کاربر به برنامه تنها پس از وارد کردن رمز عبور شخصی مجاز خواهد بود. "
+            "لطفاً پیش از فعال‌سازی، برای تمامی کارکنان فعال رمز عبور تعیین نمایید."
         )
         security_hint.setWordWrap(True)
         security_hint.setObjectName("settingsHint")
-        security_layout.addWidget(self.chk_req_pass)
-        security_layout.addWidget(security_hint)
+        login_policy_layout.addWidget(self.chk_req_pass)
+        login_policy_layout.addWidget(security_hint)
+        security_layout.addWidget(gb_login_policy)
 
         # مدیریت رمز عبور پایگاه داده با استاندارد بین‌المللی SQLCipher AES-256
         gb_db_pwd = QGroupBox("مدیریت رمز عبور و رمزنگاری پایگاه داده (SQLCipher AES-256)")
@@ -8210,12 +8480,12 @@ class MainWindow(QMainWindow):
         self.ed_shop_name.setLayoutDirection(Qt.RightToLeft)
 
         self.cb_calendar_format = QComboBox()
-        self.cb_calendar_format.addItem("شمسی (پیش‌فرض)", "jalali")
+        self.cb_calendar_format.addItem("شمسی", "jalali")
         self.cb_calendar_format.addItem("قمری", "hijri")
         self.cb_calendar_format.addItem("میلادی", "gregorian")
 
         self.cb_time_format = QComboBox()
-        self.cb_time_format.addItem("۲۴ ساعته (پیش‌فرض)", "24h")
+        self.cb_time_format.addItem("۲۴ ساعته", "24h")
         self.cb_time_format.addItem("۱۲ ساعته (AM / PM)", "12h")
 
         f_gen.addRow("درصد سود پیش‌فرض فروشگاه (%):", self.sp_set_profit)
@@ -8717,11 +8987,14 @@ class MainWindow(QMainWindow):
 
         db_btn_row = QHBoxLayout()
         btn_new_db = QPushButton("ایجاد پایگاه داده")
+        self.btn_new_db = btn_new_db
         btn_new_db.clicked.connect(self._create_and_connect_new_db)
         btn_open_existing_db = QPushButton("اتصال به پایگاه دادهٔ موجود")
+        self.btn_open_existing_db = btn_open_existing_db
         btn_open_existing_db.setObjectName("btnSecondary")
         btn_open_existing_db.clicked.connect(self._connect_existing_db)
         btn_open_db_dir = QPushButton("باز کردن پوشه")
+        self.btn_open_db_dir = btn_open_db_dir
         btn_open_db_dir.clicked.connect(self._open_db_folder)
         db_btn_row.addWidget(btn_new_db)
         db_btn_row.addWidget(btn_open_existing_db)
@@ -8754,9 +9027,11 @@ class MainWindow(QMainWindow):
 
         bk_btn_row = QHBoxLayout()
         btn_manual_bk = QPushButton("پشتیبان‌گیری دستی")
+        self.btn_manual_bk = btn_manual_bk
         btn_manual_bk.setObjectName("btnSuccess")
         btn_manual_bk.clicked.connect(self._do_manual_backup)
         btn_restore_bk = QPushButton("بازیابی پشتیبان")
+        self.btn_restore_bk = btn_restore_bk
         btn_restore_bk.setObjectName("btnDanger")
         btn_restore_bk.clicked.connect(self._do_restore_backup)
         bk_btn_row.addWidget(btn_manual_bk)

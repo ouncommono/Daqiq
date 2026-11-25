@@ -113,6 +113,34 @@ def verify_binary(binary_path: Path, is_standalone: bool = False) -> int:
     return 0
 
 
+def verify_troubleshooter_binary(ts_path: Path) -> int:
+    """Verify decoupled troubleshooter binary executes --help and --dry-run cleanly."""
+    print("\n==================================================")
+    print(f"Verifying Troubleshooter Binary: {ts_path}")
+    print("==================================================")
+    if not ts_path.is_file():
+        print(f"[FAIL] Troubleshooter binary not found: {ts_path}", file=sys.stderr)
+        return 1
+    env = os.environ.copy()
+    env["QT_QPA_PLATFORM"] = "offscreen"
+    for flag in ("--help", "--dry-run"):
+        proc = subprocess.run(
+            [str(ts_path), flag],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if proc.returncode != 0:
+            print(f"[FAIL] Troubleshooter {flag} failed: {proc.returncode}\n{proc.stderr}", file=sys.stderr)
+            return 1
+        if flag == "--dry-run" and "DAQIQ_TROUBLESHOOTER_DRY_RUN_OK" not in proc.stdout:
+            print(f"[FAIL] Troubleshooter --dry-run marker missing:\n{proc.stdout}", file=sys.stderr)
+            return 1
+    print("[PASS] Troubleshooter binary verified (--help and --dry-run).", flush=True)
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description="Daqiq Nuitka Binary Verification Script")
     parser.add_argument("--binary", type=Path, help="Explicit path to executable to verify")
@@ -123,19 +151,26 @@ def main():
     dist_dir = repo_root / "dist"
 
     v_file = repo_root / "VERSION"
-    version = v_file.read_text(encoding="utf-8").strip() if v_file.is_file() else "4.9.3"
+    version = v_file.read_text(encoding="utf-8").strip() if v_file.is_file() else "4.9.9"
 
     if args.binary:
         target = args.binary
         is_standalone = args.mode == "standalone" or "main.dist" in str(target)
+        rc = verify_binary(target, is_standalone)
+        sys.exit(rc)
     elif args.mode == "standalone":
         target = dist_dir / "main.dist" / "main.exe"
         is_standalone = True
+        ts_target = dist_dir / "troubleshooter_build" / "app.dist" / "app.exe"
     else:
         target = dist_dir / f"Daqiq_{version}.exe"
         is_standalone = False
+        ts_target = dist_dir / "Daqiq-Troubleshooter.exe"
 
-    sys.exit(verify_binary(target, is_standalone))
+    rc_main = verify_binary(target, is_standalone)
+    if rc_main != 0:
+        sys.exit(rc_main)
+    sys.exit(verify_troubleshooter_binary(ts_target))
 
 
 if __name__ == "__main__":

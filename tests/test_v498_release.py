@@ -195,7 +195,7 @@ def test_req01_redteam_expiry_sub24h_rollback_and_startup_lock(qapp, monkeypatch
 def test_req01_generator_daqreq_and_smoke_launch_anti_backdoor(tmp_path, monkeypatch):
     """Verify .daqreq has generated_at & app_security_id, and --smoke-launch-db rejects encrypted DB."""
     req = create_device_request_dict(store_name="تست")
-    assert req["app_version"] == "4.9.8"
+    assert req["app_version"] == db_mod.get_live_app_version()
     assert "generated_at" in req and req["generated_at"] == req["generated_at_utc"]
     assert "app_security_id" in req
 
@@ -260,8 +260,9 @@ def test_req03_app_config_and_schema_version_full_parity(monkeypatch, tmp_path):
     cfg_path.write_text(json.dumps(stale), encoding="utf-8")
     loaded = db_mod.load_app_config()
     on_disk = json.loads(cfg_path.read_text(encoding="utf-8"))
+    live_ver = db_mod.get_live_app_version()
     for obj in (loaded, on_disk):
-        assert obj["app_version"] == "4.9.8"
+        assert obj["app_version"] == live_ver
         assert obj["schema_version"] == db_mod.SCHEMA_VERSION
         assert obj["theme"] == "dark"
         assert "last_backup_warning" not in obj
@@ -270,7 +271,7 @@ def test_req03_app_config_and_schema_version_full_parity(monkeypatch, tmp_path):
     # Empty JSON file on disk is auto-repaired cleanly
     cfg_path.write_text("{}", encoding="utf-8")
     repaired = db_mod.load_app_config()
-    assert repaired["app_version"] == "4.9.8"
+    assert repaired["app_version"] == live_ver
     assert repaired["schema_version"] == db_mod.SCHEMA_VERSION
-    assert Path("VERSION").read_text(encoding="utf-8").strip() == "4.9.8"
-    assert m.APP_VERSION == "4.9.8"
+    assert Path("VERSION").read_text(encoding="utf-8").strip() == live_ver
+    assert m.APP_VERSION == live_ver
