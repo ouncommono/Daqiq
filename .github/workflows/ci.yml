@@ -220,53 +220,54 @@ jobs:
           $env:QT_QPA_PLATFORM = "offscreen"
           $env:PYTHONFAULTHANDLER = "1"
           try {
-            python -c "
-import os, shutil, subprocess, sys
-from pathlib import Path
+            $smokePy = @'
+          import os, shutil, subprocess, sys
+          from pathlib import Path
 
-exe = r'C:\daqiq_e2e_smoke\Daqiq.exe'
-dbs = Path(r'C:\daqiq_e2e_smoke_dbs')
-local_app = Path(os.environ['LOCALAPPDATA'])
-logs = local_app / 'Daqiq' / 'logs'
-pre_sizes = {
-    name: (logs / name).stat().st_size if (logs / name).is_file() else 0
-    for name in ('daqiq_crash.log', 'daqiq_native_fault.log')
-}
+          exe = r"C:\daqiq_e2e_smoke\Daqiq.exe"
+          dbs = Path(r"C:\daqiq_e2e_smoke_dbs")
+          local_app = Path(os.environ["LOCALAPPDATA"])
+          logs = local_app / "Daqiq" / "logs"
+          pre_sizes = {
+              name: (logs / name).stat().st_size if (logs / name).is_file() else 0
+              for name in ("daqiq_crash.log", "daqiq_native_fault.log")
+          }
 
-# 1. Create new DB WITHOUT default_taxonomy.json
-db1 = dbs / 'new_no_tax.db'
-p1 = subprocess.run([exe, '--smoke-launch-db', str(db1), '--smoke-launch-mode', 'create'], cwd=r'C:\Windows\Temp', capture_output=True, text=True, timeout=60)
-print('SMOKE 1 STDOUT:', p1.stdout)
-print('SMOKE 1 STDERR:', p1.stderr)
-assert p1.returncode == 0, f'Create-without-taxonomy failed: {p1.returncode}'
-assert 'DAQIQ_SMOKE_LAUNCH_OK' in p1.stdout, p1.stdout
-assert db1.is_file(), 'DB1 was not created'
+          # 1. Create new DB WITHOUT default_taxonomy.json
+          db1 = dbs / "new_no_tax.db"
+          p1 = subprocess.run([exe, "--smoke-launch-db", str(db1), "--smoke-launch-mode", "create"], cwd=r"C:\Windows\Temp", capture_output=True, text=True, timeout=60)
+          print("SMOKE 1 STDOUT:", p1.stdout)
+          print("SMOKE 1 STDERR:", p1.stderr)
+          assert p1.returncode == 0, f"Create-without-taxonomy failed: {p1.returncode}"
+          assert "DAQIQ_SMOKE_LAUNCH_OK" in p1.stdout, p1.stdout
+          assert db1.is_file(), "DB1 was not created"
 
-# 2. Copy external default_taxonomy.json and Create new DB WITH taxonomy
-shutil.copy2('dist/default_taxonomy.json', r'C:\daqiq_e2e_smoke\default_taxonomy.json')
-db2 = dbs / 'new_with_tax.db'
-p2 = subprocess.run([exe, '--smoke-launch-db', str(db2), '--smoke-launch-mode', 'create'], cwd=r'C:\Windows\Temp', capture_output=True, text=True, timeout=60)
-print('SMOKE 2 STDOUT:', p2.stdout)
-print('SMOKE 2 STDERR:', p2.stderr)
-assert p2.returncode == 0, f'Create-with-taxonomy failed: {p2.returncode}'
-assert 'DAQIQ_SMOKE_LAUNCH_OK' in p2.stdout, p2.stdout
+          # 2. Copy external default_taxonomy.json and Create new DB WITH taxonomy
+          shutil.copy2("dist/default_taxonomy.json", r"C:\daqiq_e2e_smoke\default_taxonomy.json")
+          db2 = dbs / "new_with_tax.db"
+          p2 = subprocess.run([exe, "--smoke-launch-db", str(db2), "--smoke-launch-mode", "create"], cwd=r"C:\Windows\Temp", capture_output=True, text=True, timeout=60)
+          print("SMOKE 2 STDOUT:", p2.stdout)
+          print("SMOKE 2 STDERR:", p2.stderr)
+          assert p2.returncode == 0, f"Create-with-taxonomy failed: {p2.returncode}"
+          assert "DAQIQ_SMOKE_LAUNCH_OK" in p2.stdout, p2.stdout
 
-# 3. Connect Existing DB
-p3 = subprocess.run([exe, '--smoke-launch-db', str(db2), '--smoke-launch-mode', 'existing'], cwd=r'C:\Windows\Temp', capture_output=True, text=True, timeout=60)
-print('SMOKE 3 STDOUT:', p3.stdout)
-print('SMOKE 3 STDERR:', p3.stderr)
-assert p3.returncode == 0, f'Connect-existing failed: {p3.returncode}'
-assert 'DAQIQ_SMOKE_LAUNCH_OK' in p3.stdout, p3.stdout
+          # 3. Connect Existing DB
+          p3 = subprocess.run([exe, "--smoke-launch-db", str(db2), "--smoke-launch-mode", "existing"], cwd=r"C:\Windows\Temp", capture_output=True, text=True, timeout=60)
+          print("SMOKE 3 STDOUT:", p3.stdout)
+          print("SMOKE 3 STDERR:", p3.stderr)
+          assert p3.returncode == 0, f"Connect-existing failed: {p3.returncode}"
+          assert "DAQIQ_SMOKE_LAUNCH_OK" in p3.stdout, p3.stdout
 
-# 4. Assert zero new crash or native fault log output
-for log_name, prev_size in pre_sizes.items():
-    lp = logs / log_name
-    if lp.is_file():
-        data = lp.read_bytes()[prev_size:]
-        content = data.decode('utf-8', errors='replace').strip()
-        assert not content, f'Unexpected {log_name} content:\n{content}'
-print('PASS: Compiled Windows onefile post-DB MainWindow launch verified for Create & Existing DB.')
-"
+          # 4. Assert zero new crash or native fault log output
+          for log_name, prev_size in pre_sizes.items():
+              lp = logs / log_name
+              if lp.is_file():
+                  data = lp.read_bytes()[prev_size:]
+                  content = data.decode("utf-8", errors="replace").strip()
+                  assert not content, f"Unexpected {log_name} content:\n{content}"
+          print("PASS: Compiled Windows onefile post-DB MainWindow launch verified for Create & Existing DB.")
+          '@
+            $smokePy | python -c "import sys, textwrap; exec(textwrap.dedent(sys.stdin.read()))"
             if ($LASTEXITCODE -ne 0) {
               exit 1
             }
