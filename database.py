@@ -1,5 +1,7 @@
 # database.py
+from __future__ import annotations
 import os
+from typing import Any, Dict, List, Optional, Set, Tuple
 import sys
 import json
 import re
