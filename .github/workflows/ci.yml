@@ -214,23 +214,24 @@ jobs:
         run: |
           $smokeRoot = "C:\daqiq_e2e_smoke"
           $smokeDbs = "C:\daqiq_e2e_smoke_dbs"
-          $smokeLocal = "C:\daqiq_e2e_smoke_local"
-          Remove-Item -Recurse -Force $smokeRoot, $smokeDbs, $smokeLocal -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Force -Path $smokeRoot, $smokeDbs, $smokeLocal | Out-Null
+          Remove-Item -Recurse -Force $smokeRoot, $smokeDbs -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $smokeRoot, $smokeDbs | Out-Null
           Copy-Item "dist/Daqiq_${{ env.APP_VERSION }}.exe" "$smokeRoot\Daqiq.exe"
           $env:QT_QPA_PLATFORM = "offscreen"
           $env:PYTHONFAULTHANDLER = "1"
-          $env:LOCALAPPDATA = $smokeLocal
-          $env:APPDATA = $smokeLocal
           try {
             python -c "
-import os, subprocess, sys
+import os, shutil, subprocess, sys
 from pathlib import Path
-import shutil
 
 exe = r'C:\daqiq_e2e_smoke\Daqiq.exe'
 dbs = Path(r'C:\daqiq_e2e_smoke_dbs')
-logs = Path(r'C:\daqiq_e2e_smoke_local\Daqiq\logs')
+local_app = Path(os.environ['LOCALAPPDATA'])
+logs = local_app / 'Daqiq' / 'logs'
+pre_sizes = {
+    name: (logs / name).stat().st_size if (logs / name).is_file() else 0
+    for name in ('daqiq_crash.log', 'daqiq_native_fault.log')
+}
 
 # 1. Create new DB WITHOUT default_taxonomy.json
 db1 = dbs / 'new_no_tax.db'
@@ -257,11 +258,12 @@ print('SMOKE 3 STDERR:', p3.stderr)
 assert p3.returncode == 0, f'Connect-existing failed: {p3.returncode}'
 assert 'DAQIQ_SMOKE_LAUNCH_OK' in p3.stdout, p3.stdout
 
-# 4. Assert zero crash or native fault logs
-for log_name in ('daqiq_crash.log', 'daqiq_native_fault.log'):
+# 4. Assert zero new crash or native fault log output
+for log_name, prev_size in pre_sizes.items():
     lp = logs / log_name
     if lp.is_file():
-        content = lp.read_text(encoding='utf-8', errors='replace').strip()
+        data = lp.read_bytes()[prev_size:]
+        content = data.decode('utf-8', errors='replace').strip()
         assert not content, f'Unexpected {log_name} content:\n{content}'
 print('PASS: Compiled Windows onefile post-DB MainWindow launch verified for Create & Existing DB.')
 "
@@ -269,7 +271,7 @@ print('PASS: Compiled Windows onefile post-DB MainWindow launch verified for Cre
               exit 1
             }
           } finally {
-            Remove-Item -Recurse -Force $smokeRoot, $smokeDbs, $smokeLocal -ErrorAction SilentlyContinue
+            Remove-Item -Recurse -Force $smokeRoot, $smokeDbs -ErrorAction SilentlyContinue
           }
 
       - name: Verify Onefile Executable Size and Optimization
