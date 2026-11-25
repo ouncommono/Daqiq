@@ -41,6 +41,12 @@ def verify_binary(binary_path: Path, is_standalone: bool = False) -> int:
         print(f"[FAIL] Sibling default_taxonomy.json missing next to binary at: {taxonomy_file}", file=sys.stderr)
         return 1
     print(f"[PASS] External default_taxonomy.json verified: {taxonomy_file.stat().st_size:,} bytes")
+    if is_standalone:
+        qt_print_hits = list(binary_path.parent.rglob("*PrintSupport*"))
+        if not qt_print_hits:
+            print("[FAIL] QtPrintSupport runtime missing from standalone build!", file=sys.stderr)
+            return 1
+        print(f"[PASS] QtPrintSupport verified in standalone dist: {[p.name for p in qt_print_hits]}")
 
     smoke_log = binary_path.parent / "smoke_test.log"
     if smoke_log.is_file():
@@ -114,16 +120,35 @@ def verify_binary(binary_path: Path, is_standalone: bool = False) -> int:
 
 
 def verify_troubleshooter_binary(ts_path: Path) -> int:
-    """Verify decoupled troubleshooter binary executes --help and --dry-run cleanly."""
+    """Verify decoupled zero-Qt troubleshooter binary executes --help, --dry-run, --self-test & leaves zero temp caches."""
+    import tempfile
+
     print("\n==================================================")
-    print(f"Verifying Troubleshooter Binary: {ts_path}")
+    print(f"Verifying Zero-Qt Troubleshooter Binary: {ts_path}")
     print("==================================================")
     if not ts_path.is_file():
         print(f"[FAIL] Troubleshooter binary not found: {ts_path}", file=sys.stderr)
         return 1
+
+    size_bytes = ts_path.stat().st_size
+    print(f"Troubleshooter size: {size_bytes:,} bytes ({size_bytes / (1024 * 1024):.2f} MB)")
+    if ts_path.name.lower().endswith(".exe") and ts_path.name.lower().startswith("daqiq-troubleshooter"):
+        if size_bytes > 15 * 1024 * 1024:
+            print(
+                f"[FAIL] Troubleshooter size ({size_bytes:,} bytes) exceeds 15 MB limit — Qt may have leaked in!",
+                file=sys.stderr,
+            )
+            return 1
+
     env = os.environ.copy()
-    env["QT_QPA_PLATFORM"] = "offscreen"
-    for flag in ("--help", "--dry-run"):
+    isolated_tmp = Path(tempfile.mkdtemp(prefix="ts_verify_tmp_"))
+    env["TEMP"] = str(isolated_tmp)
+    env["TMP"] = str(isolated_tmp)
+    for flag, marker in (
+        ("--help", None),
+        ("--dry-run", "DAQIQ_TROUBLESHOOTER_DRY_RUN_OK"),
+        ("--self-test", "DAQIQ_TROUBLESHOOTER_SELF_TEST_OK"),
+    ):
         proc = subprocess.run(
             [str(ts_path), flag],
             env=env,
@@ -134,10 +159,22 @@ def verify_troubleshooter_binary(ts_path: Path) -> int:
         if proc.returncode != 0:
             print(f"[FAIL] Troubleshooter {flag} failed: {proc.returncode}\n{proc.stderr}", file=sys.stderr)
             return 1
-        if flag == "--dry-run" and "DAQIQ_TROUBLESHOOTER_DRY_RUN_OK" not in proc.stdout:
-            print(f"[FAIL] Troubleshooter --dry-run marker missing:\n{proc.stdout}", file=sys.stderr)
+        if marker and marker not in proc.stdout:
+            print(f"[FAIL] Troubleshooter {flag} marker {marker!r} missing:\n{proc.stdout}", file=sys.stderr)
             return 1
-    print("[PASS] Troubleshooter binary verified (--help and --dry-run).", flush=True)
+
+    leftovers = list(isolated_tmp.glob("DaqiqReset_*")) + list(isolated_tmp.glob("DaqiqTroubleshooter_*"))
+    if leftovers:
+        print(f"[FAIL] Troubleshooter left leftover temp directories behind: {leftovers}", file=sys.stderr)
+        return 1
+    try:
+        for p in isolated_tmp.rglob("*"):
+            if p.is_file():
+                p.unlink()
+        isolated_tmp.rmdir()
+    except OSError:
+        pass
+    print("[PASS] Zero-Qt Troubleshooter binary verified (--help, --dry-run, --self-test, clean TEMP cleanup).", flush=True)
     return 0
 
 
@@ -151,7 +188,7 @@ def main():
     dist_dir = repo_root / "dist"
 
     v_file = repo_root / "VERSION"
-    version = v_file.read_text(encoding="utf-8").strip() if v_file.is_file() else "4.9.9"
+    version = v_file.read_text(encoding="utf-8").strip() if v_file.is_file() else "4.9.10"
 
     if args.binary:
         target = args.binary

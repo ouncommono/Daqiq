@@ -17,7 +17,11 @@ from decimal import Decimal, ROUND_HALF_EVEN
 from utils import datetime_format
 
 APP_VERSION = "4.8.4"
+# SQLite database schema version written into PRAGMA user_version and settings.schema_version.
+# Preserved as 484 for 100% zero-breaking compatibility with existing commercial retail DBs.
 SCHEMA_VERSION = 484
+# app_config.json configuration format version (distinct from SQLite DB SCHEMA_VERSION).
+CONFIG_SCHEMA_VERSION = 2
 
 
 class ReadOnlyGraceError(PermissionError):
@@ -124,7 +128,7 @@ def get_live_app_version() -> str:
                     return text
         except OSError:
             pass
-    return "4.9.9"
+    return "4.9.10"
 
 SQLITE_INTEGER_MIN = -(1 << 63)
 SQLITE_INTEGER_MAX = (1 << 63) - 1
@@ -609,9 +613,9 @@ def reconcile_app_config(raw_cfg=None):
         "zero_append_count": 3,
         "default_window_maximized": True,
         "require_login_password": False,
-        "config_schema_version": 2,
+        "config_schema_version": CONFIG_SCHEMA_VERSION,
         "app_version": live_version,
-        "schema_version": SCHEMA_VERSION,
+        "schema_version": CONFIG_SCHEMA_VERSION,
         "theme": "light",
         "calendar_type": datetime_format.CALENDAR_JALALI,
         "time_format": datetime_format.TIME_FORMAT_24H,
@@ -634,8 +638,8 @@ def reconcile_app_config(raw_cfg=None):
         cfg.pop(orphan_key, None)
 
     cfg["app_version"] = live_version
-    cfg["config_schema_version"] = 2
-    cfg["schema_version"] = SCHEMA_VERSION
+    cfg["config_schema_version"] = CONFIG_SCHEMA_VERSION
+    cfg["schema_version"] = CONFIG_SCHEMA_VERSION
     cfg["theme"] = "dark" if str(cfg.get("theme") or "").strip().lower() == "dark" else "light"
     cfg["calendar_type"] = datetime_format.CALENDAR_LOOKUP.get(
         str(cfg.get("calendar_type") or "").strip().lower(),
@@ -1613,6 +1617,15 @@ class DatabaseManager:
                 "CREATE INDEX IF NOT EXISTS idx_sales_invoice_number ON sales(invoice_number)",
                 "CREATE INDEX IF NOT EXISTS idx_service_records_invoice_number ON service_records(invoice_number)",
                 "CREATE INDEX IF NOT EXISTS idx_audit_logs_action_time ON audit_logs(action_time DESC, id DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_products_active_cat ON products(is_active, category, sub_category, id DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_products_name ON products(name)",
+                "CREATE INDEX IF NOT EXISTS idx_batches_purchase_date ON batches(purchase_date DESC, id DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_batches_settlement ON batches(settlement_status, paid_amount)",
+                "CREATE INDEX IF NOT EXISTS idx_sales_sale_datetime ON sales(sale_datetime DESC, id DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_sales_settlement ON sales(settlement_status, paid_amount)",
+                "CREATE INDEX IF NOT EXISTS idx_services_service_datetime ON service_records(service_datetime DESC, id DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_upgrades_upgrade_date ON upgrades(upgrade_date DESC, id DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone)",
             ):
                 conn.execute(index_sql)
 

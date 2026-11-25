@@ -106,7 +106,7 @@ pip install -r requirements-build.txt
   python scripts/build_nuitka.py --mode onefile
   python scripts/verify_nuitka_build.py --mode onefile
   ```
-The optimized executables will be created at `dist/Daqiq_4.9.9.exe` and `dist/Daqiq-Troubleshooter.exe` with sibling `dist/default_taxonomy.json` and `dist/SHA256SUMS.txt`.
+The optimized executables will be created at `dist/Daqiq_4.9.10.exe` and `dist/Daqiq-Troubleshooter.exe` with sibling `dist/default_taxonomy.json` and `dist/SHA256SUMS.txt`.
 
 ---
 

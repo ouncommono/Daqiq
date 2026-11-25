@@ -169,7 +169,7 @@ jobs:
         shell: pwsh
         run: |
           $ver = (Get-Content VERSION).Trim()
-          if (-not $ver) { $ver = "4.9.9" }
+          if (-not $ver) { $ver = "4.9.10" }
           Write-Output "APP_VERSION=$ver" >> $env:GITHUB_ENV
           Write-Output "Building Daqiq onefile for version: $ver"
 
@@ -283,13 +283,25 @@ jobs:
         shell: pwsh
         run: |
           $exe = "dist/Daqiq_${{ env.APP_VERSION }}.exe"
+          $tsExe = "dist/Daqiq-Troubleshooter.exe"
           if (-not (Test-Path $exe)) {
             Write-Error "Target executable not found: $exe"
             exit 1
           }
+          if (-not (Test-Path $tsExe)) {
+            Write-Error "Troubleshooter executable not found: $tsExe"
+            exit 1
+          }
           $bytes = (Get-Item $exe).Length
           $mb = [math]::Round($bytes / 1MB, 2)
-          Write-Output "Optimized Executable Size: $mb MB ($bytes bytes)"
+          $tsBytes = (Get-Item $tsExe).Length
+          $tsMb = [math]::Round($tsBytes / 1MB, 2)
+          Write-Output "Optimized Daqiq Executable Size: $mb MB ($bytes bytes)"
+          Write-Output "Zero-Qt Troubleshooter Executable Size: $tsMb MB ($tsBytes bytes)"
+          if ($tsBytes -gt 15MB) {
+            Write-Error "Daqiq-Troubleshooter.exe ($tsMb MB) exceeds 15 MB limit — must be zero-Qt!"
+            exit 1
+          }
 
       - name: Scan built artifacts for signing secrets
         shell: pwsh
@@ -332,7 +344,7 @@ jobs:
         shell: pwsh
         run: |
           $ver = (Get-Content VERSION).Trim()
-          if (-not $ver) { $ver = "4.9.9" }
+          if (-not $ver) { $ver = "4.9.10" }
           Write-Output "APP_VERSION=$ver" >> $env:GITHUB_ENV
 
       - name: Download Build Artifacts

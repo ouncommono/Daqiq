@@ -1,3 +1,15 @@
+# Daqiq 4.9.10
+
+## Commercial A4/A5 B&W Printing, 1-Year Store Scalability, Zero-Qt Troubleshooter EXE & Commercial Polish
+
+- **Monochrome A4/A5 Commercial Invoice & Report Printing (`utils/printing.py`, `main.py`, `scripts/build_nuitka.py`)**: Added high-contrast monochrome B&W RTL print preview & printing (`PySide6.QtPrintSupport` bundled cleanly via Nuitka `printsupport`) with `🖨️ چاپ` buttons next to every report/table search bar, multi-row selection, empty-selection Persian prompt, customer-only «فاکتور فروش» with strict zero cost/profit/margin leakage protection, «رسید خرید و ثبت محموله», «فاکتور خدمات و تعمیرات» / «رسید ارتقای کالا», and «گزارش چاپی ...», plus vector PDF export and A4/A5 switching.
+- **1-Year High-Volume DB Scalability & LAN Concurrency (`database.py`, `main.py`)**: Added non-breaking `CREATE INDEX IF NOT EXISTS` retail scale indexes (`idx_products_active_cat`, `idx_products_name`, `idx_batches_purchase_date`, `idx_batches_settlement`, `idx_sales_sale_datetime`, `idx_sales_settlement`, `idx_services_service_datetime`, `idx_upgrades_upgrade_date`, `idx_customers_phone`), debounced large-table search (>500 rows), and extended interactive OCC conflict resolution (`ConcurrencyConflictError`) to services, upgrades, and suppliers.
+- **Zero-Qt Standalone `Daqiq-Troubleshooter.exe` (`troubleshooter/win_ui.py`, `scripts/build_nuitka.py`, `scripts/verify_nuitka_build.py`)**: Completely removed PySide6/Qt from `Daqiq-Troubleshooter.exe`, replacing it with pure Python stdlib + native Win32 RTL `MessageBoxW`, reducing onefile size to ~4–6 MB, eliminating cached extraction leftovers (`--onefile-tempdir-spec={TEMP}/DaqiqReset_{PID}` without `--onefile-cache-mode=cached`), and preserving all manual & automatic backups unconditionally.
+- **Airtight `readonly` Grace Mode, Banner Overhaul & Button Copy (`main.py`, `licensing/license_policy.py`)**: Rewrote the top license warning banner to concise RTL (`<= 2` lines, compact fixed `تمدید/مدیریت لایسنس` button, removed «یادآوری لایسنس» and «دوره مهلت لایسنس»), strictly locked report-export builders, catalog/JSON import structure editors, and general settings during `readonly` grace while keeping DB backups, JSON/Excel exports, and viewing/printing active, added backward-compatible `print_invoices` & `backup_export` sub-features, and standardized all 7 edit buttons (`«✏️ ویرایش ...»`).
+- **`app_config.json` & `schema_version` Alignment (`database.py`, `app_config.json`)**: Separated `CONFIG_SCHEMA_VERSION = 2` (`app_config.json` `schema_version`) from legacy SQLite `PRAGMA user_version = 484` so stale `484` never leaks into `app_config.json`.
+
+---
+
 # Daqiq 4.9.9
 
 ## Multi-PC LAN/SMB Concurrency, Grace Mode Hardening, Standalone Troubleshooter & Commercial UI Polish

@@ -444,7 +444,7 @@ class LicenseVerifier:
         self,
         envelope: LicenseEnvelope,
         current_hardware_fingerprint: str,
-        current_app_version: str = "4.9.9",
+        current_app_version: str = "4.9.10",
         now_utc: Optional[datetime.datetime] = None,
         available_hardware_tiers: Optional[Dict[str, str]] = None,
         high_water_mark_utc: Optional[datetime.datetime] = None,
