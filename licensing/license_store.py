@@ -205,12 +205,12 @@ class LicenseStore:
         is_subscription: bool,
         now_utc: Optional[datetime.datetime] = None,
         tolerance_sec: int = CLOCK_TOLERANCE_SECONDS,
-    ) -> None:
+    ) -> datetime.datetime:
         """Verify high-water mark across multi-location redundant filesystem anchors.
 
         Zero registry calls: uses HMAC-SHA256 authenticated High-Water-Mark anchors across
         at least two independent user-writable non-DB filesystem locations.
-        Recovers smoothly if user corrects the clock.
+        Returns the monotonic high-water mark UTC datetime (max of now_utc and verified anchors).
         Perpetual licenses are immune to clock-rollback errors.
         """
         if now_utc is None:
@@ -285,3 +285,5 @@ class LicenseStore:
         # Machine-wide directory (%PROGRAMDATA%\Daqiq\license): .runtime_anchor.dat (if writable)
         if self.machine_dir and self.machine_dir != self.user_dir:
             self._write_anchor_atomic(self.machine_dir, RUNTIME_ANCHOR_FILE, state_dict)
+
+        return new_high

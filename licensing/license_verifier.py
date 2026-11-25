@@ -236,7 +236,9 @@ class LicenseVerifier:
             contact=cust_raw.get("contact"),
         )
 
-        lic_type = p_raw.get("license_type")
+        lic_type = p_raw.get("license_type") or p_raw.get("type") or p_raw.get("plan")
+        if lic_type is None and p_raw.get("perpetual") is True:
+            lic_type = "perpetual"
         if lic_type not in ("perpetual", "subscription", "trial", "timed"):
             raise LicensingError(f"نوع لایسنس نامعتبر است: {lic_type}")
 
@@ -441,9 +443,10 @@ class LicenseVerifier:
         self,
         envelope: LicenseEnvelope,
         current_hardware_fingerprint: str,
-        current_app_version: str = "4.9.7",
+        current_app_version: str = "4.9.8",
         now_utc: Optional[datetime.datetime] = None,
         available_hardware_tiers: Optional[Dict[str, str]] = None,
+        high_water_mark_utc: Optional[datetime.datetime] = None,
     ) -> ValidationResult:
         """Complete evaluation of envelope, hardware match, version and date boundaries."""
         if now_utc is None:
@@ -552,14 +555,19 @@ class LicenseVerifier:
             )
 
         # 5. Date boundaries & grace period check (single fail-closed evaluator)
-        return self.evaluate_validity_window(envelope, now_utc=now_utc)
+        return self.evaluate_validity_window(
+            envelope,
+            now_utc=now_utc,
+            high_water_mark_utc=high_water_mark_utc,
+        )
 
     def evaluate_validity_window(
         self,
         envelope: LicenseEnvelope,
         now_utc: Optional[datetime.datetime] = None,
+        high_water_mark_utc: Optional[datetime.datetime] = None,
     ) -> ValidationResult:
-        """Evaluate not_before, expires_at, and explicit grace window strictly (fail-closed)."""
+        """Evaluate issued_at, not_before, expires_at, and explicit grace strictly (fail-closed)."""
         if now_utc is None:
             now_utc = datetime.datetime.now(datetime.timezone.utc)
         elif now_utc.tzinfo is None:
@@ -567,7 +575,18 @@ class LicenseVerifier:
         else:
             now_utc = now_utc.astimezone(datetime.timezone.utc)
 
+        effective_now = now_utc
+        if high_water_mark_utc is not None:
+            hwm = (
+                high_water_mark_utc.replace(tzinfo=datetime.timezone.utc)
+                if high_water_mark_utc.tzinfo is None
+                else high_water_mark_utc.astimezone(datetime.timezone.utc)
+            )
+            if hwm > effective_now:
+                effective_now = hwm
+
         try:
+            dt_issued = parse_iso8601_utc(envelope.payload.issued_at)
             dt_not_before = parse_iso8601_utc(envelope.payload.not_before)
         except (ValueError, TypeError) as e:
             return ValidationResult(
@@ -575,8 +594,23 @@ class LicenseVerifier:
                 is_valid=False,
                 license=envelope,
                 message_fa=STATUS_MESSAGES_FA[ValidationStatus.CORRUPTED_LICENSE],
-                detail=f"تاریخ شروع اعتبار لایسنس نامعتبر است: {e}",
+                detail=f"تاریخ صدور یا شروع اعتبار لایسنس نامعتبر است: {e}",
             )
+
+        raw_skew = envelope.payload.max_clock_skew_hours
+        if raw_skew is None:
+            skew_hours = 24
+        else:
+            skew_int = _extract_non_bool_int(raw_skew)
+            if skew_int is None or skew_int < 0:
+                return ValidationResult(
+                    status=ValidationStatus.CORRUPTED_LICENSE,
+                    is_valid=False,
+                    license=envelope,
+                    message_fa=STATUS_MESSAGES_FA[ValidationStatus.CORRUPTED_LICENSE],
+                    detail="مقدار انحراف ساعت مجاز نامعتبر است.",
+                )
+            skew_hours = skew_int
 
         if now_utc < dt_not_before:
             return ValidationResult(
@@ -587,9 +621,20 @@ class LicenseVerifier:
                 detail=f"تاریخ شروع: {envelope.payload.not_before}، زمان جاری: {now_utc.isoformat()}",
             )
 
+        anchor_floor = min(dt_issued, dt_not_before)
+        is_sub_or_trial = envelope.payload.license_type in ("subscription", "trial", "timed")
+        if is_sub_or_trial and now_utc < (anchor_floor - datetime.timedelta(hours=skew_hours)):
+            return ValidationResult(
+                status=ValidationStatus.CLOCK_TAMPERED,
+                is_valid=False,
+                license=envelope,
+                message_fa=STATUS_MESSAGES_FA[ValidationStatus.CLOCK_TAMPERED],
+                detail=f"زمان سیستم ({now_utc.isoformat()}) عقب‌تر از تاریخ شروع مجاز است.",
+            )
+
         is_trial = envelope.payload.license_type == "trial"
 
-        if envelope.payload.license_type in ("subscription", "trial", "timed"):
+        if is_sub_or_trial:
             if not envelope.payload.expires_at:
                 return ValidationResult(
                     status=ValidationStatus.CORRUPTED_LICENSE,
@@ -642,11 +687,11 @@ class LicenseVerifier:
             if grace_mode not in ("readonly", "full"):
                 grace_mode = "readonly"
 
-            days_remaining = (dt_expires - now_utc).days
+            days_remaining = (dt_expires - effective_now).days
             grace_deadline = dt_expires + datetime.timedelta(days=grace_days)
 
-            if now_utc >= dt_expires:
-                if grace_days > 0 and now_utc < grace_deadline:
+            if effective_now >= dt_expires:
+                if grace_days > 0 and effective_now < grace_deadline:
                     return ValidationResult(
                         status=ValidationStatus.GRACE_PERIOD,
                         is_valid=True,
@@ -663,7 +708,7 @@ class LicenseVerifier:
                     is_valid=False,
                     license=envelope,
                     message_fa=STATUS_MESSAGES_FA[ValidationStatus.EXPIRED],
-                    detail=f"تاریخ انقضا: {envelope.payload.expires_at}، زمان جاری: {now_utc.isoformat()}",
+                    detail=f"تاریخ انقضا: {envelope.payload.expires_at}، زمان جاری: {effective_now.isoformat()}",
                     days_remaining=days_remaining,
                     is_trial=is_trial,
                 )

@@ -1,3 +1,15 @@
+# Daqiq 4.9.8
+
+## Red-Team License Security Hardening, Battery Taxonomy Sync, Config Parity & Codebase Optimization
+
+- **Zero-Bypass Subscription Expiry & High-Water-Mark Latch (`licensing/license_store.py`, `licensing/license_verifier.py`, `licensing/license_policy.py`, `licensing/license_dialog.py`, `main.py`, `docs/LICENSE_PROTOCOL_V1.md`)**: Closed sub-24h clock-rollback revival of expired 1-day/timed licenses by feeding monotonic High-Water-Mark (`max(now_utc, high_water_mark_utc)`) from multi-location HMAC-SHA256 clock anchors directly into `evaluate_validity_window()`; enforced `issued_at - max_clock_skew_hours` clock-rollback detection; added fail-closed `LicenseDialog.accept()` verification on the startup gate and end-of-day display parity; hardened `--smoke-launch-db` as strictly non-interactive (`setEnabled(False)`, input-transparent, rejects password-protected DBs, 6s daemon watchdog); added `"generated_at"` alongside `"generated_at_utc"` in `.daqreq` for full `Daqiq-License-Generator` `DeviceRequest` parity; shortened runtime periodic license check interval to `60s`.
+- **Synced Updated Battery Taxonomy (`default_taxonomy.json`)**: Merged updated external taxonomy from `release/v4.9.7` (`a2fe616`) adding «باتری قلمی، سکه‌ای و شارژی (AA, Coin & Rechargeable Battery)», `UPS LiFePO4 Battery`, `6V 4.5Ah`, and 4 dedicated attribute sets while keeping `default_taxonomy.json` strictly external alongside `Daqiq.exe`.
+- **`app_config.json` & `schema_version` Parity (`database.py`)**: Dynamically reconciled `app_config.json` (`schema_version = SCHEMA_VERSION`, live `app_version = "4.9.8"`, repaired empty/corrupt configs, canonicalized optional keys) while preserving all user preferences.
+- **Legacy DB Migration Cleanup (`database.py`)**: Removed obsolete pre-v4.9.7 legacy column-drop/table-rebuild migration code cleanly while keeping greenfield DB creation, `v4.9.7`/`v4.9.8` DB opening, and General Settings calendar conversion 100% intact.
+- **Performance Optimization & CI Fixes (`main.py`, `.github/workflows/ci.yml`)**: Batched `_populate_table_safely` table repaints with `setUpdatesEnabled(False)` and precomputed column metadata; fixed `.github/workflows/ci.yml` PR detached-HEAD null branch trim failure.
+
+---
+
 # Daqiq 4.9.7
 
 ## Commercial Licensing Expiry Parity, Unified "Date Time" Schema, Universal Dialog Theming & Full Stability Audit

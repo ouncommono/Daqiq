@@ -504,7 +504,7 @@ def _resolve_app_security_id(explicit_security_id: Optional[str] = None) -> str:
 
 
 def create_device_request_dict(
-    app_version: str = "4.9.7",
+    app_version: str = "4.9.8",
     device_label: str = "",
     store_name: str = "",
     fp_prefix: Optional[str] = None,
@@ -541,6 +541,7 @@ def create_device_request_dict(
         "os_info": os_info,
         "cpu_model": cpu_model,
         "app_version": app_version,
+        "generated_at": now_iso,
         "generated_at_utc": now_iso,
     }
     if device_label and str(device_label).strip():

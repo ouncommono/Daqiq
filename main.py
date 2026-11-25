@@ -127,7 +127,7 @@ def _load_app_version() -> str:
                         return ver
             except Exception:
                 pass
-    return "4.9.7"
+    return "4.9.8"
 
 APP_VERSION = _load_app_version()
 
@@ -2882,7 +2882,7 @@ class MainWindow(QMainWindow):
         # بررسی دوره‌ای پس‌زمینه (هر ۱۰ دقیقه بدون ایجاد وقفه در رابط کاربری)
         self._license_timer = QTimer(self)
         self._license_timer.timeout.connect(self._periodic_license_check)
-        self._license_timer.start(600000)
+        self._license_timer.start(60000)
 
     def _update_license_banner(self, res: Optional[ValidationResult] = None):
         if not getattr(self, "license_service", None):
@@ -3359,75 +3359,71 @@ class MainWindow(QMainWindow):
 
     def _populate_table_safely(self, table: QTableWidget, rows_data: list, highlight_col=None):
         """
-        بند ۱۰ و ۱۱: پر کردن امن جداول با غیرفعال کردن موقت SortingEnabled
+        بند ۱۰ و ۱۱: پر کردن امن جداول با غیرفعال کردن موقت SortingEnabled و UpdatesEnabled
         (رفع کامل باگ خالی افتادن سطرهای جدول در داشبورد، کاربران و سایر تب‌ها)
         و افزودن Tooltip روی تک‌تک سلول‌ها برای خوانایی در صفحات کوچک.
         """
         table.setSortingEnabled(False)
-        table.clearContents()
-        table.setRowCount(len(rows_data))
-        for r_idx, row_values in enumerate(rows_data):
-            for c_idx, val in enumerate(row_values):
-                text_val = "" if val is None else str(val)
-                display_text = strip_bidi_controls(text_val)
+        table.setUpdatesEnabled(False)
+        try:
+            table.clearContents()
+            table.setRowCount(len(rows_data))
+            col_count = max(table.columnCount(), len(rows_data[0]) if rows_data else 0)
+            col_meta = []
+            for c_idx in range(col_count):
                 header_item = table.horizontalHeaderItem(c_idx)
                 header_text = header_item.text() if header_item else ""
-                signed_value = (
-                    ("تخفیف" in header_text or "تشدید" in header_text)
-                    and text_val.startswith(("+", "-"))
-                )
-                if signed_value:
-                    display_text = "\u200e" + display_text
-                item = _SmartSortTableItem(display_text)
-                item.setData(Qt.UserRole, _smart_table_sort_key(text_val))
-                item.setToolTip(strip_bidi_controls(text_val))
-                if signed_value:
-                    item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+                col_meta.append((
+                    ("تخفیف" in header_text or "تشدید" in header_text),
+                    "بدهی" in header_text,
+                    ("طلب" in header_text or "مطالبات" in header_text),
+                    (
+                        "مانده حساب" in header_text
+                        or "مانده تسویه‌نشده" in header_text
+                        or "مانده تسویه نشده" in header_text
+                    ),
+                ))
 
-                financial_value = _financial_number(text_val)
-                debt_column = "بدهی" in header_text
-                receivable_column = "طلب" in header_text or "مطالبات" in header_text
-                row_kind = str(
-                    rows_data[r_idx][0] if rows_data[r_idx] else ""
-                )
-                mixed_balance_column = (
-                    "مانده حساب" in header_text
-                    or "مانده تسویه‌نشده" in header_text
-                    or "مانده تسویه نشده" in header_text
-                )
-                row_is_payable = mixed_balance_column and (
-                    "بدهی" in row_kind or "خرید محموله" in row_kind
-                )
-                row_is_receivable = mixed_balance_column and (
-                    "طلب" in row_kind or "فروش کالا" in row_kind
-                    or "فاکتور خدمات" in row_kind
-                )
-                if financial_value is not None and financial_value < 0:
-                    item.setForeground(QColor("#dc2626"))
-                elif (
-                    (debt_column or row_is_payable)
-                    and financial_value is not None
-                    and financial_value > 0
-                ):
-                    item.setForeground(QColor("#dc2626"))
-                elif (
-                    (receivable_column or row_is_receivable)
-                    and financial_value is not None
-                    and financial_value > 0
-                ):
-                    item.setForeground(QColor("#059669"))
-                elif highlight_col is not None and c_idx == highlight_col:
-                    if text_val in ("ناموجود", "کم‌موجود", "تسویه‌نشده"):
-                        item.setForeground(QColor("#dc2626"))
-                    elif text_val.startswith("+"):
-                        item.setForeground(QColor("#059669"))
-                table.setItem(r_idx, c_idx, item)
-        # Input rows are already sorted by activity timestamps in SQL; keep this
-        # order stable instead of allowing the primary-key column to re-sort rows.
-        table.setSortingEnabled(False)
-        search = self._table_search_fields.get(table)
-        if search is not None:
-            self._filter_table_rows(table, search.text())
+            red_brush = QColor("#dc2626")
+            green_brush = QColor("#059669")
+            for r_idx, row_values in enumerate(rows_data):
+                row_kind = str(row_values[0] if row_values else "")
+                is_payable_row = ("بدهی" in row_kind or "خرید محموله" in row_kind)
+                is_receivable_row = ("طلب" in row_kind or "فروش کالا" in row_kind or "فاکتور خدمات" in row_kind)
+                for c_idx, val in enumerate(row_values):
+                    text_val = "" if val is None else str(val)
+                    display_text = strip_bidi_controls(text_val)
+                    is_sign_col, debt_column, receivable_column, mixed_balance_column = col_meta[c_idx]
+                    signed_value = is_sign_col and text_val.startswith(("+", "-"))
+                    if signed_value:
+                        display_text = "\u200e" + display_text
+                    item = _SmartSortTableItem(display_text)
+                    item.setData(Qt.UserRole, _smart_table_sort_key(text_val))
+                    item.setToolTip(display_text)
+                    if signed_value:
+                        item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+
+                    financial_value = _financial_number(text_val)
+                    row_is_payable = mixed_balance_column and is_payable_row
+                    row_is_receivable = mixed_balance_column and is_receivable_row
+                    if financial_value is not None and financial_value < 0:
+                        item.setForeground(red_brush)
+                    elif (debt_column or row_is_payable) and financial_value is not None and financial_value > 0:
+                        item.setForeground(red_brush)
+                    elif (receivable_column or row_is_receivable) and financial_value is not None and financial_value > 0:
+                        item.setForeground(green_brush)
+                    elif highlight_col is not None and c_idx == highlight_col:
+                        if text_val in ("ناموجود", "کم‌موجود", "تسویه‌نشده"):
+                            item.setForeground(red_brush)
+                        elif text_val.startswith("+"):
+                            item.setForeground(green_brush)
+                    table.setItem(r_idx, c_idx, item)
+            table.setSortingEnabled(False)
+            search = self._table_search_fields.get(table)
+            if search is not None:
+                self._filter_table_rows(table, search.text())
+        finally:
+            table.setUpdatesEnabled(True)
 
     # =========================================================================
     # ۱. تب داشبورد
@@ -12119,12 +12115,15 @@ def _run_smoke_launch_db(app: QApplication, db_path: str, mode: str = "create") 
         dlg.close()
 
         db = DatabaseManager(chosen)
+        if db.is_password_protected():
+            print("DAQIQ_SMOKE_LAUNCH_ERROR: Password-protected DB rejected in non-interactive smoke mode.", file=sys.stderr, flush=True)
+            return 1
         active_emp, accepted = _resolve_startup_employee(db)
         if not accepted:
             print("DAQIQ_SMOKE_LAUNCH_ERROR: Employee login required in smoke DB.", file=sys.stderr, flush=True)
             return 1
 
-        # Strictly ephemeral in-memory smoke entitlement stub; never persisted or usable interactively.
+        # Strictly ephemeral, input-locked, self-terminating smoke entitlement; never usable interactively.
         smoke_res = ValidationResult(
             status=ValidationStatus.VALID,
             is_valid=True,
@@ -12141,9 +12140,18 @@ def _run_smoke_launch_db(app: QApplication, db_path: str, mode: str = "create") 
         )
 
         win = MainWindow(db, active_emp, license_service=smoke_svc)
+        win.setEnabled(False)
+        win.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        win.setAttribute(Qt.WA_ShowWithoutActivating, True)
+        win.setFocusPolicy(Qt.NoFocus)
         global _ACTIVE_MAIN_WINDOW
         _ACTIVE_MAIN_WINDOW = win
         win.show()
+
+        import threading
+        watchdog = threading.Timer(6.0, lambda: os._exit(2))
+        watchdog.daemon = True
+        watchdog.start()
 
         smoke_state = {"ok": False, "err": ""}
 
@@ -12166,7 +12174,10 @@ def _run_smoke_launch_db(app: QApplication, db_path: str, mode: str = "create") 
                 app.quit()
 
         QTimer.singleShot(1500, _finish_smoke)
-        app.exec()
+        try:
+            app.exec()
+        finally:
+            watchdog.cancel()
         app.setQuitOnLastWindowClosed(True)
 
         if not smoke_state["ok"]:
@@ -12320,7 +12331,7 @@ def main():
             if dlg.exec() != QDialog.Accepted:
                 app.setQuitOnLastWindowClosed(True)
                 sys.exit(0)
-            val_res = license_service.check_license()
+            val_res = license_service.check_license(force_reload=True)
             if not val_res.is_valid:
                 app.setQuitOnLastWindowClosed(True)
                 sys.exit(0)

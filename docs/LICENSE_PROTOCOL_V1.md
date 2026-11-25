@@ -1,9 +1,9 @@
-# Daqiq Offline Licensing Protocol Specification (v1.5 — v4.9.7)
+# Daqiq Offline Licensing Protocol Specification (v1.6 — v4.9.8)
 
-**Document Version:** 1.5.0  
-**Target Product:** Daqiq Desktop (`daqiq.desktop`)  
-**Release:** v4.9.7  
-**Security Boundary:** Asymmetric Ed25519 Signatures, Native Win32 SMBIOS Hardware Fingerprinting (`GetSystemFirmwareTable('RSMB')`), Redundant Filesystem HMAC-SHA256 Clock-Rollback Anchors (Zero Windows Registry), Native C-Compiled XOR-Sharded Public Keys.
+**Document Version:** 1.6.0
+**Target Product:** Daqiq Desktop (`daqiq.desktop`)
+**Release:** v4.9.8
+**Security Boundary:** Asymmetric Ed25519 Signatures, Native Win32 SMBIOS Hardware Fingerprinting (`GetSystemFirmwareTable('RSMB')`), Redundant Filesystem HMAC-SHA256 High-Water-Mark Clock Anchors (Zero Windows Registry), Native C-Compiled XOR-Sharded Public Keys.
 
 ---
 
@@ -23,18 +23,22 @@ Includes the exact `app_security_id` (`شناسه امنیتی برنامه`) di
   "computer_name": "CASHIER-PC",
   "os_info": "Windows 10 (64bit)",
   "cpu_model": "Intel(R) Core(TM) i5-12400F",
-  "app_version": "4.9.7",
+  "app_version": "4.9.8",
+  "generated_at": "2026-11-25T12:00:00Z",
   "generated_at_utc": "2026-11-25T12:00:00Z",
   "checksum_sha256": "<64-char-hex-sha256-of-canonical-json>"
 }
 ```
 
 - `checksum_sha256` is computed over `json.dumps(req_without_checksum, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")`.
+- Both `generated_at` and `generated_at_utc` are included so Generator `DeviceRequest` (`generated_at`) and legacy inspectors deserialize seamlessly.
 - `device_label` is omitted unless explicitly supplied by an operator/CLI caller.
-- **v4.9.7 Expiry & Grace Parity Notes (Generator Sync):**
-  - `grace_period_days` defaults strictly to **`0`** when omitted or `None` (no hidden grace days). When `grace_period_days > 0`, hard lock triggers at `expires_at + grace_period_days`.
+- **v4.9.8 Expiry & Red-Team Security Notes (Generator Sync):**
+  - `grace_period_days` defaults strictly to **`0`** when omitted or `None` (zero hidden grace days). When `grace_period_days > 0`, hard lock triggers at `expires_at + grace_period_days`.
   - Non-perpetual licenses (`subscription`, `trial`, `timed`) with missing or unparseable expiry fail closed (`CORRUPTED_LICENSE`). Date-only expiry strings (`YYYY-MM-DD`) expire at end-of-day UTC (`23:59:59Z`).
-  - Alias keys (`expires_at_utc`, `valid_until`, `expiry_date`, `duration_days`, and nested `validity.*`) are supported safely without breaking canonical Ed25519 signature verification.
+  - Alias keys (`expires_at_utc`, `valid_until`, `expiry_date`, `duration_days`, and nested `validity.*`) and `license_type`/`type`/`plan` are supported safely without breaking canonical Ed25519 signature verification.
+  - **Monotonic High-Water-Mark Expiration Latch:** Once monotonic clock anchors pass `expires_at`, even rolling Windows clock back within `max_clock_skew_hours` (e.g., < 24h) evaluates expiry against `max(now_utc, high_water_mark_utc)` — making expired license revival impossible. `issued_at - max_clock_skew_hours` is also enforced strictly.
+  - **Fail-Closed Startup & CLI Non-Bypass:** `LicenseDialog.accept()` re-verifies `check_license(force_reload=True).is_valid` when gating startup; `--smoke-launch-db` runs strictly non-interactive, input-locked, refuses password-protected DBs, and auto-terminates via daemon watchdog.
 
 ### 1.2 Configurable Build Identity (`public_key`, `key_id`, `fp_prefix`)
 Precedence order at build time:

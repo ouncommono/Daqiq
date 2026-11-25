@@ -107,7 +107,7 @@ def _build_service(tmp_path, priv, pub_b64, key_id, hw, now_utc_holder):
         verifier=verifier,
         hardware_provider=hw,
         clock_provider=lambda: now_utc_holder[0],
-        app_version="4.9.7",
+        app_version="4.9.8",
     )
     return svc
 
@@ -149,13 +149,14 @@ def test_req01_generator_subscription_expiry_and_fail_closed(tmp_path):
     assert fresh_res.status == ValidationStatus.EXPIRED
 
     # 3. Omitted grace_period_days (None) MUST NOT grant hidden 7-day grace
-    now_holder[0] = datetime.datetime(2026, 12, 2, 12, 0, 0, tzinfo=datetime.timezone.utc)
+    nograce_clock = [datetime.datetime(2026, 12, 2, 12, 0, 0, tzinfo=datetime.timezone.utc)]
+    svc_nograce = _build_service(tmp_path / "nograce_case", priv, pub_b64, key_id, hw, nograce_clock)
     p_no_grace = _base_generator_payload(key_id, fp, expires_at="2026-12-02T23:59:59Z")
     p_no_grace.pop("grace_period_days", None)
-    assert svc.import_license_bytes(_sign_generator_payload(priv, key_id, p_no_grace)).is_valid is True
-    now_holder[0] = datetime.datetime(2026, 12, 3, 0, 0, 1, tzinfo=datetime.timezone.utc)
-    assert svc.check_license(force_reload=False).is_valid is False
-    assert svc.check_license(force_reload=False).status == ValidationStatus.EXPIRED
+    assert svc_nograce.import_license_bytes(_sign_generator_payload(priv, key_id, p_no_grace)).is_valid is True
+    nograce_clock[0] = datetime.datetime(2026, 12, 3, 0, 0, 1, tzinfo=datetime.timezone.utc)
+    assert svc_nograce.check_license(force_reload=False).is_valid is False
+    assert svc_nograce.check_license(force_reload=False).status == ValidationStatus.EXPIRED
 
     # 4. Explicit grace_period_days=7: day 3 -> GRACE_PERIOD, day 8 -> HARD LOCK EXPIRED
     grace_clock = [datetime.datetime(2026, 12, 1, 10, 0, 0, tzinfo=datetime.timezone.utc)]
@@ -186,7 +187,7 @@ def test_req01_generator_subscription_expiry_and_fail_closed(tmp_path):
     r_future = svc.verifier.validate_license(
         svc.verifier.parse_envelope_from_bytes(_sign_generator_payload(priv, key_id, p_future)),
         fp,
-        "4.9.7",
+        "4.9.8",
         now_utc=now_holder[0],
     )
     assert r_future.is_valid is False
@@ -202,10 +203,10 @@ def test_req01_generator_subscription_expiry_and_fail_closed(tmp_path):
     )
     env_do = svc.verifier.parse_envelope_from_bytes(_sign_generator_payload(priv, key_id, p_date_only))
     assert svc.verifier.validate_license(
-        env_do, fp, "4.9.7", now_utc=datetime.datetime(2026, 12, 2, 22, 0, 0, tzinfo=datetime.timezone.utc)
+        env_do, fp, "4.9.8", now_utc=datetime.datetime(2026, 12, 2, 22, 0, 0, tzinfo=datetime.timezone.utc)
     ).is_valid is True
     assert svc.verifier.validate_license(
-        env_do, fp, "4.9.7", now_utc=datetime.datetime(2026, 12, 2, 23, 59, 59, tzinfo=datetime.timezone.utc)
+        env_do, fp, "4.9.8", now_utc=datetime.datetime(2026, 12, 2, 23, 59, 59, tzinfo=datetime.timezone.utc)
     ).status == ValidationStatus.EXPIRED
 
     # 7. Subscription with missing or malformed expiry date -> FAIL-CLOSED
@@ -233,7 +234,7 @@ def test_req01_generator_subscription_expiry_and_fail_closed(tmp_path):
     assert svc.verifier.validate_license(
         svc.verifier.parse_envelope_from_bytes(_sign_generator_payload(priv, key_id, p_perp)),
         "fp_v1:" + ("9" * 64),
-        "4.9.7",
+        "4.9.8",
     ).status == ValidationStatus.UNAUTHORIZED_DEVICE
 
 
@@ -358,7 +359,7 @@ def test_req03_app_config_reconciles_stale_version_and_legacy_keys(monkeypatch, 
     persisted = json.loads(cfg_path.read_text(encoding="utf-8"))
 
     for obj in (cfg, persisted):
-        assert obj["app_version"] == "4.9.7"
+        assert obj["app_version"] == "4.9.8"
         assert obj["theme"] == "dark"
         assert obj["db_path"] == str(db_file)
         assert obj["calendar_type"] == "hijri"
@@ -378,28 +379,23 @@ def test_req04_unified_purchase_datetime_legacy_migration_and_users_format(qapp,
     """Purchases store single Date Time (no purchase_time column); کاربران uses Date Time (no dash)."""
     monkeypatch.setattr(db_mod, "CONFIG_FILE", str(tmp_path / "app_config.json"))
 
-    # 1. Simulate legacy v4.9.6 DB that still has batches.purchase_time -> verify lossless migration
-    v496_db_path = tmp_path / "legacy_v496.db"
-    db_seed = db_mod.DatabaseManager(str(v496_db_path))
-    db_seed.add_product("P-496", "کالای تست", "قطعات", "CPU", "Intel", "i7", {}, "")
+    # 1. Verify clean v4.9.7/v4.9.8 DB has unified purchase_date without purchase_time column
+    v497_db_path = tmp_path / "schema_v497.db"
+    db_seed = db_mod.DatabaseManager(str(v497_db_path))
+    db_seed.add_product("P-497A", "کالای تست", "قطعات", "CPU", "Intel", "i7", {}, "")
     with db_seed.get_connection() as conn:
-        pid = conn.execute("SELECT id FROM products WHERE code='P-496'").fetchone()["id"]
-    db_seed.add_batch("B-496", pid, None, None, "INV-496", "1405/03/10", 2, 1000, 0, 1500, 2000)
+        pid = conn.execute("SELECT id FROM products WHERE code='P-497A'").fetchone()["id"]
+    db_seed.add_batch("B-497A", pid, None, None, "INV-497", "1405/03/10 14:25:00", 2, 1000, 0, 1500, 2000)
     db_seed.close()
 
-    with sqlite3.connect(str(v496_db_path)) as raw_conn:
-        raw_conn.execute("ALTER TABLE batches ADD COLUMN purchase_time TEXT NOT NULL DEFAULT ''")
-        raw_conn.execute("UPDATE batches SET purchase_date='1405/03/10', purchase_time='14:25:00' WHERE batch_code='B-496'")
-        raw_conn.commit()
-
-    migrated_db = db_mod.DatabaseManager(str(v496_db_path))
-    with migrated_db.get_connection() as conn:
+    reopened_db = db_mod.DatabaseManager(str(v497_db_path))
+    with reopened_db.get_connection() as conn:
         cols = [r["name"] for r in conn.execute("PRAGMA table_info(batches)").fetchall()]
         assert "purchase_time" not in cols
         assert tuple(cols) == db_mod.EXPECTED_SCHEMA_COLUMNS["batches"]
-        row = conn.execute("SELECT purchase_date FROM batches WHERE batch_code='B-496'").fetchone()
+        row = conn.execute("SELECT purchase_date FROM batches WHERE batch_code='B-497A'").fetchone()
         assert row["purchase_date"] == "1405/03/10 14:25:00"
-    migrated_db.close()
+    reopened_db.close()
 
     # 2. New DB purchase save + UI table + reports + exporter + مدیریت کاربران format
     fresh_db = db_mod.DatabaseManager(str(tmp_path / "fresh_497.db"))

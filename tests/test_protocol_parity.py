@@ -53,7 +53,7 @@ def test_device_request_export_protocol_parity():
     assert req["protocol_version"] == 1
     assert req["request_version"] == 1
     assert req["product_id"] == "daqiq.desktop"
-    assert req["app_version"] == "4.9.7"
+    assert req["app_version"] == "4.9.8"
     assert req["store_name"] == "Main Cashier"
     assert "hardware_tier" not in req
     assert "hardware_anchors" not in req
@@ -61,6 +61,7 @@ def test_device_request_export_protocol_parity():
     assert "computer_name" in req
     assert "os_info" in req
     assert "cpu_model" in req
+    assert "generated_at" in req
     assert "generated_at_utc" in req
     assert "checksum_sha256" in req
     assert req["device_fingerprint"].startswith("fp_v1:")

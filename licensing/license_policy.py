@@ -111,7 +111,7 @@ class LicenseService:
         verifier: Optional[LicenseVerifier] = None,
         hardware_provider: Optional[HardwareIdentitySource] = None,
         clock_provider: Optional[Callable[[], datetime.datetime]] = None,
-        app_version: str = "4.9.7",
+        app_version: str = "4.9.8",
         store_name_provider: Optional[Callable[[], str]] = None,
     ):
         self.store = store or LicenseStore()
@@ -125,6 +125,7 @@ class LicenseService:
         self._cached_tiers: Optional[Dict[str, str]] = None
         self._last_result: Optional[ValidationResult] = None
         self._last_anchor_sync_at: Optional[datetime.datetime] = None
+        self._high_water_mark_utc: Optional[datetime.datetime] = None
 
     def get_active_key_fingerprints(self) -> List[Dict[str, str]]:
         """Return read-only key IDs and human-readable fingerprints."""
@@ -187,12 +188,14 @@ class LicenseService:
                     skew_sec = max(0, int(skew_hours)) * 3600
                     try:
                         current_fp = self.get_hardware_fingerprint()
-                        self.store.check_and_update_clock_state(
+                        hwm = self.store.check_and_update_clock_state(
                             device_fingerprint=current_fp,
                             is_subscription=is_sub,
                             now_utc=now_utc,
                             tolerance_sec=skew_sec,
                         )
+                        if self._high_water_mark_utc is None or hwm > self._high_water_mark_utc:
+                            self._high_water_mark_utc = hwm
                         self._last_anchor_sync_at = now_utc
                     except ClockRollbackError as e:
                         self._last_result = ValidationResult(
@@ -203,7 +206,11 @@ class LicenseService:
                             detail=str(e),
                         )
                         return self._last_result
-                self._last_result = self.verifier.evaluate_validity_window(env, now_utc=now_utc)
+                self._last_result = self.verifier.evaluate_validity_window(
+                    env,
+                    now_utc=now_utc,
+                    high_water_mark_utc=self._high_water_mark_utc,
+                )
             return self._last_result
 
         # 1. Acquire hardware fingerprint
@@ -277,12 +284,14 @@ class LicenseService:
             )
             skew_sec = max(0, int(skew_hours)) * 3600
             try:
-                self.store.check_and_update_clock_state(
+                hwm = self.store.check_and_update_clock_state(
                     device_fingerprint=current_fp,
                     is_subscription=is_sub,
                     now_utc=now_utc,
                     tolerance_sec=skew_sec,
                 )
+                if self._high_water_mark_utc is None or hwm > self._high_water_mark_utc:
+                    self._high_water_mark_utc = hwm
                 self._last_anchor_sync_at = now_utc
             except ClockRollbackError as e:
                 res = ValidationResult(
@@ -302,6 +311,7 @@ class LicenseService:
             current_app_version=self.app_version,
             now_utc=now_utc,
             available_hardware_tiers=tiers,
+            high_water_mark_utc=self._high_water_mark_utc,
         )
         self._last_result = val_result
         return val_result
@@ -370,35 +380,68 @@ class LicenseService:
                 detail=str(e),
             )
 
-        # 3. Validate signature and boundaries
+        # 3. Validate signature, hardware, version & clock state BEFORE persisting
         now_utc = self.clock_provider()
+        is_sub = envelope.payload.license_type in ("subscription", "trial", "timed")
+        skew_hours = (
+            envelope.payload.max_clock_skew_hours
+            if envelope.payload.max_clock_skew_hours is not None
+            else 24
+        )
+        skew_sec = max(0, int(skew_hours)) * 3600
+
+        # Evaluate signature, device & bounds first before updating anchors
         val_res = self.verifier.validate_license(
             envelope=envelope,
             current_hardware_fingerprint=current_fp,
             current_app_version=self.app_version,
             now_utc=now_utc,
             available_hardware_tiers=tiers,
+            high_water_mark_utc=self._high_water_mark_utc,
         )
-
         if not val_res.is_valid:
             # Candidate is invalid: do NOT write to disk!
             return val_res
 
-        # 4. Atomically persist validated license
+        # 4. Verify & update redundant clock anchors BEFORE persisting (fail closed on rollback)
         try:
-            self.store.save_license_bytes_atomic(candidate_bytes)
-            skew_hours = (
-                envelope.payload.max_clock_skew_hours
-                if envelope.payload.max_clock_skew_hours is not None
-                else 24
-            )
-            skew_sec = max(0, int(skew_hours)) * 3600
-            self.store.check_and_update_clock_state(
+            hwm = self.store.check_and_update_clock_state(
                 device_fingerprint=current_fp,
-                is_subscription=(envelope.payload.license_type in ("subscription", "trial", "timed")),
+                is_subscription=is_sub,
                 now_utc=now_utc,
                 tolerance_sec=skew_sec,
             )
+            if self._high_water_mark_utc is None or hwm > self._high_water_mark_utc:
+                self._high_water_mark_utc = hwm
+        except ClockRollbackError as e:
+            return ValidationResult(
+                status=ValidationStatus.CLOCK_TAMPERED,
+                is_valid=False,
+                license=envelope,
+                message_fa=STATUS_MESSAGES_FA[ValidationStatus.CLOCK_TAMPERED],
+                detail=str(e),
+            )
+        except Exception as e:
+            return ValidationResult(
+                status=ValidationStatus.CORRUPTED_LICENSE,
+                is_valid=False,
+                license=envelope,
+                message_fa="خطا در بررسی و ذخیره وضعیت ساعت امنیتی لایسنس.",
+                detail=str(e),
+            )
+
+        # Re-evaluate against persisted HWM so <24h clock rollback never revives expired licenses
+        val_res = self.verifier.evaluate_validity_window(
+            envelope,
+            now_utc=now_utc,
+            high_water_mark_utc=self._high_water_mark_utc,
+        )
+        if not val_res.is_valid:
+            return val_res
+
+        # 5. Atomically persist validated license
+        try:
+            self.store.save_license_bytes_atomic(candidate_bytes)
         except Exception as e:
             return ValidationResult(
                 status=ValidationStatus.CORRUPTED_LICENSE,
@@ -435,6 +478,7 @@ class LicenseService:
         ok = self.store.remove_license()
         self._last_result = None
         self._last_anchor_sync_at = None
+        self._high_water_mark_utc = None
         return ok
 
     def is_feature_enabled_for_result(self, feature_id: str, res: Optional[ValidationResult]) -> bool:

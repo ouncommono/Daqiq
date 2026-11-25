@@ -37,7 +37,7 @@ def get_live_app_version() -> str:
                     return text
         except OSError:
             pass
-    return "4.9.7"
+    return "4.9.8"
 
 SQLITE_INTEGER_MIN = -(1 << 63)
 SQLITE_INTEGER_MAX = (1 << 63) - 1
@@ -628,7 +628,43 @@ def reconcile_app_config(raw_cfg=None):
             cleaned_recents.insert(0, os.path.abspath(cur_p))
     cfg["recent_databases"] = cleaned_recents
 
-    changed = bool(raw_dict and raw_dict != cfg)
+    if cfg.get("last_backup_warning") is not None:
+        warn_txt = str(cfg.get("last_backup_warning") or "").strip()
+        if warn_txt:
+            cfg["last_backup_warning"] = warn_txt
+        else:
+            cfg.pop("last_backup_warning", None)
+
+    canonical_keys = {
+        "db_path",
+        "recent_databases",
+        "backup_dir",
+        "auto_backup_dir",
+        "auto_backup_enabled",
+        "auto_backup_interval_min",
+        "auto_backup_retention_count",
+        "auto_backup_last_success_by_db",
+        "last_backup_time",
+        "last_backup_warning",
+        "default_profit_pct",
+        "default_min_inventory",
+        "zero_append_count",
+        "default_window_maximized",
+        "require_login_password",
+        "config_schema_version",
+        "app_version",
+        "schema_version",
+        "theme",
+        "calendar_type",
+        "time_format",
+        "last_store_name",
+        "databases",
+    }
+    for extra_k in list(cfg.keys()):
+        if extra_k not in canonical_keys:
+            cfg.pop(extra_k, None)
+
+    changed = (not raw_dict) or (raw_dict != cfg)
     return cfg, changed
 
 
@@ -1185,31 +1221,6 @@ class DatabaseManager:
                     updated_at TEXT NOT NULL DEFAULT ''
                 )
             """)
-
-            batch_cols = [row["name"] for row in conn.execute("PRAGMA table_info(batches)")]
-            if "purchase_time" in batch_cols:
-                # Losslessly merge v4.9.4-v4.9.6 separate purchase_time into unified 'Date Time'
-                conn.execute(
-                    """
-                    UPDATE batches
-                    SET purchase_date = trim(purchase_date) || ' ' || trim(purchase_time)
-                    WHERE trim(COALESCE(purchase_time, '')) <> ''
-                      AND instr(trim(purchase_date), ' ') = 0
-                    """
-                )
-                try:
-                    conn.execute("ALTER TABLE batches DROP COLUMN purchase_time")
-                except sqlite3.OperationalError:
-                    # Fallback rebuild for SQLite builds without DROP COLUMN support
-                    keep_cols = [c for c in batch_cols if c != "purchase_time"]
-                    col_csv = ", ".join(keep_cols)
-                    conn.execute("PRAGMA foreign_keys = OFF")
-                    try:
-                        conn.execute(f"CREATE TABLE _batches_migrated AS SELECT {col_csv} FROM batches")
-                        conn.execute("DROP TABLE batches")
-                        conn.execute("ALTER TABLE _batches_migrated RENAME TO batches")
-                    finally:
-                        conn.execute("PRAGMA foreign_keys = ON")
 
             validate_schema_column_order(conn)
 
