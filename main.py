@@ -85,6 +85,9 @@ from utils_and_widgets import (
     strip_bidi_controls,
     mixed_bidi_tooltip,
     resource_path,
+    resolve_active_dark_theme,
+    build_theme_palette,
+    apply_dialog_theme,
 )
 from exporter import (
     export_safe_inventory_excel,
@@ -124,7 +127,7 @@ def _load_app_version() -> str:
                         return ver
             except Exception:
                 pass
-    return "4.9.6"
+    return "4.9.7"
 
 APP_VERSION = _load_app_version()
 
@@ -225,7 +228,7 @@ REPORT_AVAILABLE_COLUMNS = {
     ],
     "۲. گزارش کامل تمام خریدها (محموله‌ها)": [
         "شناسه", "کد محموله", "کد کالا", "شماره سریال", "مشخصات کالا", "تأمین‌کننده",
-        "مسئول خرید", "شماره فاکتور", "تاریخ خرید", "ساعت خرید", "تعداد خرید", "تعداد فروش",
+        "مسئول خرید", "شماره فاکتور", "تاریخ خرید", "تعداد خرید", "تعداد فروش",
         "موجودی فعلی", "قیمت خرید واحد", "هزینه جانبی کل", "هزینه ارتقا واحد",
         "بهای تمام‌شده واحد", "قیمت فروش پیشنهادی", "درصد سود (%)", "وضعیت تسویه",
         "پرداخت‌شده", "مانده بدهی", "مشخصات فنی / توضیحات", "بهای کل محموله (تومان)",
@@ -279,7 +282,7 @@ ALL_SYSTEM_COLUMNS = [
     "کد کالا", "شماره سریال", "دسته‌بندی", "زیرمجموعه", "برند", "مدل", "مشخصات فنی",
     "موجودی کل", "تعداد فروش", "حداقل موجودی", "درصد سود (%)", "وضعیت موجودی", "توضیحات",
     # محموله‌ها / خرید
-    "کد محموله", "تأمین‌کننده", "مسئول خرید", "شماره فاکتور خرید", "تاریخ خرید", "ساعت خرید", "تعداد خرید",
+    "کد محموله", "تأمین‌کننده", "مسئول خرید", "شماره فاکتور خرید", "تاریخ خرید", "تعداد خرید",
     "تعداد فروش محموله", "موجودی فعلی محموله", "قیمت خرید واحد", "هزینه جانبی کل", "هزینه ارتقا واحد",
     "بهای تمام‌شده واحد", "قیمت فروش پیشنهادی", "درصد سود (%) محموله", "وضعیت تسویه خرید",
     "پرداخت‌شده خرید", "مانده بدهی خرید", "مشخصات فنی محموله", "بهای کل محموله (تومان)", "رنگ‌های محموله",
@@ -527,7 +530,7 @@ def _center_message_buttons(dialog):
 
 
 class _MessageBoxPolisher(QObject):
-    """Translate standard Qt message-box buttons, center them, and ensure readable styling."""
+    """Translate standard Qt message-box buttons, center them, and synchronize Light/Dark theming."""
 
     _BUTTON_LABELS = {
         "OK": "تأیید", "Ok": "تأیید", "Cancel": "انصراف",
@@ -536,6 +539,8 @@ class _MessageBoxPolisher(QObject):
         "Retry": "تلاش مجدد", "Ignore": "نادیده گرفتن", "Apply": "اعمال",
         "Reset": "بازنشانی",
     }
+
+    _SELF_STYLED_OBJECTS = {"LicenseDialogRoot", "DaqiqNoticeDialogRoot", "JalaliCalendarDialog"}
 
     def eventFilter(self, watched, event):
         if event.type() != QEvent.Show:
@@ -552,27 +557,32 @@ class _MessageBoxPolisher(QObject):
                         if translated:
                             button.setText(translated)
                         button.setLayoutDirection(Qt.RightToLeft)
-                if isinstance(watched, QMessageBox) and not watched.styleSheet():
-                    is_dark = watched.palette().window().color().lightness() < 128
-                    if is_dark:
-                        qss = (
-                            "QMessageBox { background-color: #0b1220; color: #f8fafc; }"
-                            "QMessageBox QLabel { color: #f8fafc; background: transparent; }"
-                            "QMessageBox QPushButton { background-color: #0284c7; color: #ffffff; "
-                            "border: 1px solid #38bdf8; border-radius: 6px; padding: 6px 16px; "
-                            "min-width: 84px; font-weight: bold; }"
-                            "QMessageBox QPushButton:hover { background-color: #0369a1; }"
-                        )
+                obj_name = watched.objectName() or ""
+                if obj_name not in self._SELF_STYLED_OBJECTS and not watched.styleSheet():
+                    is_dark = resolve_active_dark_theme(parent=watched.parentWidget() or watched)
+                    if isinstance(watched, QMessageBox):
+                        watched.setPalette(build_theme_palette(is_dark))
+                        if is_dark:
+                            qss = (
+                                "QMessageBox { background-color: #0f172a; color: #f8fafc; }"
+                                "QMessageBox QLabel { color: #f8fafc; background: transparent; }"
+                                "QMessageBox QPushButton { background-color: #0284c7; color: #ffffff; "
+                                "border: 1px solid #38bdf8; border-radius: 6px; padding: 6px 16px; "
+                                "min-width: 84px; font-weight: bold; }"
+                                "QMessageBox QPushButton:hover { background-color: #0369a1; }"
+                            )
+                        else:
+                            qss = (
+                                "QMessageBox { background-color: #f8fafc; color: #0f172a; }"
+                                "QMessageBox QLabel { color: #0f172a; background: transparent; }"
+                                "QMessageBox QPushButton { background-color: #0284c7; color: #ffffff; "
+                                "border: 1px solid #0369a1; border-radius: 6px; padding: 6px 16px; "
+                                "min-width: 84px; font-weight: bold; }"
+                                "QMessageBox QPushButton:hover { background-color: #0369a1; }"
+                            )
+                        watched.setStyleSheet(qss)
                     else:
-                        qss = (
-                            "QMessageBox { background-color: #f4f7fb; color: #0f172a; }"
-                            "QMessageBox QLabel { color: #0f172a; background: transparent; }"
-                            "QMessageBox QPushButton { background-color: #0284c7; color: #ffffff; "
-                            "border: 1px solid #0369a1; border-radius: 6px; padding: 6px 16px; "
-                            "min-width: 84px; font-weight: bold; }"
-                            "QMessageBox QPushButton:hover { background-color: #0369a1; }"
-                        )
-                    watched.setStyleSheet(qss)
+                        apply_dialog_theme(watched, is_dark=is_dark)
         except RuntimeError:
             pass
         return False
@@ -824,7 +834,9 @@ class ColorSelectionButton(QPushButton):
         layout.addWidget(scroll, 1)
         buttons = QHBoxLayout()
         accept_button = QPushButton("تأیید")
+        accept_button.setObjectName("btnSuccess")
         cancel_button = QPushButton("انصراف")
+        cancel_button.setObjectName("btnSecondary")
         accept_button.clicked.connect(dialog.accept)
         cancel_button.clicked.connect(dialog.reject)
         buttons.addStretch(1)
@@ -832,6 +844,7 @@ class ColorSelectionButton(QPushButton):
         buttons.addWidget(cancel_button)
         buttons.addStretch(1)
         layout.addLayout(buttons)
+        apply_dialog_theme(dialog, parent=self)
         if dialog.exec() == QDialog.Accepted:
             self._selected = [
                 color for color, checkbox in checkboxes if checkbox.isChecked()
@@ -1013,14 +1026,14 @@ class LoginDialog(QDialog):
         self.require_password = bool(self.db.cfg.get("require_login_password", False))
         self.setWindowTitle("ورود با رمز عبور" if self.require_password else "انتخاب کاربر")
         self.setLayoutDirection(Qt.RightToLeft)
-        self.setFixedSize(410, 220)
+        self.setMinimumSize(430, 240)
         icon_path = resource_path("assets/daqiq_logo.png")
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
 
         layout = QFormLayout(self)
-        layout.setContentsMargins(16, 14, 16, 14)
-        layout.setSpacing(9)
+        layout.setContentsMargins(18, 16, 18, 16)
+        layout.setSpacing(10)
         self.cb_emp = SearchableComboBox()
         with self.db.get_connection() as conn:
             emps = conn.execute(
@@ -1036,6 +1049,11 @@ class LoginDialog(QDialog):
         self.ed_pass.setPlaceholderText("رمز عبور کاربر...")
         self.ed_pass.setClearButtonEnabled(True)
 
+        self.chk_show_pass = QCheckBox("نمایش رمز عبور")
+        self.chk_show_pass.toggled.connect(
+            lambda checked: self.ed_pass.setEchoMode(QLineEdit.Normal if checked else QLineEdit.Password)
+        )
+
         self.lbl_login_hint = QLabel(
             "کاربر دارای رمز باید رمز خود را وارد کند؛ حساب بدون رمز می‌تواند مستقیم وارد شود."
         )
@@ -1043,19 +1061,21 @@ class LoginDialog(QDialog):
         self.lbl_login_hint.setObjectName("settingsHint")
 
         btn_login = QPushButton("ورود")
-        btn_login.setStyleSheet(
-            "background-color: #2563eb; color: white; padding: 8px; font-weight: bold;"
-        )
+        btn_login.setObjectName("btnSuccess")
+        btn_login.setDefault(True)
         btn_login.clicked.connect(self._check_login)
+        self.btn_login = btn_login
 
         layout.addRow("انتخاب کاربر:", self.cb_emp)
         layout.addRow("رمز عبور:", self.ed_pass)
+        layout.addRow("", self.chk_show_pass)
         layout.addRow(self.lbl_login_hint)
         layout.addRow(btn_login)
         if self.require_password:
             self.lbl_login_hint.setText(
                 "در حالت اجباری، همه کارکنان فعال باید رمز داشته باشند. حساب بدون رمز تا زمان تعریف رمز قابل ورود نیست."
             )
+        self.is_dark_theme = apply_dialog_theme(self, db=self.db, parent=parent)
 
     def _check_login(self):
         employee = self.cb_emp.currentData()
@@ -1120,19 +1140,63 @@ def _is_valid_sqlite_database_file(path):
             conn.close()
 
 
+class DatabasePasswordDialog(QDialog):
+    """Theme-synchronized Persian RTL database password dialog replacing raw QInputDialog."""
+
+    def __init__(self, parent=None, prompt_text: str = "رمز عبور پایگاه داده را وارد کنید:", is_dark: Optional[bool] = None):
+        super().__init__(parent)
+        self.setWindowTitle("ورود به پایگاه داده")
+        self.setLayoutDirection(Qt.RightToLeft)
+        self.setMinimumWidth(420)
+        icon_path = resource_path("assets/daqiq_logo.png")
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 16, 18, 16)
+        layout.setSpacing(10)
+
+        self.lbl_prompt = QLabel(prompt_text)
+        self.lbl_prompt.setWordWrap(True)
+        layout.addWidget(self.lbl_prompt)
+
+        self.ed_password = QLineEdit()
+        self.ed_password.setEchoMode(QLineEdit.Password)
+        self.ed_password.setPlaceholderText("رمز عبور پایگاه داده...")
+        self.ed_password.setClearButtonEnabled(True)
+        layout.addWidget(self.ed_password)
+
+        self.chk_show_password = QCheckBox("نمایش رمز عبور")
+        self.chk_show_password.toggled.connect(
+            lambda checked: self.ed_password.setEchoMode(QLineEdit.Normal if checked else QLineEdit.Password)
+        )
+        layout.addWidget(self.chk_show_password)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(10)
+        btn_row.addStretch(1)
+        self.btn_ok = QPushButton("تأیید")
+        self.btn_ok.setDefault(True)
+        self.btn_ok.setCursor(Qt.PointingHandCursor)
+        self.btn_ok.clicked.connect(self.accept)
+        btn_row.addWidget(self.btn_ok)
+
+        self.btn_cancel = QPushButton("انصراف")
+        self.btn_cancel.setObjectName("btnSecondary")
+        self.btn_cancel.setCursor(Qt.PointingHandCursor)
+        self.btn_cancel.clicked.connect(self.reject)
+        btn_row.addWidget(self.btn_cancel)
+        btn_row.addStretch(1)
+        layout.addLayout(btn_row)
+
+        self.is_dark_theme = apply_dialog_theme(self, is_dark=is_dark, parent=parent)
+
+
 def _prompt_database_password(parent=None, prompt_text="رمز عبور پایگاه داده را وارد کنید:") -> tuple:
-    """Display a localized Persian RTL password dialog with 'تأیید' and 'انصراف' buttons."""
-    from PySide6.QtWidgets import QInputDialog
-    dlg = QInputDialog(parent)
-    dlg.setWindowTitle("ورود به پایگاه داده")
-    dlg.setLabelText(prompt_text)
-    dlg.setTextEchoMode(QLineEdit.Password)
-    dlg.setOkButtonText("تأیید")
-    dlg.setCancelButtonText("انصراف")
-    dlg.setLayoutDirection(Qt.RightToLeft)
-    dlg.setInputMode(QInputDialog.TextInput)
-    ok = bool(dlg.exec())
-    return (dlg.textValue() if ok else ""), ok
+    """Display a themed Persian RTL password dialog with 'تأیید' and 'انصراف' buttons."""
+    dlg = DatabasePasswordDialog(parent=parent, prompt_text=prompt_text)
+    ok = dlg.exec() == QDialog.Accepted
+    return (dlg.ed_password.text() if ok else ""), ok
 
 
 class DatetimeMigrationChoiceDialog(QDialog):
@@ -1189,6 +1253,10 @@ class DatetimeMigrationChoiceDialog(QDialog):
         btn_layout.addWidget(btn_cancel)
 
         layout.addLayout(btn_layout)
+        self.is_dark_theme = apply_dialog_theme(self, parent=parent)
+        btn_migrate_all.setStyleSheet("background-color: #0284c7; color: white; font-weight: bold; padding: 8px 10px; border-radius: 6px;")
+        btn_new_only.setStyleSheet("background-color: #059669; color: white; font-weight: bold; padding: 8px 10px; border-radius: 6px;")
+        btn_cancel.setStyleSheet("background-color: #6b7280; color: white; font-weight: bold; padding: 8px 10px; border-radius: 6px;")
 
     def _choose_all(self):
         self.choice = self.MIGRATE_ALL
@@ -1352,11 +1420,14 @@ class DatabaseBootstrapDialog(QDialog):
         self._apply_theme()
 
     def _apply_theme(self):
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setAutoFillBackground(True)
+        self.setPalette(build_theme_palette(self.is_dark_theme))
         if self.is_dark_theme:
             self.setStyleSheet(
                 "QDialog { background-color: #0f172a; color: #f8fafc; } "
-                "QLabel { color: #f1f5f9; } "
-                "QRadioButton { color: #f1f5f9; font-size: 11px; } "
+                "QLabel { color: #f1f5f9; background: transparent; } "
+                "QRadioButton { color: #f1f5f9; font-size: 11px; background: transparent; } "
                 "QLineEdit { background-color: #1e293b; color: #f8fafc; border: 1px solid #475569; padding: 6px; border-radius: 4px; } "
                 "QPushButton { background-color: #334155; color: #f8fafc; border: 1px solid #64748b; padding: 6px 12px; border-radius: 4px; } "
             )
@@ -1367,8 +1438,8 @@ class DatabaseBootstrapDialog(QDialog):
         else:
             self.setStyleSheet(
                 "QDialog { background-color: #f8fafc; color: #0f172a; } "
-                "QLabel { color: #0f172a; } "
-                "QRadioButton { color: #0f172a; font-size: 11px; } "
+                "QLabel { color: #0f172a; background: transparent; } "
+                "QRadioButton { color: #0f172a; font-size: 11px; background: transparent; } "
                 "QLineEdit { background-color: #ffffff; color: #0f172a; border: 1px solid #cbd5e1; padding: 6px; border-radius: 4px; } "
                 "QPushButton { background-color: #f1f5f9; color: #0f172a; border: 1px solid #cbd5e1; padding: 6px 12px; border-radius: 4px; } "
             )
@@ -1376,6 +1447,15 @@ class DatabaseBootstrapDialog(QDialog):
             self.btn_theme_toggle.setStyleSheet(
                 "background-color: #f1f5f9; color: #0f172a; border: 1px solid #cbd5e1; border-radius: 6px; padding: 4px 10px; font-weight: bold;"
             )
+        st = self.style()
+        if st is not None:
+            for w in [self] + self.findChildren(QWidget):
+                try:
+                    st.unpolish(w)
+                    st.polish(w)
+                    w.update()
+                except Exception:
+                    pass
 
     def _browse(self):
         current = self.ed_path.text().strip()
@@ -1627,6 +1707,8 @@ class MainWindow(QMainWindow):
                 self.backup_timer.stop()
             if hasattr(self, "clock_timer") and self.clock_timer.isActive():
                 self.clock_timer.stop()
+            if hasattr(self, "_license_timer") and self._license_timer.isActive():
+                self._license_timer.stop()
             if hasattr(self, "db") and self.db:
                 with self.db.get_connection() as conn:
                     conn.commit()
@@ -2414,15 +2496,27 @@ class MainWindow(QMainWindow):
 
         tab_modules = self._TAB_MODULES
         is_scoped = self._is_scoped_access()
+        lic_svc = getattr(self, "license_service", None)
+        has_fast_eval = callable(getattr(type(lic_svc), "is_feature_enabled_for_result", None)) if lic_svc is not None else False
+        lic_res = lic_svc.check_license() if has_fast_eval else None
         self.tabs.blockSignals(True)
         try:
             for index, module in enumerate(tab_modules):
                 emp_allowed = f"{module}.view" in grants
                 lic_feature = TAB_MODULE_TO_FEATURE.get(module, module)
-                lic_allowed = self._is_license_feature_enabled(lic_feature)
+                if lic_svc is None:
+                    lic_allowed = True
+                elif has_fast_eval:
+                    lic_allowed = bool(lic_svc.is_feature_enabled_for_result(lic_feature, lic_res))
+                else:
+                    lic_allowed = self._is_license_feature_enabled(lic_feature)
+                allowed = emp_allowed and lic_allowed
                 # Keep tab enabled only when both RBAC and license allow it;
                 # _TabLockFilter intercepts clicks even when disabled by license.
-                self.tabs.setTabEnabled(index, emp_allowed and lic_allowed)
+                self.tabs.setTabEnabled(index, allowed)
+                page_widget = self.tabs.widget(index)
+                if page_widget is not None:
+                    page_widget.setEnabled(allowed)
                 if not lic_allowed:
                     self.tabs.setTabToolTip(index, "این بخش در لایسنس فعال شما مجاز نیست.")
                 else:
@@ -2432,6 +2526,10 @@ class MainWindow(QMainWindow):
 
         if select_first_unlocked:
             self._select_first_unlocked_tab(force_first=True)
+        elif hasattr(self, "tabs") and self.tabs is not None:
+            cur = self.tabs.currentIndex()
+            if not (0 <= cur < len(tab_modules) and self.tabs.isTabEnabled(cur)):
+                self._select_first_unlocked_tab(force_first=False)
 
         for permission_key, widget in getattr(
             self, "_dashboard_permission_widgets", {}
@@ -2795,7 +2893,16 @@ class MainWindow(QMainWindow):
             res = self.license_service.check_license()
         if not res or not res.is_valid or not res.license:
             if hasattr(self, "license_banner_frame"):
-                self.license_banner_frame.setVisible(False)
+                if res is not None and not res.is_valid:
+                    self.license_banner_frame.setStyleSheet(
+                        "background-color: #fee2e2; border: 1px solid #dc2626; border-radius: 6px; padding: 6px 12px;"
+                    )
+                    self.lbl_license_banner.setStyleSheet("color: #991b1b; font-weight: bold; font-size: 11px;")
+                    msg = res.message_fa or "اعتبار لایسنس به پایان رسیده یا نامعتبر است. دسترسی به بخش‌ها مسدود شد."
+                    self.lbl_license_banner.setText(f"⛔ {msg}")
+                    self.license_banner_frame.setVisible(True)
+                else:
+                    self.license_banner_frame.setVisible(False)
             return
 
         payload = res.license.payload
@@ -2840,21 +2947,30 @@ class MainWindow(QMainWindow):
             return
         path, _ = QFileDialog.getSaveFileName(
             self,
-            "ذخیره فایل مشخصات سیستم (.daqreq)",
+            "دریافت فایل مشخصات سیستم",
             "Daqiq_Hardware_Request.daqreq",
             "Daqiq Request (*.daqreq);;JSON Files (*.json);;All Files (*)",
         )
         if not path:
             return
+        dark = self.db.cfg.get("theme", "light") == "dark" if hasattr(self, "db") and self.db else False
         try:
             self.license_service.export_device_request_file(path)
-            QMessageBox.information(
-                self,
-                "ذخیره موفق",
-                f"فایل مشخصات سیستم با موفقیت در مسیر زیر ذخیره شد:\n{path}\n\nلطفاً این فایل را برای واحد پشتیبانی/فروش ارسال فرمایید.",
-            )
+            ThemedNoticeDialog(
+                parent=self,
+                title="ذخیره موفق",
+                message=f"فایل مشخصات سیستم با موفقیت ذخیره شد:\n{path}\n\nلطفاً این فایل را برای پشتیبانی ارسال فرمایید.",
+                kind="success",
+                is_dark_theme=dark,
+            ).exec()
         except Exception as e:
-            QMessageBox.critical(self, "خطا در ذخیره فایل", f"امکان ذخیره فایل وجود ندارد:\n{e}")
+            ThemedNoticeDialog(
+                parent=self,
+                title="خطا در ذخیره فایل",
+                message=f"امکان ذخیره فایل مشخصات سیستم وجود ندارد:\n{e}",
+                kind="error",
+                is_dark_theme=dark,
+            ).exec()
 
     def _refresh_dashboard_card_styles(self):
         dark = self.db.cfg.get("theme", "light") == "dark"
@@ -3175,7 +3291,17 @@ class MainWindow(QMainWindow):
         dark = self.db.cfg.get("theme", "light") == "dark" if hasattr(self, "db") and self.db else False
         dlg = LicenseDialog(service, parent=self, icon_path=icon_path, is_dark_theme=dark, is_startup_gate=False)
         dlg.exec()
-        self._apply_employee_permissions(select_first_unlocked=True)
+        if hasattr(self, "db") and self.db:
+            new_theme = "dark" if dlg.is_dark_theme else "light"
+            if self.db.cfg.get("theme", "light") != new_theme:
+                self.db.cfg["theme"] = new_theme
+                save_app_config(self.db.cfg)
+                self._apply_styles()
+                self._refresh_dashboard_card_styles()
+                if hasattr(self, "btn_theme"):
+                    self.btn_theme.setText("☀️ تم روشن" if new_theme == "dark" else "🌙 تم تیره")
+        self._update_license_banner()
+        self._apply_employee_permissions(select_first_unlocked=False)
 
     def _on_main_tab_changed(self, index):
         if 0 <= index < len(self._TAB_MODULES):
@@ -3779,7 +3905,6 @@ class MainWindow(QMainWindow):
                 "مسئول خرید",
                 "شماره فاکتور",
                 "تاریخ خرید",
-                "ساعت خرید",
                 "تعداد خرید",
                 "تعداد فروش",
                 "موجودی فعلی",
@@ -4019,16 +4144,19 @@ class MainWindow(QMainWindow):
                 # add_batch has an additional initial_specs argument compared
                 # with update_batch. Keep this explicit mapping rather than
                 # forwarding the edit payload with a different function arity.
+                purchase_date_only = self.dt_batch_date.get_date()
+                purchase_dt = f"{purchase_date_only} {self.get_now_time_str()}".strip() if purchase_date_only else self.get_now_datetime_str()
                 self.db.add_batch(
                     batch_code,
                     product["id"],
-                    *batch_values[:10],
+                    *batch_values[:3],
+                    purchase_dt,
+                    *batch_values[4:10],
                     specifications,
                     specifications,
                     batch_values[11],
                     colors=self._checked_colors(self.btn_batch_colors),
                     supplier_name=supplier_name or None,
-                    purchase_time=self.get_now_time_str(),
                 )
 
             self.refresh_all_data()
@@ -4046,22 +4174,23 @@ class MainWindow(QMainWindow):
         self.selected_batch_id = int(self.tbl_batches.item(r, 0).text())
         self.ed_batch_code.setText(self.tbl_batches.item(r, 1).text())
         self.ed_batch_inv.setText(self.tbl_batches.item(r, 7).text())
-        self.dt_batch_date.set_date(self.tbl_batches.item(r, 8).text())
-        self.cb_batch_qty.setCurrentText(self.tbl_batches.item(r, 10).text())
+        raw_purchase_dt = self.tbl_batches.item(r, 8).text().strip()
+        self.dt_batch_date.set_date(raw_purchase_dt.split(" ", 1)[0] if raw_purchase_dt else "")
+        self.cb_batch_qty.setCurrentText(self.tbl_batches.item(r, 9).text())
         self.pr_batch_buy.set_value(
-            int(self.tbl_batches.item(r, 13).text().replace(",", ""))
+            int(self.tbl_batches.item(r, 12).text().replace(",", ""))
         )
         self.pr_batch_extra.set_value(
-            int(self.tbl_batches.item(r, 14).text().replace(",", ""))
+            int(self.tbl_batches.item(r, 13).text().replace(",", ""))
         )
         self.pr_batch_suggest.set_value(
-            int(self.tbl_batches.item(r, 17).text().replace(",", ""))
+            int(self.tbl_batches.item(r, 16).text().replace(",", ""))
         )
-        self.cb_batch_status.setCurrentText(self.tbl_batches.item(r, 19).text())
+        self.cb_batch_status.setCurrentText(self.tbl_batches.item(r, 18).text())
         self.pr_batch_paid.set_value(
-            int(self.tbl_batches.item(r, 20).text().replace(",", ""))
+            int(self.tbl_batches.item(r, 19).text().replace(",", ""))
         )
-        batch_serial_text = self.tbl_batches.item(r, 22).text()
+        batch_serial_text = self.tbl_batches.item(r, 21).text()
         with self.db.get_connection() as conn:
             batch_state = conn.execute(
                 """SELECT b.colors_json, b.supplier_id, b.buyer_employee_id, b.serial_numbers,
@@ -6405,7 +6534,6 @@ class MainWindow(QMainWindow):
                     "کد محموله",
                     "شماره فاکتور خرید",
                     "تاریخ خرید",
-                    "ساعت خرید",
                     "کد کالا",
                     "دسته‌بندی",
                     "زیرمجموعه",
@@ -6430,7 +6558,7 @@ class MainWindow(QMainWindow):
                 ]
                 q = conn.execute("""
                     SELECT b.id, b.batch_code, b.product_id, b.supplier_id, b.buyer_employee_id,
-                           b.invoice_number, b.purchase_date, b.purchase_time, b.initial_qty, b.sold_qty, b.returned_qty,
+                           b.invoice_number, b.purchase_date, b.initial_qty, b.sold_qty, b.returned_qty,
                            b.remaining_qty, b.unit_purchase_price, b.extra_cost_total, b.upgrade_cost_unit,
                            b.unit_cost_price, b.suggested_sell_price, b.profit_pct, b.paid_amount,
                            b.settlement_status, b.serial_numbers, b.colors_json, b.initial_specs,
@@ -6473,7 +6601,6 @@ class MainWindow(QMainWindow):
                             r["batch_code"],
                             r["invoice_number"] or "-",
                             r["purchase_date"],
-                            r["purchase_time"] or "-",
                             r["code"],
                             r["category"],
                             r["sub_category"],
@@ -6890,7 +7017,7 @@ class MainWindow(QMainWindow):
                                p.code as p_code, p.serial_number as prod_serial, p.category,
                                p.sub_category, p.brand, p.model, p.specs_json, p.description as prod_desc,
                                p.reorder_point, p.default_profit_pct,
-                               b.batch_code, b.invoice_number as batch_inv, b.purchase_date, b.purchase_time,
+                               b.batch_code, b.invoice_number as batch_inv, b.purchase_date,
                                b.initial_qty as batch_initial_qty, b.sold_qty as batch_sold_qty,
                                b.remaining_qty as batch_remaining_qty, b.unit_purchase_price,
                                b.extra_cost_total, b.upgrade_cost_unit, b.unit_cost_price as batch_unit_cost,
@@ -6941,7 +7068,11 @@ class MainWindow(QMainWindow):
                             "مسئول خرید": r["emp_name"] or "-",
                             "شماره فاکتور خرید": r["batch_inv"] or "-",
                             "تاریخ خرید": r["purchase_date"] or "-",
-                            "ساعت خرید": r["purchase_time"] or "-",
+                            "ساعت خرید": (
+                                r["purchase_date"].split(" ", 1)[1].strip()
+                                if r["purchase_date"] and " " in r["purchase_date"]
+                                else "-"
+                            ),
                             "تعداد خرید": r["batch_initial_qty"],
                             "تعداد فروش محموله": r["batch_sold_qty"],
                             "موجودی فعلی محموله": r["batch_remaining_qty"],
@@ -8913,6 +9044,7 @@ class MainWindow(QMainWindow):
         btn_row.addWidget(btn_ok)
         btn_row.addWidget(btn_cancel)
         d_layout.addLayout(btn_row)
+        apply_dialog_theme(dialog, parent=self)
         dialog.exec()
 
     def _on_change_db_password_clicked(self):
@@ -9004,6 +9136,7 @@ class MainWindow(QMainWindow):
         btn_row.addWidget(btn_ok)
         btn_row.addWidget(btn_cancel)
         d_layout.addLayout(btn_row)
+        apply_dialog_theme(dialog, parent=self)
         dialog.exec()
 
     def _on_remove_db_password_clicked(self):
@@ -9084,6 +9217,7 @@ class MainWindow(QMainWindow):
         btn_row.addWidget(btn_ok)
         btn_row.addWidget(btn_cancel)
         d_layout.addLayout(btn_row)
+        apply_dialog_theme(dialog, parent=self)
         dialog.exec()
 
     def _deduplicate_catalog_draft(self):
@@ -10999,13 +11133,16 @@ class MainWindow(QMainWindow):
             self.db.cfg["default_window_maximized"] = self.cb_win_mode.currentData() == "1"
             self.db.cfg["require_login_password"] = effective_password_policy
             self.db.cfg["last_store_name"] = shop_name
+            self.db.cfg["calendar_type"] = target_cal
+            self.db.cfg["time_format"] = target_time
+            self.db.cfg["app_version"] = APP_VERSION
             self._save_report_export_config_internal()
-            self.db.set_db_config("auto_backup_enabled", self.chk_auto_bk.isChecked())
-            self.db.set_db_config("auto_backup_interval_min", self.sp_bk_interval.value())
-            self.db.set_db_config("auto_backup_retention_count", self.sp_bk_retention.value())
+            self.db.set_db_config("auto_backup_enabled", self.chk_auto_bk.isChecked(), persist=False)
+            self.db.set_db_config("auto_backup_interval_min", self.sp_bk_interval.value(), persist=False)
+            self.db.set_db_config("auto_backup_retention_count", self.sp_bk_retention.value(), persist=False)
             if hasattr(self, "ed_auto_bk_dir") and self.ed_auto_bk_dir.text().strip():
                 try:
-                    self.db.set_automatic_backup_directory(self.ed_auto_bk_dir.text().strip())
+                    self.db.set_automatic_backup_directory(self.ed_auto_bk_dir.text().strip(), persist=False)
                 except Exception as bke:
                     QMessageBox.warning(self, "خطای پوشه پشتیبان‌گیری", str(bke))
             else:
@@ -11032,6 +11169,7 @@ class MainWindow(QMainWindow):
                     lbl_busy.setAlignment(Qt.AlignCenter)
                     lbl_busy.setStyleSheet("font-size: 10pt; font-weight: bold; color: #0284c7;")
                     busy_l.addWidget(lbl_busy)
+                    apply_dialog_theme(busy_dlg, parent=self)
                     busy_dlg.show()
                     QApplication.processEvents()
 
@@ -11060,6 +11198,7 @@ class MainWindow(QMainWindow):
                 self.db.set_startup_password_prompt_required(self._staged_db_startup_prompt)
             self._staged_db_startup_prompt = None
 
+            self.db._merge_disk_databases_into_cfg()
             save_app_config(self.db.cfg)
         except Exception as exc:
             QMessageBox.critical(self, "خطا در ذخیره تنظیمات", str(exc))
@@ -11439,7 +11578,7 @@ class MainWindow(QMainWindow):
         with self.db.get_connection() as conn:
             rows = self._execute_scoped_query(conn, """
                 SELECT b.id, b.batch_code, b.product_id, b.supplier_id, b.buyer_employee_id,
-                       b.invoice_number, b.purchase_date, b.purchase_time, b.initial_qty, b.sold_qty, b.returned_qty,
+                       b.invoice_number, b.purchase_date, b.initial_qty, b.sold_qty, b.returned_qty,
                        b.remaining_qty, b.unit_purchase_price, b.extra_cost_total, b.upgrade_cost_unit,
                        b.unit_cost_price, b.suggested_sell_price, b.profit_pct, b.paid_amount,
                        b.settlement_status, b.serial_numbers, b.colors_json, b.initial_specs,
@@ -11470,7 +11609,6 @@ class MainWindow(QMainWindow):
                     r["emp_name"] or "-",
                     r["invoice_number"],
                     r["purchase_date"],
-                    r["purchase_time"] or "-",
                     r["initial_qty"],
                     r["sold_qty"],
                     r["remaining_qty"],
@@ -11488,7 +11626,7 @@ class MainWindow(QMainWindow):
                     "، ".join(self._decode_colors(r["colors_json"])) or "-",
                 ]
             )
-        self._populate_table_safely(self.tbl_batches, data, highlight_col=19)
+        self._populate_table_safely(self.tbl_batches, data, highlight_col=18)
 
     def _refresh_sales_table(self):
         with self.db.get_connection() as conn:
@@ -11775,7 +11913,7 @@ class MainWindow(QMainWindow):
                     purchase_today = (
                         0 if sales_role else conn.execute(
                             f"""SELECT COALESCE(SUM(unit_purchase_price*initial_qty+extra_cost_total),0)
-                                FROM batches WHERE purchase_date=? AND buyer_employee_id IN ({marks})""",
+                                FROM batches WHERE substr(purchase_date,1,10)=? AND buyer_employee_id IN ({marks})""",
                             (today, *ids),
                         ).fetchone()[0]
                     )
@@ -11833,7 +11971,7 @@ class MainWindow(QMainWindow):
                 ).fetchone()
                 purchase_today = conn.execute(
                     """SELECT COALESCE(SUM(unit_purchase_price*initial_qty+extra_cost_total),0)
-                       FROM batches WHERE purchase_date=?""",
+                       FROM batches WHERE substr(purchase_date,1,10)=?""",
                     (today,),
                 ).fetchone()[0]
                 service_profit_today = conn.execute(

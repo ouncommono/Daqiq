@@ -331,7 +331,7 @@ def test_version_bumped_consistently_to_495():
     """Verify VERSION, main.APP_VERSION, and device request default app_version stay consistent."""
     root = Path(__file__).resolve().parent.parent
     ver = (root / "VERSION").read_text(encoding="utf-8").strip()
-    assert ver == "4.9.6"
+    assert ver == "4.9.7"
     assert main_module.APP_VERSION == ver
     req = create_device_request_dict(store_name="تست")
     assert req["app_version"] == ver

@@ -111,7 +111,7 @@ class LicenseService:
         verifier: Optional[LicenseVerifier] = None,
         hardware_provider: Optional[HardwareIdentitySource] = None,
         clock_provider: Optional[Callable[[], datetime.datetime]] = None,
-        app_version: str = "4.9.6",
+        app_version: str = "4.9.7",
         store_name_provider: Optional[Callable[[], str]] = None,
     ):
         self.store = store or LicenseStore()
@@ -124,10 +124,27 @@ class LicenseService:
         self._cached_fingerprint: Optional[str] = None
         self._cached_tiers: Optional[Dict[str, str]] = None
         self._last_result: Optional[ValidationResult] = None
+        self._last_anchor_sync_at: Optional[datetime.datetime] = None
 
     def get_active_key_fingerprints(self) -> List[Dict[str, str]]:
         """Return read-only key IDs and human-readable fingerprints."""
         return self.verifier.key_registry.get_active_key_fingerprints()
+
+    def get_app_security_id_display(self) -> str:
+        """Return the exact canonical 'شناسه امنیتی برنامه' shown in LicenseDialog and exported in .daqreq."""
+        try:
+            key_fps = self.get_active_key_fingerprints()
+            if key_fps:
+                displays = [
+                    str(k.get("display") or k.get("fingerprint") or "").strip()
+                    for k in key_fps
+                    if (k.get("display") or k.get("fingerprint"))
+                ]
+                if displays:
+                    return ", ".join(displays)
+        except Exception:
+            pass
+        return "پیش‌فرض"
 
     def get_hardware_fingerprint(self) -> str:
         """Acquire or return cached fp_v1 device fingerprint."""
@@ -155,55 +172,38 @@ class LicenseService:
             now_utc = self.clock_provider()
             env = self._last_result.license
             if env:
-                is_sub = env.payload.license_type in ("subscription", "trial")
-                skew_sec = (env.payload.max_clock_skew_hours or 24) * 3600
-                try:
-                    current_fp = self.get_hardware_fingerprint()
-                    self.store.check_and_update_clock_state(
-                        device_fingerprint=current_fp,
-                        is_subscription=is_sub,
-                        now_utc=now_utc,
-                        tolerance_sec=skew_sec,
+                need_anchor_sync = (
+                    self._last_anchor_sync_at is None
+                    or now_utc < self._last_anchor_sync_at
+                    or (now_utc - self._last_anchor_sync_at).total_seconds() >= 60.0
+                )
+                if need_anchor_sync:
+                    is_sub = env.payload.license_type in ("subscription", "trial", "timed")
+                    skew_hours = (
+                        env.payload.max_clock_skew_hours
+                        if env.payload.max_clock_skew_hours is not None
+                        else 24
                     )
-                except ClockRollbackError as e:
-                    self._last_result = ValidationResult(
-                        status=ValidationStatus.CLOCK_TAMPERED,
-                        is_valid=False,
-                        license=env,
-                        message_fa=STATUS_MESSAGES_FA[ValidationStatus.CLOCK_TAMPERED],
-                        detail=str(e),
-                    )
-                    return self._last_result
-            if env and env.payload.license_type in ("subscription", "trial") and env.payload.expires_at:
-                from .license_verifier import parse_iso8601_utc
-                dt_exp = parse_iso8601_utc(env.payload.expires_at)
-                grace_days = env.payload.grace_period_days if env.payload.grace_period_days is not None else 7
-                grace_deadline = dt_exp + datetime.timedelta(days=grace_days)
-                if now_utc >= grace_deadline:
-                    self._last_result = ValidationResult(
-                        status=ValidationStatus.EXPIRED,
-                        is_valid=False,
-                        license=env,
-                        message_fa=STATUS_MESSAGES_FA[ValidationStatus.EXPIRED],
-                        detail=f"Subscription expired at {env.payload.expires_at}",
-                        days_remaining=0,
-                        is_trial=(env.payload.license_type == "trial"),
-                    )
-                    return self._last_result
-                elif now_utc >= dt_exp:
-                    # In grace period
-                    self._last_result = ValidationResult(
-                        status=ValidationStatus.GRACE_PERIOD,
-                        is_valid=True,
-                        license=env,
-                        message_fa=STATUS_MESSAGES_FA[ValidationStatus.GRACE_PERIOD],
-                        detail=f"In grace period until {grace_deadline.isoformat()}",
-                        in_grace_period=True,
-                        grace_mode=env.payload.grace_mode or "readonly",
-                        days_remaining=0,
-                        is_trial=(env.payload.license_type == "trial"),
-                    )
-                    return self._last_result
+                    skew_sec = max(0, int(skew_hours)) * 3600
+                    try:
+                        current_fp = self.get_hardware_fingerprint()
+                        self.store.check_and_update_clock_state(
+                            device_fingerprint=current_fp,
+                            is_subscription=is_sub,
+                            now_utc=now_utc,
+                            tolerance_sec=skew_sec,
+                        )
+                        self._last_anchor_sync_at = now_utc
+                    except ClockRollbackError as e:
+                        self._last_result = ValidationResult(
+                            status=ValidationStatus.CLOCK_TAMPERED,
+                            is_valid=False,
+                            license=env,
+                            message_fa=STATUS_MESSAGES_FA[ValidationStatus.CLOCK_TAMPERED],
+                            detail=str(e),
+                        )
+                        return self._last_result
+                self._last_result = self.verifier.evaluate_validity_window(env, now_utc=now_utc)
             return self._last_result
 
         # 1. Acquire hardware fingerprint
@@ -262,25 +262,38 @@ class LicenseService:
 
         # 4. Check clock-rollback state
         now_utc = self.clock_provider()
-        is_sub = envelope.payload.license_type in ("subscription", "trial")
-        skew_sec = (envelope.payload.max_clock_skew_hours or 24) * 3600
-        try:
-            self.store.check_and_update_clock_state(
-                device_fingerprint=current_fp,
-                is_subscription=is_sub,
-                now_utc=now_utc,
-                tolerance_sec=skew_sec,
+        need_anchor_sync = (
+            force_reload
+            or self._last_anchor_sync_at is None
+            or now_utc < self._last_anchor_sync_at
+            or (now_utc - self._last_anchor_sync_at).total_seconds() >= 60.0
+        )
+        if need_anchor_sync:
+            is_sub = envelope.payload.license_type in ("subscription", "trial", "timed")
+            skew_hours = (
+                envelope.payload.max_clock_skew_hours
+                if envelope.payload.max_clock_skew_hours is not None
+                else 24
             )
-        except ClockRollbackError as e:
-            res = ValidationResult(
-                status=ValidationStatus.CLOCK_TAMPERED,
-                is_valid=False,
-                license=envelope,
-                message_fa=STATUS_MESSAGES_FA[ValidationStatus.CLOCK_TAMPERED],
-                detail=str(e),
-            )
-            self._last_result = res
-            return res
+            skew_sec = max(0, int(skew_hours)) * 3600
+            try:
+                self.store.check_and_update_clock_state(
+                    device_fingerprint=current_fp,
+                    is_subscription=is_sub,
+                    now_utc=now_utc,
+                    tolerance_sec=skew_sec,
+                )
+                self._last_anchor_sync_at = now_utc
+            except ClockRollbackError as e:
+                res = ValidationResult(
+                    status=ValidationStatus.CLOCK_TAMPERED,
+                    is_valid=False,
+                    license=envelope,
+                    message_fa=STATUS_MESSAGES_FA[ValidationStatus.CLOCK_TAMPERED],
+                    detail=str(e),
+                )
+                self._last_result = res
+                return res
 
         # 5. Cryptographic and semantic validation
         val_result = self.verifier.validate_license(
@@ -374,10 +387,15 @@ class LicenseService:
         # 4. Atomically persist validated license
         try:
             self.store.save_license_bytes_atomic(candidate_bytes)
-            skew_sec = (envelope.payload.max_clock_skew_hours or 24) * 3600
+            skew_hours = (
+                envelope.payload.max_clock_skew_hours
+                if envelope.payload.max_clock_skew_hours is not None
+                else 24
+            )
+            skew_sec = max(0, int(skew_hours)) * 3600
             self.store.check_and_update_clock_state(
                 device_fingerprint=current_fp,
-                is_subscription=(envelope.payload.license_type in ("subscription", "trial")),
+                is_subscription=(envelope.payload.license_type in ("subscription", "trial", "timed")),
                 now_utc=now_utc,
                 tolerance_sec=skew_sec,
             )
@@ -390,11 +408,12 @@ class LicenseService:
                 detail=str(e),
             )
 
+        self._last_anchor_sync_at = now_utc
         self._last_result = val_res
         return val_res
 
-    def export_device_request_file(self, target_path: str, device_label: str = "", store_name: str = "") -> None:
-        """Export clean .daqreq JSON file to target path with live store_name sync."""
+    def export_device_request_file(self, target_path: str, device_label: str = "", store_name: str = "") -> Dict[str, Any]:
+        """Export canonical .daqreq JSON file including live store_name and exact app_security_id."""
         resolved_store = (store_name or "").strip()
         if not resolved_store and self.store_name_provider is not None:
             try:
@@ -405,25 +424,26 @@ class LicenseService:
             app_version=self.app_version,
             device_label=device_label,
             store_name=resolved_store,
+            app_security_id=self.get_app_security_id_display(),
         )
         with open(target_path, "w", encoding="utf-8") as f:
             json.dump(req_dict, f, ensure_ascii=False, indent=2)
+        return req_dict
 
     def remove_license(self) -> bool:
         """Remove active license from disk and reset memory state."""
         ok = self.store.remove_license()
         self._last_result = None
+        self._last_anchor_sync_at = None
         return ok
 
-    def is_feature_enabled(self, feature_id: str) -> bool:
-        """Check whether a tab module or granular sub-feature is authorized in the active license."""
+    def is_feature_enabled_for_result(self, feature_id: str, res: Optional[ValidationResult]) -> bool:
+        """Evaluate feature entitlement against an already-computed ValidationResult."""
         canonical_key = TAB_MODULE_TO_FEATURE.get(feature_id, feature_id)
-        if self._last_result is None or not self._last_result.is_valid:
-            res = self.check_license()
-            if not res.is_valid:
-                return False
+        if not res or not res.is_valid:
+            return False
 
-        lic = self._last_result.license
+        lic = res.license
         if not lic:
             return False
 
@@ -431,16 +451,17 @@ class LicenseService:
         if canonical_key in features:
             return bool(features[canonical_key])
 
-        # Backward compatibility for legacy/full licenses that omit new granular sub-feature flags:
-        # Sub-features default to their parent tab's authorization (or True if parent is enabled/full).
         if canonical_key in SUBFEATURE_PARENT_TAB:
             parent_tab = SUBFEATURE_PARENT_TAB[canonical_key]
             if parent_tab in features:
                 return bool(features[parent_tab])
             return all(bool(features.get(t, False)) for t in CORE_TAB_FEATURES)
 
-        # Core tab keys default to deny if explicitly omitted from a partial license
         return False
+
+    def is_feature_enabled(self, feature_id: str) -> bool:
+        """Check whether a tab module or granular sub-feature is authorized in the active license."""
+        return self.is_feature_enabled_for_result(feature_id, self.check_license())
 
     def is_write_allowed(self) -> bool:
         """Return True if write operations are permitted (False if readonly grace period)."""

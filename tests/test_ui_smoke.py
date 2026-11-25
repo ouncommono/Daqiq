@@ -56,7 +56,7 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
             "تنظیمات خروجی اکسل گزارش‌ها",
             "مدیریت سطوح دسترسی",
         ]
-        assert len(window.inventory_export_column_checks) == 33
+        assert len(window.inventory_export_column_checks) == 32
         for key in ("code", "batch_code", "category", "subcategory", "brand_model", "specs"):
             assert window.inventory_export_column_checks[key].isChecked()
         assert not window.inventory_export_column_checks["suggested_price"].isChecked()

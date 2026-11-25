@@ -483,13 +483,34 @@ def _read_cpu_model_clean() -> str:
     return _clean_string(platform.machine() or platform.processor())
 
 
+def _resolve_app_security_id(explicit_security_id: Optional[str] = None) -> str:
+    """Resolve human-readable security ID ('key_id · XXXX-XXXX-XXXX') matching LicenseDialog."""
+    if explicit_security_id and str(explicit_security_id).strip():
+        return str(explicit_security_id).strip()
+    try:
+        from .keys import get_active_key_fingerprints
+        key_fps = get_active_key_fingerprints()
+        if key_fps:
+            displays = [
+                str(k.get("display") or k.get("fingerprint") or "").strip()
+                for k in key_fps
+                if (k.get("display") or k.get("fingerprint"))
+            ]
+            if displays:
+                return ", ".join(displays)
+    except Exception:
+        pass
+    return "پیش‌فرض"
+
+
 def create_device_request_dict(
-    app_version: str = "4.9.6",
+    app_version: str = "4.9.7",
     device_label: str = "",
     store_name: str = "",
     fp_prefix: Optional[str] = None,
+    app_security_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Generate clean, standard .daqreq dictionary with SMBIOS CPU model, synced store_name, and SHA-256 checksum."""
+    """Generate canonical .daqreq dict with SMBIOS CPU, store_name, app_security_id, and SHA-256."""
     import json
     import platform
 
@@ -506,6 +527,7 @@ def create_device_request_dict(
     os_info = f"{platform.system()} {platform.release()} ({platform.architecture()[0]})"
     cpu_model = _read_cpu_model_clean()
     resolved_store_name = _resolve_synced_store_name(store_name)
+    resolved_security_id = _resolve_app_security_id(app_security_id)
     now_iso = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     req_payload: Dict[str, Any] = {
@@ -513,6 +535,7 @@ def create_device_request_dict(
         "request_version": 1,
         "product_id": "daqiq.desktop",
         "device_fingerprint": fp,
+        "app_security_id": resolved_security_id,
         "store_name": resolved_store_name,
         "computer_name": computer_name,
         "os_info": os_info,

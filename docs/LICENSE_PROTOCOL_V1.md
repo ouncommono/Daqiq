@@ -1,16 +1,16 @@
-# Daqiq Offline Licensing Protocol Specification (v1.4 — v4.9.4)
+# Daqiq Offline Licensing Protocol Specification (v1.5 — v4.9.7)
 
-**Document Version:** 1.4.0  
+**Document Version:** 1.5.0  
 **Target Product:** Daqiq Desktop (`daqiq.desktop`)  
-**Release:** v4.9.4  
+**Release:** v4.9.7  
 **Security Boundary:** Asymmetric Ed25519 Signatures, Native Win32 SMBIOS Hardware Fingerprinting (`GetSystemFirmwareTable('RSMB')`), Redundant Filesystem HMAC-SHA256 Clock-Rollback Anchors (Zero Windows Registry), Native C-Compiled XOR-Sharded Public Keys.
 
 ---
 
-## 1. Protocol Changes & Generator Sync Notes (v4.9.3 -> v4.9.4)
+## 1. Protocol Changes & Generator Sync Notes (v4.9.3 -> v4.9.7)
 
-### 1.1 Clean Device Request Schema (`.daqreq`)
-Removed redundant `"hardware_anchors"` (the 3 unused tier hashes) and hardcoded `"device_label": "صندوق فروشگاه"`. Extracted real CPU model from **SMBIOS Type 4 (`Processor Version`)** via native Win32 `GetSystemFirmwareTable('RSMB')` (zero `winreg`), and synchronized live `store_name` from Settings / `app_config.json`.
+### 1.1 Canonical Device Request Schema (`.daqreq`)
+Includes the exact `app_security_id` (`شناسه امنیتی برنامه`) displayed in the Daqiq License UI so operators/Generators can immediately verify key-pairing from a `.daqreq` file, plus real SMBIOS Type 4 `cpu_model` and live `store_name`.
 
 ```json
 {
@@ -18,18 +18,23 @@ Removed redundant `"hardware_anchors"` (the 3 unused tier hashes) and hardcoded 
   "request_version": 1,
   "product_id": "daqiq.desktop",
   "device_fingerprint": "fp_v1:b8782278c4c15107a8fd2a5d21718e3328c8baeac5d1a3f0664701ac2983e52e",
+  "app_security_id": "daqiq-prod-v1 · 7925-3864-0164",
   "store_name": "فروشگاه نمونه",
   "computer_name": "CASHIER-PC",
   "os_info": "Windows 10 (64bit)",
   "cpu_model": "Intel(R) Core(TM) i5-12400F",
-  "app_version": "4.9.4",
-  "generated_at_utc": "2026-11-24T12:00:00Z",
+  "app_version": "4.9.7",
+  "generated_at_utc": "2026-11-25T12:00:00Z",
   "checksum_sha256": "<64-char-hex-sha256-of-canonical-json>"
 }
 ```
 
 - `checksum_sha256` is computed over `json.dumps(req_without_checksum, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")`.
 - `device_label` is omitted unless explicitly supplied by an operator/CLI caller.
+- **v4.9.7 Expiry & Grace Parity Notes (Generator Sync):**
+  - `grace_period_days` defaults strictly to **`0`** when omitted or `None` (no hidden grace days). When `grace_period_days > 0`, hard lock triggers at `expires_at + grace_period_days`.
+  - Non-perpetual licenses (`subscription`, `trial`, `timed`) with missing or unparseable expiry fail closed (`CORRUPTED_LICENSE`). Date-only expiry strings (`YYYY-MM-DD`) expire at end-of-day UTC (`23:59:59Z`).
+  - Alias keys (`expires_at_utc`, `valid_until`, `expiry_date`, `duration_days`, and nested `validity.*`) are supported safely without breaking canonical Ed25519 signature verification.
 
 ### 1.2 Configurable Build Identity (`public_key`, `key_id`, `fp_prefix`)
 Precedence order at build time:

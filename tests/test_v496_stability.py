@@ -66,7 +66,7 @@ def _build_real_signed_license_service(tmp_path: Path, features: dict | None = N
         roaming_dir=str(tmp_path / "lic_r"),
     )
     verifier = LicenseVerifier(key_registry=KeyRegistry({"v496-key": pub_b64}))
-    svc = LicenseService(store=store, verifier=verifier, hardware_provider=hw, app_version="4.9.6")
+    svc = LicenseService(store=store, verifier=verifier, hardware_provider=hw, app_version="4.9.7")
     res = svc.import_license_file(str(lic_file))
     assert res.is_valid, res
     return svc

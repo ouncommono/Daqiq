@@ -1038,12 +1038,27 @@ class LicenseDialog(QDialog):
         res = self.service.check_license(force_reload=True)
         self.current_result = res
 
-        try:
-            key_fps = self.service.get_active_key_fingerprints()
-            key_fp_str = ", ".join(k.get("display", k.get("fingerprint", "")) for k in key_fps) if key_fps else "پیش‌فرض"
-        except Exception:
-            key_fp_str = "پیش‌فرض"
-        self._current_key_fp_text = key_fp_str
+        sec_id = None
+        getter = getattr(self.service, "get_app_security_id_display", None)
+        if callable(getter):
+            cand = getter()
+            if isinstance(cand, str) and cand.strip():
+                sec_id = cand
+        if sec_id:
+            self._current_key_fp_text = sec_id
+        else:
+            fps = self.service.get_active_key_fingerprints()
+            if fps:
+                first_fp = fps[0]
+                if isinstance(first_fp, dict):
+                    self._current_key_fp_text = str(
+                        first_fp.get("display") or first_fp.get("fingerprint") or "نامشخص"
+                    )
+                else:
+                    self._current_key_fp_text = str(first_fp)
+            else:
+                self._current_key_fp_text = "نامشخص"
+        key_fp_str = self._current_key_fp_text
         self._key_fp_revert_timer.stop()
         self._restore_key_fp_label()
 
