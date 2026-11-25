@@ -57,7 +57,6 @@ def build(mode: str, repo_root: Path, skip_shards: bool = False) -> int:
     import PySide6
     pyside6_dir = Path(PySide6.__file__).resolve().parent
     platforms_src = pyside6_dir / "plugins" / "platforms"
-    printsupport_src = pyside6_dir / "plugins" / "printsupport"
 
     cmd = [
         sys.executable,
@@ -66,8 +65,9 @@ def build(mode: str, repo_root: Path, skip_shards: bool = False) -> int:
         f"--mode={mode}",
         "--assume-yes-for-downloads",
         "--enable-plugin=pyside6",
-        # Prune unused heavy Qt plugins and translations (keep printsupport for A4/A5 printing)
-        "--include-qt-plugins=sensible,platforms,styles,imageformats,printsupport",
+        # Prune unused heavy Qt plugins and translations (PySide6.QtPrintSupport is included explicitly below)
+        "--include-qt-plugins=sensible,platforms,styles,imageformats",
+        "--include-module=PySide6.QtPrintSupport",
         "--noinclude-qt-translations",
         # Prune test and dev packages from payload
         "--noinclude-pytest-mode=nofollow",
@@ -90,9 +90,6 @@ def build(mode: str, repo_root: Path, skip_shards: bool = False) -> int:
     if platforms_src.is_dir():
         cmd.append(f"--include-data-dir={platforms_src}=PySide6/qt-plugins/platforms")
         cmd.append(f"--include-data-dir={platforms_src}=platforms")
-    if printsupport_src.is_dir():
-        cmd.append(f"--include-data-dir={printsupport_src}=PySide6/qt-plugins/printsupport")
-        cmd.append(f"--include-data-dir={printsupport_src}=printsupport")
 
     cmd.append(f"--output-dir={dist_dir}")
 
@@ -174,7 +171,7 @@ def build(mode: str, repo_root: Path, skip_shards: bool = False) -> int:
         shutil.copy2(source_tax, target_tax)
         print(f"Copied external {source_tax.name} to {target_tax}")
 
-        # Ensure all Qt platform and printsupport plugins exist for headless/printing verification
+        # Ensure all Qt platform plugins exist for headless verification
         if platforms_src.is_dir():
             for dest_sub in ["PySide6/qt-plugins/platforms", "platforms"]:
                 p_dest = standalone_dir / dest_sub
@@ -182,13 +179,6 @@ def build(mode: str, repo_root: Path, skip_shards: bool = False) -> int:
                 for dll in platforms_src.glob("*.dll"):
                     shutil.copy2(dll, p_dest / dll.name)
             print("Verified complete Qt platform plugins in standalone directory.")
-        if printsupport_src.is_dir():
-            for dest_sub in ["PySide6/qt-plugins/printsupport", "printsupport"]:
-                ps_dest = standalone_dir / dest_sub
-                ps_dest.mkdir(parents=True, exist_ok=True)
-                for dll in printsupport_src.glob("*.dll"):
-                    shutil.copy2(dll, ps_dest / dll.name)
-            print("Verified complete Qt printsupport plugins in standalone directory.")
 
         rc_ts = build_troubleshooter(mode, repo_root, version)
         if rc_ts != 0:

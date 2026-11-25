@@ -492,7 +492,7 @@ def test_req07_zero_qt_troubleshooter_ast_cli_and_build_config():
         assert marker in proc.stdout
 
     build_src = Path("scripts/build_nuitka.py").read_text(encoding="utf-8")
-    assert "printsupport" in build_src
+    assert "PySide6.QtPrintSupport" in build_src
     assert "{TEMP}/DaqiqReset_{PID}" in build_src
     ts_section = build_src.split("def build_troubleshooter", 1)[1]
     assert 'cmd.append("--enable-plugin=pyside6")' not in ts_section

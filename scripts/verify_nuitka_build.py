@@ -41,6 +41,12 @@ def verify_binary(binary_path: Path, is_standalone: bool = False) -> int:
         print(f"[FAIL] Sibling default_taxonomy.json missing next to binary at: {taxonomy_file}", file=sys.stderr)
         return 1
     print(f"[PASS] External default_taxonomy.json verified: {taxonomy_file.stat().st_size:,} bytes")
+    if is_standalone:
+        qt_print_hits = list(binary_path.parent.rglob("*PrintSupport*"))
+        if not qt_print_hits:
+            print("[FAIL] QtPrintSupport runtime missing from standalone build!", file=sys.stderr)
+            return 1
+        print(f"[PASS] QtPrintSupport verified in standalone dist: {[p.name for p in qt_print_hits]}")
 
     smoke_log = binary_path.parent / "smoke_test.log"
     if smoke_log.is_file():
