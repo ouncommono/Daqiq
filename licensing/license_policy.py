@@ -111,7 +111,7 @@ class LicenseService:
         verifier: Optional[LicenseVerifier] = None,
         hardware_provider: Optional[HardwareIdentitySource] = None,
         clock_provider: Optional[Callable[[], datetime.datetime]] = None,
-        app_version: str = "4.9.5",
+        app_version: str = "4.9.6",
         store_name_provider: Optional[Callable[[], str]] = None,
     ):
         self.store = store or LicenseStore()

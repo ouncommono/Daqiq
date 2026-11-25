@@ -117,9 +117,16 @@ def get_windows_documents_path():
             ]
             sh_get_known_folder_path.restype = ctypes.c_long
             path_ptr = ctypes.c_wchar_p()
-            res = sh_get_known_folder_path(ctypes.byref(guid_documents), 0, 0, ctypes.byref(path_ptr))
-            if res == 0 and path_ptr.value:
-                return os.path.normpath(path_ptr.value)
+            try:
+                res = sh_get_known_folder_path(ctypes.byref(guid_documents), 0, 0, ctypes.byref(path_ptr))
+                if res == 0 and path_ptr.value:
+                    return os.path.normpath(path_ptr.value)
+            finally:
+                if path_ptr.value:
+                    ole32 = ctypes.windll.ole32
+                    ole32.CoTaskMemFree.argtypes = [ctypes.c_void_p]
+                    ole32.CoTaskMemFree.restype = None
+                    ole32.CoTaskMemFree(path_ptr)
         except Exception:
             pass
         try:
@@ -248,6 +255,18 @@ class SecureCredentialStore:
 
         crypt32 = ctypes.windll.crypt32
         kernel32 = ctypes.windll.kernel32
+        crypt32.CryptProtectData.argtypes = [
+            ctypes.POINTER(DATA_BLOB),
+            wintypes.LPCWSTR,
+            ctypes.POINTER(DATA_BLOB),
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            wintypes.DWORD,
+            ctypes.POINTER(DATA_BLOB),
+        ]
+        crypt32.CryptProtectData.restype = wintypes.BOOL
+        kernel32.LocalFree.argtypes = [ctypes.c_void_p]
+        kernel32.LocalFree.restype = ctypes.c_void_p
         data_in = DATA_BLOB(len(data), ctypes.cast(ctypes.create_string_buffer(data), ctypes.POINTER(ctypes.c_byte)))
         ent_blob = DATA_BLOB(len(entropy), ctypes.cast(ctypes.create_string_buffer(entropy), ctypes.POINTER(ctypes.c_byte))) if entropy else None
         ent_ptr = ctypes.byref(ent_blob) if ent_blob else None
@@ -269,6 +288,18 @@ class SecureCredentialStore:
 
         crypt32 = ctypes.windll.crypt32
         kernel32 = ctypes.windll.kernel32
+        crypt32.CryptUnprotectData.argtypes = [
+            ctypes.POINTER(DATA_BLOB),
+            ctypes.c_void_p,
+            ctypes.POINTER(DATA_BLOB),
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            wintypes.DWORD,
+            ctypes.POINTER(DATA_BLOB),
+        ]
+        crypt32.CryptUnprotectData.restype = wintypes.BOOL
+        kernel32.LocalFree.argtypes = [ctypes.c_void_p]
+        kernel32.LocalFree.restype = ctypes.c_void_p
         data_in = DATA_BLOB(len(cipher), ctypes.cast(ctypes.create_string_buffer(cipher), ctypes.POINTER(ctypes.c_byte)))
         ent_blob = DATA_BLOB(len(entropy), ctypes.cast(ctypes.create_string_buffer(entropy), ctypes.POINTER(ctypes.c_byte))) if entropy else None
         ent_ptr = ctypes.byref(ent_blob) if ent_blob else None

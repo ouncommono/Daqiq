@@ -72,16 +72,64 @@ def _is_python_host_binary(exe_path: Path) -> bool:
     )
 
 
+def _resolve_nuitka_parent_process_dir() -> Path | None:
+    """Resolve the real outer executable directory via NUITKA_ONEFILE_PARENT PID on Windows."""
+    if sys.platform != "win32":
+        return None
+    raw_pid = os.environ.get("NUITKA_ONEFILE_PARENT", "").strip()
+    if not raw_pid.isdigit():
+        return None
+    parent_pid = int(raw_pid)
+    if parent_pid <= 0:
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        kernel32 = ctypes.windll.kernel32
+        kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.QueryFullProcessImageNameW.argtypes = [
+            wintypes.HANDLE,
+            wintypes.DWORD,
+            wintypes.LPWSTR,
+            ctypes.POINTER(wintypes.DWORD),
+        ]
+        kernel32.QueryFullProcessImageNameW.restype = wintypes.BOOL
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+
+        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, parent_pid)
+        if not handle:
+            return None
+        try:
+            buf_len = wintypes.DWORD(4096)
+            buf = ctypes.create_unicode_buffer(buf_len.value)
+            if kernel32.QueryFullProcessImageNameW(handle, 0, buf, ctypes.byref(buf_len)) and buf.value:
+                img_path = Path(buf.value).expanduser().resolve()
+                if img_path.is_file() and not _is_python_host_binary(img_path):
+                    cand = img_path.parent
+                    if not _is_nuitka_cache_dir(cand):
+                        return cand
+        finally:
+            kernel32.CloseHandle(handle)
+    except Exception:
+        return None
+    return None
+
+
 def get_executable_dir() -> Path:
     """Return the real directory containing the outer ``Daqiq.exe`` (or repo root in dev).
 
     Resolution priority:
     1. ``NUITKA_ONEFILE_BINARY`` environment variable (outer binary path in Nuitka onefile).
-       Note: ``NUITKA_ONEFILE_PARENT`` is an integer PID and is NEVER treated as a path.
-    2. ``__compiled__.containing_dir`` (on ``__main__`` or module), when not inside Nuitka cache.
-    3. Resolved ``sys.argv[0]`` (for compiled or ``.exe`` invocations across working dirs).
-    4. Resolved ``sys.executable`` directory (only when compiled and outside cache dir).
-    5. Source repository root fallback (uncompiled development / pytest).
+       Note: ``NUITKA_ONEFILE_PARENT`` is an integer PID and is NEVER treated as a path string.
+    2. Win32 parent-process image lookup via ``NUITKA_ONEFILE_PARENT`` PID when valid.
+    3. ``__compiled__.containing_dir`` (on ``__main__`` or module), when not inside Nuitka cache.
+    4. Resolved ``sys.argv[0]`` (for compiled or ``.exe`` invocations across working dirs).
+    5. Resolved ``sys.executable`` directory (only when compiled and outside cache dir).
+    6. Source repository root fallback (uncompiled development / pytest).
     """
     # 1. Authoritative Nuitka onefile outer binary env var
     onefile_bin = os.environ.get("NUITKA_ONEFILE_BINARY", "").strip()
@@ -91,6 +139,12 @@ def get_executable_dir() -> Path:
             return bin_path if bin_path.is_dir() else bin_path.parent
         except OSError:
             return Path(onefile_bin).parent
+
+    # 2. Win32 parent-process image resolution using integer NUITKA_ONEFILE_PARENT PID
+    if _is_compiled_runtime():
+        parent_dir = _resolve_nuitka_parent_process_dir()
+        if parent_dir is not None:
+            return parent_dir
 
     # 2. Nuitka __compiled__.containing_dir (safe against cache dir)
     for mod in (sys.modules.get("__main__"), sys.modules.get(__name__)):

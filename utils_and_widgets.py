@@ -701,20 +701,28 @@ _CALENDAR_MONTHS = {
 }
 
 
-def _resolve_ancestor_calendar(widget, explicit_cal=None) -> str:
+def _resolve_ancestor_calendar(widget, explicit_cal=None, _visited=None) -> str:
     if explicit_cal:
         return CALENDAR_LOOKUP.get(explicit_cal, CALENDAR_JALALI)
+    visited = _visited if _visited is not None else set()
     ancestor = widget
     while ancestor is not None:
+        obj_id = id(ancestor)
+        if obj_id in visited:
+            break
+        visited.add(obj_id)
         if hasattr(ancestor, "get_active_calendar"):
             try:
                 return CALENDAR_LOOKUP.get(ancestor.get_active_calendar(), CALENDAR_JALALI)
-            except Exception:
+            except (AttributeError, RuntimeError, TypeError, ValueError):
                 pass
-        if hasattr(ancestor, "get_calendar_format"):
+        explicit_attr = getattr(ancestor, "_explicit_calendar_format", None)
+        if explicit_attr:
+            return CALENDAR_LOOKUP.get(explicit_attr, CALENDAR_JALALI)
+        if not isinstance(ancestor, JalaliDateEdit) and hasattr(ancestor, "get_calendar_format"):
             try:
                 return CALENDAR_LOOKUP.get(ancestor.get_calendar_format(), CALENDAR_JALALI)
-            except Exception:
+            except (AttributeError, RuntimeError, TypeError, ValueError):
                 pass
         if hasattr(ancestor, "db") and getattr(ancestor, "db", None) is not None:
             try:
@@ -722,7 +730,7 @@ def _resolve_ancestor_calendar(widget, explicit_cal=None) -> str:
                     ancestor.db.get_setting("calendar_format", CALENDAR_JALALI),
                     CALENDAR_JALALI,
                 )
-            except Exception:
+            except (AttributeError, RuntimeError, TypeError, ValueError):
                 pass
         ancestor = ancestor.parentWidget() if hasattr(ancestor, "parentWidget") else None
     return CALENDAR_JALALI
@@ -1063,7 +1071,9 @@ class JalaliDateEdit(QWidget):
             self.set_date(get_today_date(self.get_calendar_format()))
 
     def get_calendar_format(self) -> str:
-        return _resolve_ancestor_calendar(self, self._explicit_calendar_format)
+        if self._explicit_calendar_format:
+            return CALENDAR_LOOKUP.get(self._explicit_calendar_format, CALENDAR_JALALI)
+        return _resolve_ancestor_calendar(self.parentWidget(), None)
 
     def _update_calendar_tooltip(self):
         cal = self.get_calendar_format()

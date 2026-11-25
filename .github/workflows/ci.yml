@@ -167,7 +167,7 @@ jobs:
         shell: pwsh
         run: |
           $ver = (Get-Content VERSION).Trim()
-          if (-not $ver) { $ver = "4.9.5" }
+          if (-not $ver) { $ver = "4.9.6" }
           Write-Output "APP_VERSION=$ver" >> $env:GITHUB_ENV
           Write-Output "Building Daqiq onefile for version: $ver"
 
@@ -207,6 +207,69 @@ jobs:
             }
           } finally {
             Remove-Item -Recurse -Force $smokeDir -ErrorAction SilentlyContinue
+          }
+
+      - name: Verify Compiled Onefile Post-DB MainWindow Launch (Create & Existing DB)
+        shell: pwsh
+        run: |
+          $smokeRoot = "C:\daqiq_e2e_smoke"
+          $smokeDbs = "C:\daqiq_e2e_smoke_dbs"
+          $smokeLocal = "C:\daqiq_e2e_smoke_local"
+          Remove-Item -Recurse -Force $smokeRoot, $smokeDbs, $smokeLocal -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $smokeRoot, $smokeDbs, $smokeLocal | Out-Null
+          Copy-Item "dist/Daqiq_${{ env.APP_VERSION }}.exe" "$smokeRoot\Daqiq.exe"
+          $env:QT_QPA_PLATFORM = "offscreen"
+          $env:PYTHONFAULTHANDLER = "1"
+          $env:LOCALAPPDATA = $smokeLocal
+          $env:APPDATA = $smokeLocal
+          try {
+            python -c "
+import os, subprocess, sys
+from pathlib import Path
+import shutil
+
+exe = r'C:\daqiq_e2e_smoke\Daqiq.exe'
+dbs = Path(r'C:\daqiq_e2e_smoke_dbs')
+logs = Path(r'C:\daqiq_e2e_smoke_local\Daqiq\logs')
+
+# 1. Create new DB WITHOUT default_taxonomy.json
+db1 = dbs / 'new_no_tax.db'
+p1 = subprocess.run([exe, '--smoke-launch-db', str(db1), '--smoke-launch-mode', 'create'], cwd=r'C:\Windows\Temp', capture_output=True, text=True, timeout=60)
+print('SMOKE 1 STDOUT:', p1.stdout)
+print('SMOKE 1 STDERR:', p1.stderr)
+assert p1.returncode == 0, f'Create-without-taxonomy failed: {p1.returncode}'
+assert 'DAQIQ_SMOKE_LAUNCH_OK' in p1.stdout, p1.stdout
+assert db1.is_file(), 'DB1 was not created'
+
+# 2. Copy external default_taxonomy.json and Create new DB WITH taxonomy
+shutil.copy2('dist/default_taxonomy.json', r'C:\daqiq_e2e_smoke\default_taxonomy.json')
+db2 = dbs / 'new_with_tax.db'
+p2 = subprocess.run([exe, '--smoke-launch-db', str(db2), '--smoke-launch-mode', 'create'], cwd=r'C:\Windows\Temp', capture_output=True, text=True, timeout=60)
+print('SMOKE 2 STDOUT:', p2.stdout)
+print('SMOKE 2 STDERR:', p2.stderr)
+assert p2.returncode == 0, f'Create-with-taxonomy failed: {p2.returncode}'
+assert 'DAQIQ_SMOKE_LAUNCH_OK' in p2.stdout, p2.stdout
+
+# 3. Connect Existing DB
+p3 = subprocess.run([exe, '--smoke-launch-db', str(db2), '--smoke-launch-mode', 'existing'], cwd=r'C:\Windows\Temp', capture_output=True, text=True, timeout=60)
+print('SMOKE 3 STDOUT:', p3.stdout)
+print('SMOKE 3 STDERR:', p3.stderr)
+assert p3.returncode == 0, f'Connect-existing failed: {p3.returncode}'
+assert 'DAQIQ_SMOKE_LAUNCH_OK' in p3.stdout, p3.stdout
+
+# 4. Assert zero crash or native fault logs
+for log_name in ('daqiq_crash.log', 'daqiq_native_fault.log'):
+    lp = logs / log_name
+    if lp.is_file():
+        content = lp.read_text(encoding='utf-8', errors='replace').strip()
+        assert not content, f'Unexpected {log_name} content:\n{content}'
+print('PASS: Compiled Windows onefile post-DB MainWindow launch verified for Create & Existing DB.')
+"
+            if ($LASTEXITCODE -ne 0) {
+              exit 1
+            }
+          } finally {
+            Remove-Item -Recurse -Force $smokeRoot, $smokeDbs, $smokeLocal -ErrorAction SilentlyContinue
           }
 
       - name: Verify Onefile Executable Size and Optimization
@@ -261,7 +324,7 @@ jobs:
         shell: pwsh
         run: |
           $ver = (Get-Content VERSION).Trim()
-          if (-not $ver) { $ver = "4.9.5" }
+          if (-not $ver) { $ver = "4.9.6" }
           Write-Output "APP_VERSION=$ver" >> $env:GITHUB_ENV
 
       - name: Download Build Artifacts

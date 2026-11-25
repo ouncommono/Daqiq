@@ -53,7 +53,7 @@ def test_device_request_export_protocol_parity():
     assert req["protocol_version"] == 1
     assert req["request_version"] == 1
     assert req["product_id"] == "daqiq.desktop"
-    assert req["app_version"] == "4.9.5"
+    assert req["app_version"] == "4.9.6"
     assert req["store_name"] == "Main Cashier"
     assert "hardware_tier" not in req
     assert "hardware_anchors" not in req

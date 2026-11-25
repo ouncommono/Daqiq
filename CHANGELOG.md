@@ -1,3 +1,14 @@
+# Daqiq 4.9.6
+
+## Root-Cause Post-DB Startup Crash Fix & Full Stability Hardening
+
+- **Fixed Native C-Stack Overflow (`0xC00000FD`) After Database Dialog (`utils_and_widgets.py`)**: Eliminated an unbounded mutual recursion between `JalaliDateEdit.get_calendar_format()` and `_resolve_ancestor_calendar(self, ...)` that had been masked as swallowed `RecursionError` in CPython unit tests but exhausted the Windows C thread stack inside compiled Nuitka binaries (`v4.9.4` / `v4.9.5`) during `MainWindow._build_ui()`. Added cycle/type guards and removed generic exception swallowing of `RecursionError`.
+- **Native & Qt Crash Diagnostics (`main.py`)**: Enabled `faulthandler` native fault logging (`%LOCALAPPDATA%\Daqiq\logs\daqiq_native_fault.log`) and Qt `qInstallMessageHandler` critical/fatal logging (`daqiq_crash.log`) alongside `sys.excepthook` and `threading.excepthook`.
+- **64-bit Win32 `ctypes` & Nuitka Outer Path Hardening (`utils/paths.py`, `database.py`, `licensing/device_identity.py`, `main.py`)**: Added explicit `.argtypes`/`.restype` declarations for `GetSystemFirmwareTable`, `CryptProtectData`, `CryptUnprotectData`, `LocalFree`, `CoTaskMemFree`, and `SetCurrentProcessExplicitAppUserModelID`; added Win32 `NUITKA_ONEFILE_PARENT` image lookup in `get_executable_dir()`; preserved `DatabaseBootstrapDialog` theme toggles across `select_startup_database_path()`; synced date widget calendars on startup.
+- **Compiled Windows Binary CI Launch Proof (`.github/workflows/ci.yml`, `main.py`)**: Added non-interactive `--smoke-launch-db` E2E verification executing the compiled onefile `Daqiq.exe` through database creation/connection into a live 1.5s `MainWindow` event loop in Windows CI.
+
+---
+
 # Daqiq 4.9.5
 
 ## Critical Hotfix & License Window UI Polish

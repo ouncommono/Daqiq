@@ -124,7 +124,7 @@ def _load_app_version() -> str:
                         return ver
             except Exception:
                 pass
-    return "4.9.5"
+    return "4.9.6"
 
 APP_VERSION = _load_app_version()
 
@@ -581,10 +581,12 @@ class _MessageBoxPolisher(QObject):
 _ACTIVE_MAIN_WINDOW = None
 _CRASH_HOOK_ACTIVE = False
 _IN_CRASH_HANDLER = False
+_NATIVE_FAULT_LOG_HANDLE = None
+_QT_MSG_HANDLER_ACTIVE = False
+_PREV_QT_MSG_HANDLER = None
 
 
-def get_crash_log_path() -> str:
-    """Return persistent path for crash tracebacks under %LOCALAPPDATA%\\Daqiq\\logs."""
+def _get_log_dir() -> str:
     local_app = os.environ.get("LOCALAPPDATA", "").strip()
     if local_app:
         log_dir = os.path.join(local_app, "Daqiq", "logs")
@@ -594,7 +596,61 @@ def get_crash_log_path() -> str:
         os.makedirs(log_dir, exist_ok=True)
     except OSError:
         log_dir = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(log_dir, "daqiq_crash.log")
+    return log_dir
+
+
+def get_crash_log_path() -> str:
+    """Return persistent path for crash tracebacks under %LOCALAPPDATA%\\Daqiq\\logs."""
+    return os.path.join(_get_log_dir(), "daqiq_crash.log")
+
+
+def get_native_fault_log_path() -> str:
+    """Return persistent path for native C/faulthandler crash dumps under %LOCALAPPDATA%\\Daqiq\\logs."""
+    return os.path.join(_get_log_dir(), "daqiq_native_fault.log")
+
+
+def install_native_fault_and_qt_loggers() -> None:
+    """Enable native faulthandler and Qt critical/fatal message logging safely."""
+    global _NATIVE_FAULT_LOG_HANDLE, _QT_MSG_HANDLER_ACTIVE, _PREV_QT_MSG_HANDLER
+    if "PYTEST_CURRENT_TEST" not in os.environ and _NATIVE_FAULT_LOG_HANDLE is None:
+        try:
+            import faulthandler
+
+            fault_path = get_native_fault_log_path()
+            _NATIVE_FAULT_LOG_HANDLE = open(fault_path, "a", encoding="utf-8", buffering=1)
+            faulthandler.enable(file=_NATIVE_FAULT_LOG_HANDLE, all_threads=True)
+        except Exception:
+            _NATIVE_FAULT_LOG_HANDLE = None
+
+    if not _QT_MSG_HANDLER_ACTIVE:
+        try:
+            from PySide6.QtCore import QtMsgType, qInstallMessageHandler
+
+            def _qt_message_handler(msg_type, context, message):
+                try:
+                    if msg_type in (QtMsgType.QtCriticalMsg, QtMsgType.QtFatalMsg):
+                        import datetime as _dt
+
+                        severity = "FATAL" if msg_type == QtMsgType.QtFatalMsg else "CRITICAL"
+                        loc = f"{getattr(context, 'file', '')}:{getattr(context, 'line', 0)}"
+                        line = (
+                            f"[{_dt.datetime.now(_dt.timezone.utc).isoformat()}] "
+                            f"Qt {severity} ({loc}): {message}\n"
+                        )
+                        with open(get_crash_log_path(), "a", encoding="utf-8") as f:
+                            f.write(line)
+                except Exception:
+                    pass
+                if _PREV_QT_MSG_HANDLER is not None:
+                    try:
+                        _PREV_QT_MSG_HANDLER(msg_type, context, message)
+                    except Exception:
+                        pass
+
+            _PREV_QT_MSG_HANDLER = qInstallMessageHandler(_qt_message_handler)
+            _QT_MSG_HANDLER_ACTIVE = True
+        except Exception:
+            pass
 
 
 def write_crash_log(exc_type, exc_value, exc_tb, context: str = "unhandled") -> str:
@@ -1423,7 +1479,13 @@ def select_startup_database_path(parent=None):
 
     chosen_path = os.path.abspath(dialog.selected_path)
     if dialog.rb_create.isChecked() or not os.path.isfile(chosen_path):
-        create_and_initialize_database(chosen_path)
+        created_db = create_and_initialize_database(chosen_path)
+        try:
+            created_db.close()
+        except Exception:
+            pass
+    # Reload app_config so any Light/Dark toggle performed inside DatabaseBootstrapDialog is preserved.
+    config = load_app_config()
     config["db_path"] = chosen_path
     recent = [
         os.path.abspath(path) for path in config.get("recent_databases", [])
@@ -1518,13 +1580,18 @@ class MainWindow(QMainWindow):
         self._install_tab_lock_filter()
         self._apply_global_rtl_alignment()
         app = QApplication.instance()
-        if app is not None and not getattr(app, "_accounting_message_box_polisher", None):
+        if (
+            app is not None
+            and not getattr(app, "_daqiq_msg_polisher", None)
+            and not getattr(app, "_accounting_message_box_polisher", None)
+        ):
             polisher = _MessageBoxPolisher(app)
             app.installEventFilter(polisher)
             app._accounting_message_box_polisher = polisher
         self.tabs.currentChanged.connect(self._on_main_tab_changed)
         self._setup_timers()
         self.refresh_all_data()
+        self._sync_date_widgets_calendar()
         self._apply_employee_permissions(select_first_unlocked=True)
         self._sync_all_default_operators()
 
@@ -11878,6 +11945,114 @@ class MainWindow(QMainWindow):
 
 
 
+def _run_smoke_launch_db(app: QApplication, db_path: str, mode: str = "create") -> int:
+    """Non-interactive post-DB MainWindow launch verification for compiled-binary CI tests.
+
+    Never unlocks interactive user usage: destroys MainWindow and exits after 1.5s Qt event loop.
+    """
+    from types import SimpleNamespace
+
+    smoke_mode = (mode or "create").strip().lower()
+    if smoke_mode not in ("create", "existing"):
+        print(f"DAQIQ_SMOKE_LAUNCH_ERROR: Invalid --smoke-launch-mode: {mode!r}", file=sys.stderr, flush=True)
+        return 1
+
+    target_db = os.path.abspath(os.path.expanduser(db_path))
+    db = None
+    win = None
+    try:
+        dlg = DatabaseBootstrapDialog(target_db)
+        if smoke_mode == "existing":
+            dlg.rb_existing.setChecked(True)
+        else:
+            dlg.rb_create.setChecked(True)
+        dlg.ed_path.setText(target_db)
+        dlg._validate_and_accept()
+        if dlg.result() != QDialog.Accepted or not dlg.selected_path:
+            print("DAQIQ_SMOKE_LAUNCH_ERROR: DatabaseBootstrapDialog validation failed.", file=sys.stderr, flush=True)
+            return 1
+        chosen = os.path.abspath(dlg.selected_path)
+        if smoke_mode == "create" or not os.path.isfile(chosen):
+            created = create_and_initialize_database(chosen)
+            try:
+                created.close()
+            except Exception:
+                pass
+        dlg.close()
+
+        db = DatabaseManager(chosen)
+        active_emp, accepted = _resolve_startup_employee(db)
+        if not accepted:
+            print("DAQIQ_SMOKE_LAUNCH_ERROR: Employee login required in smoke DB.", file=sys.stderr, flush=True)
+            return 1
+
+        # Strictly ephemeral in-memory smoke entitlement stub; never persisted or usable interactively.
+        smoke_res = ValidationResult(
+            status=ValidationStatus.VALID,
+            is_valid=True,
+            license=None,
+            message_fa="smoke-check",
+        )
+        smoke_svc = SimpleNamespace(
+            check_license=lambda force_reload=False: smoke_res,
+            is_feature_enabled=lambda _feat: True,
+            is_write_allowed=lambda: True,
+            get_hardware_fingerprint=lambda: "fp_v1:smoke",
+            get_active_key_fingerprints=lambda: [],
+            store_name_provider=None,
+        )
+
+        win = MainWindow(db, active_emp, license_service=smoke_svc)
+        global _ACTIVE_MAIN_WINDOW
+        _ACTIVE_MAIN_WINDOW = win
+        win.show()
+
+        smoke_state = {"ok": False, "err": ""}
+
+        def _finish_smoke():
+            try:
+                if win is None or not win.isVisible():
+                    smoke_state["err"] = "MainWindow is not visible after 1.5s event loop."
+                elif win.tabs.count() < 10:
+                    smoke_state["err"] = f"Unexpected tab count: {win.tabs.count()}"
+                else:
+                    smoke_state["ok"] = True
+            except Exception as exc:
+                smoke_state["err"] = repr(exc)
+            finally:
+                try:
+                    if win is not None:
+                        win.close()
+                except Exception:
+                    pass
+                app.quit()
+
+        QTimer.singleShot(1500, _finish_smoke)
+        app.exec()
+        app.setQuitOnLastWindowClosed(True)
+
+        if not smoke_state["ok"]:
+            print(f"DAQIQ_SMOKE_LAUNCH_ERROR: {smoke_state['err']}", file=sys.stderr, flush=True)
+            return 1
+
+        print(
+            f"DAQIQ_SMOKE_LAUNCH_OK: mode={smoke_mode} visible=True tabs={win.tabs.count()} db={chosen}",
+            flush=True,
+        )
+        return 0
+    except Exception as exc:
+        write_crash_log(type(exc), exc, exc.__traceback__, context="smoke_launch_db")
+        print(f"DAQIQ_SMOKE_LAUNCH_ERROR: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
+        return 1
+    finally:
+        _ACTIVE_MAIN_WINDOW = None
+        if db is not None:
+            try:
+                db.close()
+            except Exception:
+                pass
+
+
 def main():
     if "--print-paths" in sys.argv[1:]:
         try:
@@ -11885,6 +12060,8 @@ def main():
         except OSError:
             pass
         sys.exit(0)
+
+    install_native_fault_and_qt_loggers()
 
     smoke_log_file = None
     if os.environ.get("DAQIQ_SMOKE_TEST") == "1":
@@ -11901,7 +12078,12 @@ def main():
     if sys.platform == "win32":
         try:
             import ctypes
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(f"ouncommono.Daqiq.{APP_VERSION}")
+            from ctypes import wintypes
+
+            fn = ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID
+            fn.argtypes = [wintypes.LPCWSTR]
+            fn.restype = ctypes.c_long
+            fn(f"ouncommono.Daqiq.{APP_VERSION}")
         except Exception:
             pass
 
@@ -11929,6 +12111,20 @@ def main():
         polisher = _MessageBoxPolisher(app)
         app.installEventFilter(polisher)
         app._daqiq_msg_polisher = polisher
+
+    # Automated compiled-binary E2E launch smoke verification (--smoke-launch-db)
+    if "--smoke-launch-db" in sys.argv[1:]:
+        args = sys.argv[1:]
+        idx = args.index("--smoke-launch-db")
+        smoke_db = args[idx + 1] if idx + 1 < len(args) else ""
+        smoke_mode = "create"
+        if "--smoke-launch-mode" in args:
+            m_idx = args.index("--smoke-launch-mode")
+            if m_idx + 1 < len(args):
+                smoke_mode = args[m_idx + 1]
+        rc = _run_smoke_launch_db(app, smoke_db, mode=smoke_mode)
+        app.setQuitOnLastWindowClosed(True)
+        sys.exit(rc)
 
     if smoke_log_file:
         try:

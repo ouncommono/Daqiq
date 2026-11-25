@@ -216,14 +216,21 @@ class NativeWindowsHardwareProvider(HardwareIdentitySource):
 
         try:
             kernel32 = ctypes.windll.kernel32
+            kernel32.GetSystemFirmwareTable.argtypes = [
+                wintypes.DWORD,
+                wintypes.DWORD,
+                ctypes.c_void_p,
+                wintypes.DWORD,
+            ]
+            kernel32.GetSystemFirmwareTable.restype = wintypes.UINT
             RSMB = 0x52534D42  # 'RSMB'
-            buf_size = kernel32.GetSystemFirmwareTable(RSMB, 0, None, 0)
-            if not buf_size:
+            buf_size = int(kernel32.GetSystemFirmwareTable(RSMB, 0, None, 0) or 0)
+            if buf_size <= 0:
                 return None, None, None, None, None
 
             buf = ctypes.create_string_buffer(buf_size)
-            r = kernel32.GetSystemFirmwareTable(RSMB, 0, buf, buf_size)
-            if r == 0:
+            r = int(kernel32.GetSystemFirmwareTable(RSMB, 0, buf, buf_size) or 0)
+            if r <= 0:
                 return None, None, None, None, None
 
             raw = bytes(buf)
@@ -477,7 +484,7 @@ def _read_cpu_model_clean() -> str:
 
 
 def create_device_request_dict(
-    app_version: str = "4.9.5",
+    app_version: str = "4.9.6",
     device_label: str = "",
     store_name: str = "",
     fp_prefix: Optional[str] = None,

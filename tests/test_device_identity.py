@@ -137,7 +137,7 @@ def test_device_request_dict_contract():
     assert req["protocol_version"] == 1
     assert req["request_version"] == 1
     assert req["product_id"] == "daqiq.desktop"
-    assert req["app_version"] == "4.9.5"
+    assert req["app_version"] == "4.9.6"
     assert req["store_name"] == "فروشگاه نمونه"
     assert req["device_fingerprint"].startswith("fp_v1:")
     assert "hardware_tier" not in req
