@@ -177,5 +177,6 @@ class ValidationResult:
     detail: str = ""
     in_grace_period: bool = False
     grace_mode: str = "readonly"
+    grace_days_remaining: Optional[int] = None
     days_remaining: Optional[int] = None
     is_trial: bool = False

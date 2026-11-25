@@ -7,9 +7,12 @@ matching the Daqiq-License-Generator specification.
 
 import base64
 import hashlib
+import os
 from typing import Dict, Optional, List, Union, Tuple, Any
 from cryptography.hazmat.primitives.asymmetric import ed25519
 from cryptography.hazmat.primitives import serialization
+
+DEFAULT_SUPPORT_PHONE = "09193352435"
 
 from .license_models import (
     CryptoVerificationError,
@@ -99,6 +102,23 @@ def get_active_key_fingerprints() -> List[Dict[str, str]]:
         return _embedded_keys.get_embedded_fingerprints()
     except Exception:
         return []
+
+
+def get_support_phone() -> str:
+    """Return configured vendor support phone from embedded shards, env override, or default."""
+    env_phone = (os.environ.get("DAQIQ_SUPPORT_PHONE") or "").strip()
+    if env_phone:
+        return env_phone
+    try:
+        from . import _embedded_keys
+        getter = getattr(_embedded_keys, "get_embedded_support_phone", None)
+        if callable(getter):
+            val = str(getter() or "").strip()
+            if val:
+                return val
+    except Exception:
+        pass
+    return DEFAULT_SUPPORT_PHONE
 
 
 def _load_default_key_registry() -> Dict[str, str]:

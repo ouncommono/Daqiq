@@ -21,10 +21,12 @@ from .license_models import (
 from .keys import (
     KeyRegistry,
     DEFAULT_KEY_REGISTRY,
+    DEFAULT_SUPPORT_PHONE,
     validate_raw_public_key_b64,
     normalize_ed25519_public_key,
     compute_key_fingerprint,
     get_active_key_fingerprints,
+    get_support_phone,
 )
 from .device_identity import (
     HardwareIdentitySource,
@@ -45,6 +47,9 @@ from .license_policy import (
     SUBFEATURE_PARENT_TAB,
     ALL_LICENSE_FEATURES,
     FEATURE_LABELS_FA,
+    get_feature_label_fa,
+    get_active_features_fa,
+    get_grace_mode_label_fa,
 )
 from .license_dialog import LicenseDialog, ThemedNoticeDialog
 
@@ -78,6 +83,11 @@ __all__ = [
     "SUBFEATURE_PARENT_TAB",
     "ALL_LICENSE_FEATURES",
     "FEATURE_LABELS_FA",
+    "get_feature_label_fa",
+    "get_active_features_fa",
+    "get_grace_mode_label_fa",
+    "get_support_phone",
+    "DEFAULT_SUPPORT_PHONE",
     "LicenseDialog",
     "ThemedNoticeDialog",
 ]

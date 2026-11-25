@@ -12,11 +12,98 @@ import shutil
 import jdatetime
 import time
 import hashlib
+import random
 from decimal import Decimal, ROUND_HALF_EVEN
 from utils import datetime_format
 
 APP_VERSION = "4.8.4"
 SCHEMA_VERSION = 484
+
+
+class ReadOnlyGraceError(PermissionError):
+    """Raised when a mutating operation is attempted during a read-only license grace period."""
+
+
+class ConcurrencyConflictError(RuntimeError):
+    """Raised when optimistic concurrency control detects a newer row_version in SQLite."""
+
+    def __init__(
+        self,
+        entity: str,
+        record_id: int,
+        expected_version: int,
+        actual_version: int,
+        live_row: dict = None,
+        message: str = "",
+    ):
+        self.entity = entity
+        self.record_id = record_id
+        self.expected_version = expected_version
+        self.actual_version = actual_version
+        self.live_row = dict(live_row or {})
+        self.message_fa = message or (
+            "این رکورد هم‌زمان توسط کاربر یا سیستم دیگری در شبکه تغییر کرده است."
+        )
+        super().__init__(self.message_fa)
+
+
+class InsufficientStockError(ValueError):
+    """Raised when atomic stock deduction finds insufficient remaining quantity."""
+
+    def __init__(
+        self,
+        available_qty: int,
+        requested_qty: int,
+        batch_code: str = "",
+        concurrent_modified: bool = False,
+        message: str = "",
+    ):
+        self.available_qty = int(available_qty)
+        self.requested_qty = int(requested_qty)
+        self.batch_code = str(batch_code or "")
+        self.concurrent_modified = bool(concurrent_modified)
+        self.message_fa = message or (
+            f"موجودی محموله «{self.batch_code}» کافی نیست. موجودی فعلی: {self.available_qty}، درخواستی: {self.requested_qty}"
+        )
+        super().__init__(self.message_fa)
+
+
+def is_network_database_path(db_path: str) -> bool:
+    """Return True when db_path points to an SMB/UNC share or Windows mapped network drive."""
+    raw = str(db_path or "").strip()
+    if not raw:
+        return False
+    if raw.startswith("\\\\") or raw.startswith("//") or raw.lower().startswith("file:////"):
+        return True
+    try:
+        abs_path = os.path.abspath(raw)
+        if abs_path.startswith("\\\\") or abs_path.startswith("//"):
+            return True
+        if sys.platform == "win32":
+            drive, _ = os.path.splitdrive(abs_path)
+            if drive and len(drive) == 2 and drive[1] == ":":
+                import ctypes
+                DRIVE_REMOTE = 4
+                drive_type = ctypes.windll.kernel32.GetDriveTypeW(drive + "\\")
+                if drive_type == DRIVE_REMOTE:
+                    return True
+    except Exception:
+        pass
+    return False
+
+
+ROW_VERSION_TABLES = (
+    "employees",
+    "suppliers",
+    "customers",
+    "products",
+    "batches",
+    "upgrades",
+    "sales",
+    "service_catalog",
+    "service_records",
+    "payments",
+)
 
 
 def get_live_app_version() -> str:
@@ -37,7 +124,7 @@ def get_live_app_version() -> str:
                     return text
         except OSError:
             pass
-    return "4.9.8"
+    return "4.9.9"
 
 SQLITE_INTEGER_MIN = -(1 << 63)
 SQLITE_INTEGER_MAX = (1 << 63) - 1
@@ -46,20 +133,20 @@ SQLITE_INTEGER_MAX = (1 << 63) - 1
 # SQL uses named columns; this contract protects all positional consumers.
 EXPECTED_SCHEMA_COLUMNS = {
     "settings": ("key", "value"),
-    "employees": ("id", "name", "role", "phone", "is_active", "permissions", "password", "created_at", "updated_at", "last_login_at"),
+    "employees": ("id", "name", "role", "phone", "is_active", "permissions", "password", "created_at", "updated_at", "last_login_at", "row_version"),
     "access_level_data_scopes": ("access_level_name", "mode"),
     "access_level_scope_levels": ("access_level_name", "selected_access_level_name"),
     "access_level_scope_users": ("access_level_name", "employee_id"),
-    "suppliers": ("id", "name", "phone", "address", "notes", "created_at", "updated_at"),
-    "customers": ("id", "name", "phone", "notes", "created_at", "updated_at"),
-    "products": ("id", "code", "serial_number", "name", "category", "sub_category", "brand", "model", "specs_json", "description", "reorder_point", "default_profit_pct", "is_active", "created_at", "updated_at"),
-    "batches": ("id", "batch_code", "product_id", "serial_numbers", "supplier_id", "buyer_employee_id", "invoice_number", "purchase_date", "initial_qty", "sold_qty", "returned_qty", "remaining_qty", "unit_purchase_price", "extra_cost_total", "upgrade_cost_unit", "unit_cost_price", "suggested_sell_price", "profit_pct", "paid_amount", "settlement_status", "colors_json", "initial_specs", "final_specs", "supplier_name_snapshot", "notes", "created_at", "updated_at"),
-    "upgrades": ("id", "target_batch_id", "part_batch_id", "technician_id", "target_qty", "part_qty_used", "stock_deducted_qty", "part_unit_cost", "labor_cost_unit", "added_cost_unit", "upgrade_date", "serial_number", "manual_part_description", "old_specs", "new_specs", "notes", "created_at", "updated_at"),
-    "sales": ("id", "invoice_number", "product_id", "batch_id", "serial_number", "seller_employee_id", "customer_name", "customer_phone", "qty", "returned_qty", "suggested_unit_price", "actual_unit_price", "unit_cost_price", "unit_discount", "total_discount", "price_Markup_unit", "unit_profit", "total_profit", "total_amount", "paid_amount", "settlement_status", "sale_datetime", "warranty_company", "warranty_start", "warranty_months", "warranty_days", "warranty_end", "specifications", "colors_json", "notes", "created_at", "updated_at"),
-    "service_catalog": ("id", "code", "service_type", "name", "default_fee", "default_side_cost", "description", "is_active", "created_at", "updated_at"),
+    "suppliers": ("id", "name", "phone", "address", "notes", "created_at", "updated_at", "row_version"),
+    "customers": ("id", "name", "phone", "notes", "created_at", "updated_at", "row_version"),
+    "products": ("id", "code", "serial_number", "name", "category", "sub_category", "brand", "model", "specs_json", "description", "reorder_point", "default_profit_pct", "is_active", "created_at", "updated_at", "row_version"),
+    "batches": ("id", "batch_code", "product_id", "serial_numbers", "supplier_id", "buyer_employee_id", "invoice_number", "purchase_date", "initial_qty", "sold_qty", "returned_qty", "remaining_qty", "unit_purchase_price", "extra_cost_total", "upgrade_cost_unit", "unit_cost_price", "suggested_sell_price", "profit_pct", "paid_amount", "settlement_status", "colors_json", "initial_specs", "final_specs", "supplier_name_snapshot", "notes", "created_at", "updated_at", "row_version"),
+    "upgrades": ("id", "target_batch_id", "part_batch_id", "technician_id", "target_qty", "part_qty_used", "stock_deducted_qty", "part_unit_cost", "labor_cost_unit", "added_cost_unit", "upgrade_date", "serial_number", "manual_part_description", "old_specs", "new_specs", "notes", "created_at", "updated_at", "row_version"),
+    "sales": ("id", "invoice_number", "product_id", "batch_id", "serial_number", "seller_employee_id", "customer_name", "customer_phone", "qty", "returned_qty", "suggested_unit_price", "actual_unit_price", "unit_cost_price", "unit_discount", "total_discount", "price_Markup_unit", "unit_profit", "total_profit", "total_amount", "paid_amount", "settlement_status", "sale_datetime", "warranty_company", "warranty_start", "warranty_months", "warranty_days", "warranty_end", "specifications", "colors_json", "notes", "created_at", "updated_at", "row_version"),
+    "service_catalog": ("id", "code", "service_type", "name", "default_fee", "default_side_cost", "description", "is_active", "created_at", "updated_at", "row_version"),
     "service_price_history": ("id", "service_id", "change_date", "old_fee", "new_fee", "created_at", "updated_at"),
-    "service_records": ("id", "invoice_number", "service_id", "seller_employee_id", "technician_employee_id", "service_type", "service_name", "customer_name", "historical_tariff", "service_fee", "side_cost", "paid_amount", "net_profit", "settlement_status", "service_datetime", "description", "created_at", "updated_at"),
-    "payments": ("id", "ref_type", "ref_id", "amount", "payment_date", "notes", "created_at", "updated_at"),
+    "service_records": ("id", "invoice_number", "service_id", "seller_employee_id", "technician_employee_id", "service_type", "service_name", "customer_name", "historical_tariff", "service_fee", "side_cost", "paid_amount", "net_profit", "settlement_status", "service_datetime", "description", "created_at", "updated_at", "row_version"),
+    "payments": ("id", "ref_type", "ref_id", "amount", "payment_date", "notes", "created_at", "updated_at", "row_version"),
     "audit_logs": ("id", "action_time", "action_type", "details", "created_at", "updated_at"),
 }
 
@@ -775,6 +862,7 @@ class DatabaseManager:
     def close(self):
         """Idempotent close hook for test harnesses and lifecycle management."""
         self._close_cached_conn()
+        self._close_observer_conn()
         with getattr(self, "_conn_lock", threading.Lock()):
             for c in list(getattr(self, "_open_conns", [])):
                 try:
@@ -798,6 +886,49 @@ class DatabaseManager:
             except Exception:
                 pass
             self._thread_local.cached_conn = None
+
+    def _close_observer_conn(self):
+        conn = getattr(self, "_observer_conn", None)
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+            self._observer_conn = None
+
+    def set_read_only_mode(self, enabled: bool, reason: str = ""):
+        """Enable or disable read-only grace-period write guard on this DatabaseManager."""
+        self._read_only_mode = bool(enabled)
+        self._read_only_reason = str(reason or "").strip()
+
+    def is_read_only_mode(self) -> bool:
+        return bool(getattr(self, "_read_only_mode", False))
+
+    def _ensure_writable(self):
+        if getattr(self, "_read_only_mode", False):
+            raise ReadOnlyGraceError(
+                getattr(self, "_read_only_reason", "")
+                or "سامانه در دوره مهلت فقط خواندنی است و ثبت یا ویرایش داده جدید مجاز نیست."
+            )
+
+    @staticmethod
+    def _check_row_version(conn, table: str, record_id: int, expected_row_version, entity_label: str):
+        if expected_row_version is None:
+            return None
+        row = conn.execute(f"SELECT * FROM {table} WHERE id=?", (int(record_id),)).fetchone()
+        if row is None:
+            raise ValueError(f"{entity_label} یافت نشد یا توسط کاربر دیگری حذف شده است.")
+        actual_version = int(row["row_version"] if "row_version" in row.keys() else 1)
+        if actual_version != int(expected_row_version):
+            raise ConcurrencyConflictError(
+                table,
+                int(record_id),
+                int(expected_row_version),
+                actual_version,
+                dict(row),
+                f"اطلاعات «{entity_label}» هم‌زمان توسط کاربر یا سیستم دیگری تغییر کرده است.",
+            )
+        return row
 
     @staticmethod
     def _quote_key(key: str) -> str:
@@ -845,16 +976,27 @@ class DatabaseManager:
                 except Exception:
                     pass
 
-    def __init__(self, db_path=None, password=None):
+    def __init__(self, db_path=None, password=None, network_mode=None, journal_mode=None):
         self._conn_lock = threading.Lock()
         self._thread_local = threading.local()
         self._open_conns = set()
+        self._observer_conn = None
+        self._last_data_version = None
+        self._read_only_mode = False
+        self._read_only_reason = ""
         self.cfg = load_app_config()
         self.db_path = os.path.abspath(db_path or self.cfg["db_path"])
         os.makedirs(os.path.dirname(self.db_path) or ".", exist_ok=True)
         self.cfg["db_path"] = self.db_path
         self.cfg["backup_dir"] = os.path.dirname(self.db_path) or "."
         self._encryption_key = password
+
+        env_jm = (os.environ.get("DAQIQ_SQLITE_JOURNAL_MODE") or "").strip().upper()
+        req_jm = (str(journal_mode).strip().upper() if journal_mode else "") or env_jm
+        detected_net = is_network_database_path(self.db_path)
+        self.is_network_db = bool(network_mode) if network_mode is not None else detected_net
+        self._requested_journal_mode = "DELETE" if (self.is_network_db or req_jm == "DELETE") else (req_jm or "")
+        self._use_delete_journal = self._requested_journal_mode == "DELETE"
 
         if self.is_password_protected() and not self._encryption_key:
             if not self.auto_unlock_if_permitted():
@@ -863,6 +1005,13 @@ class DatabaseManager:
         self.init_db()
         self._normalize_application_config()
         save_app_config(self.cfg)
+
+    def _configure_connection_pragmas(self, conn):
+        conn.execute("PRAGMA busy_timeout = 15000")
+        conn.execute("PRAGMA foreign_keys = ON")
+        if getattr(self, "_use_delete_journal", False):
+            conn.execute("PRAGMA synchronous = FULL")
+            conn.execute("PRAGMA locking_mode = NORMAL")
 
     def get_connection(self):
         """Create a bounded-wait connection with referential integrity enabled."""
@@ -873,14 +1022,13 @@ class DatabaseManager:
             if conn is None:
                 conn = sqlite3.connect(
                     self.db_path,
-                    timeout=30.0,
+                    timeout=15.0,
                     isolation_level="DEFERRED",
                     check_same_thread=False,
                 )
                 conn.row_factory = sqlite3.Row
                 conn.execute(f"PRAGMA key = {self._quote_key(self._encryption_key)}")
-                conn.execute("PRAGMA busy_timeout = 30000")
-                conn.execute("PRAGMA foreign_keys = ON")
+                self._configure_connection_pragmas(conn)
                 self._thread_local.cached_conn = conn
                 with self._conn_lock:
                     self._open_conns.add(conn)
@@ -888,34 +1036,95 @@ class DatabaseManager:
 
         conn = sqlite3.connect(
             self.db_path,
-            timeout=30.0,
+            timeout=15.0,
             isolation_level="DEFERRED",
             factory=ManagedConnection,
         )
         conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA busy_timeout = 30000")
-        conn.execute("PRAGMA foreign_keys = ON")
+        self._configure_connection_pragmas(conn)
         return conn
 
-    def sync_database(self):
-        """همگام‌سازی و اطمینان از ثبت کامل تراکنش‌های باز روی دیسک با بازنویسی WAL"""
-        try:
-            conn = sqlite3.connect(self.db_path, timeout=30.0)
+    def run_write_transaction(self, fn, *, check_writable: bool = True, max_retries: int = 8):
+        """Execute ``fn(conn)`` inside an atomic BEGIN IMMEDIATE transaction with bounded backoff."""
+        if check_writable:
+            self._ensure_writable()
+        last_exc = None
+        for attempt in range(max_retries + 1):
+            try:
+                with self.get_connection() as conn:
+                    conn.execute("BEGIN IMMEDIATE")
+                    result = fn(conn)
+                    conn.commit()
+                    return result
+            except sqlite3.OperationalError as exc:
+                msg = str(exc).lower()
+                if ("locked" in msg or "busy" in msg) and attempt < max_retries:
+                    last_exc = exc
+                    base_delay = min(0.45, 0.03 * (1.7 ** attempt))
+                    time.sleep(base_delay + random.uniform(0.005, 0.025))
+                    continue
+                raise
+        raise last_exc
+
+    def poll_external_data_version(self) -> tuple:
+        """Return ``(data_version, changed_externally)`` using a dedicated persistent observer connection."""
+        if self.is_password_protected() and not self._encryption_key:
+            return (0, False)
+        conn = getattr(self, "_observer_conn", None)
+        if conn is None:
+            conn = sqlite3.connect(
+                self.db_path,
+                timeout=5.0,
+                isolation_level="DEFERRED",
+                check_same_thread=False,
+            )
+            conn.row_factory = sqlite3.Row
             if self._encryption_key:
                 conn.execute(f"PRAGMA key = {self._quote_key(self._encryption_key)}")
-            conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+            conn.execute("PRAGMA busy_timeout = 5000")
+            self._observer_conn = conn
+            self._last_data_version = int(conn.execute("PRAGMA data_version").fetchone()[0])
+            return (self._last_data_version, False)
+        try:
+            ver = int(conn.execute("PRAGMA data_version").fetchone()[0])
+        except sqlite3.DatabaseError:
+            self._close_observer_conn()
+            return (0, False)
+        changed = self._last_data_version is not None and ver != self._last_data_version
+        self._last_data_version = ver
+        return (ver, changed)
+
+    def sync_database(self):
+        """همگام‌سازی و اطمینان از ثبت کامل تراکنش‌های باز روی دیسک"""
+        try:
+            conn = sqlite3.connect(self.db_path, timeout=15.0)
+            if self._encryption_key:
+                conn.execute(f"PRAGMA key = {self._quote_key(self._encryption_key)}")
+            jm = str(conn.execute("PRAGMA journal_mode").fetchone()[0] or "").lower()
+            if jm == "wal":
+                conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
             conn.commit()
             conn.close()
         except Exception:
             pass
         finally:
             self._close_cached_conn()
+            self._close_observer_conn()
 
     def init_db(self):
+        def _apply_journal_mode(conn):
+            current_jm = str(conn.execute("PRAGMA journal_mode").fetchone()[0] or "").lower()
+            if self.is_network_db or self._requested_journal_mode == "DELETE" or current_jm == "delete":
+                self._use_delete_journal = True
+                if current_jm != "delete":
+                    conn.execute("PRAGMA journal_mode = DELETE")
+                conn.execute("PRAGMA synchronous = FULL")
+                conn.execute("PRAGMA locking_mode = NORMAL")
+            elif current_jm != "wal":
+                conn.execute("PRAGMA journal_mode = WAL")
+
         with self.get_connection() as conn:
-            # WAL keeps readers available while serialized writers commit.  The
-            # setting is persistent for this file and is applied before schema DDL.
-            conn.execute("PRAGMA journal_mode = WAL")
+            _apply_journal_mode(conn)
             current_version = int(conn.execute("PRAGMA user_version").fetchone()[0])
             existing_tables = {
                 row["name"]
@@ -950,7 +1159,8 @@ class DatabaseManager:
                     password TEXT DEFAULT '',
                     created_at TEXT NOT NULL DEFAULT '',
                     updated_at TEXT DEFAULT NULL,
-                    last_login_at TEXT DEFAULT NULL
+                    last_login_at TEXT DEFAULT NULL,
+                    row_version INTEGER NOT NULL DEFAULT 1
                 )
             """)
 
@@ -1000,7 +1210,8 @@ class DatabaseManager:
                     address TEXT DEFAULT '',
                     notes TEXT DEFAULT '',
                     created_at TEXT NOT NULL DEFAULT '',
-                    updated_at TEXT NOT NULL DEFAULT ''
+                    updated_at TEXT NOT NULL DEFAULT '',
+                    row_version INTEGER NOT NULL DEFAULT 1
                 )
             """)
 
@@ -1011,7 +1222,8 @@ class DatabaseManager:
                     phone TEXT DEFAULT '',
                     notes TEXT DEFAULT '',
                     created_at TEXT NOT NULL DEFAULT '',
-                    updated_at TEXT NOT NULL DEFAULT ''
+                    updated_at TEXT NOT NULL DEFAULT '',
+                    row_version INTEGER NOT NULL DEFAULT 1
                 )
             """)
 
@@ -1032,7 +1244,8 @@ class DatabaseManager:
                         CHECK (default_profit_pct >= 0),
                     is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
                     created_at TEXT NOT NULL DEFAULT '',
-                    updated_at TEXT NOT NULL DEFAULT ''
+                    updated_at TEXT NOT NULL DEFAULT '',
+                    row_version INTEGER NOT NULL DEFAULT 1
                 )
             """)
 
@@ -1065,6 +1278,7 @@ class DatabaseManager:
                     notes TEXT DEFAULT '',
                     created_at TEXT NOT NULL DEFAULT '',
                     updated_at TEXT NOT NULL DEFAULT '',
+                    row_version INTEGER NOT NULL DEFAULT 1,
                     CONSTRAINT ck_batches_stock_balance CHECK (
                         sold_qty + returned_qty <= initial_qty
                         AND remaining_qty = initial_qty - sold_qty - returned_qty
@@ -1095,6 +1309,7 @@ class DatabaseManager:
                     notes TEXT DEFAULT '',
                     created_at TEXT NOT NULL DEFAULT '',
                     updated_at TEXT NOT NULL DEFAULT '',
+                    row_version INTEGER NOT NULL DEFAULT 1,
                     CONSTRAINT ck_upgrades_distinct_batches CHECK (
                         part_batch_id IS NULL OR part_batch_id <> target_batch_id
                     ),
@@ -1138,6 +1353,7 @@ class DatabaseManager:
                     notes TEXT DEFAULT '',
                     created_at TEXT NOT NULL DEFAULT '',
                     updated_at TEXT NOT NULL DEFAULT '',
+                    row_version INTEGER NOT NULL DEFAULT 1,
                     FOREIGN KEY(product_id) REFERENCES products(id),
                     FOREIGN KEY(batch_id) REFERENCES batches(id),
                     FOREIGN KEY(seller_employee_id) REFERENCES employees(id)
@@ -1155,7 +1371,8 @@ class DatabaseManager:
                     description TEXT DEFAULT '',
                     is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0, 1)),
                     created_at TEXT NOT NULL DEFAULT '',
-                    updated_at TEXT NOT NULL DEFAULT ''
+                    updated_at TEXT NOT NULL DEFAULT '',
+                    row_version INTEGER NOT NULL DEFAULT 1
                 )
             """)
 
@@ -1192,6 +1409,7 @@ class DatabaseManager:
                     description TEXT DEFAULT '',
                     created_at TEXT NOT NULL DEFAULT '',
                     updated_at TEXT NOT NULL DEFAULT '',
+                    row_version INTEGER NOT NULL DEFAULT 1,
                     FOREIGN KEY(service_id) REFERENCES service_catalog(id) ON DELETE SET NULL,
                     FOREIGN KEY(seller_employee_id) REFERENCES employees(id),
                     FOREIGN KEY(technician_employee_id) REFERENCES employees(id)
@@ -1207,7 +1425,8 @@ class DatabaseManager:
                     payment_date TEXT NOT NULL,
                     notes TEXT DEFAULT '',
                     created_at TEXT NOT NULL DEFAULT '',
-                    updated_at TEXT NOT NULL DEFAULT ''
+                    updated_at TEXT NOT NULL DEFAULT '',
+                    row_version INTEGER NOT NULL DEFAULT 1
                 )
             """)
 
@@ -1222,12 +1441,25 @@ class DatabaseManager:
                 )
             """)
 
+            # Backward-compatible additive upgrade for v4.9.8 databases lacking row_version
+            if existing_tables:
+                for rv_table in ROW_VERSION_TABLES:
+                    if rv_table in existing_tables:
+                        cols_existing = {
+                            row["name"]
+                            for row in conn.execute(f"PRAGMA table_info({rv_table})").fetchall()
+                        }
+                        if "row_version" not in cols_existing:
+                            conn.execute(
+                                f"ALTER TABLE {rv_table} ADD COLUMN row_version INTEGER NOT NULL DEFAULT 1"
+                            )
+
             validate_schema_column_order(conn)
 
             # نام فروشگاه به هر پایگاه داده تعلق دارد؛ تنظیمات عمومی برنامه
             # در app_config.json نگهداری می‌شوند.
             default_settings = {
-                "shop_name": str(self.cfg.get("shop_name") or "فروشگاه من"),
+                "shop_name": str(self.cfg.get("last_store_name") or self.cfg.get("shop_name") or "فروشگاه من"),
                 "app_version": APP_VERSION,
                 "schema_version": str(SCHEMA_VERSION),
             }
@@ -1266,6 +1498,12 @@ class DatabaseManager:
                         WHERE id = NEW.id;
                     END
                 """)
+                rv_set_sql = (
+                    ", row_version = CASE WHEN NEW.row_version = OLD.row_version "
+                    "THEN OLD.row_version + 1 ELSE NEW.row_version END"
+                    if table_name in ROW_VERSION_TABLES
+                    else ""
+                )
                 conn.execute(f"""
                     CREATE TRIGGER trg_{table_name}_updated_at_update
                     AFTER UPDATE ON {table_name}
@@ -1281,7 +1519,7 @@ class DatabaseManager:
                                 julianday(OLD.updated_at) + (2.0 / 86400000.0)
                             )
                             ELSE strftime('%Y-%m-%d %H:%M:%f', 'now', 'localtime')
-                        END
+                        END{rv_set_sql}
                         WHERE id = NEW.id;
                     END
                 """)
@@ -1329,6 +1567,10 @@ class DatabaseManager:
                             julianday(OLD.updated_at) + (2.0 / 86400000.0)
                         )
                         ELSE strftime('%Y-%m-%d %H:%M:%f', 'now', 'localtime')
+                    END,
+                    row_version = CASE
+                        WHEN NEW.row_version = OLD.row_version THEN OLD.row_version + 1
+                        ELSE NEW.row_version
                     END
                     WHERE id = NEW.id;
                 END
@@ -1368,6 +1610,9 @@ class DatabaseManager:
                 "CREATE INDEX IF NOT EXISTS idx_employees_permission_activity ON employees(permissions, updated_at DESC, id DESC)",
                 "CREATE INDEX IF NOT EXISTS idx_access_scope_users_employee ON access_level_scope_users(employee_id, access_level_name)",
                 "CREATE INDEX IF NOT EXISTS idx_sales_customer_phone ON sales(customer_phone)",
+                "CREATE INDEX IF NOT EXISTS idx_sales_invoice_number ON sales(invoice_number)",
+                "CREATE INDEX IF NOT EXISTS idx_service_records_invoice_number ON service_records(invoice_number)",
+                "CREATE INDEX IF NOT EXISTS idx_audit_logs_action_time ON audit_logs(action_time DESC, id DESC)",
             ):
                 conn.execute(index_sql)
 
@@ -1429,35 +1674,42 @@ class DatabaseManager:
             return row["value"] if row else default
 
     def set_setting(self, key, value, conn=None):
+        self._ensure_writable()
         if conn is not None:
             conn.execute(
                 "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
                 (key, str(value)),
             )
-        else:
-            with self.get_connection() as c:
-                c.execute(
-                    "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-                    (key, str(value)),
-                )
-                c.commit()
+            return
+
+        def _tx(c):
+            c.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                (key, str(value)),
+            )
+
+        self.run_write_transaction(_tx, check_writable=False)
 
     def set_settings_batch(self, mapping: dict, conn=None):
         """Batch multiple settings in a single connection transaction."""
         if not mapping:
             return
+        self._ensure_writable()
+        items = [(str(k), str(v)) for k, v in mapping.items()]
         if conn is not None:
             conn.executemany(
                 "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-                [(str(k), str(v)) for k, v in mapping.items()],
+                items,
             )
-        else:
-            with self.get_connection() as c:
-                c.executemany(
-                    "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-                    [(str(k), str(v)) for k, v in mapping.items()],
-                )
-                c.commit()
+            return
+
+        def _tx(c):
+            c.executemany(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                items,
+            )
+
+        self.run_write_transaction(_tx, check_writable=False)
 
     def get_product_catalog_config(self):
         """Return a normalized, per-database product taxonomy and specification catalog."""
@@ -1655,6 +1907,7 @@ class DatabaseManager:
             )),
         }
         serialized = json.dumps(clean, ensure_ascii=False, separators=(",", ":"))
+        self._ensure_writable()
         if conn is not None:
             conn.execute(
                 "INSERT INTO settings (key, value) VALUES (?, ?) "
@@ -1766,8 +2019,8 @@ class DatabaseManager:
             norm_specs = specs_dict
         specs_dict = norm_specs
 
-        with self.get_connection() as conn:
-            conn.execute("BEGIN IMMEDIATE")
+        def _tx(conn):
+            nonlocal code
             if not code:
                 code = self.generate_next_code("products", "code", "P-", 1001, conn=conn)
             conn.execute(
@@ -1790,8 +2043,9 @@ class DatabaseManager:
                 ),
             )
             self.log_audit(conn, "ثبت کالا", f"کد کالا: {code} - {auto_name}")
-            conn.commit()
             return code
+
+        return self.run_write_transaction(_tx)
 
     def update_product(
         self,
@@ -1807,6 +2061,7 @@ class DatabaseManager:
         reorder_point,
         default_profit_pct,
         serial_number="",
+        expected_row_version=None,
     ):
         auto_name = (
             name.strip()
@@ -1824,8 +2079,8 @@ class DatabaseManager:
             norm_specs = specs_dict
         specs_dict = norm_specs
 
-        with self.get_connection() as conn:
-            conn.execute("BEGIN IMMEDIATE")
+        def _tx(conn):
+            self._check_row_version(conn, "products", prod_id, expected_row_version, "کالا")
             conn.execute(
                 """
                 UPDATE products SET code=?, name=?, category=?, sub_category=?, brand=?, model=?,
@@ -1848,7 +2103,8 @@ class DatabaseManager:
                 ),
             )
             self.log_audit(conn, "ویرایش کالا", f"کد کالا: {code} - {auto_name}")
-            conn.commit()
+
+        self.run_write_transaction(_tx)
 
     def lookup_by_serial_or_barcode(self, query_string):
         """Lookup product and batch information matching a serial number, barcode, or cargo code.
@@ -2023,10 +2279,10 @@ class DatabaseManager:
         )
         conn.execute(f"DELETE FROM batches WHERE id IN ({marks})", batch_ids)
 
-    def delete_product(self, prod_id):
+    def delete_product(self, prod_id, expected_row_version=None):
         """Hard-delete product history and dependent batches transactionally."""
-        with self.get_connection() as conn:
-            conn.execute("BEGIN IMMEDIATE")
+        def _tx(conn):
+            self._check_row_version(conn, "products", prod_id, expected_row_version, "کالا")
             batch_rows = conn.execute(
                 "SELECT id FROM batches WHERE product_id=?", (prod_id,)
             ).fetchall()
@@ -2036,28 +2292,31 @@ class DatabaseManager:
             self._delete_linked_sales(conn, product_id=prod_id)
             conn.execute("DELETE FROM products WHERE id=?", (prod_id,))
             self.log_audit(conn, "حذف کامل کالا", f"شناسه کالا: {prod_id}")
-            conn.commit()
 
+        self.run_write_transaction(_tx)
 
     def add_supplier(self, name, phone, address, notes=""):
-        with self.get_connection() as conn:
+        def _tx(conn):
             conn.execute(
                 "INSERT INTO suppliers (name, phone, address, notes) VALUES (?, ?, ?, ?)",
                 (name.strip(), phone.strip(), address.strip(), notes.strip()),
             )
-            conn.commit()
 
-    def update_supplier(self, sup_id, name, phone, address, notes=""):
-        with self.get_connection() as conn:
+        self.run_write_transaction(_tx)
+
+    def update_supplier(self, sup_id, name, phone, address, notes="", expected_row_version=None):
+        def _tx(conn):
+            self._check_row_version(conn, "suppliers", sup_id, expected_row_version, "تأمین‌کننده")
             conn.execute(
                 "UPDATE suppliers SET name=?, phone=?, address=?, notes=? WHERE id=?",
                 (name.strip(), phone.strip(), address.strip(), notes.strip(), sup_id),
             )
-            conn.commit()
+
+        self.run_write_transaction(_tx)
 
     def delete_supplier(self, sup_id, delete_related_data=False):
         """Remove a supplier while optionally retaining its purchase records and historical name."""
-        with self.get_connection() as conn:
+        def _tx(conn):
             supplier = conn.execute(
                 "SELECT name FROM suppliers WHERE id=?", (sup_id,)
             ).fetchone()
@@ -2081,12 +2340,12 @@ class DatabaseManager:
                 conn, "حذف تأمین‌کننده",
                 f"شناسه: {sup_id} | حذف داده‌های وابسته: {'بله' if delete_related_data else 'خیر'}"
             )
-            conn.commit()
 
+        self.run_write_transaction(_tx)
 
     def add_employee(self, name: str, role: str, phone: str = "", password: str = "", permissions: str = "", is_active: int = 1) -> int:
         """Insert a new employee record and return its row ID."""
-        with self.get_connection() as conn:
+        def _tx(conn):
             cur = conn.execute(
                 """
                 INSERT INTO employees (name, role, phone, password, permissions, is_active)
@@ -2096,8 +2355,9 @@ class DatabaseManager:
             )
             emp_id = cur.lastrowid
             self.log_audit(conn, "ثبت کاربر جدید", f"شناسه: {emp_id} | نام: {name} | نقش: {role}")
-            conn.commit()
             return emp_id
+
+        return self.run_write_transaction(_tx)
 
     def record_employee_login(self, employee_id: int, timestamp: str = None) -> None:
         """Record employee/user login timestamp without touching created_at or updated_at."""
@@ -2116,7 +2376,7 @@ class DatabaseManager:
 
     def delete_employee_custom(self, emp_id: int, delete_related_data: bool = False):
         """Delete an employee; optionally remove all linked operations and reverse inventory effects."""
-        with self.get_connection() as conn:
+        def _tx(conn):
             if delete_related_data:
                 owned_batches = conn.execute(
                     "SELECT id FROM batches WHERE buyer_employee_id=?", (emp_id,)
@@ -2155,7 +2415,8 @@ class DatabaseManager:
                 conn, "حذف کاربر",
                 f"شناسه: {emp_id} | حذف داده‌های وابسته: {'بله' if delete_related_data else 'خیر'}"
             )
-            conn.commit()
+
+        self.run_write_transaction(_tx)
 
 
     def get_or_create_supplier(self, supplier_name: str, *, conn=None):
@@ -2317,10 +2578,8 @@ class DatabaseManager:
             self._normalize_color_list(colors) or [], ensure_ascii=False
         )
 
-        with self.get_connection() as conn:
-            # Reserve the writer before generating codes or creating suppliers;
-            # every side effect then commits or rolls back as one unit.
-            conn.execute("BEGIN IMMEDIATE")
+        def _tx(conn):
+            nonlocal batch_code, supplier_id
             if not batch_code:
                 batch_code = self.generate_next_code(
                     "batches", "batch_code", "C-", 1001, conn=conn
@@ -2367,8 +2626,9 @@ class DatabaseManager:
                 conn, "ثبت خرید",
                 f"کد محموله: {batch_code} - تعداد: {initial_qty}",
             )
-            conn.commit()
             return batch_code
+
+        return self.run_write_transaction(_tx)
 
     def update_batch(
         self,
@@ -2391,6 +2651,7 @@ class DatabaseManager:
         colors=None,
         supplier_name=None,
         purchase_time=None,
+        expected_row_version=None,
     ):
         """Update a shipment under a write lock while preserving sold/returned stock."""
         batch_id = self._batch_integer(batch_id, "شناسه محموله", minimum=1)
@@ -2425,21 +2686,25 @@ class DatabaseManager:
             str(initial_specs or "").strip() if initial_specs is not None else None
         )
 
-        with self.get_connection() as conn:
-            conn.execute("BEGIN IMMEDIATE")
-            old = conn.execute(
-                """
-                SELECT id, batch_code, product_id, supplier_id, buyer_employee_id,
-                       invoice_number, purchase_date, initial_qty, sold_qty,
-                       returned_qty, remaining_qty, unit_purchase_price,
-                       extra_cost_total, upgrade_cost_unit, unit_cost_price,
-                       suggested_sell_price, profit_pct, paid_amount,
-                       settlement_status, serial_numbers, colors_json, initial_specs,
-                       final_specs, supplier_name_snapshot, notes, created_at, updated_at
-                FROM batches WHERE id=?
-                """,
-                (batch_id,),
-            ).fetchone()
+        def _tx(conn):
+            nonlocal supplier_id, suggested_sell_price
+            old = self._check_row_version(
+                conn, "batches", batch_id, expected_row_version, "محموله"
+            )
+            if old is None:
+                old = conn.execute(
+                    """
+                    SELECT id, batch_code, product_id, supplier_id, buyer_employee_id,
+                           invoice_number, purchase_date, initial_qty, sold_qty,
+                           returned_qty, remaining_qty, unit_purchase_price,
+                           extra_cost_total, upgrade_cost_unit, unit_cost_price,
+                           suggested_sell_price, profit_pct, paid_amount,
+                           settlement_status, serial_numbers, colors_json, initial_specs,
+                           final_specs, supplier_name_snapshot, notes, created_at, updated_at, row_version
+                    FROM batches WHERE id=?
+                    """,
+                    (batch_id,),
+                ).fetchone()
             if old is None:
                 raise ValueError("محموله یافت نشد.")
 
@@ -2483,7 +2748,7 @@ class DatabaseManager:
             total_bill = self._sqlite_integer(
                 unit_purchase_price * new_initial_qty + extra_cost_total, "بهای کل محموله"
             )
-            paid_amount, status = self._purchase_settlement(total_bill, paid_amount)
+            paid_amount_val, status = self._purchase_settlement(total_bill, paid_amount)
 
             new_colors_json = (
                 json.dumps(self._normalize_color_list(colors), ensure_ascii=False)
@@ -2494,7 +2759,6 @@ class DatabaseManager:
                 old_pd = str(old["purchase_date"] or "").strip()
                 if " " in old_pd:
                     new_purchase_date = f"{new_purchase_date} {old_pd.split(' ', 1)[1].strip()}"
-            purchase_payment_date = new_purchase_date.split(" ", 1)[0].strip()
             conn.execute(
                 """
                 UPDATE batches SET
@@ -2511,19 +2775,16 @@ class DatabaseManager:
                     new_product_id, supplier_id, buyer_employee_id, invoice_number,
                     new_purchase_date, new_initial_qty, new_remaining, unit_purchase_price,
                     extra_cost_total, unit_cost_price, suggested_sell_price, profit_pct,
-                    status, paid_amount, serial_numbers,
+                    status, paid_amount_val, serial_numbers,
                     initial_specs if initial_specs is not None else old["initial_specs"],
                     notes, supplier_snapshot, new_colors_json, batch_id,
                 ),
             )
-            # The purchase form stores one current paid-amount snapshot. Replace
-            # its linked payment row in this same transaction so cash-flow totals
-            # cannot diverge from batches.paid_amount after an edit.
             conn.execute(
                 "DELETE FROM payments WHERE ref_type='batch' AND ref_id=?",
                 (batch_id,),
             )
-            if paid_amount > 0:
+            if paid_amount_val > 0:
                 conn.execute(
                     """
                     INSERT INTO payments
@@ -2531,19 +2792,21 @@ class DatabaseManager:
                     VALUES ('batch', ?, ?, ?,
                             'پرداخت اصلاح‌شده هنگام ویرایش محموله')
                     """,
-                    (batch_id, paid_amount, purchase_payment_date),
+                    (batch_id, paid_amount_val, purchase_payment_date),
                 )
 
             self.log_audit(
                 conn, "ویرایش محموله", f"کد محموله: {old['batch_code']}"
             )
-            conn.commit()
 
-    def delete_batch(self, batch_id):
+        self.run_write_transaction(_tx)
+
+    def delete_batch(self, batch_id, expected_row_version=None):
         """Hard-delete a purchase batch and its dependent records atomically."""
         batch_id = self._batch_integer(batch_id, "شناسه محموله", minimum=1)
-        with self.get_connection() as conn:
-            conn.execute("BEGIN IMMEDIATE")
+        def _tx(conn):
+            if expected_row_version is not None:
+                self._check_row_version(conn, "batches", batch_id, expected_row_version, "محموله")
             row = conn.execute(
                 "SELECT batch_code FROM batches WHERE id=?", (batch_id,)
             ).fetchone()
@@ -2553,7 +2816,8 @@ class DatabaseManager:
             self.log_audit(
                 conn, "حذف کامل محموله", f"کد محموله: {row['batch_code']}"
             )
-            conn.commit()
+
+        self.run_write_transaction(_tx)
 
 
     def _reverse_upgrade_effects(self, conn, upgrade):
@@ -2614,6 +2878,7 @@ class DatabaseManager:
         upgrade_id=None,
         manual_part_description="",
         consume_stock=True,
+        expected_row_version=None,
     ):
         target_qty = self._batch_integer(target_qty, "تعداد کالای هدف", minimum=1)
         part_qty_per_unit = self._batch_integer(part_qty_per_unit, "تعداد قطعه برای هر واحد", minimum=1)
@@ -2631,9 +2896,10 @@ class DatabaseManager:
         if part_batch_id is None and not manual_part_description:
             raise ValueError("محموله قطعه یا شرح دستی قطعه مصرفی را مشخص کنید.")
 
-        with self.get_connection() as conn:
+        def _tx(conn):
             previous_upgrade = None
             if upgrade_id is not None:
+                self._check_row_version(conn, "upgrades", upgrade_id, expected_row_version, "ارتقا")
                 previous_upgrade = conn.execute(
                     """SELECT id, target_batch_id, part_batch_id, technician_id, target_qty,
             part_qty_used, stock_deducted_qty, part_unit_cost, labor_cost_unit,
@@ -2770,11 +3036,14 @@ class DatabaseManager:
                     else f"محموله هدف: {target_b['batch_code']} با قطعه {part_label}؛ بدون کسر موجودی"
                 ),
             )
-            conn.commit()
 
-    def revert_upgrade(self, upgrade_id: int):
+        self.run_write_transaction(_tx)
+
+    def revert_upgrade(self, upgrade_id: int, expected_row_version=None):
         """Delete an upgrade and reverse its stock and cost effects atomically."""
-        with self.get_connection() as conn:
+        def _tx(conn):
+            if expected_row_version is not None:
+                self._check_row_version(conn, "upgrades", upgrade_id, expected_row_version, "ارتقا")
             upgrade = conn.execute(
                 """SELECT id, target_batch_id, part_batch_id, technician_id, target_qty,
             part_qty_used, stock_deducted_qty, part_unit_cost, labor_cost_unit,
@@ -2794,7 +3063,8 @@ class DatabaseManager:
             self._reverse_upgrade_effects(conn, upgrade)
             conn.execute("DELETE FROM upgrades WHERE id=?", (upgrade_id,))
             self.log_audit(conn, "حذف کامل ارتقای کالا", f"شناسه ارتقا: {upgrade_id}")
-            conn.commit()
+
+        self.run_write_transaction(_tx)
 
 
     def add_sale(
@@ -2820,6 +3090,7 @@ class DatabaseManager:
         specifications="",
         colors=None,
         customer_phone="",
+        expected_batch_row_version=None,
     ):
         qty = self._batch_integer(qty, "تعداد فروش", minimum=1)
         product_id = self._batch_integer(product_id, "کالا", minimum=1)
@@ -2834,19 +3105,41 @@ class DatabaseManager:
         specifications = str(specifications or "").strip()
         sale_datetime = str(sale_datetime or "").strip()
 
-        with self.get_connection() as conn:
-            conn.execute("BEGIN IMMEDIATE")
+        def _tx(conn):
+            nonlocal invoice_number, paid_amount, suggested_unit_price, actual_unit_price
             batch = conn.execute("""SELECT id, batch_code, product_id, serial_numbers, supplier_id, buyer_employee_id, invoice_number,
             purchase_date, initial_qty, sold_qty, returned_qty, remaining_qty,
             unit_purchase_price, extra_cost_total, upgrade_cost_unit, unit_cost_price,
             suggested_sell_price, profit_pct, paid_amount, settlement_status,
             colors_json, initial_specs, final_specs,
-            supplier_name_snapshot, notes, created_at, updated_at FROM batches WHERE id=?""", (batch_id,)).fetchone()
+            supplier_name_snapshot, notes, created_at, updated_at, row_version FROM batches WHERE id=?""", (batch_id,)).fetchone()
             if not batch:
                 raise ValueError("محموله انتخاب شده وجود ندارد.")
+            live_rv = int(batch["row_version"] if "row_version" in batch.keys() else 1)
             if batch["remaining_qty"] < qty:
-                raise ValueError(
-                    f"موجودی محموله کافی نیست! موجودی قابل فروش: {batch['remaining_qty']} عدد"
+                concurrent_flag = (
+                    expected_batch_row_version is not None
+                    and live_rv != int(expected_batch_row_version)
+                )
+                raise InsufficientStockError(
+                    available_qty=batch["remaining_qty"],
+                    requested_qty=qty,
+                    batch_code=batch["batch_code"],
+                    concurrent_modified=concurrent_flag,
+                    message=(
+                        f"موجودی محموله «{batch['batch_code']}» به دلیل ثبت فروش هم‌زمان کافی نیست! موجودی قابل فروش: {batch['remaining_qty']} عدد"
+                        if concurrent_flag
+                        else f"موجودی محموله کافی نیست! موجودی قابل فروش: {batch['remaining_qty']} عدد"
+                    ),
+                )
+            if expected_batch_row_version is not None and live_rv != int(expected_batch_row_version):
+                raise ConcurrencyConflictError(
+                    "batch_sale",
+                    batch_id,
+                    int(expected_batch_row_version),
+                    live_rv,
+                    dict(batch),
+                    f"در فاصله انتخاب محموله تا ثبت فاکتور، فروش یا تغییری در محموله «{batch['batch_code']}» ثبت شده است. موجودی فعلی: {batch['remaining_qty']} عدد.",
                 )
             normalized_colors = self._normalize_color_list(colors)
             if normalized_colors is not None:
@@ -2968,8 +3261,9 @@ class DatabaseManager:
                 "ثبت فروش",
                 f"فاکتور: {invoice_number} - تعداد: {qty} - سود: {total_profit:,}",
             )
-            conn.commit()
             return invoice_number
+
+        return self.run_write_transaction(_tx)
 
     def update_sale(
         self,
@@ -2992,6 +3286,7 @@ class DatabaseManager:
         colors=None,
         customer_phone="",
         sale_datetime=None,
+        expected_row_version=None,
     ):
         new_qty = self._batch_integer(new_qty, "تعداد فروش", minimum=1)
         sale_id = self._batch_integer(sale_id, "شناسه فروش", minimum=1)
@@ -3006,15 +3301,16 @@ class DatabaseManager:
             str(specifications or "").strip() if specifications is not None else None
         )
 
-        with self.get_connection() as conn:
-            conn.execute("BEGIN IMMEDIATE")
+        def _tx(conn):
+            nonlocal suggested_unit_price, actual_unit_price, paid_amount
+            self._check_row_version(conn, "sales", sale_id, expected_row_version, "فروش")
             old_sale = conn.execute("""SELECT id, invoice_number, product_id, batch_id, serial_number, seller_employee_id,
             customer_name, customer_phone, qty, returned_qty, suggested_unit_price, actual_unit_price,
             unit_cost_price, unit_discount, total_discount, price_Markup_unit,
             unit_profit, total_profit, total_amount, paid_amount, settlement_status,
             sale_datetime, warranty_company, warranty_start, warranty_months,
             warranty_days, warranty_end, specifications, colors_json,
-            notes, created_at, updated_at FROM sales WHERE id=?""", (sale_id,)).fetchone()
+            notes, created_at, updated_at, row_version FROM sales WHERE id=?""", (sale_id,)).fetchone()
             if not old_sale:
                 raise ValueError("ردیف فروش یافت نشد.")
 
@@ -3168,12 +3464,14 @@ class DatabaseManager:
                 "ویرایش فروش",
                 f"فاکتور {old_sale['invoice_number']} اصلاح شد (تغییر تعداد: {diff_qty})",
             )
-            conn.commit()
 
-    def delete_sale(self, sale_id):
+        self.run_write_transaction(_tx)
+
+    def delete_sale(self, sale_id, expected_row_version=None):
         sale_id = self._batch_integer(sale_id, "شناسه فروش", minimum=1)
-        with self.get_connection() as conn:
-            conn.execute("BEGIN IMMEDIATE")
+        def _tx(conn):
+            if expected_row_version is not None:
+                self._check_row_version(conn, "sales", sale_id, expected_row_version, "فروش")
             old_sale = conn.execute("""SELECT id, invoice_number, product_id, batch_id, seller_employee_id,
             customer_name, qty, returned_qty, suggested_unit_price, actual_unit_price,
             unit_cost_price, unit_discount, total_discount, price_Markup_unit,
@@ -3200,7 +3498,8 @@ class DatabaseManager:
                 "حذف فروش و بازگشت به انبار",
                 f"فاکتور: {old_sale['invoice_number']} - تعداد برگشتی: {old_sale['qty']}",
             )
-            conn.commit()
+
+        self.run_write_transaction(_tx)
 
     # --- مدیریت کاتالوگ خدمات و تعرفه‌های تاریخی (بند ۴) ---
     def save_service_catalog(
@@ -3217,18 +3516,19 @@ class DatabaseManager:
         cal, _tf = self._active_datetime_prefs()
         now_date = datetime_format.get_today_date(cal)
 
-        with self.get_connection() as conn:
+        def _tx(conn):
             target_id = service_id
+            srv_code = code
 
             if not target_id:
-                if not code:
-                    code = self.generate_next_code("service_catalog", "code", "S-", 1001)
+                if not srv_code:
+                    srv_code = self.generate_next_code("service_catalog", "code", "S-", 1001, conn=conn)
                 cur = conn.execute(
                     """
                     INSERT INTO service_catalog (code, service_type, name, default_fee, default_side_cost, description)
                     VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                    (code, type_clean, name_clean, default_fee, default_side_cost, description),
+                    (srv_code, type_clean, name_clean, default_fee, default_side_cost, description),
                 )
                 srv_id = cur.lastrowid
                 target_id = srv_id
@@ -3257,7 +3557,7 @@ class DatabaseManager:
                     WHERE id=?
                 """,
                     (
-                        code or conn.execute("SELECT code FROM service_catalog WHERE id=?", (target_id,)).fetchone()["code"],
+                        srv_code or conn.execute("SELECT code FROM service_catalog WHERE id=?", (target_id,)).fetchone()["code"],
                         type_clean,
                         name_clean,
                         default_fee,
@@ -3266,12 +3566,13 @@ class DatabaseManager:
                         target_id,
                     ),
                 )
-            conn.commit()
             return target_id
+
+        return self.run_write_transaction(_tx)
 
     def delete_service_catalog(self, service_id):
         """Hard-delete a service tariff from the catalog without deleting past transactional service records (REQ-1)."""
-        with self.get_connection() as conn:
+        def _tx(conn):
             service = conn.execute(
                 "SELECT name FROM service_catalog WHERE id=?", (service_id,)
             ).fetchone()
@@ -3281,7 +3582,8 @@ class DatabaseManager:
             conn.execute("DELETE FROM service_price_history WHERE service_id=?", (service_id,))
             conn.execute("DELETE FROM service_catalog WHERE id=?", (service_id,))
             self.log_audit(conn, "حذف کامل خدمت", f"شناسه خدمت: {service_id} - {service['name']}")
-            conn.commit()
+
+        self.run_write_transaction(_tx)
 
     def add_service_record(
         self,
@@ -3297,7 +3599,8 @@ class DatabaseManager:
         description,
         settlement_status=None,
     ):
-        with self.get_connection() as conn:
+        def _tx(conn):
+            nonlocal invoice_number, service_fee, side_cost, paid_amount, customer_name, description
             srv = None
             if service_id is not None:
                 srv = conn.execute(
@@ -3308,7 +3611,7 @@ class DatabaseManager:
                     raise ValueError("تعرفه خدمت یافت نشد.")
             if not invoice_number:
                 invoice_number = self.generate_next_code(
-                    "service_records", "invoice_number", "SINV-", 1001
+                    "service_records", "invoice_number", "SINV-", 1001, conn=conn
                 )
 
             srv_type = srv["service_type"] if srv else "خدمات عمومی"
@@ -3363,8 +3666,9 @@ class DatabaseManager:
                 "ثبت خدمت",
                 f"فاکتور خدمت: {invoice_number} - سود خالص خدمت: {net_profit:,}",
             )
-            conn.commit()
             return invoice_number
+
+        return self.run_write_transaction(_tx)
 
     def update_service_record(
         self,
@@ -3376,6 +3680,7 @@ class DatabaseManager:
         paid_amount,
         description,
         settlement_status=None,
+        expected_row_version=None,
     ):
         service_fee = self._batch_integer(service_fee, "هزینه خدمت")
         side_cost = self._batch_integer(side_cost, "هزینه جانبی")
@@ -3391,7 +3696,8 @@ class DatabaseManager:
                 if paid_amount >= service_fee
                 else ("تسویه‌نشده" if paid_amount == 0 else "تسویه جزئی")
             )
-        with self.get_connection() as conn:
+        def _tx(conn):
+            self._check_row_version(conn, "service_records", record_id, expected_row_version, "خدمت")
             conn.execute(
                 """
                 UPDATE service_records SET seller_employee_id=?, customer_name=?,
@@ -3410,12 +3716,16 @@ class DatabaseManager:
                     record_id,
                 ),
             )
-            conn.commit()
 
-    def delete_service_record(self, record_id):
-        with self.get_connection() as conn:
+        self.run_write_transaction(_tx)
+
+    def delete_service_record(self, record_id, expected_row_version=None):
+        def _tx(conn):
+            if expected_row_version is not None:
+                self._check_row_version(conn, "service_records", record_id, expected_row_version, "خدمت")
             conn.execute("DELETE FROM service_records WHERE id=?", (record_id,))
-            conn.commit()
+
+        self.run_write_transaction(_tx)
 
     # --- پشتیبان‌گیری و بازیابی (REQ-2 Per-DB Scoped Backup & Collision Guard) ---
     def _get_db_entry_config(self) -> dict:
@@ -3652,18 +3962,26 @@ class DatabaseManager:
                 except sqlite3.DatabaseError:
                     plain_leak_test.close()
             else:
-                source = sqlite3.connect(database_path, timeout=30)
-                destination = None
-                try:
-                    source.execute("PRAGMA busy_timeout=30000")
-                    destination = sqlite3.connect(write_file, timeout=30)
-                    destination.execute("PRAGMA busy_timeout=30000")
-                    source.backup(destination, pages=256, sleep=0.25)
-                    destination.commit()
-                finally:
-                    if destination is not None:
-                        destination.close()
-                    source.close()
+                for backup_attempt in range(6):
+                    source = sqlite3.connect(database_path, timeout=15.0)
+                    destination = None
+                    try:
+                        source.execute("PRAGMA busy_timeout=15000")
+                        destination = sqlite3.connect(write_file, timeout=15.0)
+                        destination.execute("PRAGMA busy_timeout=15000")
+                        source.backup(destination, pages=256, sleep=0.05)
+                        destination.commit()
+                        break
+                    except sqlite3.OperationalError as exc:
+                        err = str(exc).lower()
+                        if ("locked" in err or "busy" in err) and backup_attempt < 5:
+                            time.sleep(0.08 * (1.5 ** backup_attempt))
+                            continue
+                        raise
+                    finally:
+                        if destination is not None:
+                            destination.close()
+                        source.close()
 
                 check_db = sqlite3.connect(write_file, timeout=30)
                 try:
@@ -3736,6 +4054,7 @@ class DatabaseManager:
 
 
     def restore_backup(self, backup_file_path):
+        self._ensure_writable()
         self.create_backup()
         self.sync_database()
         shutil.copyfile(backup_file_path, self.db_path)
@@ -3850,6 +4169,7 @@ class DatabaseManager:
 
     def set_database_password(self, new_password: str, require_startup_prompt: bool = True):
         """Encrypt an unencrypted database with true SQLCipher AES-256."""
+        self._ensure_writable()
         clean_pwd = str(new_password or "").strip()
         if not clean_pwd:
             raise ValueError("رمز عبور پایگاه داده نمی‌تواند خالی باشد.")
@@ -3913,6 +4233,7 @@ class DatabaseManager:
 
     def change_database_password(self, old_password: str, new_password: str, require_startup_prompt: bool = None):
         """Change the password on an encrypted database using SQLCipher PRAGMA rekey."""
+        self._ensure_writable()
         if not self.is_password_protected():
             raise ValueError("این پایگاه داده رمز ندارد؛ از گزینه تعیین رمز استفاده کنید.")
         clean_old = str(old_password or "").strip()
@@ -3953,6 +4274,7 @@ class DatabaseManager:
 
     def remove_database_password(self, current_password: str):
         """Decrypt an encrypted database back to plain SQLite."""
+        self._ensure_writable()
         if not self.is_password_protected():
             return
         clean_cur = str(current_password or "").strip()
@@ -4012,6 +4334,7 @@ class DatabaseManager:
 
     def set_startup_password_prompt_required(self, required: bool):
         """Toggle whether password is required on application startup."""
+        self._ensure_writable()
         req_str = "1" if required else "0"
         self.set_setting("db_require_startup_password", req_str)
         if required:

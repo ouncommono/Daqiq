@@ -337,7 +337,7 @@ def test_v3_schema_initialization_is_idempotent_and_keeps_upgrade_column_order(m
         "id", "target_batch_id", "part_batch_id", "technician_id", "target_qty",
         "part_qty_used", "stock_deducted_qty", "part_unit_cost", "labor_cost_unit",
         "added_cost_unit", "upgrade_date", "serial_number", "manual_part_description",
-        "old_specs", "new_specs", "notes", "created_at", "updated_at",
+        "old_specs", "new_specs", "notes", "created_at", "updated_at", "row_version",
     ]
     assert version == 484
 
@@ -1008,12 +1008,12 @@ def test_fresh_schema_has_v3_physical_column_order_and_metadata(manager):
     expected_columns = {
         "employees": [
             "id", "name", "role", "phone", "is_active", "permissions",
-            "password", "created_at", "updated_at", "last_login_at",
+            "password", "created_at", "updated_at", "last_login_at", "row_version",
         ],
         "products": [
             "id", "code", "serial_number", "name", "category", "sub_category", "brand", "model",
             "specs_json", "description", "reorder_point", "default_profit_pct",
-            "is_active", "created_at", "updated_at",
+            "is_active", "created_at", "updated_at", "row_version",
         ],
         "batches": [
             "id", "batch_code", "product_id", "serial_numbers", "supplier_id", "buyer_employee_id",
@@ -1022,13 +1022,13 @@ def test_fresh_schema_has_v3_physical_column_order_and_metadata(manager):
             "upgrade_cost_unit", "unit_cost_price", "suggested_sell_price", "profit_pct",
             "paid_amount", "settlement_status", "colors_json",
             "initial_specs", "final_specs", "supplier_name_snapshot", "notes",
-            "created_at", "updated_at",
+            "created_at", "updated_at", "row_version",
         ],
         "upgrades": [
             "id", "target_batch_id", "part_batch_id", "technician_id", "target_qty",
             "part_qty_used", "stock_deducted_qty", "part_unit_cost", "labor_cost_unit",
             "added_cost_unit", "upgrade_date", "serial_number", "manual_part_description",
-            "old_specs", "new_specs", "notes", "created_at", "updated_at",
+            "old_specs", "new_specs", "notes", "created_at", "updated_at", "row_version",
         ],
         "sales": [
             "id", "invoice_number", "product_id", "batch_id", "serial_number", "seller_employee_id",
@@ -1038,14 +1038,14 @@ def test_fresh_schema_has_v3_physical_column_order_and_metadata(manager):
             "paid_amount", "settlement_status", "sale_datetime", "warranty_company",
             "warranty_start", "warranty_months", "warranty_days", "warranty_end",
             "specifications", "colors_json", "notes",
-            "created_at", "updated_at",
+            "created_at", "updated_at", "row_version",
         ],
         "service_records": [
             "id", "invoice_number", "service_id", "seller_employee_id",
             "technician_employee_id", "service_type", "service_name", "customer_name",
             "historical_tariff", "service_fee", "side_cost", "paid_amount", "net_profit",
             "settlement_status", "service_datetime", "description", "created_at",
-            "updated_at",
+            "updated_at", "row_version",
         ],
     }
     with manager.get_connection() as conn:
@@ -1255,7 +1255,7 @@ def test_v330_greenfield_schema_contracts_and_stock_balance_constraints(manager)
         "settings": ["key", "value"],
         "employees": [
             "id", "name", "role", "phone", "is_active", "permissions",
-            "password", "created_at", "updated_at", "last_login_at",
+            "password", "created_at", "updated_at", "last_login_at", "row_version",
         ],
         "access_level_data_scopes": ["access_level_name", "mode"],
         "access_level_scope_levels": [
@@ -1263,15 +1263,15 @@ def test_v330_greenfield_schema_contracts_and_stock_balance_constraints(manager)
         ],
         "access_level_scope_users": ["access_level_name", "employee_id"],
         "suppliers": [
-            "id", "name", "phone", "address", "notes", "created_at", "updated_at",
+            "id", "name", "phone", "address", "notes", "created_at", "updated_at", "row_version",
         ],
         "customers": [
-            "id", "name", "phone", "notes", "created_at", "updated_at",
+            "id", "name", "phone", "notes", "created_at", "updated_at", "row_version",
         ],
         "products": [
             "id", "code", "serial_number", "name", "category", "sub_category", "brand", "model",
             "specs_json", "description", "reorder_point", "default_profit_pct",
-            "is_active", "created_at", "updated_at",
+            "is_active", "created_at", "updated_at", "row_version",
         ],
         "batches": [
             "id", "batch_code", "product_id", "serial_numbers", "supplier_id", "buyer_employee_id",
@@ -1280,13 +1280,13 @@ def test_v330_greenfield_schema_contracts_and_stock_balance_constraints(manager)
             "upgrade_cost_unit", "unit_cost_price", "suggested_sell_price", "profit_pct",
             "paid_amount", "settlement_status", "colors_json",
             "initial_specs", "final_specs", "supplier_name_snapshot", "notes",
-            "created_at", "updated_at",
+            "created_at", "updated_at", "row_version",
         ],
         "upgrades": [
             "id", "target_batch_id", "part_batch_id", "technician_id", "target_qty",
             "part_qty_used", "stock_deducted_qty", "part_unit_cost", "labor_cost_unit",
             "added_cost_unit", "upgrade_date", "serial_number", "manual_part_description",
-            "old_specs", "new_specs", "notes", "created_at", "updated_at",
+            "old_specs", "new_specs", "notes", "created_at", "updated_at", "row_version",
         ],
         "sales": [
             "id", "invoice_number", "product_id", "batch_id", "serial_number", "seller_employee_id",
@@ -1296,11 +1296,11 @@ def test_v330_greenfield_schema_contracts_and_stock_balance_constraints(manager)
             "paid_amount", "settlement_status", "sale_datetime", "warranty_company",
             "warranty_start", "warranty_months", "warranty_days", "warranty_end",
             "specifications", "colors_json", "notes",
-            "created_at", "updated_at",
+            "created_at", "updated_at", "row_version",
         ],
         "service_catalog": [
             "id", "code", "service_type", "name", "default_fee", "default_side_cost",
-            "description", "is_active", "created_at", "updated_at",
+            "description", "is_active", "created_at", "updated_at", "row_version",
         ],
         "service_price_history": [
             "id", "service_id", "change_date", "old_fee", "new_fee",
@@ -1311,11 +1311,11 @@ def test_v330_greenfield_schema_contracts_and_stock_balance_constraints(manager)
             "technician_employee_id", "service_type", "service_name", "customer_name",
             "historical_tariff", "service_fee", "side_cost", "paid_amount", "net_profit",
             "settlement_status", "service_datetime", "description", "created_at",
-            "updated_at",
+            "updated_at", "row_version",
         ],
         "payments": [
             "id", "ref_type", "ref_id", "amount", "payment_date",
-            "notes", "created_at", "updated_at",
+            "notes", "created_at", "updated_at", "row_version",
         ],
         "audit_logs": [
             "id", "action_time", "action_type", "details", "created_at", "updated_at",

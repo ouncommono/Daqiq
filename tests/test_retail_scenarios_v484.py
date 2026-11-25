@@ -366,7 +366,8 @@ def test_scenario4_schema_v484_and_store_workflow_sweep(qapp, tmp_path):
         assert conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
         emp_cols = tuple(r["name"] for r in conn.execute("PRAGMA table_info(employees)").fetchall())
         assert emp_cols == EXPECTED_SCHEMA_COLUMNS["employees"]
-        assert emp_cols[-1] == "last_login_at"
+        assert "last_login_at" in emp_cols
+        assert emp_cols[-1] == "row_version"
 
     # 1. User and Supplier registration
     emp_id = db.add_employee("کاربر مدیر", "مدیر سیستم", "09121111111", "admin123", "مدیر سیستم (دسترسی کامل)")

@@ -20,7 +20,7 @@ def get_version(repo_root: Path) -> str:
     v_path = repo_root / "VERSION"
     if v_path.is_file():
         return v_path.read_text(encoding="utf-8").strip()
-    return "4.9.8"
+    return "4.9.9"
 
 
 def compute_sha256(file_path: Path) -> str:
@@ -73,7 +73,7 @@ def build(mode: str, repo_root: Path, skip_shards: bool = False) -> int:
         "--noinclude-unittest-mode=nofollow",
         "--noinclude-pydoc-mode=nofollow",
         "--noinclude-IPython-mode=nofollow",
-        "--nofollow-import-to=pytest,unittest,doctest,pydoc,tkinter,turtle,distutils,lib2to3,setuptools,pip,wheel,tools",
+        "--nofollow-import-to=pytest,unittest,doctest,pydoc,tkinter,turtle,distutils,lib2to3,setuptools,pip,wheel,tools,troubleshooter",
         "--windows-console-mode=attach",
         f"--windows-icon-from-ico={repo_root / 'assets' / 'daqiq_logo.ico'}",
         f"--company-name=ouncommono",
@@ -140,12 +140,23 @@ def build(mode: str, repo_root: Path, skip_shards: bool = False) -> int:
         exe_size = target_exe.stat().st_size
         print(f"Output Executable: {target_exe} ({exe_size:,} bytes)")
 
-        # Generate SHA256SUMS.txt
+        rc_ts = build_troubleshooter(mode, repo_root, version)
+        if rc_ts != 0:
+            return rc_ts
+
+        # Generate SHA256SUMS.txt covering both executables and external taxonomy
         sums_file = dist_dir / "SHA256SUMS.txt"
         exe_sha = compute_sha256(target_exe)
         tax_sha = compute_sha256(target_tax)
+        lines = [
+            f"{exe_sha}  {target_exe.name}",
+            f"{tax_sha}  {target_tax.name}",
+        ]
+        target_ts = dist_dir / "Daqiq-Troubleshooter.exe"
+        if target_ts.is_file():
+            lines.append(f"{compute_sha256(target_ts)}  {target_ts.name}")
 
-        sums_content = f"{exe_sha}  {target_exe.name}\n{tax_sha}  {target_tax.name}\n"
+        sums_content = "\n".join(lines) + "\n"
         sums_file.write_text(sums_content, encoding="utf-8")
         print(f"\nGenerated {sums_file}:")
         print(sums_content.strip())
@@ -168,8 +179,75 @@ def build(mode: str, repo_root: Path, skip_shards: bool = False) -> int:
                     shutil.copy2(dll, p_dest / dll.name)
             print("Verified complete Qt platform plugins in standalone directory.")
 
+        rc_ts = build_troubleshooter(mode, repo_root, version)
+        if rc_ts != 0:
+            return rc_ts
+
         print(f"Standalone distribution ready at: {standalone_dir}")
 
+    return 0
+
+
+def build_troubleshooter(mode: str, repo_root: Path, version: str) -> int:
+    """Build decoupled standalone Daqiq-Troubleshooter binary (zero Daqiq app imports)."""
+    dist_dir = repo_root / "dist"
+    dist_dir.mkdir(parents=True, exist_ok=True)
+    entry_script = repo_root / "troubleshooter" / "app.py"
+    if not entry_script.is_file():
+        print(f"[ERROR] Troubleshooter entry not found: {entry_script}", file=sys.stderr)
+        return 1
+
+    import PySide6
+    pyside6_dir = Path(PySide6.__file__).resolve().parent
+    platforms_src = pyside6_dir / "plugins" / "platforms"
+
+    ts_dist_dir = dist_dir / "troubleshooter_build" if mode == "standalone" else dist_dir
+    cmd = [
+        sys.executable,
+        "-m",
+        "nuitka",
+        f"--mode={mode}",
+        "--assume-yes-for-downloads",
+        "--enable-plugin=pyside6",
+        "--include-qt-plugins=sensible,platforms,styles,imageformats",
+        "--noinclude-qt-translations",
+        "--noinclude-pytest-mode=nofollow",
+        "--noinclude-unittest-mode=nofollow",
+        "--noinclude-pydoc-mode=nofollow",
+        "--noinclude-IPython-mode=nofollow",
+        "--nofollow-import-to=main,database,licensing,utils,ui,tools,pytest,unittest,doctest,pydoc,tkinter,turtle,setuptools,pip,wheel",
+        "--windows-console-mode=attach",
+        f"--windows-icon-from-ico={repo_root / 'assets' / 'daqiq_logo.ico'}",
+        "--company-name=ouncommono",
+        "--product-name=Daqiq-Troubleshooter",
+        f"--file-version={version}.0",
+        f"--product-version={version}.0",
+        f"--include-data-files={repo_root / 'assets' / 'daqiq_logo.ico'}=assets/daqiq_logo.ico",
+        f"--include-data-files={repo_root / 'assets' / 'daqiq_logo.png'}=assets/daqiq_logo.png",
+        f"--output-dir={ts_dist_dir}",
+    ]
+    if platforms_src.is_dir():
+        cmd.append(f"--include-data-dir={platforms_src}=PySide6/qt-plugins/platforms")
+        cmd.append(f"--include-data-dir={platforms_src}=platforms")
+    if shutil.which("cl"):
+        cmd.append("--msvc=latest")
+    if mode == "onefile":
+        cmd.append("--output-filename=Daqiq-Troubleshooter.exe")
+        cmd.append("--onefile-tempdir-spec={TEMP}/DaqiqTroubleshooter_{PID}")
+    cmd.append(str(entry_script))
+
+    print("\n--- Building Decoupled Daqiq-Troubleshooter ---")
+    proc = subprocess.run(cmd, cwd=str(repo_root))
+    if proc.returncode != 0:
+        print(f"[ERROR] Troubleshooter compilation failed ({proc.returncode})", file=sys.stderr)
+        return proc.returncode
+    if mode == "standalone" and platforms_src.is_dir():
+        ts_standalone = ts_dist_dir / "app.dist"
+        for dest_sub in ["PySide6/qt-plugins/platforms", "platforms"]:
+            p_dest = ts_standalone / dest_sub
+            p_dest.mkdir(parents=True, exist_ok=True)
+            for dll in platforms_src.glob("*.dll"):
+                shutil.copy2(dll, p_dest / dll.name)
     return 0
 
 

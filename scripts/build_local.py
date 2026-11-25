@@ -64,12 +64,18 @@ def resolve_and_validate_identity(local_config_path: Path) -> dict:
 
     raw_bytes, b64_std = normalize_ed25519_public_key(pub_key_input)
     key_fp = compute_key_fingerprint(raw_bytes)
+    support_phone = (
+        os.environ.get("DAQIQ_SUPPORT_PHONE")
+        or str(local_cfg.get("support_phone") or "").strip()
+        or "09193352435"
+    ).strip() or "09193352435"
 
     return {
         "public_key_b64": b64_std,
         "key_id": key_id,
         "key_fp": key_fp,
         "fp_prefix": fp_prefix,
+        "support_phone": support_phone,
     }
 
 
@@ -87,6 +93,7 @@ def main() -> int:
     print(f"  Key ID:        {identity['key_id']}")
     print(f"  Key FP:        {identity['key_fp']}")
     print(f"  FP Prefix:     {identity['fp_prefix']}")
+    print(f"  Support Phone: {identity['support_phone']}")
     print(f"  Public Key:    {identity['public_key_b64']}")
     print("=" * 64)
 
@@ -105,6 +112,7 @@ def main() -> int:
             override_key_id=identity["key_id"],
             override_fp_prefix=identity["fp_prefix"],
             local_config_path=str(args.local_config),
+            override_support_phone=identity["support_phone"],
         )
         cmd = [
             sys.executable,

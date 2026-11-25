@@ -5,6 +5,7 @@ import base64
 import copy
 import datetime
 import json
+import math
 import re
 import unicodedata
 from typing import Any, Dict, List, Optional, Tuple, Set
@@ -443,7 +444,7 @@ class LicenseVerifier:
         self,
         envelope: LicenseEnvelope,
         current_hardware_fingerprint: str,
-        current_app_version: str = "4.9.8",
+        current_app_version: str = "4.9.9",
         now_utc: Optional[datetime.datetime] = None,
         available_hardware_tiers: Optional[Dict[str, str]] = None,
         high_water_mark_utc: Optional[datetime.datetime] = None,
@@ -641,7 +642,7 @@ class LicenseVerifier:
                     is_valid=False,
                     license=envelope,
                     message_fa=STATUS_MESSAGES_FA[ValidationStatus.CORRUPTED_LICENSE],
-                    detail="اشتراک یا دوره آزمایشی بدون تاریخ انقضا معتبر نیست.",
+                    detail="لایسنس زمان‌دار یا دوره آزمایشی بدون تاریخ انقضا معتبر نیست.",
                 )
             try:
                 dt_expires = parse_iso8601_utc(
@@ -692,14 +693,21 @@ class LicenseVerifier:
 
             if effective_now >= dt_expires:
                 if grace_days > 0 and effective_now < grace_deadline:
+                    rem_seconds = max(0.0, (grace_deadline - effective_now).total_seconds())
+                    grace_days_remaining = max(1, math.ceil(rem_seconds / 86400.0))
+                    mode_fa = "فقط خواندنی" if grace_mode == "readonly" else "دسترسی کامل"
                     return ValidationResult(
                         status=ValidationStatus.GRACE_PERIOD,
                         is_valid=True,
                         license=envelope,
-                        message_fa="اعتبار لایسنس به پایان رسیده و در دوره مهلت (Grace Period) قرار دارد.",
+                        message_fa=(
+                            f"اعتبار لایسنس به پایان رسیده و {grace_days_remaining} روز از دوره مهلت "
+                            f"({mode_fa}) باقی مانده است."
+                        ),
                         detail=f"انقضا: {envelope.payload.expires_at}، مهلت تا: {grace_deadline.isoformat()} ({grace_mode})",
                         in_grace_period=True,
                         grace_mode=grace_mode,
+                        grace_days_remaining=grace_days_remaining,
                         days_remaining=0,
                         is_trial=is_trial,
                     )

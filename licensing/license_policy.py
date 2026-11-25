@@ -14,6 +14,7 @@ from .license_models import (
     HardwareIdentityUnavailableError,
     ClockRollbackError,
 )
+from .keys import get_support_phone
 from .license_store import LicenseStore
 from .license_verifier import LicenseVerifier, STATUS_MESSAGES_FA
 from .device_identity import (
@@ -77,29 +78,102 @@ TAB_MODULE_TO_FEATURE: Dict[str, str] = {
 FEATURE_LABELS_FA: Dict[str, str] = {
     "dashboard": "داشبورد",
     "products": "مدیریت کالاها",
+    "inventory": "انبار و کالاها",
     "batches": "ثبت خرید و محموله‌ها",
+    "purchases": "ثبت خرید و محموله‌ها",
     "sales": "ثبت فروش",
     "services": "میز خدمت",
     "upgrades": "ارتقای کالا",
+    "suppliers": "تأمین‌کنندگان و پرداخت‌ها",
     "suppliers_payments": "تأمین‌کنندگان و پرداخت‌ها",
     "reports": "گزارش‌های جامع",
     "employees": "مدیریت کاربران",
+    "users": "مدیریت کاربران",
     "settings": "تنظیمات",
     "excel_report_export": "خروجی اکسل گزارش‌ها",
     "partner_export": "خروجی موجودی همکار",
     "report_builder": "ساخت و ویرایش گزارش‌های سفارشی",
+    "report_sales": "گزارش فروش",
+    "report_purchases": "گزارش خریدها",
+    "report_inventory": "گزارش موجودی انبار",
+    "report_financial": "گزارش مالی و سود",
+    "report_services": "گزارش خدمات فنی",
+    "report_upgrades": "گزارش ارتقای کالا",
+    "report_suppliers": "گزارش تأمین‌کنندگان",
+    "report_debts": "گزارش بدهی و مطالبات",
+    "report_exports": "خروجی اکسل گزارش‌ها",
     "auto_backup": "پشتیبان‌گیری خودکار",
     "manual_backup_restore": "پشتیبان‌گیری و بازیابی دستی",
+    "backup_manage": "مدیریت پشتیبان‌گیری و بازیابی",
     "database_encryption": "رمزگذاری پایگاه داده",
+    "database_security": "امنیت و رمزنگاری پایگاه داده",
+    "security_settings": "تنظیمات امنیتی",
     "multi_database": "مدیریت چند پایگاه داده",
     "barcode_scanner": "اسکنر بارکد",
     "audit_logs": "گزارش‌های ممیزی",
     "taxonomy_import_export": "ورود و خروج ساختار کالاها و خدمات",
+    "taxonomy_manage": "مدیریت دسته‌بندی کالاها و خدمات",
     "custom_calendar_formats": "تغییر قالب تقویم و ساعت",
     "profit_analytics": "تحلیل سود و گزارش‌های سودآوری",
     "price_edit": "ویرایش قیمت فروش در فاکتور",
+    "price_history": "تاریخچه تغییرات قیمت",
+    "batch_edit": "ویرایش محموله خرید",
     "batch_delete": "حذف محموله خرید",
+    "sale_edit": "ویرایش فاکتور فروش",
+    "sale_delete": "حذف فاکتور فروش",
+    "product_edit": "ویرایش اطلاعات کالا",
+    "product_delete": "حذف کالا",
+    "service_edit": "ویرایش خدمات",
+    "upgrade_edit": "ویرایش ارتقای کالا",
+    "returns_manage": "مدیریت مرجوعی کالا",
+    "supplier_manage": "مدیریت تأمین‌کنندگان",
+    "employee_manage": "مدیریت کارکنان و سطوح دسترسی",
+    "user_manage": "مدیریت کاربران",
+    "inventory_export": "خروجی موجودی همکار و انبار",
+    "multi_pc_lan": "اشتراک‌گذاری شبکه (چند کاربر همزمان)",
+    "concurrent_edit": "مدیریت ویرایش همزمان",
+    "dark_theme": "حالت تیره",
+    "light_theme": "حالت روشن",
 }
+
+
+def get_feature_label_fa(feature_id: str) -> str:
+    """Return a clean Persian display label for any feature key (never leaks raw ASCII identifiers)."""
+    raw = str(feature_id or "").strip()
+    if not raw:
+        return "بخش سیستمی"
+    canonical = TAB_MODULE_TO_FEATURE.get(raw, raw)
+    if raw in FEATURE_LABELS_FA:
+        return FEATURE_LABELS_FA[raw]
+    if canonical in FEATURE_LABELS_FA:
+        return FEATURE_LABELS_FA[canonical]
+    if canonical in SUBFEATURE_PARENT_TAB:
+        parent = SUBFEATURE_PARENT_TAB[canonical]
+        parent_label = FEATURE_LABELS_FA.get(parent, "سیستم")
+        return f"زیرماژول {parent_label}"
+    # Deterministic Persian fallback if an unexpected ASCII key appears in a future license
+    return "قابلیت تخصصی سامانه"
+
+
+def get_active_features_fa(features: Optional[Dict[str, Any]]) -> List[str]:
+    """Return deduplicated Persian labels for all enabled features in a license."""
+    if not isinstance(features, dict):
+        return []
+    labels: List[str] = []
+    seen = set()
+    for key, enabled in features.items():
+        if not enabled:
+            continue
+        label = get_feature_label_fa(key)
+        if label not in seen:
+            seen.add(label)
+            labels.append(label)
+    return labels
+
+
+def get_grace_mode_label_fa(grace_mode: Optional[str]) -> str:
+    """Translate internal grace_mode code into clear Persian copy."""
+    return "کامل" if str(grace_mode or "").strip().lower() == "full" else "فقط خواندنی"
 
 
 class LicenseService:
@@ -111,7 +185,7 @@ class LicenseService:
         verifier: Optional[LicenseVerifier] = None,
         hardware_provider: Optional[HardwareIdentitySource] = None,
         clock_provider: Optional[Callable[[], datetime.datetime]] = None,
-        app_version: str = "4.9.8",
+        app_version: str = "4.9.9",
         store_name_provider: Optional[Callable[[], str]] = None,
     ):
         self.store = store or LicenseStore()
@@ -516,6 +590,19 @@ class LicenseService:
         if self._last_result.in_grace_period and self._last_result.grace_mode == "readonly":
             return False
         return True
+
+    def get_support_phone(self) -> str:
+        """Return configured vendor support phone number."""
+        return get_support_phone()
+
+    def get_locked_module_message_fa(self, feature_id: str) -> str:
+        """Return clean Persian guidance for a module locked by current license entitlements."""
+        label = get_feature_label_fa(feature_id)
+        phone = self.get_support_phone()
+        return (
+            f"بخش «{label}» در لایسنس فعال فعلی غیرفعال است.\n"
+            f"جهت فعال‌سازی یا ارتقای لایسنس با پشتیبانی تماس بگیرید: {phone}"
+        )
 
     def get_active_license(self) -> Optional[LicenseEnvelope]:
         """Return the verified active LicenseEnvelope, if valid."""

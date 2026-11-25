@@ -35,7 +35,12 @@ from PySide6.QtWidgets import (
 )
 
 from .license_models import ValidationStatus, ValidationResult
-from .license_policy import LicenseService, FEATURE_LABELS_FA
+from .license_policy import (
+    LicenseService,
+    FEATURE_LABELS_FA,
+    get_active_features_fa,
+    get_grace_mode_label_fa,
+)
 
 
 def _try_update_app_config_theme(is_dark: bool):
@@ -1108,32 +1113,55 @@ class LicenseDialog(QDialog):
                 except Exception:
                     expiry_text = payload.expires_at
 
-            active_modules = [
-                FEATURE_LABELS_FA.get(k, k)
-                for k, v in payload.features.items() if v
-            ]
+            active_modules = get_active_features_fa(payload.features)
             modules_str = "، ".join(active_modules) if active_modules else "هیچ ماژولی فعال نیست"
+            support_phone = ""
+            try:
+                support_phone = str(self.service.get_support_phone() or "").strip()
+            except Exception:
+                support_phone = ""
 
             if res.in_grace_period:
                 self._status_state = "grace"
-                self.lbl_status_badge.setText("لایسنس در دوره مهلت موقت قرار دارد")
-                desc_text = (
-                    "اشتراک شما به پایان رسیده است اما به مدت چند روز امکان استفاده موقت فعال است. "
-                    "لطفاً برای تمدید لایسنس اقدام فرمایید."
+                mode_fa = get_grace_mode_label_fa(res.grace_mode)
+                rem_grace = (
+                    f"{res.grace_days_remaining} روز باقیمانده"
+                    if res.grace_days_remaining is not None
+                    else "فعال"
                 )
+                self.lbl_status_badge.setText(f"دوره مهلت لایسنس ({rem_grace} • {mode_fa})")
+                mode_hint = (
+                    "امکان مشاهده گزارش‌ها، پشتیبان‌گیری و دریافت خروجی اکسل فعال است؛ ثبت یا ویرایش داده جدید تا زمان تمدید محدود شده است."
+                    if res.grace_mode == "readonly"
+                    else "دسترسی کامل نرم‌افزار در طول دوره مهلت فعال است؛ لطفاً پیش از اتمام مهلت نسبت به تمدید اقدام فرمایید."
+                )
+                desc_html = (
+                    f'<div dir="rtl" align="right">'
+                    f"لایسنس شما به پایان رسیده است و هم‌اکنون در دوره مهلت موقت قرار دارید ({html.escape(rem_grace)}، حالت {html.escape(mode_fa)}). "
+                    f"{html.escape(mode_hint)}"
+                )
+                if support_phone:
+                    desc_html += (
+                        f'<br><b>تماس با پشتیبانی جهت تمدید:</b> '
+                        f'<span dir="ltr">{html.escape(support_phone)}</span>'
+                    )
+                desc_html += "</div>"
+                self.lbl_status_desc.setText(desc_html)
             elif res.is_trial:
                 self._status_state = "trial"
                 rem = f" ({res.days_remaining} روز باقیمانده)" if res.days_remaining is not None else ""
                 self.lbl_status_badge.setText(f"نسخه آزمایشی فعال است{rem}")
                 desc_text = "تمامی بررسی‌های امنیتی و اعتبار لایسنس با موفقیت تأیید شدند."
+                self.lbl_status_desc.setText(
+                    f'<div dir="rtl" align="right">{html.escape(desc_text)}</div>'
+                )
             else:
                 self._status_state = "valid"
                 self.lbl_status_badge.setText("لایسنس معتبر و فعال است")
                 desc_text = res.message_fa or "تمامی بررسی‌های امنیتی و اعتبار لایسنس با موفقیت تأیید شدند."
-
-            self.lbl_status_desc.setText(
-                f'<div dir="rtl" align="right">{html.escape(desc_text)}</div>'
-            )
+                self.lbl_status_desc.setText(
+                    f'<div dir="rtl" align="right">{html.escape(desc_text)}</div>'
+                )
 
             info_text = (
                 '<div dir="rtl" align="right">'
@@ -1154,6 +1182,12 @@ class LicenseDialog(QDialog):
             self.btn_remove.setVisible(True)
         else:
             self._status_state = "invalid"
+            support_phone = ""
+            try:
+                support_phone = str(self.service.get_support_phone() or "").strip()
+            except Exception:
+                support_phone = ""
+
             if res.status == ValidationStatus.MISSING:
                 self.lbl_status_badge.setText("لایسنس فعال نیست")
                 friendly_msg = "لایسنس فعالی روی این سیستم ثبت نشده است. برای فعال‌سازی، فایل لایسنس خود را بارگذاری کنید."
@@ -1167,9 +1201,23 @@ class LicenseDialog(QDialog):
                 self.lbl_status_badge.setText("لایسنس معتبر نیست")
                 friendly_msg = res.message_fa or "فایل لایسنس معتبر نیست. لطفاً فایل صحیح را انتخاب کنید."
 
-            self.lbl_status_desc.setText(
-                f'<div dir="rtl" align="right">{html.escape(friendly_msg)}</div>'
-            )
+            desc_html = f'<div dir="rtl" align="right">{html.escape(friendly_msg)}'
+            if support_phone and res.status in (
+                ValidationStatus.MISSING,
+                ValidationStatus.EXPIRED,
+                ValidationStatus.CLOCK_ROLLBACK,
+                ValidationStatus.CLOCK_TAMPERED,
+                ValidationStatus.UNAUTHORIZED_DEVICE,
+                ValidationStatus.HARDWARE_MISMATCH,
+                ValidationStatus.INVALID_SIGNATURE,
+                ValidationStatus.CORRUPTED_LICENSE,
+            ):
+                desc_html += (
+                    f'<br><b>شماره پشتیبانی جهت دریافت یا تمدید لایسنس:</b> '
+                    f'<span dir="ltr">{html.escape(support_phone)}</span>'
+                )
+            desc_html += "</div>"
+            self.lbl_status_desc.setText(desc_html)
             self.details_box.setVisible(False)
             if self.is_startup_gate:
                 self.btn_enter.setVisible(False)

@@ -198,7 +198,7 @@ def test_unmocked_startup_existing_v493_schema_and_restricted_license(tmp_path, 
     mgr = database_module.DatabaseManager(str(db_v493))
     mgr.close()
     with sqlite3.connect(str(db_v493)) as raw_conn:
-        cols = [r[1] for r in raw_conn.execute("PRAGMA table_info(batches)").fetchall() if r[1] != "purchase_time"]
+        cols = [r[1] for r in raw_conn.execute("PRAGMA table_info(batches)").fetchall() if r[1] not in ("purchase_time", "row_version")]
         cols_csv = ", ".join(cols)
         raw_conn.execute("PRAGMA foreign_keys=OFF")
         raw_conn.execute("ALTER TABLE batches RENAME TO batches_tmp_old")
