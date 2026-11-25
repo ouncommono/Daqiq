@@ -96,6 +96,13 @@ from exporter import (
     get_next_excel_filename,
     INVENTORY_EXPORT_AVAILABLE_COLUMNS,
 )
+from utils.printing import (
+    PrintPreviewDialog,
+    build_purchase_voucher_html,
+    build_sales_invoice_html,
+    build_service_or_upgrade_html,
+    build_structured_table_report_html,
+)
 import datetime_format
 from datetime_format import (
     CALENDAR_JALALI,
@@ -128,7 +135,7 @@ def _load_app_version() -> str:
                         return ver
             except Exception:
                 pass
-    return "4.9.9"
+    return "4.9.10"
 
 APP_VERSION = _load_app_version()
 
@@ -1654,6 +1661,7 @@ class MainWindow(QMainWindow):
         self._table_default_widths = {}
         self._table_default_stretch = {}
         self._table_search_fields = {}
+        self._table_print_buttons = {}
         self._dashboard_card_styles = []
         self.catalog_config = self._effective_product_catalog_config()
         self._catalog_settings_state = CatalogSettingsState()
@@ -2458,6 +2466,18 @@ class MainWindow(QMainWindow):
         self._show_license_locked_dialog(feature_id)
         return False
 
+    def _require_license_write_allowed(self) -> bool:
+        lic_svc = getattr(self, "license_service", None)
+        if lic_svc is None or not hasattr(lic_svc, "is_write_allowed") or lic_svc.is_write_allowed():
+            return True
+        QMessageBox.warning(
+            self,
+            "حالت فقط خواندنی",
+            "لایسنس در وضعیت فقط خواندنی قرار دارد و ایجاد یا تغییر تنظیمات و داده‌ها مجاز نیست.\n"
+            "امکان مشاهده گزارش‌ها، چاپ، پشتیبان‌گیری و خروجی اکسل همچنان فعال است.",
+        )
+        return False
+
     def _install_tab_lock_filter(self):
         """Intercept clicks on license-locked tabs cleanly without switching or flashing content."""
         if not hasattr(self, "tabs") or self.tabs is None:
@@ -2588,8 +2608,15 @@ class MainWindow(QMainWindow):
                 action = "edit"
             elif any(token in label for token in ("خروجی", "📥", "📤")):
                 action = "export"
+            elif "چاپ" in label or "🖨" in label:
+                action = "print"
             else:
                 action = None
+            if action == "print":
+                button.setEnabled(
+                    f"{module}.view" in grants and self._is_license_feature_enabled("print_invoices")
+                )
+                continue
             if module == "settings":
                 if button in (
                     getattr(self, "btn_manual_bk", None),
@@ -2666,6 +2693,36 @@ class MainWindow(QMainWindow):
             self.gb_inventory_export.setEnabled(
                 write_allowed and "settings.edit" in grants and "settings.view" in grants
             )
+        can_edit_settings = write_allowed and "settings.edit" in grants and "settings.view" in grants
+        if hasattr(self, "gb_report_export_cfg"):
+            self.gb_report_export_cfg.setEnabled(can_edit_settings)
+        for cat_widget in (
+            getattr(self, "gb_categories", None),
+            getattr(self, "gb_subcategories", None),
+            getattr(self, "gb_attributes", None),
+            getattr(self, "gb_colors", None),
+            getattr(self, "gb_service_types", None),
+            getattr(self, "btn_clear_prod_tax", None),
+            getattr(self, "btn_import_prod_tax", None),
+            getattr(self, "btn_clear_serv_tax", None),
+            getattr(self, "btn_import_serv_tax", None),
+        ):
+            if cat_widget is not None:
+                cat_widget.setEnabled(can_edit_settings)
+        if hasattr(self, "gb_gen"):
+            self.gb_gen.setEnabled(can_edit_settings)
+        if hasattr(self, "gb_security"):
+            self.gb_security.setEnabled(
+                write_allowed and ("settings.edit" in grants or "settings.manage_access" in grants) and "settings.view" in grants
+            )
+        for export_btn in (
+            getattr(self, "btn_export_prod_tax_section", None),
+            getattr(self, "btn_export_prod_tax_full", None),
+            getattr(self, "btn_export_serv_tax_section", None),
+            getattr(self, "btn_export_serv_tax_full", None),
+        ):
+            if export_btn is not None:
+                export_btn.setEnabled("settings.view" in grants)
         if hasattr(self, "pr_sale_actual"):
             self.pr_sale_actual.setReadOnly(
                 (not write_allowed) or (not self._is_license_feature_enabled("price_edit"))
@@ -2900,17 +2957,21 @@ class MainWindow(QMainWindow):
         top_layout.addWidget(title_lbl, 0)
         main_layout.addWidget(top_bar)
 
-        # نوار هشدار وضعیت لایسنس و دوره مهلت
+        # نوار هشدار وضعیت لایسنس
         self.license_banner_frame = QFrame()
         self.license_banner_frame.setObjectName("licenseBannerFrame")
         self.license_banner_frame.setVisible(False)
         banner_layout = QHBoxLayout(self.license_banner_frame)
-        banner_layout.setContentsMargins(8, 4, 8, 4)
+        banner_layout.setContentsMargins(10, 5, 10, 5)
+        banner_layout.setSpacing(10)
         self.lbl_license_banner = QLabel()
         self.lbl_license_banner.setObjectName("licenseBannerLabel")
         self.lbl_license_banner.setWordWrap(True)
-        self.btn_renew_banner = QPushButton("تمدید / مدیریت لایسنس 🔑")
+        self.lbl_license_banner.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.btn_renew_banner = QPushButton("تمدید/مدیریت لایسنس")
         self.btn_renew_banner.setObjectName("licenseBannerButton")
+        self.btn_renew_banner.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.btn_renew_banner.setMinimumWidth(140)
         self.btn_renew_banner.clicked.connect(self._open_license_dialog)
         banner_layout.addWidget(self.lbl_license_banner, 1)
         banner_layout.addWidget(self.btn_renew_banner, 0)
@@ -3029,9 +3090,9 @@ class MainWindow(QMainWindow):
             if hasattr(self, "license_banner_frame"):
                 if res is not None and not res.is_valid:
                     _style_banner("danger")
-                    msg = res.message_fa or "اعتبار لایسنس به پایان رسیده یا نامعتبر است. دسترسی به بخش‌ها مسدود شد."
+                    msg = res.message_fa or "اعتبار لایسنس به پایان رسیده است؛ دسترسی به بخش‌ها محدود شد."
                     if support_phone:
-                        msg += f" | پشتیبانی: {support_phone}"
+                        msg += f" • پشتیبانی: {support_phone}"
                     self.lbl_license_banner.setText(f"⛔ {msg}")
                     self.license_banner_frame.setVisible(True)
                 else:
@@ -3039,6 +3100,7 @@ class MainWindow(QMainWindow):
             return
 
         payload = res.license.payload
+        phone_part = f" • پشتیبانی: {support_phone}" if support_phone else ""
         if res.in_grace_period:
             _style_banner("danger" if res.grace_mode == "readonly" else "warning")
             mode_fa = get_grace_mode_label_fa(res.grace_mode)
@@ -3048,20 +3110,18 @@ class MainWindow(QMainWindow):
                 else "فعال"
             )
             mode_note = (
-                "در حالت فقط خواندنی، مشاهده داده‌ها، پشتیبان‌گیری و خروجی اکسل آزاد است."
+                "مشاهده، چاپ، پشتیبان‌گیری و خروجی اکسل فعال است."
                 if res.grace_mode == "readonly"
-                else "در دوره مهلت دسترسی کامل، لطفاً پیش از اتمام مهلت لایسنس را تمدید کنید."
+                else "پیش از اتمام مهلت برای تمدید اقدام کنید."
             )
-            phone_part = f" | پشتیبانی: {support_phone}" if support_phone else ""
             self.lbl_license_banner.setText(
-                f"⚠️ دوره مهلت لایسنس ({rem_days} • حالت {mode_fa}): {mode_note}{phone_part}"
+                f"⚠️ اعتبار لایسنس به پایان رسیده است ({rem_days} • حالت {mode_fa}): {mode_note}{phone_part}"
             )
             self.license_banner_frame.setVisible(True)
         elif res.days_remaining is not None and res.days_remaining <= (payload.expiry_warning_days or 14):
             _style_banner("warning")
-            phone_part = f" | پشتیبانی: {support_phone}" if support_phone else ""
             self.lbl_license_banner.setText(
-                f"⚠️ یادآوری لایسنس: {res.days_remaining} روز تا پایان اعتبار لایسنس باقیمانده است. جهت تمدید لایسنس کلیک فرمایید.{phone_part}"
+                f"⚠️ تنها {res.days_remaining} روز تا پایان اعتبار لایسنس باقی مانده است؛ لطفاً برای تمدید اقدام کنید.{phone_part}"
             )
             self.license_banner_frame.setVisible(True)
         elif res.is_trial:
@@ -3264,6 +3324,7 @@ class MainWindow(QMainWindow):
                 item.setToolTip(h_text)
         tbl.setAlternatingRowColors(True)
         tbl.setSelectionBehavior(QTableWidget.SelectRows)
+        tbl.setSelectionMode(QAbstractItemView.ExtendedSelection)
         tbl.setEditTriggers(QTableWidget.NoEditTriggers)
         tbl.setSortingEnabled(False)
         tbl.horizontalHeader().setSectionsClickable(True)
@@ -3304,8 +3365,304 @@ class MainWindow(QMainWindow):
         scroll.setWidget(tab)
         return self.tabs.addTab(scroll, title)
 
+    def _create_table_print_button(self, table, key: str) -> QPushButton:
+        btn_print = QPushButton("🖨️ چاپ")
+        btn_print.setObjectName("btnSecondary")
+        btn_print.setMinimumHeight(34)
+        btn_print.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        btn_print.setToolTip("پیش‌نمایش و چاپ سیاه‌وسفید A4 / A5 ردیف‌های انتخاب‌شده")
+        btn_print.clicked.connect(
+            lambda _checked=False, print_key=key, target_table=table: self._handle_print_request(
+                print_key, target_table
+            )
+        )
+        self._table_print_buttons[key] = btn_print
+        return btn_print
+
+    @staticmethod
+    def _get_selected_row_indices(table: QTableWidget) -> list[int]:
+        if table is None:
+            return []
+        rows = []
+        sel_model = table.selectionModel()
+        if sel_model is not None:
+            rows = sorted({idx.row() for idx in sel_model.selectedRows() if not table.isRowHidden(idx.row())})
+        if not rows:
+            rows = sorted({item.row() for item in table.selectedItems() if not table.isRowHidden(item.row())})
+        return rows
+
+    def _build_print_builder_for_selection(self, key: str, table: QTableWidget, selected_rows: list[int]):
+        headers = [
+            (table.horizontalHeaderItem(c).text() if table.horizontalHeaderItem(c) else f"ستون {c + 1}")
+            for c in range(table.columnCount())
+        ]
+        matrix = [
+            [
+                strip_bidi_controls(table.item(r, c).text()) if table.item(r, c) else ""
+                for c in range(table.columnCount())
+            ]
+            for r in selected_rows
+        ]
+        shop_info = {
+            "shop_name": (self.db.get_setting("shop_name", "فروشگاه دقیق") or "فروشگاه دقیق").strip(),
+            "print_time": self.get_now_datetime_str(),
+        }
+
+        effective_kind = key
+        rep_title = ""
+        rep_summary = ""
+        if key == "reports" and hasattr(self, "cb_rep_type"):
+            rep_title = self.cb_rep_type.currentText().strip()
+            rep_summary = strip_bidi_controls(self.lbl_rep_totals.text()) if hasattr(self, "lbl_rep_totals") else ""
+            if rep_title.startswith("۱."):
+                effective_kind = "sales"
+            elif rep_title.startswith("۲."):
+                effective_kind = "batches"
+            elif rep_title.startswith("۱۱."):
+                effective_kind = "upgrades"
+            elif rep_title.startswith("۱۲."):
+                effective_kind = "service_records"
+
+        if effective_kind == "sales":
+            records = []
+            if key == "sales":
+                sale_ids = []
+                for row_vals in matrix:
+                    try:
+                        sale_ids.append(int(row_vals[0]))
+                    except (TypeError, ValueError, IndexError):
+                        pass
+                if sale_ids:
+                    placeholders = ",".join("?" for _ in sale_ids)
+                    with self.db.get_connection() as conn:
+                        db_rows = conn.execute(
+                            f"""
+                            SELECT s.*, p.code AS p_code, p.category, p.sub_category, p.brand, p.model,
+                                   e.name AS emp_name
+                            FROM sales s
+                            JOIN products p ON s.product_id = p.id
+                            LEFT JOIN employees e ON s.seller_employee_id = e.id
+                            WHERE s.id IN ({placeholders})
+                            ORDER BY s.id ASC
+                            """,
+                            sale_ids,
+                        ).fetchall()
+                    for r in db_rows:
+                        prod_prefix = str(r["sub_category"] or r["category"] or "").strip()
+                        bm = " ".join(v for v in (str(r["brand"] or "").strip(), str(r["model"] or "").strip()) if v)
+                        title = " | ".join(v for v in (prod_prefix, bm) if v) or r["p_code"]
+                        war = (
+                            f"{r['warranty_company']} ({r['warranty_end']})".strip(" ()")
+                            if (r["warranty_company"] or r["warranty_end"])
+                            else "ندارد"
+                        )
+                        records.append({
+                            "invoice_number": r["invoice_number"],
+                            "product_code": r["p_code"],
+                            "product_title": title,
+                            "specifications": r["specifications"] or "",
+                            "colors_display": "، ".join(self._decode_colors(r["colors_json"])),
+                            "serial_number": r["serial_number"] or "",
+                            "qty": r["qty"],
+                            "actual_unit_price": r["actual_unit_price"],
+                            "total_discount": r["total_discount"],
+                            "total_amount": r["total_amount"],
+                            "paid_amount": r["paid_amount"],
+                            "settlement_status": r["settlement_status"],
+                            "sale_datetime": r["sale_datetime"],
+                            "warranty_text": war,
+                            "customer_name": r["customer_name"] or "",
+                            "customer_phone": r["customer_phone"] or "",
+                            "seller_name": r["emp_name"] or "",
+                            "notes": r["notes"] or "",
+                        })
+            if not records:
+                # Fallback from table columns, explicitly stripped of cost/profit fields
+                col_idx = {h: i for i, h in enumerate(headers)}
+                def _pick(row_vals, names, default=""):
+                    for nm in names:
+                        if nm in col_idx and col_idx[nm] < len(row_vals):
+                            return row_vals[col_idx[nm]]
+                    return default
+                def _to_int(val):
+                    try:
+                        return int(str(val or "0").replace(",", "").strip() or 0)
+                    except (TypeError, ValueError):
+                        return 0
+                for row_vals in matrix:
+                    records.append({
+                        "invoice_number": _pick(row_vals, ("شماره فاکتور", "شماره فاکتور فروش")),
+                        "product_code": _pick(row_vals, ("کد کالا",)),
+                        "product_title": _pick(row_vals, ("نام و مشخصات کالا", "کالا / مدل")),
+                        "specifications": _pick(row_vals, ("مشخصات فنی فروخته‌شده",)),
+                        "colors_display": _pick(row_vals, ("رنگ‌های فروخته‌شده",)),
+                        "serial_number": _pick(row_vals, ("شماره سریال", "شماره سریال فروخته‌شده")),
+                        "qty": _to_int(_pick(row_vals, ("تعداد", "تعداد فروش"), "1")),
+                        "actual_unit_price": _to_int(_pick(row_vals, ("قیمت فروش واحد",))),
+                        "total_discount": 0,
+                        "total_amount": _to_int(_pick(row_vals, ("مبلغ کل فاکتور",))),
+                        "paid_amount": _to_int(_pick(row_vals, ("مبلغ دریافتی", "دریافتی فروش"))),
+                        "settlement_status": _pick(row_vals, ("وضعیت تسویه", "وضعیت تسویه فروش")),
+                        "sale_datetime": _pick(row_vals, ("تاریخ و ساعت", "تاریخ و ساعت فروش")),
+                        "warranty_text": _pick(row_vals, ("گارانتی و انقضا",), "ندارد"),
+                        "customer_name": _pick(row_vals, ("خریدار", "نام مشتری")),
+                        "customer_phone": _pick(row_vals, ("شماره تماس مشتری",)),
+                        "seller_name": _pick(row_vals, ("فروشنده",)),
+                        "notes": "",
+                    })
+            return "فاکتور فروش", (lambda is_a5=False, recs=records, info=shop_info: build_sales_invoice_html(recs, info, is_a5=is_a5))
+
+        if effective_kind == "batches":
+            records = []
+            if key == "batches":
+                batch_ids = []
+                for row_vals in matrix:
+                    try:
+                        batch_ids.append(int(row_vals[0]))
+                    except (TypeError, ValueError, IndexError):
+                        pass
+                if batch_ids:
+                    placeholders = ",".join("?" for _ in batch_ids)
+                    with self.db.get_connection() as conn:
+                        db_rows = conn.execute(
+                            f"""
+                            SELECT b.*, p.code AS p_code, p.category, p.sub_category, p.brand, p.model,
+                                   s.name AS sup_name
+                            FROM batches b
+                            JOIN products p ON b.product_id = p.id
+                            LEFT JOIN suppliers s ON b.supplier_id = s.id
+                            WHERE b.id IN ({placeholders})
+                            ORDER BY b.id ASC
+                            """,
+                            batch_ids,
+                        ).fetchall()
+                    for r in db_rows:
+                        tot_bill = r["unit_purchase_price"] * r["initial_qty"] + r["extra_cost_total"]
+                        debt = receivable_balance(tot_bill, r["paid_amount"], r["settlement_status"])
+                        records.append({
+                            "batch_code": r["batch_code"],
+                            "invoice_number": r["invoice_number"],
+                            "purchase_date": r["purchase_date"],
+                            "supplier_name": r["sup_name"] or r["supplier_name_snapshot"] or "-",
+                            "product_title": self._format_product_picker_label(dict(r)),
+                            "specs": r["final_specs"] or r["initial_specs"] or "",
+                            "colors": "، ".join(self._decode_colors(r["colors_json"])),
+                            "serials": r["serial_numbers"] or "",
+                            "initial_qty": r["initial_qty"],
+                            "unit_purchase_price": r["unit_purchase_price"],
+                            "extra_cost_total": r["extra_cost_total"],
+                            "total_bill": tot_bill,
+                            "paid_amount": r["paid_amount"],
+                            "remaining_bill": debt,
+                            "settlement_status": r["settlement_status"],
+                        })
+            if not records:
+                col_idx = {h: i for i, h in enumerate(headers)}
+                def _pick_b(row_vals, names, default=""):
+                    for nm in names:
+                        if nm in col_idx and col_idx[nm] < len(row_vals):
+                            return row_vals[col_idx[nm]]
+                    return default
+                def _to_int_b(val):
+                    try:
+                        return int(str(val or "0").replace(",", "").strip() or 0)
+                    except (TypeError, ValueError):
+                        return 0
+                for row_vals in matrix:
+                    records.append({
+                        "batch_code": _pick_b(row_vals, ("کد محموله",)),
+                        "invoice_number": _pick_b(row_vals, ("شماره فاکتور", "شماره فاکتور خرید")),
+                        "purchase_date": _pick_b(row_vals, ("تاریخ خرید",)),
+                        "supplier_name": _pick_b(row_vals, ("تأمین‌کننده",)),
+                        "product_title": _pick_b(row_vals, ("کالا و مدل", "کالا / مدل")),
+                        "specs": _pick_b(row_vals, ("مشخصات فنی / توضیحات", "مشخصات فنی محموله")),
+                        "colors": _pick_b(row_vals, ("رنگ‌های محموله",)),
+                        "serials": _pick_b(row_vals, ("شماره سریال‌ها",)),
+                        "initial_qty": _to_int_b(_pick_b(row_vals, ("تعداد خرید", "تعداد اولیه"), "0")),
+                        "unit_purchase_price": _to_int_b(_pick_b(row_vals, ("قیمت خرید واحد",))),
+                        "extra_cost_total": _to_int_b(_pick_b(row_vals, ("هزینه جانبی محموله",))),
+                        "total_bill": _to_int_b(_pick_b(row_vals, ("بهای کل محموله (تومان)",))),
+                        "paid_amount": _to_int_b(_pick_b(row_vals, ("پرداخت‌شده", "پرداخت‌شده خرید"))),
+                        "remaining_bill": _to_int_b(_pick_b(row_vals, ("مانده بدهی", "مانده بدهی خرید"))),
+                        "settlement_status": _pick_b(row_vals, ("وضعیت تسویه", "وضعیت تسویه خرید")),
+                    })
+            return "رسید خرید و ثبت محموله", (lambda is_a5=False, recs=records, info=shop_info: build_purchase_voucher_html(recs, info, is_a5=is_a5))
+
+        if effective_kind in ("service_records", "upgrades"):
+            col_idx = {h: i for i, h in enumerate(headers)}
+            def _pick_s(row_vals, names, default=""):
+                for nm in names:
+                    if nm in col_idx and col_idx[nm] < len(row_vals):
+                        return row_vals[col_idx[nm]]
+                return default
+            def _to_int_s(val):
+                try:
+                    return int(str(val or "0").replace(",", "").strip() or 0)
+                except (TypeError, ValueError):
+                    return 0
+            records = []
+            if effective_kind == "upgrades":
+                for row_vals in matrix:
+                    records.append({
+                        "upgrade_date": _pick_s(row_vals, ("تاریخ ارتقا",)),
+                        "target_batch_code": _pick_s(row_vals, ("کد محموله هدف", "محموله هدف")),
+                        "target_qty": _to_int_s(_pick_s(row_vals, ("تعداد هدف",), "1")) or 1,
+                        "part_desc": _pick_s(row_vals, ("قطعه مصرفی", "محموله/شرح قطعه", "شرح قطعه")),
+                        "added_cost_unit": _to_int_s(_pick_s(row_vals, ("هزینه اضافه‌شده به هر واحد", "اجرت ارتقا"))),
+                        "technician_name": _pick_s(row_vals, ("مسئول / تکنسین", "تکنسین / کاربر")),
+                        "new_specs": _pick_s(row_vals, ("مشخصات جدید",)),
+                        "notes": _pick_s(row_vals, ("توضیحات",)),
+                    })
+                return "رسید ارتقای کالا", (lambda is_a5=False, recs=records, info=shop_info: build_service_or_upgrade_html("upgrades", recs, info, is_a5=is_a5))
+            for row_vals in matrix:
+                records.append({
+                    "invoice_number": _pick_s(row_vals, ("شماره فاکتور",)),
+                    "service_datetime": _pick_s(row_vals, ("تاریخ و ساعت",)),
+                    "service_type": _pick_s(row_vals, ("نوع خدمت",)),
+                    "service_name": _pick_s(row_vals, ("نام خدمت",)),
+                    "customer_name": _pick_s(row_vals, ("مشتری", "نام مشتری")),
+                    "technician_name": _pick_s(row_vals, ("مسئول خدمت",)),
+                    "service_fee": _to_int_s(_pick_s(row_vals, ("هزینه خدمت (تومان)",))),
+                    "paid_amount": _to_int_s(_pick_s(row_vals, ("مبلغ دریافتی",))),
+                    "settlement_status": _pick_s(row_vals, ("وضعیت تسویه",)),
+                    "description": _pick_s(row_vals, ("شرح خدمات", "توضیحات")),
+                })
+            return "فاکتور خدمات و تعمیرات", (lambda is_a5=False, recs=records, info=shop_info: build_service_or_upgrade_html("services", recs, info, is_a5=is_a5))
+
+        title_map = {
+            "products": "گزارش چاپی کالاها",
+            "suppliers": "گزارش چاپی تأمین‌کنندگان",
+            "employees": "گزارش چاپی کاربران",
+            "service_catalog": "گزارش چاپی تعرفه خدمات",
+            "dashboard_low": "گزارش چاپی هشدار موجودی",
+            "dashboard_employees": "گزارش چاپی عملکرد فروشندگان",
+        }
+        report_title = (
+            f"گزارش چاپی {rep_title}" if rep_title and not rep_title.startswith("گزارش چاپی")
+            else title_map.get(key, "گزارش چاپی")
+        )
+        return report_title, (
+            lambda is_a5=False, t=report_title, h=headers, m=matrix, s=rep_summary, info=shop_info:
+            build_structured_table_report_html(t, h, m, summary_text=s, shop_info=info, is_a5=is_a5)
+        )
+
+    def _handle_print_request(self, key: str, table: QTableWidget):
+        if not self._require_license_feature("print_invoices"):
+            return None
+        selected_rows = self._get_selected_row_indices(table)
+        if not selected_rows:
+            QMessageBox.information(
+                self, "چاپ", "لطفاً حداقل یک ردیف را از جدول انتخاب کنید."
+            )
+            return None
+        title, builder = self._build_print_builder_for_selection(key, table, selected_rows)
+        dlg = PrintPreviewDialog(builder, title=f"پیش‌نمایش چاپ — {title}", parent=self)
+        self._last_print_preview_dialog = dlg
+        dlg.exec()
+        return dlg
+
     def _add_table_search(self, parent_layout, table, key, placeholder):
-        """Keep the existing search position while reserving stable space for action buttons."""
+        """Keep the existing search position while adding print action & scalable search debounce."""
         search = SmartLineEdit(placeholder)
         search.setMinimumHeight(34)
         search.setMinimumWidth(72)
@@ -3313,10 +3670,32 @@ class MainWindow(QMainWindow):
         search.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         search.setToolTip("جست‌وجو در تمام ستون‌های جدول")
         search.setClearButtonEnabled(True)
-        search.textChanged.connect(
-            lambda query, target=table: self._filter_table_rows(target, query)
+
+        debounce_timer = QTimer(search)
+        debounce_timer.setSingleShot(True)
+        debounce_timer.setInterval(150)
+        debounce_timer.timeout.connect(
+            lambda target=table, field=search: self._filter_table_rows(target, field.text())
         )
-        parent_layout.addWidget(search, 1)
+
+        def _on_search_changed(query, target=table, timer=debounce_timer):
+            if target.rowCount() > 500:
+                timer.start()
+            else:
+                timer.stop()
+                self._filter_table_rows(target, query)
+
+        search.textChanged.connect(_on_search_changed)
+        btn_print = self._create_table_print_button(table, key)
+        if isinstance(parent_layout, QVBoxLayout):
+            search_row = QHBoxLayout()
+            search_row.setSpacing(6)
+            search_row.addWidget(search, 1)
+            search_row.addWidget(btn_print, 0)
+            parent_layout.addLayout(search_row)
+        else:
+            parent_layout.addWidget(search, 1)
+            parent_layout.addWidget(btn_print, 0)
         self._table_search_fields[table] = search
         setattr(self, f"ed_search_{key}", search)
         return search
@@ -3717,22 +4096,26 @@ class MainWindow(QMainWindow):
         btn_clear.clicked.connect(self._clear_product_form)
         btn_add = QPushButton("➕ افزودن کالای جدید")
         btn_add.clicked.connect(self._save_new_product)
-        btn_edit = QPushButton("✏️ ذخیره تغییرات کالای انتخابی")
+        btn_edit = QPushButton("✏️ ویرایش کالای انتخابی")
         btn_edit.setObjectName("btnSuccess")
         btn_edit.clicked.connect(self._update_selected_product)
         btn_del = QPushButton("🗑️ حذف کالای انتخابی")
         btn_del.setObjectName("btnDanger")
         btn_del.clicked.connect(self._delete_selected_product)
         self.ed_prod_search = SmartLineEdit("🔍 جست‌وجوی کد کالا، دسته‌بندی، زیرگروه (مثلاً کیبورد)، برند یا مدل...")
-        self.ed_prod_search.textChanged.connect(self._refresh_products_table)
+        self._prod_search_timer = QTimer(self.ed_prod_search)
+        self._prod_search_timer.setSingleShot(True)
+        self._prod_search_timer.setInterval(150)
+        self._prod_search_timer.timeout.connect(self._refresh_products_table)
 
-        btn_row.addWidget(btn_clear)
-        btn_row.addWidget(btn_add)
-        btn_row.addWidget(btn_edit)
-        btn_row.addWidget(btn_del)
-        btn_row.addStretch()
-        btn_row.addWidget(self.ed_prod_search)
-        layout.addLayout(btn_row)
+        def _on_prod_search_changed(_text):
+            if hasattr(self, "tbl_products") and self.tbl_products.rowCount() > 500:
+                self._prod_search_timer.start()
+            else:
+                self._prod_search_timer.stop()
+                self._refresh_products_table()
+
+        self.ed_prod_search.textChanged.connect(_on_prod_search_changed)
 
         self.tbl_products = self._create_table(
             [
@@ -3752,6 +4135,15 @@ class MainWindow(QMainWindow):
                 "توضیحات",
             ]
         )
+        btn_row.addWidget(btn_clear)
+        btn_row.addWidget(btn_add)
+        btn_row.addWidget(btn_edit)
+        btn_row.addWidget(btn_del)
+        btn_row.addStretch()
+        btn_row.addWidget(self.ed_prod_search)
+        btn_row.addWidget(self._create_table_print_button(self.tbl_products, "products"), 0)
+        layout.addLayout(btn_row)
+
         self.tbl_products.itemSelectionChanged.connect(self._on_product_row_selected)
         layout.addWidget(self.tbl_products)
 
@@ -4067,7 +4459,7 @@ class MainWindow(QMainWindow):
         btn_clear.clicked.connect(self._clear_batch_form)
         btn_add = QPushButton("➕ ثبت خرید (محموله جدید)")
         btn_add.clicked.connect(self._save_new_batch)
-        btn_edit = QPushButton("✏️ ذخیره ویرایش محموله انتخابی")
+        btn_edit = QPushButton("✏️ ویرایش محموله انتخابی")
         btn_edit.setObjectName("btnSuccess")
         btn_edit.clicked.connect(self._update_selected_batch)
         btn_del = QPushButton("🗑️ حذف محموله انتخابی")
@@ -4665,7 +5057,7 @@ class MainWindow(QMainWindow):
         btn_clear.clicked.connect(self._clear_sale_form)
         btn_add = QPushButton("✅ ثبت فروش")
         btn_add.clicked.connect(self._save_new_sale)
-        btn_edit = QPushButton("✏️ ذخیره ویرایش فروش انتخابی")
+        btn_edit = QPushButton("✏️ ویرایش فروش انتخابی")
         btn_edit.setObjectName("btnSuccess")
         btn_edit.clicked.connect(self._update_selected_sale)
         btn_del = QPushButton("🗑️ حذف فروش (برگشت کالا به انبار)")
@@ -5496,7 +5888,7 @@ class MainWindow(QMainWindow):
         btn_clr_srv.clicked.connect(self._clear_service_rec_form)
         btn_add_srv = QPushButton("✅ ثبت فاکتور خدمات")
         btn_add_srv.clicked.connect(self._save_new_service_record)
-        btn_edit_srv = QPushButton("✏️ ذخیره ویرایش فاکتور")
+        btn_edit_srv = QPushButton("✏️ ویرایش فاکتور خدمت")
         btn_edit_srv.setObjectName("btnSuccess")
         btn_edit_srv.clicked.connect(self._update_selected_service_record)
         btn_del_srv = QPushButton("🗑️ حذف فاکتور خدمت")
@@ -5725,6 +6117,14 @@ class MainWindow(QMainWindow):
             return
         r = items[0].row()
         self.selected_srv_rec_id = int(self.tbl_services.item(r, 0).text())
+        try:
+            with self.db.get_connection() as conn:
+                rv_row = conn.execute(
+                    "SELECT row_version FROM service_records WHERE id=?", (self.selected_srv_rec_id,)
+                ).fetchone()
+                self._selected_srv_rec_row_version = int(rv_row["row_version"]) if rv_row else None
+        except Exception:
+            self._selected_srv_rec_row_version = None
         service_name = self.tbl_services.item(r, 4).text()
         seller_name = self.tbl_services.item(r, 5).text()
         if seller_name:
@@ -5757,16 +6157,43 @@ class MainWindow(QMainWindow):
     def _update_selected_service_record(self):
         if not self.selected_srv_rec_id:
             return
-        self.db.update_service_record(
-            self.selected_srv_rec_id,
-            self.cb_srv_seller.currentData(),
-            self.ed_srv_cust.text().strip(),
-            self.pr_srv_fee.get_value(),
-            self.pr_srv_side.get_value(),
-            self.pr_srv_paid.get_value(),
-            self.ed_srv_desc.text().strip(),
-            self.cb_srv_status.currentText(),
-        )
+        expected_rv = getattr(self, "_selected_srv_rec_row_version", None)
+        try:
+            self.db.update_service_record(
+                self.selected_srv_rec_id,
+                self.cb_srv_seller.currentData(),
+                self.ed_srv_cust.text().strip(),
+                self.pr_srv_fee.get_value(),
+                self.pr_srv_side.get_value(),
+                self.pr_srv_paid.get_value(),
+                self.ed_srv_desc.text().strip(),
+                self.cb_srv_status.currentText(),
+                expected_row_version=expected_rv,
+            )
+        except ConcurrencyConflictError as conflict:
+            live = conflict.live_row
+            choice = self._ask_concurrency_resolution(
+                "تعارض ویرایش هم‌زمان فاکتور خدمت",
+                conflict,
+                [f"مشتری زنده: {live.get('customer_name', '')} | مبلغ زنده: {live.get('service_fee', '')}"],
+            )
+            if choice == "reload":
+                self.refresh_all_data()
+                return
+            if choice == "overwrite":
+                self.db.update_service_record(
+                    self.selected_srv_rec_id,
+                    self.cb_srv_seller.currentData(),
+                    self.ed_srv_cust.text().strip(),
+                    self.pr_srv_fee.get_value(),
+                    self.pr_srv_side.get_value(),
+                    self.pr_srv_paid.get_value(),
+                    self.ed_srv_desc.text().strip(),
+                    self.cb_srv_status.currentText(),
+                    expected_row_version=conflict.actual_version,
+                )
+            else:
+                return
         self.refresh_all_data()
 
     def _delete_selected_service_record(self):
@@ -5848,7 +6275,7 @@ class MainWindow(QMainWindow):
         btn_clear_upg.clicked.connect(self._clear_upgrade_form)
         btn_upg = QPushButton("🔧 ثبت ارتقای جدید")
         btn_upg.clicked.connect(self._save_upgrade)
-        btn_edit_upg = QPushButton("✏️ ذخیره ویرایش ارتقای انتخاب‌شده")
+        btn_edit_upg = QPushButton("✏️ ویرایش ارتقای انتخاب‌شده")
         btn_edit_upg.setObjectName("btnSuccess")
         btn_edit_upg.clicked.connect(self._save_upgrade)
         btn_revert_upg = QPushButton("🗑️ حذف ارتقا و بازگردانی موجودی")
@@ -5990,22 +6417,51 @@ class MainWindow(QMainWindow):
                 return
             if warning_messages:
                 consume_stock = False
-            self.db.upgrade_batch_product(
-                t_id,
-                self.cb_upg_target_qty.get_qty(),
-                p_id,
-                self.cb_upg_part_qty.get_qty(),
-                self.pr_upg_labor.get_value(),
-                self.ed_upg_new_specs.text().strip(),
-                self.dt_upg_date.get_date(),
-                self.cb_upg_tech.currentData(),
-                self.ed_upg_serial.text().strip(),
-                "",
-                add_part_cost_to_product=self.chk_upg_add_cost.isChecked(),
-                upgrade_id=self.selected_upgrade_id,
-                manual_part_description=part_text if p_id is None else "",
-                consume_stock=consume_stock,
-            )
+            expected_rv = getattr(self, "_selected_upgrade_row_version", None) if self.selected_upgrade_id else None
+            try:
+                self.db.upgrade_batch_product(
+                    t_id,
+                    self.cb_upg_target_qty.get_qty(),
+                    p_id,
+                    self.cb_upg_part_qty.get_qty(),
+                    self.pr_upg_labor.get_value(),
+                    self.ed_upg_new_specs.text().strip(),
+                    self.dt_upg_date.get_date(),
+                    self.cb_upg_tech.currentData(),
+                    self.ed_upg_serial.text().strip(),
+                    "",
+                    add_part_cost_to_product=self.chk_upg_add_cost.isChecked(),
+                    upgrade_id=self.selected_upgrade_id,
+                    manual_part_description=part_text if p_id is None else "",
+                    consume_stock=consume_stock,
+                    expected_row_version=expected_rv,
+                )
+            except ConcurrencyConflictError as conflict:
+                choice = self._ask_concurrency_resolution("تعارض ویرایش هم‌زمان ارتقا", conflict)
+                if choice == "reload":
+                    self.refresh_all_data()
+                    self._clear_upgrade_form()
+                    return
+                if choice == "overwrite":
+                    self.db.upgrade_batch_product(
+                        t_id,
+                        self.cb_upg_target_qty.get_qty(),
+                        p_id,
+                        self.cb_upg_part_qty.get_qty(),
+                        self.pr_upg_labor.get_value(),
+                        self.ed_upg_new_specs.text().strip(),
+                        self.dt_upg_date.get_date(),
+                        self.cb_upg_tech.currentData(),
+                        self.ed_upg_serial.text().strip(),
+                        "",
+                        add_part_cost_to_product=self.chk_upg_add_cost.isChecked(),
+                        upgrade_id=self.selected_upgrade_id,
+                        manual_part_description=part_text if p_id is None else "",
+                        consume_stock=consume_stock,
+                        expected_row_version=conflict.actual_version,
+                    )
+                else:
+                    return
             self.refresh_all_data()
             self._clear_upgrade_form()
             QMessageBox.information(
@@ -6017,6 +6473,7 @@ class MainWindow(QMainWindow):
 
     def _clear_upgrade_form(self):
         self.selected_upgrade_id = None
+        self._selected_upgrade_row_version = None
         self.tbl_upgrades.clearSelection()
         self.cb_upg_target.setCurrentIndex(-1)
         self.cb_upg_part.setCurrentIndex(-1)
@@ -6046,9 +6503,10 @@ class MainWindow(QMainWindow):
                 "SELECT id, target_batch_id, part_batch_id, technician_id, target_qty, part_qty_used, "
                 "stock_deducted_qty, part_unit_cost, labor_cost_unit, added_cost_unit, "
                 "upgrade_date, serial_number, manual_part_description, old_specs, new_specs, "
-                "notes, created_at, updated_at FROM upgrades WHERE id=?",
+                "notes, created_at, updated_at, row_version FROM upgrades WHERE id=?",
                 (self.selected_upgrade_id,)
             ).fetchone()
+            self._selected_upgrade_row_version = int(upgrade["row_version"]) if upgrade else None
             related_batches = conn.execute(
                 """SELECT b.id, b.batch_code, b.product_id, b.supplier_id, b.buyer_employee_id,
                           b.invoice_number, b.purchase_date, b.initial_qty, b.sold_qty,
@@ -6172,7 +6630,7 @@ class MainWindow(QMainWindow):
         btn_sup_row = QHBoxLayout()
         btn_add_sup = QPushButton("➕ افزودن تأمین‌کننده")
         btn_add_sup.clicked.connect(self._add_supplier)
-        btn_edit_sup = QPushButton("✏️ ذخیره ویرایش تأمین‌کننده انتخابی")
+        btn_edit_sup = QPushButton("✏️ ویرایش تأمین‌کننده انتخابی")
         btn_edit_sup.setObjectName("btnSuccess")
         btn_edit_sup.clicked.connect(self._update_supplier)
         btn_del_sup = QPushButton("🗑️ حذف تأمین‌کننده انتخابی")
@@ -6228,6 +6686,14 @@ class MainWindow(QMainWindow):
             return
         r = items[0].row()
         self.selected_supplier_id = int(self.tbl_suppliers.item(r, 0).text())
+        try:
+            with self.db.get_connection() as conn:
+                rv_row = conn.execute(
+                    "SELECT row_version FROM suppliers WHERE id=?", (self.selected_supplier_id,)
+                ).fetchone()
+                self._selected_supplier_row_version = int(rv_row["row_version"]) if rv_row else None
+        except Exception:
+            self._selected_supplier_row_version = None
         self.ed_sup_name.setText(self.tbl_suppliers.item(r, 1).text())
         phone = self.tbl_suppliers.item(r, 2).text()
         addr = self.tbl_suppliers.item(r, 3).text()
@@ -6244,14 +6710,38 @@ class MainWindow(QMainWindow):
         if not name:
             QMessageBox.warning(self, "خطا", "نام تأمین‌کننده نمی‌تواند خالی باشد.")
             return
+        expected_rv = getattr(self, "_selected_supplier_row_version", None)
         try:
-            self.db.update_supplier(
-                self.selected_supplier_id,
-                name,
-                self.ed_sup_phone.text().strip(),
-                self.ed_sup_addr.text().strip(),
-                "",
-            )
+            try:
+                self.db.update_supplier(
+                    self.selected_supplier_id,
+                    name,
+                    self.ed_sup_phone.text().strip(),
+                    self.ed_sup_addr.text().strip(),
+                    "",
+                    expected_row_version=expected_rv,
+                )
+            except ConcurrencyConflictError as conflict:
+                live = conflict.live_row
+                choice = self._ask_concurrency_resolution(
+                    "تعارض ویرایش هم‌زمان تأمین‌کننده",
+                    conflict,
+                    [f"نام زنده: {live.get('name', '')} | تلفن زنده: {live.get('phone', '')}"],
+                )
+                if choice == "reload":
+                    self.refresh_all_data()
+                    return
+                if choice == "overwrite":
+                    self.db.update_supplier(
+                        self.selected_supplier_id,
+                        name,
+                        self.ed_sup_phone.text().strip(),
+                        self.ed_sup_addr.text().strip(),
+                        "",
+                        expected_row_version=conflict.actual_version,
+                    )
+                else:
+                    return
             self.refresh_all_data()
             QMessageBox.information(
                 self, "ذخیره شد", "اطلاعات تأمین‌کننده با موفقیت اصلاح شد."
@@ -6377,11 +6867,13 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.lbl_rep_totals)
 
         search_row = QHBoxLayout()
+        search_row.setSpacing(6)
         search_row.addWidget(QLabel("جست‌وجو / فیلتر:"))
         search_row.addWidget(self.ed_rep_search, 1)
+        self.tbl_report = self._create_table(["ستون ۱"])
+        search_row.addWidget(self._create_table_print_button(self.tbl_report, "reports"), 0)
         layout.addLayout(search_row)
 
-        self.tbl_report = self._create_table(["ستون ۱"])
         layout.addWidget(self.tbl_report)
 
         self.cb_rep_type.currentIndexChanged.connect(self._update_report_live)
@@ -6392,7 +6884,19 @@ class MainWindow(QMainWindow):
         self.dt_rep_to.dateChanged.connect(self._update_report_live)
         self.cb_rep_emp.currentIndexChanged.connect(self._update_report_live)
         self.cb_rep_cat.currentTextChanged.connect(self._update_report_live)
-        self.ed_rep_search.textChanged.connect(self._update_report_live)
+        self._rep_search_timer = QTimer(self.ed_rep_search)
+        self._rep_search_timer.setSingleShot(True)
+        self._rep_search_timer.setInterval(150)
+        self._rep_search_timer.timeout.connect(self._update_report_live)
+
+        def _on_rep_search_changed(_text):
+            if self.tbl_report.rowCount() > 500:
+                self._rep_search_timer.start()
+            else:
+                self._rep_search_timer.stop()
+                self._update_report_live()
+
+        self.ed_rep_search.textChanged.connect(_on_rep_search_changed)
 
         self._add_scrollable_tab(tab, "📈 گزارش‌های جامع")
 
@@ -7494,7 +7998,7 @@ class MainWindow(QMainWindow):
         btn_row = QHBoxLayout()
         btn_add = QPushButton("➕ افزودن کاربر جدید")
         btn_add.clicked.connect(self._add_employee)
-        btn_edit = QPushButton("✏️ ذخیره ویرایش کاربر انتخابی")
+        btn_edit = QPushButton("✏️ ویرایش کاربر انتخابی")
         btn_edit.setObjectName("btnSuccess")
         btn_edit.clicked.connect(self._update_employee)
         btn_del = QPushButton("🗑️ حذف کاربر")
@@ -7746,6 +8250,8 @@ class MainWindow(QMainWindow):
         page_layout.setSpacing(10)
 
         gb = QGroupBox("تنظیمات ستون‌ها و ترتیب خروجی اکسل گزارش‌ها")
+        self.gb_report_export_cfg = gb
+        self.report_export_page = page
         gb_layout = QVBoxLayout(gb)
         gb_layout.setContentsMargins(12, 12, 12, 12)
         gb_layout.setSpacing(10)
@@ -7899,6 +8405,8 @@ class MainWindow(QMainWindow):
         self._sync_reports_tab_combo()
 
     def _add_custom_report(self):
+        if not self._require_license_write_allowed():
+            return
         if not self._require_license_feature("report_builder"):
             return
         name = self.ed_custom_report_name.text().strip()
@@ -7928,6 +8436,8 @@ class MainWindow(QMainWindow):
         )
 
     def _rename_custom_report(self):
+        if not self._require_license_write_allowed():
+            return
         if not self._require_license_feature("report_builder"):
             return
         current_name = self.cb_report_export_type.currentText()
@@ -7959,6 +8469,8 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "تغییر نام", f"نام گزارش به «{new_name}» تغییر یافت (در انتظار ذخیره تنظیمات).")
 
     def _delete_custom_report(self):
+        if not self._require_license_write_allowed():
+            return
         if not self._require_license_feature("report_builder"):
             return
         current_name = self.cb_report_export_type.currentText()
@@ -8206,6 +8718,8 @@ class MainWindow(QMainWindow):
             self.db.set_setting("custom_report_definitions", json.dumps(self._custom_report_draft_definitions, ensure_ascii=False))
 
     def _save_report_export_config_ui(self):
+        if not self._require_license_write_allowed():
+            return
         if not self._require_license_feature("report_builder"):
             return
         report_type = self.cb_report_export_type.currentText()
@@ -8286,6 +8800,7 @@ class MainWindow(QMainWindow):
         layout.addLayout(lic_btn_row)
 
         gb_security = QGroupBox("امنیت و ورود کاربران")
+        self.gb_security = gb_security
         security_layout = QVBoxLayout(gb_security)
         security_layout.setContentsMargins(15, 15, 15, 15)
         security_layout.setSpacing(12)
@@ -8449,6 +8964,7 @@ class MainWindow(QMainWindow):
         self._refresh_access_level_settings_combo()
 
         gb_gen = QGroupBox("تنظیمات عمومی فروش و نمایش")
+        self.gb_gen = gb_gen
         f_gen = QFormLayout(gb_gen)
         f_gen.setContentsMargins(12, 12, 12, 10)
         f_gen.setHorizontalSpacing(14)
@@ -8505,6 +9021,7 @@ class MainWindow(QMainWindow):
         products_page = QWidget()
 
         gb_categories = QGroupBox("دسته‌بندی‌های اصلی")
+        self.gb_categories = gb_categories
         categories_layout = QVBoxLayout(gb_categories)
         categories_layout.setContentsMargins(10, 10, 10, 10)
         categories_layout.setSpacing(8)
@@ -8535,6 +9052,7 @@ class MainWindow(QMainWindow):
         categories_layout.addLayout(cat_btn_row)
 
         gb_subcategories = QGroupBox("زیرمجموعه‌های دستهٔ انتخاب‌شده")
+        self.gb_subcategories = gb_subcategories
         sub_layout = QVBoxLayout(gb_subcategories)
         sub_layout.setContentsMargins(10, 10, 10, 10)
         sub_layout.setSpacing(8)
@@ -8578,6 +9096,7 @@ class MainWindow(QMainWindow):
         sub_layout.addLayout(sub_btn_row)
 
         gb_attributes = QGroupBox("مشخصات فنی سفارشی")
+        self.gb_attributes = gb_attributes
         attr_layout = QVBoxLayout(gb_attributes)
         gb_attributes.setLayoutDirection(Qt.RightToLeft)
         attr_layout.setContentsMargins(12, 12, 12, 12)
@@ -8683,6 +9202,7 @@ class MainWindow(QMainWindow):
         attr_layout.addLayout(attribute_grid)
 
         gb_colors = QGroupBox("رنگ‌های قابل انتخاب کالا")
+        self.gb_colors = gb_colors
         colors_layout = QVBoxLayout(gb_colors)
         colors_layout.setContentsMargins(10, 10, 10, 10)
         colors_layout.setSpacing(8)
@@ -8725,11 +9245,13 @@ class MainWindow(QMainWindow):
 
         prod_actions_bar = QHBoxLayout()
         btn_clear_prod_tax = QPushButton("🗑️ پاک کردن فهرست‌های کالا")
+        self.btn_clear_prod_tax = btn_clear_prod_tax
         btn_clear_prod_tax.setObjectName("btnDanger")
         btn_clear_prod_tax.setToolTip("پاک کردن کلیه دسته‌بندی‌ها، زیرمجموعه‌ها، مشخصات فنی و رنگ‌های کالا از پیش‌نویس")
         btn_clear_prod_tax.clicked.connect(self._clear_product_taxonomy)
 
         btn_import_prod_tax = QPushButton("📥 بارگذاری کالاها از فایل JSON")
+        self.btn_import_prod_tax = btn_import_prod_tax
         btn_import_prod_tax.setObjectName("btnSecondary")
         btn_import_prod_tax.setToolTip("بارگذاری ساختار کالا از فایل taxonomy.json خارجی بدون تغییر خدمات")
         btn_import_prod_tax.clicked.connect(self._import_product_taxonomy)
@@ -8809,11 +9331,13 @@ class MainWindow(QMainWindow):
 
         service_actions_bar = QHBoxLayout()
         btn_clear_serv_tax = QPushButton("🗑️ پاک کردن فهرست انواع خدمت")
+        self.btn_clear_serv_tax = btn_clear_serv_tax
         btn_clear_serv_tax.setObjectName("btnDanger")
         btn_clear_serv_tax.setToolTip("پاک کردن کلیه انواع خدمت از پیش‌نویس")
         btn_clear_serv_tax.clicked.connect(self._clear_service_taxonomy)
 
         btn_import_serv_tax = QPushButton("📥 بارگذاری خدمات از فایل JSON")
+        self.btn_import_serv_tax = btn_import_serv_tax
         btn_import_serv_tax.setObjectName("btnSecondary")
         btn_import_serv_tax.setToolTip("بارگذاری انواع خدمت از فایل taxonomy.json خارجی بدون تغییر کالاها")
         btn_import_serv_tax.clicked.connect(self._import_service_taxonomy)
@@ -8836,6 +9360,7 @@ class MainWindow(QMainWindow):
         service_page_layout.addLayout(service_actions_bar)
 
         gb_service_types = QGroupBox("مدیریت انواع خدمت")
+        self.gb_service_types = gb_service_types
         service_types_layout = QVBoxLayout(gb_service_types)
         self.lst_cfg_service_types = SmoothScrollListWidget()
         self.lst_cfg_service_types.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
@@ -10523,6 +11048,8 @@ class MainWindow(QMainWindow):
 
     def _import_product_taxonomy(self, import_path=None):
         """Action 2 (REQ-3): Scoped manual JSON import for product taxonomy only (services untouched)."""
+        if not import_path and not self._require_license_write_allowed():
+            return
         if not import_path and not self._require_license_feature("taxonomy_import_export"):
             return
         if import_path:
@@ -10586,6 +11113,8 @@ class MainWindow(QMainWindow):
 
     def _import_service_taxonomy(self, import_path=None):
         """Action 2 (REQ-3): Scoped manual JSON import for service types only (products untouched)."""
+        if not import_path and not self._require_license_write_allowed():
+            return
         if not import_path and not self._require_license_feature("taxonomy_import_export"):
             return
         if import_path:

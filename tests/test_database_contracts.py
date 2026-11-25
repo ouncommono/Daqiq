@@ -631,8 +631,9 @@ def test_v3_application_config_records_release_and_preserves_current_preferences
     assert manager.cfg["default_window_maximized"] is False
     assert manager.cfg["require_login_password"] is True
     assert manager.cfg["app_version"] == database_module.get_live_app_version()
-    assert manager.cfg["schema_version"] == 484
-    assert manager.cfg["config_schema_version"] == 2
+    assert manager.cfg["schema_version"] == database_module.CONFIG_SCHEMA_VERSION
+    assert manager.cfg["schema_version"] != 484
+    assert manager.cfg["config_schema_version"] == database_module.CONFIG_SCHEMA_VERSION
 
 
 def test_v3_config_normalization_preserves_zero_extra_price_count(manager):

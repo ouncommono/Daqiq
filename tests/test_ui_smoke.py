@@ -1841,7 +1841,7 @@ def test_cold_start_first_shipment_quantity_10_edit_1_to_10_to_2_and_delete(
         # The numeric selector is edited as a whole value, never incremented.
         edit_button = next(
             button for button in window.findChildren(QPushButton)
-            if button.text().startswith("✏️ ذخیره ویرایش محموله")
+            if button.text().startswith("✏️ ویرایش محموله")
         )
         delete_button = next(
             button for button in window.findChildren(QPushButton)

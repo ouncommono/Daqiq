@@ -54,7 +54,11 @@ SUBFEATURE_PARENT_TAB: Dict[str, str] = {
     "profit_analytics": "reports",
     "price_edit": "sales",
     "batch_delete": "batches",
+    "print_invoices": "reports",
+    "backup_export": "settings",
 }
+
+OPTIONAL_DEFAULT_TRUE_FEATURES = frozenset({"print_invoices", "backup_export"})
 
 ALL_LICENSE_FEATURES = CORE_TAB_FEATURES + tuple(SUBFEATURE_PARENT_TAB.keys())
 
@@ -134,6 +138,8 @@ FEATURE_LABELS_FA: Dict[str, str] = {
     "concurrent_edit": "مدیریت ویرایش همزمان",
     "dark_theme": "حالت تیره",
     "light_theme": "حالت روشن",
+    "print_invoices": "چاپ فاکتورها و گزارش‌ها",
+    "backup_export": "پشتیبان‌گیری و خروجی اطلاعات",
 }
 
 
@@ -185,7 +191,7 @@ class LicenseService:
         verifier: Optional[LicenseVerifier] = None,
         hardware_provider: Optional[HardwareIdentitySource] = None,
         clock_provider: Optional[Callable[[], datetime.datetime]] = None,
-        app_version: str = "4.9.9",
+        app_version: str = "4.9.10",
         store_name_provider: Optional[Callable[[], str]] = None,
     ):
         self.store = store or LicenseStore()
@@ -568,6 +574,9 @@ class LicenseService:
         features = lic.payload.features or {}
         if canonical_key in features:
             return bool(features[canonical_key])
+
+        if canonical_key in OPTIONAL_DEFAULT_TRUE_FEATURES:
+            return True
 
         if canonical_key in SUBFEATURE_PARENT_TAB:
             parent_tab = SUBFEATURE_PARENT_TAB[canonical_key]

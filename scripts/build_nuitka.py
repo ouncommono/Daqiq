@@ -20,7 +20,7 @@ def get_version(repo_root: Path) -> str:
     v_path = repo_root / "VERSION"
     if v_path.is_file():
         return v_path.read_text(encoding="utf-8").strip()
-    return "4.9.9"
+    return "4.9.10"
 
 
 def compute_sha256(file_path: Path) -> str:
@@ -57,6 +57,7 @@ def build(mode: str, repo_root: Path, skip_shards: bool = False) -> int:
     import PySide6
     pyside6_dir = Path(PySide6.__file__).resolve().parent
     platforms_src = pyside6_dir / "plugins" / "platforms"
+    printsupport_src = pyside6_dir / "plugins" / "printsupport"
 
     cmd = [
         sys.executable,
@@ -65,8 +66,8 @@ def build(mode: str, repo_root: Path, skip_shards: bool = False) -> int:
         f"--mode={mode}",
         "--assume-yes-for-downloads",
         "--enable-plugin=pyside6",
-        # Prune unused heavy Qt plugins and translations
-        "--include-qt-plugins=sensible,platforms,styles,imageformats",
+        # Prune unused heavy Qt plugins and translations (keep printsupport for A4/A5 printing)
+        "--include-qt-plugins=sensible,platforms,styles,imageformats,printsupport",
         "--noinclude-qt-translations",
         # Prune test and dev packages from payload
         "--noinclude-pytest-mode=nofollow",
@@ -89,6 +90,9 @@ def build(mode: str, repo_root: Path, skip_shards: bool = False) -> int:
     if platforms_src.is_dir():
         cmd.append(f"--include-data-dir={platforms_src}=PySide6/qt-plugins/platforms")
         cmd.append(f"--include-data-dir={platforms_src}=platforms")
+    if printsupport_src.is_dir():
+        cmd.append(f"--include-data-dir={printsupport_src}=PySide6/qt-plugins/printsupport")
+        cmd.append(f"--include-data-dir={printsupport_src}=printsupport")
 
     cmd.append(f"--output-dir={dist_dir}")
 
@@ -170,7 +174,7 @@ def build(mode: str, repo_root: Path, skip_shards: bool = False) -> int:
         shutil.copy2(source_tax, target_tax)
         print(f"Copied external {source_tax.name} to {target_tax}")
 
-        # Ensure all Qt platform plugins exist for headless verification
+        # Ensure all Qt platform and printsupport plugins exist for headless/printing verification
         if platforms_src.is_dir():
             for dest_sub in ["PySide6/qt-plugins/platforms", "platforms"]:
                 p_dest = standalone_dir / dest_sub
@@ -178,6 +182,13 @@ def build(mode: str, repo_root: Path, skip_shards: bool = False) -> int:
                 for dll in platforms_src.glob("*.dll"):
                     shutil.copy2(dll, p_dest / dll.name)
             print("Verified complete Qt platform plugins in standalone directory.")
+        if printsupport_src.is_dir():
+            for dest_sub in ["PySide6/qt-plugins/printsupport", "printsupport"]:
+                ps_dest = standalone_dir / dest_sub
+                ps_dest.mkdir(parents=True, exist_ok=True)
+                for dll in printsupport_src.glob("*.dll"):
+                    shutil.copy2(dll, ps_dest / dll.name)
+            print("Verified complete Qt printsupport plugins in standalone directory.")
 
         rc_ts = build_troubleshooter(mode, repo_root, version)
         if rc_ts != 0:
@@ -189,17 +200,13 @@ def build(mode: str, repo_root: Path, skip_shards: bool = False) -> int:
 
 
 def build_troubleshooter(mode: str, repo_root: Path, version: str) -> int:
-    """Build decoupled standalone Daqiq-Troubleshooter binary (zero Daqiq app imports)."""
+    """Build decoupled zero-Qt standalone Daqiq-Troubleshooter binary (pure stdlib + Win32 ctypes)."""
     dist_dir = repo_root / "dist"
     dist_dir.mkdir(parents=True, exist_ok=True)
     entry_script = repo_root / "troubleshooter" / "app.py"
     if not entry_script.is_file():
         print(f"[ERROR] Troubleshooter entry not found: {entry_script}", file=sys.stderr)
         return 1
-
-    import PySide6
-    pyside6_dir = Path(PySide6.__file__).resolve().parent
-    platforms_src = pyside6_dir / "plugins" / "platforms"
 
     ts_dist_dir = dist_dir / "troubleshooter_build" if mode == "standalone" else dist_dir
     cmd = [
@@ -208,46 +215,32 @@ def build_troubleshooter(mode: str, repo_root: Path, version: str) -> int:
         "nuitka",
         f"--mode={mode}",
         "--assume-yes-for-downloads",
-        "--enable-plugin=pyside6",
-        "--include-qt-plugins=sensible,platforms,styles,imageformats",
-        "--noinclude-qt-translations",
         "--noinclude-pytest-mode=nofollow",
         "--noinclude-unittest-mode=nofollow",
         "--noinclude-pydoc-mode=nofollow",
         "--noinclude-IPython-mode=nofollow",
-        "--nofollow-import-to=main,database,licensing,utils,ui,tools,pytest,unittest,doctest,pydoc,tkinter,turtle,setuptools,pip,wheel",
+        "--nofollow-import-to=PySide6,PyQt5,PyQt6,shiboken6,main,database,licensing,utils,ui,tools,pytest,unittest,doctest,pydoc,tkinter,turtle,setuptools,pip,wheel",
         "--windows-console-mode=attach",
         f"--windows-icon-from-ico={repo_root / 'assets' / 'daqiq_logo.ico'}",
         "--company-name=ouncommono",
         "--product-name=Daqiq-Troubleshooter",
         f"--file-version={version}.0",
         f"--product-version={version}.0",
-        f"--include-data-files={repo_root / 'assets' / 'daqiq_logo.ico'}=assets/daqiq_logo.ico",
-        f"--include-data-files={repo_root / 'assets' / 'daqiq_logo.png'}=assets/daqiq_logo.png",
         f"--output-dir={ts_dist_dir}",
     ]
-    if platforms_src.is_dir():
-        cmd.append(f"--include-data-dir={platforms_src}=PySide6/qt-plugins/platforms")
-        cmd.append(f"--include-data-dir={platforms_src}=platforms")
     if shutil.which("cl"):
         cmd.append("--msvc=latest")
     if mode == "onefile":
         cmd.append("--output-filename=Daqiq-Troubleshooter.exe")
-        cmd.append("--onefile-tempdir-spec={TEMP}/DaqiqTroubleshooter_{PID}")
+        # Ephemeral self-cleaning temp extraction (NO --onefile-cache-mode=cached) -> zero leftover cache files
+        cmd.append("--onefile-tempdir-spec={TEMP}/DaqiqReset_{PID}")
     cmd.append(str(entry_script))
 
-    print("\n--- Building Decoupled Daqiq-Troubleshooter ---")
+    print("\n--- Building Decoupled Zero-Qt Daqiq-Troubleshooter ---")
     proc = subprocess.run(cmd, cwd=str(repo_root))
     if proc.returncode != 0:
         print(f"[ERROR] Troubleshooter compilation failed ({proc.returncode})", file=sys.stderr)
         return proc.returncode
-    if mode == "standalone" and platforms_src.is_dir():
-        ts_standalone = ts_dist_dir / "app.dist"
-        for dest_sub in ["PySide6/qt-plugins/platforms", "platforms"]:
-            p_dest = ts_standalone / dest_sub
-            p_dest.mkdir(parents=True, exist_ok=True)
-            for dll in platforms_src.glob("*.dll"):
-                shutil.copy2(dll, p_dest / dll.name)
     return 0
 
 

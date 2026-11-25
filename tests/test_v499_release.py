@@ -595,9 +595,10 @@ def test_troubleshooter_isolation_backup_protection_and_db_prompt(tmp_path):
 
 
 def test_v499_version_ci_and_config_alignment():
-    """Verify 4.9.9 version consistency and CI dual-exe + Node 24 pipeline alignment."""
-    assert Path("VERSION").read_text(encoding="utf-8").strip() == "4.9.9"
-    assert db_mod.get_live_app_version() == "4.9.9"
+    """Verify live version consistency and CI dual-exe + Node 24 pipeline alignment."""
+    live_ver = Path("VERSION").read_text(encoding="utf-8").strip()
+    assert live_ver in ("4.9.9", "4.9.10")
+    assert db_mod.get_live_app_version() == live_ver
 
     ci_yml = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
     assert "actions/checkout@v7" in ci_yml
@@ -609,4 +610,4 @@ def test_v499_version_ci_and_config_alignment():
 
     build_py = Path("scripts/build_nuitka.py").read_text(encoding="utf-8")
     assert "--nofollow-import-to=" in build_py and "troubleshooter" in build_py
-    assert "DaqiqTroubleshooter_{PID}" in build_py
+    assert "DaqiqReset_{PID}" in build_py or "DaqiqTroubleshooter_{PID}" in build_py

@@ -263,7 +263,9 @@ def test_req03_app_config_and_schema_version_full_parity(monkeypatch, tmp_path):
     live_ver = db_mod.get_live_app_version()
     for obj in (loaded, on_disk):
         assert obj["app_version"] == live_ver
-        assert obj["schema_version"] == db_mod.SCHEMA_VERSION
+        assert obj["schema_version"] == db_mod.CONFIG_SCHEMA_VERSION
+        assert obj["config_schema_version"] == db_mod.CONFIG_SCHEMA_VERSION
+        assert obj["schema_version"] != 484
         assert obj["theme"] == "dark"
         assert "last_backup_warning" not in obj
         assert "obsolete_key" not in obj
@@ -272,6 +274,7 @@ def test_req03_app_config_and_schema_version_full_parity(monkeypatch, tmp_path):
     cfg_path.write_text("{}", encoding="utf-8")
     repaired = db_mod.load_app_config()
     assert repaired["app_version"] == live_ver
-    assert repaired["schema_version"] == db_mod.SCHEMA_VERSION
+    assert repaired["schema_version"] == db_mod.CONFIG_SCHEMA_VERSION
+    assert repaired["schema_version"] != 484
     assert Path("VERSION").read_text(encoding="utf-8").strip() == live_ver
     assert m.APP_VERSION == live_ver
