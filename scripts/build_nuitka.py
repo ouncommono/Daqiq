@@ -20,7 +20,7 @@ def get_version(repo_root: Path) -> str:
     v_path = repo_root / "VERSION"
     if v_path.is_file():
         return v_path.read_text(encoding="utf-8").strip()
-    return "4.9.6"
+    return "4.9.8"
 
 
 def compute_sha256(file_path: Path) -> str:

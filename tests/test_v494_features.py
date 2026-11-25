@@ -382,12 +382,12 @@ def test_mixed_origin_calendar_migration_and_chronological_sorting(tmp_path):
 
     with db.get_connection() as conn:
         rows = {
-            r["batch_code"]: (r["purchase_date"], r["purchase_time"])
-            for r in conn.execute("SELECT batch_code, purchase_date, purchase_time FROM batches").fetchall()
+            r["batch_code"]: r["purchase_date"]
+            for r in conn.execute("SELECT batch_code, purchase_date FROM batches").fetchall()
         }
-        assert rows["B-OLD-AM"] == ("2026/04/04", "09:00:00 AM")
-        assert rows["B-OLD-PM"] == ("2026/04/04", "02:30:00 PM")
-        assert rows["B-HIJRI"] == ("2026/04/05", "04:45:00 PM")
+        assert rows["B-OLD-AM"] == "2026/04/04 09:00:00 AM"
+        assert rows["B-OLD-PM"] == "2026/04/04 02:30:00 PM"
+        assert rows["B-HIJRI"] == "2026/04/05 04:45:00 PM"
         ev = conn.execute("SELECT event_date FROM custom_events WHERE id=1").fetchone()["event_date"]
         assert ev == "2026/04/04"
 
@@ -522,7 +522,8 @@ def test_purchase_layout_order_and_purchase_time_and_sales_date(qapp, monkeypatc
     with upgraded_db.get_connection() as conn:
         validate_schema_column_order(conn)
         col_names = [r["name"] for r in conn.execute("PRAGMA table_info(batches)").fetchall()]
-        assert "purchase_time" in col_names
+        assert "purchase_time" not in col_names
+        assert "purchase_date" in col_names
 
     win, db, _ = _launch_main_window(monkeypatch, tmp_path)
     try:
@@ -539,16 +540,17 @@ def test_purchase_layout_order_and_purchase_time_and_sales_date(qapp, monkeypatc
 
         headers = [win.tbl_batches.horizontalHeaderItem(c).text() for c in range(win.tbl_batches.columnCount())]
         idx_pdate = headers.index("تاریخ خرید")
-        assert headers[idx_pdate + 1] == "ساعت خرید"
+        assert "ساعت خرید" not in headers
 
         exp_keys = [k for k, _ in exporter.INVENTORY_EXPORT_AVAILABLE_COLUMNS]
-        assert exp_keys[exp_keys.index("purchase_date") + 1] == "purchase_time"
+        assert "purchase_date" in exp_keys
+        assert "purchase_time" not in exp_keys
 
         win.cb_batch_prod.setCurrentIndex(0)
         win.dt_batch_date.set_date("1405/02/10")
         win._save_new_batch()
         assert win.tbl_batches.rowCount() == 1
-        assert win.tbl_batches.item(0, idx_pdate + 1).text() not in ("", "-")
+        assert win.tbl_batches.item(0, idx_pdate).text().startswith("1405/02/10 ")
 
         sale_grid = win.dt_sale_date.parentWidget().layout()
         r_we, c_we, _, _ = sale_grid.getItemPosition(sale_grid.indexOf(win.dt_war_end))

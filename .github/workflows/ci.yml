@@ -167,7 +167,7 @@ jobs:
         shell: pwsh
         run: |
           $ver = (Get-Content VERSION).Trim()
-          if (-not $ver) { $ver = "4.9.6" }
+          if (-not $ver) { $ver = "4.9.8" }
           Write-Output "APP_VERSION=$ver" >> $env:GITHUB_ENV
           Write-Output "Building Daqiq onefile for version: $ver"
 
@@ -327,7 +327,7 @@ jobs:
         shell: pwsh
         run: |
           $ver = (Get-Content VERSION).Trim()
-          if (-not $ver) { $ver = "4.9.6" }
+          if (-not $ver) { $ver = "4.9.8" }
           Write-Output "APP_VERSION=$ver" >> $env:GITHUB_ENV
 
       - name: Download Build Artifacts
@@ -354,9 +354,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $currentBranch = (git branch --show-current).Trim()
+          $branchOut = git branch --show-current 2>$null
+          $currentBranch = ($branchOut | Out-String).Trim()
           if (-not $currentBranch) {
-            $currentBranch = "${{ github.ref_name }}"
+            $currentBranch = "${{ github.head_ref || github.ref_name }}"
           }
           Write-Output "Checking for existing PR from $currentBranch to main..."
           $existingPr = gh pr list --head $currentBranch --base main --json number --jq '.[0].number'

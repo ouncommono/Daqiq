@@ -18,6 +18,27 @@ from utils import datetime_format
 APP_VERSION = "4.8.4"
 SCHEMA_VERSION = 484
 
+
+def get_live_app_version() -> str:
+    """Resolve the running application's live version string from VERSION."""
+    candidates = []
+    try:
+        from utils.paths import get_resource_path
+        candidates.append(str(get_resource_path("VERSION")))
+    except Exception:
+        pass
+    candidates.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "VERSION"))
+    for ver_path in candidates:
+        try:
+            if os.path.isfile(ver_path):
+                with open(ver_path, "r", encoding="utf-8") as vf:
+                    text = vf.read().strip()
+                if text:
+                    return text
+        except OSError:
+            pass
+    return "4.9.8"
+
 SQLITE_INTEGER_MIN = -(1 << 63)
 SQLITE_INTEGER_MAX = (1 << 63) - 1
 
@@ -32,7 +53,7 @@ EXPECTED_SCHEMA_COLUMNS = {
     "suppliers": ("id", "name", "phone", "address", "notes", "created_at", "updated_at"),
     "customers": ("id", "name", "phone", "notes", "created_at", "updated_at"),
     "products": ("id", "code", "serial_number", "name", "category", "sub_category", "brand", "model", "specs_json", "description", "reorder_point", "default_profit_pct", "is_active", "created_at", "updated_at"),
-    "batches": ("id", "batch_code", "product_id", "serial_numbers", "supplier_id", "buyer_employee_id", "invoice_number", "purchase_date", "purchase_time", "initial_qty", "sold_qty", "returned_qty", "remaining_qty", "unit_purchase_price", "extra_cost_total", "upgrade_cost_unit", "unit_cost_price", "suggested_sell_price", "profit_pct", "paid_amount", "settlement_status", "colors_json", "initial_specs", "final_specs", "supplier_name_snapshot", "notes", "created_at", "updated_at"),
+    "batches": ("id", "batch_code", "product_id", "serial_numbers", "supplier_id", "buyer_employee_id", "invoice_number", "purchase_date", "initial_qty", "sold_qty", "returned_qty", "remaining_qty", "unit_purchase_price", "extra_cost_total", "upgrade_cost_unit", "unit_cost_price", "suggested_sell_price", "profit_pct", "paid_amount", "settlement_status", "colors_json", "initial_specs", "final_specs", "supplier_name_snapshot", "notes", "created_at", "updated_at"),
     "upgrades": ("id", "target_batch_id", "part_batch_id", "technician_id", "target_qty", "part_qty_used", "stock_deducted_qty", "part_unit_cost", "labor_cost_unit", "added_cost_unit", "upgrade_date", "serial_number", "manual_part_description", "old_specs", "new_specs", "notes", "created_at", "updated_at"),
     "sales": ("id", "invoice_number", "product_id", "batch_id", "serial_number", "seller_employee_id", "customer_name", "customer_phone", "qty", "returned_qty", "suggested_unit_price", "actual_unit_price", "unit_cost_price", "unit_discount", "total_discount", "price_Markup_unit", "unit_profit", "total_profit", "total_amount", "paid_amount", "settlement_status", "sale_datetime", "warranty_company", "warranty_start", "warranty_months", "warranty_days", "warranty_end", "specifications", "colors_json", "notes", "created_at", "updated_at"),
     "service_catalog": ("id", "code", "service_type", "name", "default_fee", "default_side_cost", "description", "is_active", "created_at", "updated_at"),
@@ -49,14 +70,6 @@ def validate_schema_column_order(conn):
             row["name"] for row in conn.execute(f"PRAGMA table_info({table_name})")
         )
         if actual_columns == expected_columns:
-            continue
-        # Backward-compatible ALTER TABLE ADD COLUMN on pre-v4.9.4 batches tables
-        if (
-            table_name == "batches"
-            and "purchase_time" in actual_columns
-            and tuple(c for c in actual_columns if c != "purchase_time")
-            == tuple(c for c in expected_columns if c != "purchase_time")
-        ):
             continue
         raise RuntimeError(
             f"ساختار ستون‌های جدول {table_name} با قرارداد نسخه {APP_VERSION} سازگار نیست."
@@ -483,10 +496,18 @@ def app_config_has_database_selection():
     )
 
 
-def load_app_config():
+def reconcile_app_config(raw_cfg=None):
+    """Reconcile config dict against canonical keys and the live running APP_VERSION.
+
+    Migrates legacy aliases (``last_db_path`` -> ``db_path``,
+    ``calendar_format`` -> ``calendar_type``, ``store_name`` -> ``last_store_name``),
+    drops orphaned legacy keys, validates bounds/types without touching user preferences,
+    and returns ``(reconciled_cfg, changed)``.
+    """
     default_db = get_default_database_path()
     default_backup_dir = os.path.join(get_default_database_dir(), "Backups")
-    default_cfg = {
+    live_version = get_live_app_version()
+    cfg = {
         "db_path": default_db,
         "recent_databases": [default_db] if os.path.isfile(default_db) else [],
         "backup_dir": default_backup_dir,
@@ -502,22 +523,96 @@ def load_app_config():
         "default_window_maximized": True,
         "require_login_password": False,
         "config_schema_version": 2,
-        "app_version": APP_VERSION,
+        "app_version": live_version,
         "schema_version": SCHEMA_VERSION,
         "theme": "light",
+        "calendar_type": datetime_format.CALENDAR_JALALI,
+        "time_format": datetime_format.TIME_FORMAT_24H,
+        "last_store_name": "فروشگاه من",
+        "databases": {},
     }
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                default_cfg.update(data)
-        except Exception:
-            pass
+    raw_dict = raw_cfg if isinstance(raw_cfg, dict) else {}
+    if raw_dict:
+        cfg.update(raw_dict)
+
+    # Migrate legacy aliases without clobbering user preferences
+    if (not str(raw_dict.get("db_path") or "").strip()) and str(raw_dict.get("last_db_path") or "").strip():
+        cfg["db_path"] = raw_dict["last_db_path"]
+    if "calendar_format" in raw_dict and "calendar_type" not in raw_dict:
+        cfg["calendar_type"] = raw_dict["calendar_format"]
+    if "store_name" in raw_dict and not str(raw_dict.get("last_store_name") or "").strip():
+        cfg["last_store_name"] = raw_dict["store_name"]
+
+    for orphan_key in ("local_db_unlock_tokens", "last_db_path", "calendar_format", "store_name", "shop_name"):
+        cfg.pop(orphan_key, None)
+
+    cfg["app_version"] = live_version
+    cfg["config_schema_version"] = 2
+    cfg["schema_version"] = SCHEMA_VERSION
+    cfg["theme"] = "dark" if str(cfg.get("theme") or "").strip().lower() == "dark" else "light"
+    cfg["calendar_type"] = datetime_format.CALENDAR_LOOKUP.get(
+        str(cfg.get("calendar_type") or "").strip().lower(),
+        datetime_format.CALENDAR_JALALI,
+    )
+    cfg["time_format"] = datetime_format.TIME_FORMAT_LOOKUP.get(
+        str(cfg.get("time_format") or "").strip().lower(),
+        datetime_format.TIME_FORMAT_24H,
+    )
+    cfg["last_store_name"] = str(cfg.get("last_store_name") or "فروشگاه من").strip() or "فروشگاه من"
+    cfg["auto_backup_enabled"] = bool(cfg.get("auto_backup_enabled", True))
+    cfg["default_window_maximized"] = bool(cfg.get("default_window_maximized", True))
+    cfg["require_login_password"] = bool(cfg.get("require_login_password", False))
+    try:
+        cfg["auto_backup_interval_min"] = max(1, int(cfg.get("auto_backup_interval_min", 60) or 60))
+    except (TypeError, ValueError):
+        cfg["auto_backup_interval_min"] = 60
+    try:
+        cfg["auto_backup_retention_count"] = max(1, int(cfg.get("auto_backup_retention_count", 10) or 10))
+    except (TypeError, ValueError):
+        cfg["auto_backup_retention_count"] = 10
+    try:
+        zero_raw = cfg.get("zero_append_count", 3)
+        cfg["zero_append_count"] = max(0, int(3 if zero_raw is None else zero_raw))
+    except (TypeError, ValueError):
+        cfg["zero_append_count"] = 3
+    try:
+        min_inv_raw = cfg.get("default_min_inventory", 1)
+        cfg["default_min_inventory"] = max(0, int(1 if min_inv_raw is None else min_inv_raw))
+    except (TypeError, ValueError):
+        cfg["default_min_inventory"] = 1
+    try:
+        profit_raw = cfg.get("default_profit_pct", 20)
+        cfg["default_profit_pct"] = max(0, int(float(20 if profit_raw is None else profit_raw)))
+    except (TypeError, ValueError):
+        cfg["default_profit_pct"] = 20
+
+    if not isinstance(cfg.get("auto_backup_last_success_by_db"), dict):
+        cfg["auto_backup_last_success_by_db"] = {}
+    if cfg.get("auto_backup_dir"):
+        cfg["auto_backup_dir"] = os.path.abspath(str(cfg["auto_backup_dir"]))
+    else:
+        cfg["auto_backup_dir"] = ""
+
+    raw_dbs = cfg.get("databases")
+    if isinstance(raw_dbs, dict):
+        clean_dbs = {}
+        for dbk, dbv in raw_dbs.items():
+            if not isinstance(dbk, str) or not isinstance(dbv, dict):
+                continue
+            clean_dbs[dbk] = {
+                "auto_backup_enabled": bool(dbv.get("auto_backup_enabled", cfg["auto_backup_enabled"])),
+                "auto_backup_dir": os.path.abspath(str(dbv["auto_backup_dir"])) if dbv.get("auto_backup_dir") else "",
+                "auto_backup_interval_min": max(1, int(dbv.get("auto_backup_interval_min", cfg["auto_backup_interval_min"]) or 60)),
+                "auto_backup_retention_count": max(1, int(dbv.get("auto_backup_retention_count", cfg["auto_backup_retention_count"]) or 10)),
+            }
+        cfg["databases"] = clean_dbs
+    else:
+        cfg["databases"] = {}
 
     # Normalize paths and deduplicate recent_databases to physical files only
     cleaned_recents = []
     seen = set()
-    raw_recents = default_cfg.get("recent_databases")
+    raw_recents = cfg.get("recent_databases")
     if isinstance(raw_recents, list):
         for p in raw_recents:
             if not p or not isinstance(p, str):
@@ -526,14 +621,72 @@ def load_app_config():
             if norm not in seen and os.path.isfile(p):
                 seen.add(norm)
                 cleaned_recents.append(os.path.abspath(p))
-    cur_p = default_cfg.get("db_path")
+    cur_p = cfg.get("db_path")
     if cur_p and isinstance(cur_p, str) and os.path.isfile(cur_p):
         cur_norm = os.path.normcase(os.path.abspath(cur_p))
         if cur_norm not in seen:
             cleaned_recents.insert(0, os.path.abspath(cur_p))
-    default_cfg["recent_databases"] = cleaned_recents
-    default_cfg.pop("local_db_unlock_tokens", None)
-    return default_cfg
+    cfg["recent_databases"] = cleaned_recents
+
+    if cfg.get("last_backup_warning") is not None:
+        warn_txt = str(cfg.get("last_backup_warning") or "").strip()
+        if warn_txt:
+            cfg["last_backup_warning"] = warn_txt
+        else:
+            cfg.pop("last_backup_warning", None)
+
+    canonical_keys = {
+        "db_path",
+        "recent_databases",
+        "backup_dir",
+        "auto_backup_dir",
+        "auto_backup_enabled",
+        "auto_backup_interval_min",
+        "auto_backup_retention_count",
+        "auto_backup_last_success_by_db",
+        "last_backup_time",
+        "last_backup_warning",
+        "default_profit_pct",
+        "default_min_inventory",
+        "zero_append_count",
+        "default_window_maximized",
+        "require_login_password",
+        "config_schema_version",
+        "app_version",
+        "schema_version",
+        "theme",
+        "calendar_type",
+        "time_format",
+        "last_store_name",
+        "databases",
+    }
+    for extra_k in list(cfg.keys()):
+        if extra_k not in canonical_keys:
+            cfg.pop(extra_k, None)
+
+    changed = (not raw_dict) or (raw_dict != cfg)
+    return cfg, changed
+
+
+def load_app_config():
+    raw_data = None
+    file_exists = os.path.exists(CONFIG_FILE)
+    if file_exists:
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                loaded = json.load(f)
+                if isinstance(loaded, dict):
+                    raw_data = loaded
+        except Exception:
+            raw_data = None
+
+    cfg, changed = reconcile_app_config(raw_data)
+    if file_exists and changed:
+        try:
+            save_app_config(cfg)
+        except OSError:
+            pass
+    return cfg
 
 
 def hash_password(raw_password: str) -> str:
@@ -677,14 +830,20 @@ class DatabaseManager:
     def _verify_key_on_file(self, key: str) -> bool:
         if not os.path.isfile(self.db_path) or os.path.getsize(self.db_path) == 0:
             return True
+        conn = None
         try:
             conn = sqlite3.connect(self.db_path, timeout=5)
             conn.execute(f"PRAGMA key = {self._quote_key(key)}")
             conn.execute("SELECT count(*) FROM sqlite_master")
-            conn.close()
             return True
         except Exception:
             return False
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
     def __init__(self, db_path=None, password=None):
         self._conn_lock = threading.Lock()
@@ -887,7 +1046,6 @@ class DatabaseManager:
                     buyer_employee_id INTEGER,
                     invoice_number TEXT DEFAULT '',
                     purchase_date TEXT NOT NULL CHECK (length(trim(purchase_date)) > 0),
-                    purchase_time TEXT NOT NULL DEFAULT '',
                     initial_qty INTEGER NOT NULL CHECK (initial_qty > 0),
                     sold_qty INTEGER NOT NULL DEFAULT 0 CHECK (sold_qty >= 0),
                     returned_qty INTEGER NOT NULL DEFAULT 0 CHECK (returned_qty >= 0),
@@ -1063,10 +1221,6 @@ class DatabaseManager:
                     updated_at TEXT NOT NULL DEFAULT ''
                 )
             """)
-
-            batch_cols = {row["name"] for row in conn.execute("PRAGMA table_info(batches)")}
-            if "purchase_time" not in batch_cols:
-                conn.execute("ALTER TABLE batches ADD COLUMN purchase_time TEXT NOT NULL DEFAULT ''")
 
             validate_schema_column_order(conn)
 
@@ -1244,24 +1398,28 @@ class DatabaseManager:
 
     def _normalize_application_config(self):
         """Normalize current application settings without database migration."""
-        self.cfg["config_schema_version"] = 2
-        self.cfg["app_version"] = APP_VERSION
-        self.cfg["schema_version"] = SCHEMA_VERSION
+        reconciled, _ = reconcile_app_config(self.cfg)
+        self.cfg.clear()
+        self.cfg.update(reconciled)
+        self.cfg["app_version"] = get_live_app_version()
         self.cfg["backup_dir"] = os.path.dirname(os.path.abspath(self.db_path)) or "."
         self.cfg["db_path"] = os.path.abspath(self.db_path)
-        self.cfg["default_min_inventory"] = max(
-            0, int(self.cfg.get("default_min_inventory", 1) or 1)
-        )
-        if "auto_backup_dir" in self.cfg and self.cfg["auto_backup_dir"]:
-            self.cfg["auto_backup_dir"] = os.path.abspath(self.cfg["auto_backup_dir"])
-        else:
-            self.cfg["auto_backup_dir"] = ""
-        self.cfg["auto_backup_retention_count"] = max(
-            1, int(self.cfg.get("auto_backup_retention_count", 10) or 10)
-        )
-        if not isinstance(self.cfg.get("auto_backup_last_success_by_db"), dict):
-            self.cfg["auto_backup_last_success_by_db"] = {}
-        self.cfg.pop("local_db_unlock_tokens", None)
+        try:
+            db_cal = self.get_setting("calendar_format", "")
+            if db_cal:
+                self.cfg["calendar_type"] = datetime_format.CALENDAR_LOOKUP.get(
+                    str(db_cal).strip().lower(), self.cfg["calendar_type"]
+                )
+            db_tf = self.get_setting("time_format", "")
+            if db_tf:
+                self.cfg["time_format"] = datetime_format.TIME_FORMAT_LOOKUP.get(
+                    str(db_tf).strip().lower(), self.cfg["time_format"]
+                )
+            db_shop = self.get_setting("shop_name", "")
+            if db_shop:
+                self.cfg["last_store_name"] = str(db_shop).strip()
+        except Exception:
+            pass
 
     def get_setting(self, key, default=""):
         with self.get_connection() as conn:
@@ -2133,11 +2291,10 @@ class DatabaseManager:
         purchase_date = str(purchase_date or "").strip()
         if not purchase_date:
             raise ValueError("تاریخ خرید وارد نشده است.")
-        purchase_time = str(purchase_time or "").strip()
-        if not purchase_time and " " in purchase_date:
-            parts = purchase_date.split(" ", 1)
-            purchase_date = parts[0].strip()
-            purchase_time = parts[1].strip()
+        purchase_time_arg = str(purchase_time or "").strip()
+        if purchase_time_arg and " " not in purchase_date:
+            purchase_date = f"{purchase_date} {purchase_time_arg}"
+        purchase_payment_date = purchase_date.split(" ", 1)[0].strip()
         invoice_number = str(invoice_number or "").strip()
         serial_numbers = str(serial_numbers or "").strip()
         initial_specs = str(initial_specs or "").strip()
@@ -2180,16 +2337,16 @@ class DatabaseManager:
                 """
                 INSERT INTO batches (
                     batch_code, product_id, supplier_id, buyer_employee_id, invoice_number,
-                    purchase_date, purchase_time, initial_qty, sold_qty, returned_qty, remaining_qty,
+                    purchase_date, initial_qty, sold_qty, returned_qty, remaining_qty,
                     unit_purchase_price, extra_cost_total, upgrade_cost_unit, unit_cost_price,
                     suggested_sell_price, profit_pct, settlement_status, paid_amount,
                     serial_numbers, initial_specs, final_specs, notes, supplier_name_snapshot,
                     colors_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     batch_code, product_id, supplier_id, buyer_employee_id, invoice_number,
-                    purchase_date, purchase_time, initial_qty, initial_qty, unit_purchase_price,
+                    purchase_date, initial_qty, initial_qty, unit_purchase_price,
                     extra_cost_total, unit_cost_price, suggested_sell_price, profit_pct,
                     status, paid_amount, serial_numbers, initial_specs, initial_specs,
                     notes, supplier_snapshot, color_json,
@@ -2204,7 +2361,7 @@ class DatabaseManager:
                     VALUES ('batch', ?, ?, ?,
                             'پرداخت اولیه هنگام ثبت خرید')
                     """,
-                    (batch_id, paid_amount, purchase_date),
+                    (batch_id, paid_amount, purchase_payment_date),
                 )
             self.log_audit(
                 conn, "ثبت خرید",
@@ -2256,11 +2413,10 @@ class DatabaseManager:
         purchase_date = str(purchase_date or "").strip()
         if not purchase_date:
             raise ValueError("تاریخ خرید وارد نشده است.")
-        purchase_time = str(purchase_time or "").strip()
-        if not purchase_time and " " in purchase_date:
-            parts = purchase_date.split(" ", 1)
-            purchase_date = parts[0].strip()
-            purchase_time = parts[1].strip()
+        purchase_time_arg = str(purchase_time or "").strip()
+        if purchase_time_arg and " " not in purchase_date:
+            purchase_date = f"{purchase_date} {purchase_time_arg}"
+        purchase_payment_date = purchase_date.split(" ", 1)[0].strip()
         invoice_number = str(invoice_number or "").strip()
         serial_numbers = str(serial_numbers or "").strip()
         notes = str(notes or "").strip()
@@ -2274,7 +2430,7 @@ class DatabaseManager:
             old = conn.execute(
                 """
                 SELECT id, batch_code, product_id, supplier_id, buyer_employee_id,
-                       invoice_number, purchase_date, purchase_time, initial_qty, sold_qty,
+                       invoice_number, purchase_date, initial_qty, sold_qty,
                        returned_qty, remaining_qty, unit_purchase_price,
                        extra_cost_total, upgrade_cost_unit, unit_cost_price,
                        suggested_sell_price, profit_pct, paid_amount,
@@ -2333,16 +2489,17 @@ class DatabaseManager:
                 json.dumps(self._normalize_color_list(colors), ensure_ascii=False)
                 if colors is not None else old["colors_json"] or "[]"
             )
-            new_purchase_time = (
-                str(purchase_time).strip()
-                if purchase_time is not None
-                else str(old["purchase_time"] or "").strip()
-            )
+            new_purchase_date = purchase_date
+            if " " not in new_purchase_date and purchase_time is None:
+                old_pd = str(old["purchase_date"] or "").strip()
+                if " " in old_pd:
+                    new_purchase_date = f"{new_purchase_date} {old_pd.split(' ', 1)[1].strip()}"
+            purchase_payment_date = new_purchase_date.split(" ", 1)[0].strip()
             conn.execute(
                 """
                 UPDATE batches SET
                     batch_code=?, product_id=?, supplier_id=?, buyer_employee_id=?,
-                    invoice_number=?, purchase_date=?, purchase_time=?, initial_qty=?, remaining_qty=?,
+                    invoice_number=?, purchase_date=?, initial_qty=?, remaining_qty=?,
                     unit_purchase_price=?, extra_cost_total=?, unit_cost_price=?,
                     suggested_sell_price=?, profit_pct=?, settlement_status=?, paid_amount=?,
                     serial_numbers=?, initial_specs=?, notes=?, supplier_name_snapshot=?,
@@ -2352,7 +2509,7 @@ class DatabaseManager:
                 (
                     (batch_code or old["batch_code"]).strip(),
                     new_product_id, supplier_id, buyer_employee_id, invoice_number,
-                    purchase_date, new_purchase_time, new_initial_qty, new_remaining, unit_purchase_price,
+                    new_purchase_date, new_initial_qty, new_remaining, unit_purchase_price,
                     extra_cost_total, unit_cost_price, suggested_sell_price, profit_pct,
                     status, paid_amount, serial_numbers,
                     initial_specs if initial_specs is not None else old["initial_specs"],
@@ -2374,7 +2531,7 @@ class DatabaseManager:
                     VALUES ('batch', ?, ?, ?,
                             'پرداخت اصلاح‌شده هنگام ویرایش محموله')
                     """,
-                    (batch_id, paid_amount, purchase_date),
+                    (batch_id, paid_amount, purchase_payment_date),
                 )
 
             self.log_audit(
@@ -3281,7 +3438,7 @@ class DatabaseManager:
             return dbs[norm_key][key]
         return self.cfg.get(key, default)
 
-    def set_db_config(self, key: str, value):
+    def _merge_disk_databases_into_cfg(self):
         disk_cfg = load_app_config()
         disk_dbs = disk_cfg.get("databases", {})
         dbs = self.cfg.setdefault("databases", {})
@@ -3292,11 +3449,19 @@ class DatabaseManager:
                 for k, v in dbv.items():
                     if k not in dbs[dbk]:
                         dbs[dbk][k] = v
+        return dbs
+
+    def set_db_config(self, key: str, value, persist: bool = True):
+        if persist:
+            dbs = self._merge_disk_databases_into_cfg()
+        else:
+            dbs = self.cfg.setdefault("databases", {})
         norm_key = os.path.normcase(os.path.abspath(self.db_path))
         entry = dbs.setdefault(norm_key, {})
         entry[key] = value
         self.cfg[key] = value
-        save_app_config(self.cfg)
+        if persist:
+            save_app_config(self.cfg)
 
     def get_automatic_backup_directory(self):
         """Return this database's configured or default Backups folder."""
@@ -3306,7 +3471,7 @@ class DatabaseManager:
         database_dir = os.path.dirname(os.path.abspath(self.db_path)) or "."
         return os.path.join(database_dir, "Backups")
 
-    def set_automatic_backup_directory(self, new_dir):
+    def set_automatic_backup_directory(self, new_dir, persist: bool = True):
         """Validate, persist and create a new automatic backup directory for this database."""
         if not new_dir or not str(new_dir).strip():
             raise ValueError("مسیر ذخیره پشتیبان‌گیری نمی‌تواند خالی باشد.")
@@ -3319,9 +3484,12 @@ class DatabaseManager:
             os.remove(test_file)
         except Exception as e:
             raise PermissionError(f"دسترسی ذخیره در پوشه انتخاب‌شده وجود ندارد: {e}")
-        self.set_db_config("auto_backup_dir", target_path)
+        if persist:
+            self._merge_disk_databases_into_cfg()
+        self.set_db_config("auto_backup_dir", target_path, persist=False)
         self.cfg["backup_dir"] = target_path
-        save_app_config(self.cfg)
+        if persist:
+            save_app_config(self.cfg)
         return target_path
 
     def _automatic_backup_entries(self, directory, database_name):

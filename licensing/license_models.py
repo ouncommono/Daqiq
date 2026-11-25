@@ -109,6 +109,7 @@ class LicensePayload:
     quotas: Optional[Dict[str, Any]] = None
     metadata: Optional[Dict[str, Any]] = None
     extra_fields: Dict[str, Any] = field(default_factory=dict)
+    raw_payload_dict: Optional[Dict[str, Any]] = field(default=None, repr=False, compare=False)
 
     def to_dict(self) -> Dict[str, Any]:
         d: Dict[str, Any] = {

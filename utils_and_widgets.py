@@ -62,8 +62,227 @@ from PySide6.QtCore import (
     QAbstractAnimation,
     QTimer,
 )
-from PySide6.QtGui import QIntValidator
-from PySide6.QtWidgets import QSizePolicy
+from PySide6.QtGui import QColor, QIntValidator, QPalette
+from PySide6.QtWidgets import QApplication, QSizePolicy
+
+
+def resolve_active_dark_theme(parent=None, db=None, default: bool = False) -> bool:
+    """Resolve active Light/Dark theme from db, ancestor widget, or persisted app_config.json."""
+    if db is not None and isinstance(getattr(db, "cfg", None), dict):
+        return str(db.cfg.get("theme", "light")).strip().lower() == "dark"
+    node = parent
+    visited = set()
+    while node is not None and id(node) not in visited:
+        visited.add(id(node))
+        explicit = getattr(node, "is_dark_theme", None)
+        if isinstance(explicit, bool):
+            return explicit
+        node_db = getattr(node, "db", None)
+        if node_db is not None and isinstance(getattr(node_db, "cfg", None), dict):
+            return str(node_db.cfg.get("theme", "light")).strip().lower() == "dark"
+        node = node.parentWidget() if hasattr(node, "parentWidget") else None
+    app = QApplication.instance()
+    if app is not None:
+        active_win = app.activeWindow()
+        candidates = ([active_win] if active_win is not None else []) + list(app.topLevelWidgets())
+        for w in candidates:
+            if w is None or not getattr(w, "isVisible", lambda: False)():
+                continue
+            explicit = getattr(w, "is_dark_theme", None)
+            if isinstance(explicit, bool):
+                return explicit
+            w_db = getattr(w, "db", None)
+            if w_db is not None and isinstance(getattr(w_db, "cfg", None), dict):
+                return str(w_db.cfg.get("theme", "light")).strip().lower() == "dark"
+    try:
+        from database import load_app_config
+        cfg = load_app_config()
+        if isinstance(cfg, dict) and "theme" in cfg:
+            return str(cfg.get("theme", "light")).strip().lower() == "dark"
+    except Exception:
+        pass
+    return bool(default)
+
+
+def build_theme_palette(is_dark: bool) -> QPalette:
+    """Construct an explicit Light/Dark QPalette so OS/global themes never bleed into popups."""
+    pal = QPalette()
+    if is_dark:
+        pal.setColor(QPalette.Window, QColor("#0f172a"))
+        pal.setColor(QPalette.WindowText, QColor("#f8fafc"))
+        pal.setColor(QPalette.Base, QColor("#1e293b"))
+        pal.setColor(QPalette.AlternateBase, QColor("#263449"))
+        pal.setColor(QPalette.Text, QColor("#f8fafc"))
+        pal.setColor(QPalette.Button, QColor("#334155"))
+        pal.setColor(QPalette.ButtonText, QColor("#f8fafc"))
+        pal.setColor(QPalette.Highlight, QColor("#2563eb"))
+        pal.setColor(QPalette.HighlightedText, QColor("#ffffff"))
+    else:
+        pal.setColor(QPalette.Window, QColor("#f8fafc"))
+        pal.setColor(QPalette.WindowText, QColor("#0f172a"))
+        pal.setColor(QPalette.Base, QColor("#ffffff"))
+        pal.setColor(QPalette.AlternateBase, QColor("#f1f5f9"))
+        pal.setColor(QPalette.Text, QColor("#0f172a"))
+        pal.setColor(QPalette.Button, QColor("#e2e8f0"))
+        pal.setColor(QPalette.ButtonText, QColor("#0f172a"))
+        pal.setColor(QPalette.Highlight, QColor("#2563eb"))
+        pal.setColor(QPalette.HighlightedText, QColor("#ffffff"))
+    return pal
+
+
+def apply_dialog_theme(dialog, is_dark=None, *, parent=None, db=None, include_message_box: bool = True) -> bool:
+    """Apply consistent RTL Light/Dark QPalette and QSS to any QDialog/QMessageBox popup."""
+    if is_dark is None:
+        is_dark = resolve_active_dark_theme(parent=parent or dialog, db=db)
+    dark = bool(is_dark)
+    if hasattr(dialog, "is_dark_theme"):
+        dialog.is_dark_theme = dark
+    dialog.setAttribute(Qt.WA_StyledBackground, True)
+    dialog.setAutoFillBackground(True)
+    dialog.setLayoutDirection(Qt.RightToLeft)
+    dialog.setPalette(build_theme_palette(dark))
+
+    if dark:
+        bg = "#0f172a"
+        panel = "#1e293b"
+        fg = "#f8fafc"
+        muted = "#cbd5e1"
+        input_bg = "#1e293b"
+        border = "#475569"
+        hover = "#334155"
+        sec_bg = "#334155"
+        sec_fg = "#f8fafc"
+        sec_border = "#64748b"
+        sec_hover = "#475569"
+    else:
+        bg = "#f8fafc"
+        panel = "#ffffff"
+        fg = "#0f172a"
+        muted = "#475569"
+        input_bg = "#ffffff"
+        border = "#cbd5e1"
+        hover = "#e2e8f0"
+        sec_bg = "#e2e8f0"
+        sec_fg = "#0f172a"
+        sec_border = "#94a3b8"
+        sec_hover = "#cbd5e1"
+
+    selector = "QDialog, QMessageBox" if include_message_box else "QDialog"
+    qss = f"""
+        {selector} {{
+            background-color: {bg};
+            color: {fg};
+            font-family: 'Segoe UI', 'Tahoma', sans-serif;
+        }}
+        QLabel {{
+            background: transparent;
+            color: {fg};
+        }}
+        QLabel#settingsHint {{
+            color: {muted};
+            font-size: 11px;
+        }}
+        QGroupBox {{
+            background-color: {panel};
+            color: {fg};
+            border: 1px solid {border};
+            border-radius: 8px;
+            margin-top: 10px;
+            padding-top: 12px;
+            font-weight: bold;
+        }}
+        QLineEdit, QPlainTextEdit, QComboBox, QSpinBox {{
+            background-color: {input_bg};
+            color: {fg};
+            border: 1px solid {border};
+            border-radius: 6px;
+            padding: 6px 8px;
+            min-height: 24px;
+        }}
+        QLineEdit:focus, QPlainTextEdit:focus, QComboBox:focus, QSpinBox:focus {{
+            border: 1.5px solid #3b82f6;
+        }}
+        QComboBox QAbstractItemView, QListWidget, QScrollArea, QWidget#scrollContent {{
+            background-color: {input_bg};
+            color: {fg};
+            border: 1px solid {border};
+        }}
+        QComboBox QAbstractItemView::item:hover, QListWidget::item:hover {{
+            background-color: {hover};
+            color: {fg};
+        }}
+        QComboBox QAbstractItemView::item:selected, QListWidget::item:selected {{
+            background-color: #2563eb;
+            color: #ffffff;
+        }}
+        QCheckBox, QRadioButton {{
+            background: transparent;
+            color: {fg};
+            spacing: 8px;
+            font-weight: bold;
+        }}
+        QCheckBox::indicator, QRadioButton::indicator {{
+            width: 17px;
+            height: 17px;
+            border: 1.5px solid {sec_border};
+            background-color: {input_bg};
+            border-radius: 4px;
+        }}
+        QRadioButton::indicator {{
+            border-radius: 9px;
+        }}
+        QCheckBox::indicator:checked, QRadioButton::indicator:checked {{
+            background-color: #2563eb;
+            border: 1.5px solid #1d4ed8;
+        }}
+        QPushButton {{
+            background-color: #0284c7;
+            color: #ffffff;
+            border: 1px solid #0369a1;
+            border-radius: 6px;
+            padding: 7px 16px;
+            font-weight: bold;
+            min-height: 26px;
+        }}
+        QPushButton:hover {{
+            background-color: #0369a1;
+        }}
+        QPushButton#btnSuccess {{
+            background-color: #059669;
+            color: #ffffff;
+            border: 1px solid #047857;
+        }}
+        QPushButton#btnSuccess:hover {{
+            background-color: #047857;
+        }}
+        QPushButton#btnDanger {{
+            background-color: #dc2626;
+            color: #ffffff;
+            border: 1px solid #b91c1c;
+        }}
+        QPushButton#btnDanger:hover {{
+            background-color: #b91c1c;
+        }}
+        QPushButton#btnSecondary {{
+            background-color: {sec_bg};
+            color: {sec_fg};
+            border: 1px solid {sec_border};
+        }}
+        QPushButton#btnSecondary:hover {{
+            background-color: {sec_hover};
+        }}
+    """
+    dialog.setStyleSheet(qss)
+    st = dialog.style()
+    if st is not None:
+        for w in [dialog] + dialog.findChildren(QWidget):
+            try:
+                st.unpolish(w)
+                st.polish(w)
+                w.update()
+            except Exception:
+                pass
+    return dark
 
 PERSIAN_ARABIC_MAP = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
 
@@ -577,9 +796,17 @@ class _ComboSearchProxyModel(QSortFilterProxyModel):
         self.query = ""
         self.setFilterCaseSensitivity(Qt.CaseInsensitive)
 
+    def refresh_filter(self):
+        """Re-evaluate proxy filter without deprecated invalidateFilter() warnings."""
+        if hasattr(self, "beginFilterChange") and hasattr(self, "endFilterChange"):
+            self.beginFilterChange()
+            self.endFilterChange()
+        else:
+            self.invalidateFilter()
+
     def set_query(self, query):
         self.query = auto_capitalize_first_char(query).strip()
-        self.invalidateFilter()
+        self.refresh_filter()
 
     def filterAcceptsRow(self, source_row: int, source_parent: QModelIndex) -> bool:
         if not self.query:
@@ -620,7 +847,7 @@ class SearchableComboBox(QComboBox):
     def setItemSearchText(self, index: int, search_text: str):
         if 0 <= index < self.count():
             self.setItemData(index, str(search_text or ""), self.SEARCH_ROLE)
-            self._search_proxy.invalidateFilter()
+            self._search_proxy.refresh_filter()
 
     def _normalize_search(self, txt):
         norm = auto_capitalize_first_char(txt)
@@ -749,13 +976,8 @@ class JalaliCalendarDialog(QDialog):
         self.setFixedSize(470, 438)
         self.selected_date = initial_date_str
 
-        dark = False
-        ancestor = parent
-        while ancestor is not None:
-            if hasattr(ancestor, "db"):
-                dark = ancestor.db.cfg.get("theme", "light") == "dark"
-                break
-            ancestor = ancestor.parentWidget() if hasattr(ancestor, "parentWidget") else None
+        dark = resolve_active_dark_theme(parent=parent)
+        self.setPalette(build_theme_palette(dark))
 
         self._calendar_colors = {
             "surface": "#263244" if dark else "#ffffff",

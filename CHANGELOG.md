@@ -1,3 +1,28 @@
+# Daqiq 4.9.8
+
+## Red-Team License Security Hardening, Battery Taxonomy Sync, Config Parity & Codebase Optimization
+
+- **Zero-Bypass Subscription Expiry & High-Water-Mark Latch (`licensing/license_store.py`, `licensing/license_verifier.py`, `licensing/license_policy.py`, `licensing/license_dialog.py`, `main.py`, `docs/LICENSE_PROTOCOL_V1.md`)**: Closed sub-24h clock-rollback revival of expired 1-day/timed licenses by feeding monotonic High-Water-Mark (`max(now_utc, high_water_mark_utc)`) from multi-location HMAC-SHA256 clock anchors directly into `evaluate_validity_window()`; enforced `issued_at - max_clock_skew_hours` clock-rollback detection; added fail-closed `LicenseDialog.accept()` verification on the startup gate and end-of-day display parity; hardened `--smoke-launch-db` as strictly non-interactive (`setEnabled(False)`, input-transparent, rejects password-protected DBs, 6s daemon watchdog); added `"generated_at"` alongside `"generated_at_utc"` in `.daqreq` for full `Daqiq-License-Generator` `DeviceRequest` parity; shortened runtime periodic license check interval to `60s`.
+- **Synced Updated Battery Taxonomy (`default_taxonomy.json`)**: Merged updated external taxonomy from `release/v4.9.7` (`a2fe616`) adding «باتری قلمی، سکه‌ای و شارژی (AA, Coin & Rechargeable Battery)», `UPS LiFePO4 Battery`, `6V 4.5Ah`, and 4 dedicated attribute sets while keeping `default_taxonomy.json` strictly external alongside `Daqiq.exe`.
+- **`app_config.json` & `schema_version` Parity (`database.py`)**: Dynamically reconciled `app_config.json` (`schema_version = SCHEMA_VERSION`, live `app_version = "4.9.8"`, repaired empty/corrupt configs, canonicalized optional keys) while preserving all user preferences.
+- **Legacy DB Migration Cleanup (`database.py`)**: Removed obsolete pre-v4.9.7 legacy column-drop/table-rebuild migration code cleanly while keeping greenfield DB creation, `v4.9.7`/`v4.9.8` DB opening, and General Settings calendar conversion 100% intact.
+- **Performance Optimization & CI Fixes (`main.py`, `.github/workflows/ci.yml`)**: Batched `_populate_table_safely` table repaints with `setUpdatesEnabled(False)` and precomputed column metadata; fixed `.github/workflows/ci.yml` PR detached-HEAD null branch trim failure.
+
+---
+
+# Daqiq 4.9.7
+
+## Commercial Licensing Expiry Parity, Unified "Date Time" Schema, Universal Dialog Theming & Full Stability Audit
+
+- **Fail-Closed Subscription Expiry & Full `Daqiq-License-Generator` Parity (`licensing/license_verifier.py`, `licensing/license_policy.py`, `main.py`)**: Eliminated hidden 7-day cached grace fallback (`grace_period_days = 0` when omitted or disabled), added end-of-day UTC handling for date-only expiry strings (`YYYY-MM-DD`), added fail-closed checks for malformed/missing non-perpetual expiry timestamps, bool/negative grace values, and alias/nested `validity.*` fields while preserving canonical Ed25519 signature verification; live `check_license()` inside `is_feature_enabled()` and urgent lock banner on mid-session expiration ensure expired subscriptions lock immediately.
+- **System Spec Security ID & Settings Tab Preservation (`licensing/device_identity.py`, `licensing/license_policy.py`, `licensing/license_dialog.py`, `main.py`, `docs/LICENSE_PROTOCOL_V1.md`)**: Included exact `app_security_id` («شناسه امنیتی برنامه») inside canonical `.daqreq` exports from both LicenseDialog and Settings; closing LicenseDialog via «بستن» keeps the user on «تنظیمات» (and syncs any theme toggle) instead of resetting to tab `0` («داشبورد»).
+- **`app_config.json` Reconciliation & Live Version Sync (`database.py`, `main.py`)**: Added `get_live_app_version()` + `reconcile_app_config()` so `app_version` in `app_config.json` automatically updates to `4.9.7` on startup, migrates legacy aliases (`last_db_path`, `calendar_format`, `store_name`), aligns `calendar_type`/`time_format`/`last_store_name`, and strips orphaned keys cleanly without altering user preferences.
+- **Unified `"Date Time"` Format Across Purchases & Users (`database.py`, `main.py`, `exporter.py`, `utils/datetime_format.py`)**: Consolidated «ثبت خرید و محموله‌ها» into single `"Date Time"` `purchase_date` matching «ثبت فروش», removing `batches.purchase_time` & `"ساعت خرید"` with automatic lossless migration from `v4.9.4`–`v4.9.6` databases and seamless compatibility with `v4.9.3` databases; standardized `format_timestamp_for_display()` in «مدیریت کاربران» to `"Date Time"` (zero `" - "` separator).
+- **Universal Light/Dark Dialog Theme Synchronization (`utils_and_widgets.py`, `main.py`)**: Added unified `apply_dialog_theme()` + `DatabasePasswordDialog` (replacing raw `QInputDialog`), synchronized `LoginDialog` (startup & Switch User), `DatetimeMigrationChoiceDialog`, `ColorSelectionButton`, DB password dialogs, `DatabaseBootstrapDialog`, `JalaliCalendarDialog`, and `_MessageBoxPolisher` cleanly with active Light/Dark theme.
+- **Holistic Audit & Resource Hygiene (`database.py`, `utils_and_widgets.py`, `main.py`)**: Fixed connection cleanup on failed DB password verification, stopped `_license_timer` cleanly on `closeEvent`, and eliminated 300+ Qt `invalidateFilter()` deprecation warnings via `beginFilterChange()`/`endFilterChange()`.
+
+---
+
 # Daqiq 4.9.6
 
 ## Root-Cause Post-DB Startup Crash Fix & Full Stability Hardening

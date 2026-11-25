@@ -436,6 +436,23 @@ class LicenseDialog(QDialog):
         self._apply_theme()
         self.refresh_status()
 
+    def accept(self):
+        """Enforce fail-closed startup gate: never accept unless license evaluates active/valid."""
+        if self.is_startup_gate:
+            try:
+                res = self.service.check_license(force_reload=True)
+            except Exception:
+                res = None
+            if not res or not res.is_valid:
+                self.refresh_status()
+                self._show_notice(
+                    "لایسنس معتبر نیست",
+                    (res.message_fa if res and res.message_fa else "برای ورود به برنامه باید لایسنس معتبر و منقضی‌نشده فعال باشد."),
+                    kind="warning",
+                )
+                return
+        super().accept()
+
     def closeEvent(self, event):
         self._key_fp_revert_timer.stop()
         self._hw_fp_revert_timer.stop()
@@ -1038,12 +1055,27 @@ class LicenseDialog(QDialog):
         res = self.service.check_license(force_reload=True)
         self.current_result = res
 
-        try:
-            key_fps = self.service.get_active_key_fingerprints()
-            key_fp_str = ", ".join(k.get("display", k.get("fingerprint", "")) for k in key_fps) if key_fps else "پیش‌فرض"
-        except Exception:
-            key_fp_str = "پیش‌فرض"
-        self._current_key_fp_text = key_fp_str
+        sec_id = None
+        getter = getattr(self.service, "get_app_security_id_display", None)
+        if callable(getter):
+            cand = getter()
+            if isinstance(cand, str) and cand.strip():
+                sec_id = cand
+        if sec_id:
+            self._current_key_fp_text = sec_id
+        else:
+            fps = self.service.get_active_key_fingerprints()
+            if fps:
+                first_fp = fps[0]
+                if isinstance(first_fp, dict):
+                    self._current_key_fp_text = str(
+                        first_fp.get("display") or first_fp.get("fingerprint") or "نامشخص"
+                    )
+                else:
+                    self._current_key_fp_text = str(first_fp)
+            else:
+                self._current_key_fp_text = "نامشخص"
+        key_fp_str = self._current_key_fp_text
         self._key_fp_revert_timer.stop()
         self._restore_key_fp_label()
 
@@ -1070,7 +1102,7 @@ class LicenseDialog(QDialog):
                 try:
                     import jdatetime
                     from .license_verifier import parse_iso8601_utc
-                    dt = parse_iso8601_utc(payload.expires_at)
+                    dt = parse_iso8601_utc(payload.expires_at, end_of_day_if_date_only=True)
                     jdt = jdatetime.datetime.fromgregorian(datetime=dt)
                     expiry_text = f"{jdt.strftime('%Y/%m/%d %H:%M')} (میلادی: {dt.strftime('%Y-%m-%d')})"
                 except Exception:

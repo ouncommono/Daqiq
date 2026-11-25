@@ -630,7 +630,7 @@ def test_v3_application_config_records_release_and_preserves_current_preferences
     assert manager.cfg["zero_append_count"] == 4
     assert manager.cfg["default_window_maximized"] is False
     assert manager.cfg["require_login_password"] is True
-    assert manager.cfg["app_version"] == "4.8.4"
+    assert manager.cfg["app_version"] == database_module.get_live_app_version()
     assert manager.cfg["schema_version"] == 484
     assert manager.cfg["config_schema_version"] == 2
 
@@ -1017,7 +1017,7 @@ def test_fresh_schema_has_v3_physical_column_order_and_metadata(manager):
         ],
         "batches": [
             "id", "batch_code", "product_id", "serial_numbers", "supplier_id", "buyer_employee_id",
-            "invoice_number", "purchase_date", "purchase_time", "initial_qty", "sold_qty",
+            "invoice_number", "purchase_date", "initial_qty", "sold_qty",
             "returned_qty", "remaining_qty", "unit_purchase_price", "extra_cost_total",
             "upgrade_cost_unit", "unit_cost_price", "suggested_sell_price", "profit_pct",
             "paid_amount", "settlement_status", "colors_json",
@@ -1275,7 +1275,7 @@ def test_v330_greenfield_schema_contracts_and_stock_balance_constraints(manager)
         ],
         "batches": [
             "id", "batch_code", "product_id", "serial_numbers", "supplier_id", "buyer_employee_id",
-            "invoice_number", "purchase_date", "purchase_time", "initial_qty", "sold_qty",
+            "invoice_number", "purchase_date", "initial_qty", "sold_qty",
             "returned_qty", "remaining_qty", "unit_purchase_price", "extra_cost_total",
             "upgrade_cost_unit", "unit_cost_price", "suggested_sell_price", "profit_pct",
             "paid_amount", "settlement_status", "colors_json",

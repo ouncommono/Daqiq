@@ -102,7 +102,7 @@ class ReleaseV45Tests(unittest.TestCase):
     def test_schema_and_app_version_v450(self):
         """Item 0: Database version is 4.8.4 and schema_version is 484."""
         self.assertEqual(APP_VERSION, "4.8.4")
-        self.assertIn(UI_APP_VERSION, ("4.8.4", "4.9.0", "4.9.1", "4.9.2", "4.9.3", "4.9.4", "4.9.5", "4.9.6"))
+        self.assertIn(UI_APP_VERSION, ("4.8.4", "4.9.0", "4.9.1", "4.9.2", "4.9.3", "4.9.4", "4.9.5", "4.9.6", "4.9.7", "4.9.8"))
         self.assertEqual(SCHEMA_VERSION, 484)
         with self.db.get_connection() as conn:
             user_ver = conn.execute("PRAGMA user_version").fetchone()[0]

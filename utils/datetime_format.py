@@ -408,6 +408,9 @@ def convert_datetime_str(
         if m_sub:
             cleaned = m_sub.group(1) + m_sub.group(2)
 
+    # Normalize legacy 'Date - Time' separator into canonical single-space 'Date Time'
+    cleaned = re.sub(r"\s*-\s*(?=\d{1,2}:\d{2})", " ", cleaned)
+
     tokens = cleaned.split(" ", 1)
     date_part = tokens[0]
     time_part = tokens[1].strip() if len(tokens) > 1 else ""
@@ -430,7 +433,7 @@ def format_timestamp_for_display(
     cal_type: str = CALENDAR_JALALI,
     time_fmt: str = TIME_FORMAT_24H,
 ) -> str:
-    """Format an ISO or localized timestamp for user-facing tables (e.g. 'YYYY/MM/DD - HH:MM')."""
+    """Format an ISO or localized timestamp for user-facing tables as 'YYYY/MM/DD HH:MM'."""
     if not dt_str or not str(dt_str).strip():
         return "—"
     raw = _BIDI_RE.sub("", normalize_digits(str(dt_str))).strip()
@@ -438,6 +441,7 @@ def format_timestamp_for_display(
     target_tf = TIME_FORMAT_LOOKUP.get(time_fmt, TIME_FORMAT_24H)
 
     cleaned = raw.replace("T", " ", 1)
+    cleaned = re.sub(r"\s*-\s*(?=\d{1,2}:\d{2})", " ", cleaned)
     if "." in cleaned and re.match(r"^\d{4}[/-]\d{1,2}[/-]\d{1,2}", cleaned):
         cleaned = re.sub(r"\.\d+", "", cleaned)
 
@@ -451,14 +455,14 @@ def format_timestamp_for_display(
 
     t_parts = parse_time_parts(tokens[1]) if len(tokens) > 1 else None
     if t_parts is None:
-        return f"{date_out} - 12:00 AM" if target_tf == TIME_FORMAT_12H else f"{date_out} - 00:00"
+        return f"{date_out} 12:00 AM" if target_tf == TIME_FORMAT_12H else f"{date_out} 00:00"
 
     h, m, _s = t_parts
     if target_tf == TIME_FORMAT_12H:
         suffix = "PM" if h >= 12 else "AM"
         h12 = h % 12 or 12
-        return f"{date_out} - {h12:02d}:{m:02d} {suffix}"
-    return f"{date_out} - {h:02d}:{m:02d}"
+        return f"{date_out} {h12:02d}:{m:02d} {suffix}"
+    return f"{date_out} {h:02d}:{m:02d}"
 
 
 def chronological_sort_key(
@@ -544,7 +548,6 @@ def get_now_datetime(cal_type: str = CALENDAR_JALALI, time_fmt: str = TIME_FORMA
 # ---------------------------------------------------------------------------
 
 _DATE_ONLY_COLUMNS = {
-    "purchase_date",
     "warranty_start",
     "warranty_end",
     "upgrade_date",
@@ -552,11 +555,10 @@ _DATE_ONLY_COLUMNS = {
     "change_date",
 }
 
-_TIME_ONLY_COLUMNS = {
-    "purchase_time",
-}
+_TIME_ONLY_COLUMNS = set()
 
 _DATETIME_COLUMNS = {
+    "purchase_date",
     "sale_datetime",
     "service_datetime",
     "action_time",
@@ -572,9 +574,8 @@ _DATETIME_COLUMNS_MAP = {
         "datetime_cols": ("sale_datetime", "created_at", "updated_at"),
     },
     "batches": {
-        "date_cols": ("purchase_date",),
-        "time_cols": ("purchase_time",),
-        "datetime_cols": ("created_at", "updated_at"),
+        "date_cols": (),
+        "datetime_cols": ("purchase_date", "created_at", "updated_at"),
     },
     "upgrades": {
         "date_cols": ("upgrade_date",),
@@ -639,12 +640,12 @@ def discover_datetime_columns(conn) -> Dict[str, Dict[str, Any]]:
 
         for col in col_names:
             low = col.lower()
-            if low in _TIME_ONLY_COLUMNS or (low.endswith("_time") and low != "action_time"):
+            if low in _DATETIME_COLUMNS or low.endswith("_datetime") or low.endswith("_at"):
+                datetime_cols.append(col)
+            elif low in _TIME_ONLY_COLUMNS or (low.endswith("_time") and low != "action_time"):
                 time_cols.append(col)
             elif low in _DATE_ONLY_COLUMNS or low.endswith("_date"):
                 date_cols.append(col)
-            elif low in _DATETIME_COLUMNS or low.endswith("_datetime") or low.endswith("_at"):
-                datetime_cols.append(col)
 
         if date_cols or time_cols or datetime_cols:
             discovered[table] = {
