@@ -201,23 +201,36 @@ def build_shards(
     if not fp_prefix.endswith(":"):
         fp_prefix += ":"
 
-    # 2. Resolve Public Keys (Priority: Env -> local config -> manifest)
+    # 2. Resolve Key ID & Public Keys (Priority per-field: Env -> local config -> manifest)
     keys_to_process: Dict[str, str] = {}
 
     env_key = (override_key_b64 or os.environ.get("DAQIQ_LICENSE_PUBLIC_KEY_B64") or "").strip()
     env_kid = (override_key_id or os.environ.get("DAQIQ_LICENSE_KEY_ID") or "").strip()
+    local_key = str(local_cfg.get("public_key") or "").strip()
+    local_kid = str(local_cfg.get("key_id") or "").strip()
 
-    if env_key:
-        kid = env_kid or "daqiq-prod-v1"
-        keys_to_process[kid] = env_key
-    elif local_cfg.get("public_key") and str(local_cfg["public_key"]).strip():
-        kid = str(local_cfg.get("key_id") or "daqiq-prod-v1").strip()
-        keys_to_process[kid] = str(local_cfg["public_key"]).strip()
-    elif os.path.exists(manifest_path):
+    manifest_data: Dict[str, str] = {}
+    if os.path.exists(manifest_path):
         with open(manifest_path, "r", encoding="utf-8") as f:
-            manifest_data = json.load(f)
-            if isinstance(manifest_data, dict):
-                keys_to_process.update(manifest_data)
+            loaded = json.load(f)
+            if isinstance(loaded, dict):
+                manifest_data = {str(k).strip(): str(v).strip() for k, v in loaded.items() if str(v).strip()}
+
+    resolved_kid = env_kid or local_kid or (next(iter(manifest_data.keys()), "daqiq-prod-v1"))
+    resolved_key = env_key or local_key
+
+    if resolved_key:
+        keys_to_process[resolved_kid] = resolved_key
+    elif manifest_data:
+        if resolved_kid in manifest_data:
+            keys_to_process[resolved_kid] = manifest_data[resolved_kid]
+        else:
+            # Re-label default manifest key under custom key_id if user overrode key_id only
+            first_val = next(iter(manifest_data.values()))
+            keys_to_process[resolved_kid] = first_val
+        for mk, mv in manifest_data.items():
+            if mk not in keys_to_process and mk != next(iter(manifest_data.keys()), ""):
+                keys_to_process[mk] = mv
 
     if extra_keys_json and extra_keys_json.strip():
         try:

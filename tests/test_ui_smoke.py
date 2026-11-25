@@ -56,7 +56,7 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
             "تنظیمات خروجی اکسل گزارش‌ها",
             "مدیریت سطوح دسترسی",
         ]
-        assert len(window.inventory_export_column_checks) == 32
+        assert len(window.inventory_export_column_checks) == 33
         for key in ("code", "batch_code", "category", "subcategory", "brand_model", "specs"):
             assert window.inventory_export_column_checks[key].isChecked()
         assert not window.inventory_export_column_checks["suggested_price"].isChecked()
@@ -477,7 +477,8 @@ def test_sale_batch_picker_shows_only_distinguishing_specifications(tmp_path, mo
             window.cb_sale_batch.itemData(index, Qt.ToolTipRole)
             for index in range(window.cb_sale_batch.count())
         ]
-        assert all('dir="rtl"' in tooltip and 'align="right"' in tooltip for tooltip in raw_tooltips)
+        assert all("direction:ltr" not in tooltip and "text-align:left" not in tooltip for tooltip in raw_tooltips)
+        assert all("کد محموله:" in strip_bidi_controls(tooltip) for tooltip in raw_tooltips)
         tooltips = [strip_bidi_controls(tooltip) for tooltip in raw_tooltips]
         assert any("RAM: 8GB" in tooltip for tooltip in tooltips)
         assert any("RAM: 16GB" in tooltip for tooltip in tooltips)

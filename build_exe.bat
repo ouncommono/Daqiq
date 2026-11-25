@@ -4,7 +4,7 @@ echo =======================================================
 echo Building Daqiq Production Windows Executable with Nuitka
 echo =======================================================
 echo.
-python scripts\build_nuitka.py --mode onefile
+python scripts\build_local.py --mode onefile
 if errorlevel 1 (
     echo.
     echo [ERROR] Build failed! Check compiler logs above.

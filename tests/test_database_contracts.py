@@ -1017,7 +1017,7 @@ def test_fresh_schema_has_v3_physical_column_order_and_metadata(manager):
         ],
         "batches": [
             "id", "batch_code", "product_id", "serial_numbers", "supplier_id", "buyer_employee_id",
-            "invoice_number", "purchase_date", "initial_qty", "sold_qty",
+            "invoice_number", "purchase_date", "purchase_time", "initial_qty", "sold_qty",
             "returned_qty", "remaining_qty", "unit_purchase_price", "extra_cost_total",
             "upgrade_cost_unit", "unit_cost_price", "suggested_sell_price", "profit_pct",
             "paid_amount", "settlement_status", "colors_json",
@@ -1275,7 +1275,7 @@ def test_v330_greenfield_schema_contracts_and_stock_balance_constraints(manager)
         ],
         "batches": [
             "id", "batch_code", "product_id", "serial_numbers", "supplier_id", "buyer_employee_id",
-            "invoice_number", "purchase_date", "initial_qty", "sold_qty",
+            "invoice_number", "purchase_date", "purchase_time", "initial_qty", "sold_qty",
             "returned_qty", "remaining_qty", "unit_purchase_price", "extra_cost_total",
             "upgrade_cost_unit", "unit_cost_price", "suggested_sell_price", "profit_pct",
             "paid_amount", "settlement_status", "colors_json",

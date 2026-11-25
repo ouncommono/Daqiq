@@ -38,8 +38,15 @@ from .device_identity import (
 )
 from .license_verifier import LicenseVerifier
 from .license_store import LicenseStore
-from .license_policy import LicenseService, TAB_MODULE_TO_FEATURE
-from .license_dialog import LicenseDialog
+from .license_policy import (
+    LicenseService,
+    TAB_MODULE_TO_FEATURE,
+    CORE_TAB_FEATURES,
+    SUBFEATURE_PARENT_TAB,
+    ALL_LICENSE_FEATURES,
+    FEATURE_LABELS_FA,
+)
+from .license_dialog import LicenseDialog, ThemedNoticeDialog
 
 __all__ = [
     "CustomerInfo",
@@ -67,5 +74,10 @@ __all__ = [
     "LicenseStore",
     "LicenseService",
     "TAB_MODULE_TO_FEATURE",
+    "CORE_TAB_FEATURES",
+    "SUBFEATURE_PARENT_TAB",
+    "ALL_LICENSE_FEATURES",
+    "FEATURE_LABELS_FA",
     "LicenseDialog",
+    "ThemedNoticeDialog",
 ]

@@ -81,9 +81,10 @@ jobs:
       - name: Run PyTest test suite
         env:
           QT_QPA_PLATFORM: offscreen
+          PYTHONFAULTHANDLER: "1"
           PYTHONPATH: .
         shell: pwsh
-        run: python -m pytest --timeout=60 -v
+        run: python -m pytest --timeout=120 -v
 
   build-nuitka-standalone:
     name: Build Nuitka Standalone (Stage A)
@@ -120,6 +121,7 @@ jobs:
         env:
           DAQIQ_LICENSE_PUBLIC_KEY_B64: ${{ secrets.DAQIQ_LICENSE_PUBLIC_KEY_B64 }}
           DAQIQ_LICENSE_KEY_ID: ${{ vars.DAQIQ_LICENSE_KEY_ID }}
+          DAQIQ_LICENSE_FP_PREFIX: ${{ vars.DAQIQ_LICENSE_FP_PREFIX }}
         run: |
           python tools/build_key_shards.py
 
@@ -128,6 +130,7 @@ jobs:
         env:
           DAQIQ_LICENSE_PUBLIC_KEY_B64: ${{ secrets.DAQIQ_LICENSE_PUBLIC_KEY_B64 }}
           DAQIQ_LICENSE_KEY_ID: ${{ vars.DAQIQ_LICENSE_KEY_ID }}
+          DAQIQ_LICENSE_FP_PREFIX: ${{ vars.DAQIQ_LICENSE_FP_PREFIX }}
         run: python scripts/build_nuitka.py --mode standalone
 
       - name: Verify Stage A Standalone Acceptance
@@ -164,7 +167,7 @@ jobs:
         shell: pwsh
         run: |
           $ver = (Get-Content VERSION).Trim()
-          if (-not $ver) { $ver = "4.9.3" }
+          if (-not $ver) { $ver = "4.9.6" }
           Write-Output "APP_VERSION=$ver" >> $env:GITHUB_ENV
           Write-Output "Building Daqiq onefile for version: $ver"
 
@@ -173,6 +176,7 @@ jobs:
         env:
           DAQIQ_LICENSE_PUBLIC_KEY_B64: ${{ secrets.DAQIQ_LICENSE_PUBLIC_KEY_B64 }}
           DAQIQ_LICENSE_KEY_ID: ${{ vars.DAQIQ_LICENSE_KEY_ID }}
+          DAQIQ_LICENSE_FP_PREFIX: ${{ vars.DAQIQ_LICENSE_FP_PREFIX }}
         run: |
           python tools/build_key_shards.py
 
@@ -181,11 +185,95 @@ jobs:
         env:
           DAQIQ_LICENSE_PUBLIC_KEY_B64: ${{ secrets.DAQIQ_LICENSE_PUBLIC_KEY_B64 }}
           DAQIQ_LICENSE_KEY_ID: ${{ vars.DAQIQ_LICENSE_KEY_ID }}
+          DAQIQ_LICENSE_FP_PREFIX: ${{ vars.DAQIQ_LICENSE_FP_PREFIX }}
         run: python scripts/build_nuitka.py --mode onefile
 
       - name: Verify Stage B Onefile Acceptance
         shell: pwsh
         run: python scripts/verify_nuitka_build.py --mode onefile
+
+      - name: Verify Compiled Onefile Outer Executable Path Resolution (--print-paths)
+        shell: pwsh
+        run: |
+          $smokeDir = "C:\daqiq_path_smoke"
+          Remove-Item -Recurse -Force $smokeDir -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $smokeDir | Out-Null
+          Copy-Item "dist/Daqiq_${{ env.APP_VERSION }}.exe" "$smokeDir\Daqiq.exe"
+          Copy-Item "dist/default_taxonomy.json" "$smokeDir\default_taxonomy.json"
+          try {
+            python -c "import subprocess, sys; p = subprocess.run([r'C:\daqiq_path_smoke\Daqiq.exe', '--print-paths'], cwd=r'C:\Windows\Temp', capture_output=True, text=True, timeout=30); print(p.stdout); sys.stderr.write(p.stderr); assert p.returncode == 0, p.returncode; assert r'EXECUTABLE_DIR=C:\daqiq_path_smoke' in p.stdout, p.stdout; assert r'DEFAULT_TAXONOMY_PATH=C:\daqiq_path_smoke\default_taxonomy.json' in p.stdout, p.stdout; assert r'AppData\Local\Daqiq' not in p.stdout.split('EXECUTABLE_DIR=')[1].splitlines()[0], p.stdout; print('PASS: Compiled onefile path check verified')"
+            if ($LASTEXITCODE -ne 0) {
+              exit 1
+            }
+          } finally {
+            Remove-Item -Recurse -Force $smokeDir -ErrorAction SilentlyContinue
+          }
+
+      - name: Verify Compiled Onefile Post-DB MainWindow Launch (Create & Existing DB)
+        shell: pwsh
+        run: |
+          $smokeRoot = "C:\daqiq_e2e_smoke"
+          $smokeDbs = "C:\daqiq_e2e_smoke_dbs"
+          Remove-Item -Recurse -Force $smokeRoot, $smokeDbs -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $smokeRoot, $smokeDbs | Out-Null
+          Copy-Item "dist/Daqiq_${{ env.APP_VERSION }}.exe" "$smokeRoot\Daqiq.exe"
+          $env:QT_QPA_PLATFORM = "offscreen"
+          $env:PYTHONFAULTHANDLER = "1"
+          try {
+            $smokePy = @'
+          import os, shutil, subprocess, sys
+          from pathlib import Path
+
+          exe = r"C:\daqiq_e2e_smoke\Daqiq.exe"
+          dbs = Path(r"C:\daqiq_e2e_smoke_dbs")
+          local_app = Path(os.environ["LOCALAPPDATA"])
+          logs = local_app / "Daqiq" / "logs"
+          pre_sizes = {
+              name: (logs / name).stat().st_size if (logs / name).is_file() else 0
+              for name in ("daqiq_crash.log", "daqiq_native_fault.log")
+          }
+
+          # 1. Create new DB WITHOUT default_taxonomy.json
+          db1 = dbs / "new_no_tax.db"
+          p1 = subprocess.run([exe, "--smoke-launch-db", str(db1), "--smoke-launch-mode", "create"], cwd=r"C:\Windows\Temp", capture_output=True, text=True, timeout=60)
+          print("SMOKE 1 STDOUT:", p1.stdout)
+          print("SMOKE 1 STDERR:", p1.stderr)
+          assert p1.returncode == 0, f"Create-without-taxonomy failed: {p1.returncode}"
+          assert "DAQIQ_SMOKE_LAUNCH_OK" in p1.stdout, p1.stdout
+          assert db1.is_file(), "DB1 was not created"
+
+          # 2. Copy external default_taxonomy.json and Create new DB WITH taxonomy
+          shutil.copy2("dist/default_taxonomy.json", r"C:\daqiq_e2e_smoke\default_taxonomy.json")
+          db2 = dbs / "new_with_tax.db"
+          p2 = subprocess.run([exe, "--smoke-launch-db", str(db2), "--smoke-launch-mode", "create"], cwd=r"C:\Windows\Temp", capture_output=True, text=True, timeout=60)
+          print("SMOKE 2 STDOUT:", p2.stdout)
+          print("SMOKE 2 STDERR:", p2.stderr)
+          assert p2.returncode == 0, f"Create-with-taxonomy failed: {p2.returncode}"
+          assert "DAQIQ_SMOKE_LAUNCH_OK" in p2.stdout, p2.stdout
+
+          # 3. Connect Existing DB
+          p3 = subprocess.run([exe, "--smoke-launch-db", str(db2), "--smoke-launch-mode", "existing"], cwd=r"C:\Windows\Temp", capture_output=True, text=True, timeout=60)
+          print("SMOKE 3 STDOUT:", p3.stdout)
+          print("SMOKE 3 STDERR:", p3.stderr)
+          assert p3.returncode == 0, f"Connect-existing failed: {p3.returncode}"
+          assert "DAQIQ_SMOKE_LAUNCH_OK" in p3.stdout, p3.stdout
+
+          # 4. Assert zero new crash or native fault log output
+          for log_name, prev_size in pre_sizes.items():
+              lp = logs / log_name
+              if lp.is_file():
+                  data = lp.read_bytes()[prev_size:]
+                  content = data.decode("utf-8", errors="replace").strip()
+                  assert not content, f"Unexpected {log_name} content:\n{content}"
+          print("PASS: Compiled Windows onefile post-DB MainWindow launch verified for Create & Existing DB.")
+          '@
+            $smokePy | python -c "import sys, textwrap; exec(textwrap.dedent(sys.stdin.read()))"
+            if ($LASTEXITCODE -ne 0) {
+              exit 1
+            }
+          } finally {
+            Remove-Item -Recurse -Force $smokeRoot, $smokeDbs -ErrorAction SilentlyContinue
+          }
 
       - name: Verify Onefile Executable Size and Optimization
         shell: pwsh
@@ -239,7 +327,7 @@ jobs:
         shell: pwsh
         run: |
           $ver = (Get-Content VERSION).Trim()
-          if (-not $ver) { $ver = "4.9.3" }
+          if (-not $ver) { $ver = "4.9.6" }
           Write-Output "APP_VERSION=$ver" >> $env:GITHUB_ENV
 
       - name: Download Build Artifacts

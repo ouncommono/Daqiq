@@ -26,29 +26,29 @@ from .keys import KeyRegistry
 MAX_LICENSE_FILE_BYTES = 65536  # 64 KiB
 DOMAIN_PREFIX = b"DAQIQ-LICENSE-V1\n"
 
-# Persian customer-friendly status messages
+# Persian customer-friendly status messages (concise, natural end-user copy)
 STATUS_MESSAGES_FA: Dict[ValidationStatus, str] = {
-    ValidationStatus.VALID: "لایسنس نرم‌افزار معتبر است.",
-    ValidationStatus.MISSING: "فایل لایسنس یافت نشد. لطفاً فایل لایسنس (.daqlic) را وارد کنید.",
-    ValidationStatus.NOT_YET_VALID: "تاریخ شروع اعتبار لایسنس هنوز فرا نرسیده است. ساعت و تاریخ سیستم خود را بررسی کنید.",
-    ValidationStatus.EXPIRED: "اعتبار اشتراک لایسنس به پایان رسیده است. لطفاً جهت تمدید با پشتیبانی تماس بگیرید.",
-    ValidationStatus.INVALID_SIGNATURE: "امضای دیجیتال لایسنس نامعتبر است یا محتوای فایل دستکاری شده است.",
-    ValidationStatus.UNAUTHORIZED_DEVICE: "این لایسنس برای سخت‌افزار این رایانه صادر نشده است.",
-    ValidationStatus.HARDWARE_MISMATCH: "شناسه سخت‌افزاری دستگاه با شناسه‌های مجاز در لایسنس همخوانی ندارد.",
-    ValidationStatus.WRONG_PRODUCT: "این فایل لایسنس متعلق به این نرم‌افزار نیست.",
-    ValidationStatus.UNSUPPORTED_FORMAT: "فرمت ساختاری فایل لایسنس پشتیبانی نمی‌شود.",
-    ValidationStatus.UNSUPPORTED_APP_VERSION: "این نسخه از برنامه با لایسنس فعال سازگار نیست (نیاز به ارتقا یا تمدید لایسنس).",
+    ValidationStatus.VALID: "لایسنس نرم‌افزار معتبر و فعال است.",
+    ValidationStatus.MISSING: "لایسنس فعالی روی این سیستم ثبت نشده است. برای فعال‌سازی، فایل لایسنس خود را بارگذاری کنید.",
+    ValidationStatus.NOT_YET_VALID: "تاریخ شروع اعتبار لایسنس هنوز فرا نرسیده است. لطفاً تاریخ سیستم خود را بررسی کنید.",
+    ValidationStatus.EXPIRED: "اعتبار این لایسنس به پایان رسیده است. لطفاً برای تمدید با پشتیبانی تماس بگیرید.",
+    ValidationStatus.INVALID_SIGNATURE: "فایل لایسنس معتبر نیست یا با این نسخه همخوانی ندارد.",
+    ValidationStatus.UNAUTHORIZED_DEVICE: "این لایسنس برای این سیستم صادر نشده است.",
+    ValidationStatus.HARDWARE_MISMATCH: "این لایسنس با مشخصات سخت‌افزاری این سیستم مطابقت ندارد.",
+    ValidationStatus.WRONG_PRODUCT: "این فایل لایسنس متعلق به نرم‌افزار دقیق نیست.",
+    ValidationStatus.UNSUPPORTED_FORMAT: "قالب فایل لایسنس پشتیبانی نمی‌شود.",
+    ValidationStatus.UNSUPPORTED_APP_VERSION: "این نسخه از نرم‌افزار با لایسنس انتخاب‌شده سازگار نیست.",
     ValidationStatus.VERSION_INCOMPATIBLE: "نسخه نرم‌افزار با محدوده مجاز لایسنس سازگار نیست.",
-    ValidationStatus.INVALID_ENTITLEMENT: "دسترسی‌های تعریف‌شده در لایسنس نامعتبر هستند.",
-    ValidationStatus.CORRUPTED_LICENSE: "فایل لایسنس خوانا نیست یا ساختار آن آسیب دیده است.",
-    ValidationStatus.HARDWARE_IDENTITY_UNAVAILABLE: "شناسه سخت‌افزاری دستگاه قابل دسترسی نیست.",
-    ValidationStatus.CLOCK_ROLLBACK: "عقب کشیدن ساعت سیستم شناسایی شد. لطفاً ساعت و تاریخ ویندوز را همگام‌سازی کنید.",
-    ValidationStatus.CLOCK_TAMPERED: "دستکاری یا عقب کشیدن ساعت سیستم شناسایی شد.",
-    ValidationStatus.GRACE_PERIOD: "لایسنس در دوره مهلت موقت (Grace Period) قرار دارد.",
+    ValidationStatus.INVALID_ENTITLEMENT: "دسترسی‌های تعریف‌شده در لایسنس معتبر نیستند.",
+    ValidationStatus.CORRUPTED_LICENSE: "فایل لایسنس معتبر نیست یا خوانا نمی‌باشد. لطفاً فایل صحیح را انتخاب کنید.",
+    ValidationStatus.HARDWARE_IDENTITY_UNAVAILABLE: "امکان دریافت شناسه سخت‌افزاری این سیستم وجود ندارد.",
+    ValidationStatus.CLOCK_ROLLBACK: "ساعت و تاریخ سیستم عقب کشیده شده است. لطفاً زمان ویندوز را تنظیم کنید.",
+    ValidationStatus.CLOCK_TAMPERED: "ساعت و تاریخ سیستم با زمان ثبت‌شده همخوانی ندارد. لطفاً زمان ویندوز را همگام‌سازی کنید.",
+    ValidationStatus.GRACE_PERIOD: "اعتبار لایسنس به پایان رسیده و نرم‌افزار در دوره مهلت موقت قرار دارد.",
     ValidationStatus.TRIAL: "نسخه آزمایشی فعال است.",
-    ValidationStatus.PUBLIC_KEY_NOT_CONFIGURED: "کلید عمومی لایسنس در سامانه تنظیم نشده است.",
-    ValidationStatus.KEY_INTEGRITY_ERROR: "یکپارچگی کلیدهای امنیتی داخلی نقض شده است (احتمال دستکاری نرم‌افزار).",
-    ValidationStatus.UNTRUSTED_KEY: "امضای دیجیتال لایسنس با کلیدهای معتبر این نسخه همخوانی ندارد.",
+    ValidationStatus.PUBLIC_KEY_NOT_CONFIGURED: "تنظیمات کلید امنیتی نرم‌افزار کامل نیست.",
+    ValidationStatus.KEY_INTEGRITY_ERROR: "یکپارچگی امنیتی نرم‌افزار تأیید نشد.",
+    ValidationStatus.UNTRUSTED_KEY: "فایل لایسنس با امضای معتبر این نسخه صادر نشده است.",
 }
 
 
@@ -353,7 +353,7 @@ class LicenseVerifier:
         self,
         envelope: LicenseEnvelope,
         current_hardware_fingerprint: str,
-        current_app_version: str = "4.9.2",
+        current_app_version: str = "4.9.6",
         now_utc: Optional[datetime.datetime] = None,
         available_hardware_tiers: Optional[Dict[str, str]] = None,
     ) -> ValidationResult:

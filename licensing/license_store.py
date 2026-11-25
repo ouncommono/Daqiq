@@ -77,11 +77,15 @@ class LicenseStore:
     ):
         self.machine_dir = machine_dir or get_machine_wide_dir()
         self.user_dir = user_dir or get_per_user_dir()
-        self.roaming_dir = roaming_dir or get_roaming_appdata_dir()
         self._is_test_env = bool(machine_dir or user_dir)
+        self.roaming_dir = roaming_dir or (
+            os.path.join(self.user_dir, ".roaming_anchor")
+            if self._is_test_env
+            else get_roaming_appdata_dir()
+        )
 
     def _get_search_dirs(self) -> List[str]:
-        """Return list of candidate directories in priority order."""
+        """Return list of candidate directories in write priority order."""
         dirs = [self.machine_dir, self.user_dir, self.roaming_dir]
         unique_dirs: List[str] = []
         for d in dirs:
@@ -89,9 +93,18 @@ class LicenseStore:
                 unique_dirs.append(d)
         return unique_dirs
 
+    def _get_read_dirs(self) -> List[str]:
+        """Return candidate directories in read priority order (per-user first, then machine-wide)."""
+        dirs = [self.user_dir, self.machine_dir, self.roaming_dir]
+        unique_dirs: List[str] = []
+        for d in dirs:
+            if d and d not in unique_dirs:
+                unique_dirs.append(d)
+        return unique_dirs
+
     def _resolve_read_path(self, filename: str) -> Optional[str]:
-        """Check machine_dir first, then user_dir, then roaming_dir."""
-        for d in self._get_search_dirs():
+        """Check user_dir first, then machine_dir, then roaming_dir."""
+        for d in self._get_read_dirs():
             target = os.path.join(d, filename)
             if os.path.isfile(target):
                 return target
@@ -122,11 +135,11 @@ class LicenseStore:
         except Exception as e:
             raise StorageError(f"خطا در خواندن فایل لایسنس ذخیره‌شده: {e}") from e
 
-    def save_license_bytes_atomic(self, raw_bytes: bytes) -> str:
-        """Atomically persist raw license bytes to disk without damaging existing files."""
-        target_dir, target_file = self._resolve_write_target(LICENSE_FILENAME)
-        tmp_file = os.path.join(target_dir, f"{LICENSE_FILENAME}.{uuid.uuid4().hex}.tmp")
-
+    @staticmethod
+    def _atomic_write_bytes(target_dir: str, filename: str, raw_bytes: bytes) -> str:
+        os.makedirs(target_dir, exist_ok=True)
+        target_file = os.path.join(target_dir, filename)
+        tmp_file = os.path.join(target_dir, f"{filename}.{uuid.uuid4().hex}.tmp")
         try:
             with open(tmp_file, "wb") as f:
                 f.write(raw_bytes)
@@ -134,13 +147,29 @@ class LicenseStore:
                 os.fsync(f.fileno())
             os.replace(tmp_file, target_file)
             return target_file
-        except Exception as e:
+        except Exception:
             if os.path.exists(tmp_file):
                 try:
                     os.remove(tmp_file)
                 except Exception:
                     pass
+            raise
+
+    def save_license_bytes_atomic(self, raw_bytes: bytes) -> str:
+        """Atomically persist raw license bytes to disk without damaging existing files."""
+        target_dir, target_file = self._resolve_write_target(LICENSE_FILENAME)
+        try:
+            saved_path = self._atomic_write_bytes(target_dir, LICENSE_FILENAME, raw_bytes)
+        except Exception as e:
             raise StorageError(f"خطا در ذخیره‌سازی اتمیک لایسنس: {e}") from e
+
+        # Mirror to per-user directory when primary write targeted machine_dir so user-level updates stay consistent.
+        if self.user_dir and self.user_dir != target_dir:
+            try:
+                self._atomic_write_bytes(self.user_dir, LICENSE_FILENAME, raw_bytes)
+            except (PermissionError, OSError):
+                pass
+        return saved_path
 
     def remove_license(self) -> bool:
         """Remove stored license from all candidate directories."""

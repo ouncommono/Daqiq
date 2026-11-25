@@ -20,7 +20,7 @@ def get_version(repo_root: Path) -> str:
     v_path = repo_root / "VERSION"
     if v_path.is_file():
         return v_path.read_text(encoding="utf-8").strip()
-    return "4.9.3"
+    return "4.9.6"
 
 
 def compute_sha256(file_path: Path) -> str:
@@ -32,7 +32,7 @@ def compute_sha256(file_path: Path) -> str:
     return h.hexdigest().lower()
 
 
-def build(mode: str, repo_root: Path) -> int:
+def build(mode: str, repo_root: Path, skip_shards: bool = False) -> int:
     """Run optimized Nuitka compilation."""
     version = get_version(repo_root)
     dist_dir = repo_root / "dist"
@@ -47,7 +47,7 @@ def build(mode: str, repo_root: Path) -> int:
 
     # Ensure anti-tamper key shards are in sync prior to compilation
     build_shards_script = repo_root / "tools" / "build_key_shards.py"
-    if build_shards_script.is_file():
+    if not skip_shards and build_shards_script.is_file():
         print("Synchronizing anti-tamper Ed25519 public key shards...")
         shard_proc = subprocess.run([sys.executable, str(build_shards_script)], cwd=str(repo_root))
         if shard_proc.returncode != 0:
@@ -83,6 +83,7 @@ def build(mode: str, repo_root: Path) -> int:
         f"--include-data-files={repo_root / 'assets' / 'daqiq_logo.ico'}=assets/daqiq_logo.ico",
         f"--include-data-files={repo_root / 'assets' / 'daqiq_logo.png'}=assets/daqiq_logo.png",
         f"--include-data-files={repo_root / 'assets' / 'daqiq_logo.svg'}=assets/daqiq_logo.svg",
+        f"--include-data-files={repo_root / 'VERSION'}=VERSION",
     ]
 
     if platforms_src.is_dir():
@@ -180,10 +181,15 @@ def main():
         default="onefile",
         help="Compilation mode: 'standalone' (Stage A) or 'onefile' (Stage B)",
     )
+    parser.add_argument(
+        "--skip-shards",
+        action="store_true",
+        help="Use already-generated licensing/_embedded_keys.py without regenerating",
+    )
     args = parser.parse_args()
 
     repo_root = Path(__file__).resolve().parent.parent
-    sys.exit(build(args.mode, repo_root))
+    sys.exit(build(args.mode, repo_root, skip_shards=args.skip_shards))
 
 
 if __name__ == "__main__":

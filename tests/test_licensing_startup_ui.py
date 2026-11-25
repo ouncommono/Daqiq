@@ -171,13 +171,19 @@ def test_clicking_disabled_tab_shows_persian_notice(qapp, tmp_path):
     db = DatabaseManager(str(tmp_path / "test.db"))
     win = MainWindow(db, active_employee=None, license_service=service)
 
-    with patch.object(QMessageBox, "information") as mock_info:
+    shown = []
+    def _fake_exec(msg_self):
+        shown.append((msg_self.windowTitle(), msg_self.text(), [b.text() for b in msg_self.buttons()]))
+        return QMessageBox.Rejected
+
+    with patch.object(QMessageBox, "exec", _fake_exec):
         # Simulate user clicking tab 2 (batches)
         win._on_tab_bar_clicked(2)
-        mock_info.assert_called_once()
-        args = mock_info.call_args[0]
-        assert "دسترسی لایسنس" in args[1]
-        assert "در لایسنس فعال شما مجاز نیست" in args[2]
+        assert len(shown) == 1
+        title, body, btn_texts = shown[0]
+        assert "دسترسی لایسنس" in title
+        assert "در لایسنس فعال شما مجاز نیست" in body
+        assert any("مدیریت لایسنس" in bt for bt in btn_texts)
 
 
 def test_all_10_tabs_enabled_on_full_license(qapp, tmp_path):

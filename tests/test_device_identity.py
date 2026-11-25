@@ -131,19 +131,22 @@ def test_windows_provider_timeout_handling():
 
 
 def test_device_request_dict_contract():
-    """Verify create_device_request_dict conforms strictly to Daqiq-License-Generator contract."""
+    """Verify create_device_request_dict conforms strictly to clean v4.9.4 protocol contract."""
     from licensing.device_identity import create_device_request_dict
-    req = create_device_request_dict(device_label="Main Terminal")
+    req = create_device_request_dict(store_name="فروشگاه نمونه")
+    assert req["protocol_version"] == 1
     assert req["request_version"] == 1
     assert req["product_id"] == "daqiq.desktop"
-    assert req["app_version"] == "4.9.3"
-    assert req["device_label"] == "Main Terminal"
+    assert req["app_version"] == "4.9.6"
+    assert req["store_name"] == "فروشگاه نمونه"
     assert req["device_fingerprint"].startswith("fp_v1:")
     assert "hardware_tier" not in req
-    assert "hardware_anchors" in req
+    assert "hardware_anchors" not in req
+    assert "device_label" not in req
     assert "computer_name" in req
     assert "os_info" in req
     assert "cpu_model" in req
+    assert "generated_at_utc" in req
     assert "checksum_sha256" in req
     assert len(req["checksum_sha256"]) == 64
 

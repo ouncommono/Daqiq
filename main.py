@@ -1,13 +1,22 @@
 # main.py
 import os
 import sys
+
+if __name__ == "__main__" and "--print-paths" in sys.argv[1:]:
+    from utils.paths import format_resolved_paths_report
+    try:
+        print(format_resolved_paths_report(), flush=True)
+    except OSError:
+        pass
+    sys.exit(0)
+
 import json
 import subprocess
 import time
 import sqlite3
 import copy
 import re
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import Optional
 import jdatetime
 
@@ -95,17 +104,27 @@ from datetime_format import (
     migrate_database_datetime,
 )
 
+from utils.paths import (
+    format_resolved_paths_report,
+    get_executable_dir,
+)
+
+
 def _load_app_version() -> str:
-    v_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "VERSION")
-    if os.path.isfile(v_file):
-        try:
-            with open(v_file, "r", encoding="utf-8") as f:
-                ver = f.read().strip()
-                if ver:
-                    return ver
-        except Exception:
-            pass
-    return "4.9.3"
+    for candidate in (
+        resource_path("VERSION"),
+        os.path.join(str(get_executable_dir()), "VERSION"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "VERSION"),
+    ):
+        if candidate and os.path.isfile(candidate):
+            try:
+                with open(candidate, "r", encoding="utf-8") as f:
+                    ver = f.read().strip()
+                    if ver:
+                        return ver
+            except Exception:
+                pass
+    return "4.9.6"
 
 APP_VERSION = _load_app_version()
 
@@ -116,10 +135,11 @@ if "__compiled__" in globals() or hasattr(sys, "__compiled__"):
 from licensing import (
     LicenseService,
     LicenseDialog,
+    ThemedNoticeDialog,
     ValidationResult,
     ValidationStatus,
 )
-from licensing.license_policy import TAB_MODULE_TO_FEATURE
+from licensing.license_policy import TAB_MODULE_TO_FEATURE, FEATURE_LABELS_FA
 
 # Semantic theme tokens for WCAG AA+ accessible dashboard top report cards
 DASHBOARD_CARD_TOKENS = {
@@ -167,27 +187,13 @@ LEGACY_COLOR_TO_ROLE = {
 }
 
 
-def format_iso_to_jalali(dt_str) -> str:
-    """Format an ISO/SQLite timestamp into Persian/Jalali YYYY/MM/DD - HH:MM, fallback to em-dash."""
-    if not dt_str or not str(dt_str).strip():
-        return "—"
-    s = str(dt_str).strip()
-    try:
-        dt_clean = s.replace("T", " ")
-        if "." in dt_clean:
-            dt_clean = dt_clean.split(".")[0]
-        from datetime import datetime
-        dt_greg = datetime.strptime(dt_clean, "%Y-%m-%d %H:%M:%S")
-        dt_jalali = jdatetime.datetime.fromgregorian(datetime=dt_greg)
-        return dt_jalali.strftime("%Y/%m/%d - %H:%M")
-    except Exception:
-        try:
-            from datetime import datetime
-            dt_greg = datetime.strptime(s.split()[0], "%Y-%m-%d")
-            dt_jalali = jdatetime.date.fromgregorian(date=dt_greg.date())
-            return f"{dt_jalali.strftime('%Y/%m/%d')} - 00:00"
-        except Exception:
-            return s or "—"
+def format_iso_to_jalali(dt_str, cal_type: str = "jalali", time_fmt: str = "24h") -> str:
+    """Format an ISO or localized timestamp using the active calendar and time format."""
+    return datetime_format.format_timestamp_for_display(
+        dt_str,
+        cal_type=cal_type,
+        time_fmt=time_fmt,
+    )
 
 
 REPORT_AVAILABLE_COLUMNS = {
@@ -219,7 +225,7 @@ REPORT_AVAILABLE_COLUMNS = {
     ],
     "۲. گزارش کامل تمام خریدها (محموله‌ها)": [
         "شناسه", "کد محموله", "کد کالا", "شماره سریال", "مشخصات کالا", "تأمین‌کننده",
-        "مسئول خرید", "شماره فاکتور", "تاریخ خرید", "تعداد خرید", "تعداد فروش",
+        "مسئول خرید", "شماره فاکتور", "تاریخ خرید", "ساعت خرید", "تعداد خرید", "تعداد فروش",
         "موجودی فعلی", "قیمت خرید واحد", "هزینه جانبی کل", "هزینه ارتقا واحد",
         "بهای تمام‌شده واحد", "قیمت فروش پیشنهادی", "درصد سود (%)", "وضعیت تسویه",
         "پرداخت‌شده", "مانده بدهی", "مشخصات فنی / توضیحات", "بهای کل محموله (تومان)",
@@ -273,7 +279,7 @@ ALL_SYSTEM_COLUMNS = [
     "کد کالا", "شماره سریال", "دسته‌بندی", "زیرمجموعه", "برند", "مدل", "مشخصات فنی",
     "موجودی کل", "تعداد فروش", "حداقل موجودی", "درصد سود (%)", "وضعیت موجودی", "توضیحات",
     # محموله‌ها / خرید
-    "کد محموله", "تأمین‌کننده", "مسئول خرید", "شماره فاکتور خرید", "تاریخ خرید", "تعداد خرید",
+    "کد محموله", "تأمین‌کننده", "مسئول خرید", "شماره فاکتور خرید", "تاریخ خرید", "ساعت خرید", "تعداد خرید",
     "تعداد فروش محموله", "موجودی فعلی محموله", "قیمت خرید واحد", "هزینه جانبی کل", "هزینه ارتقا واحد",
     "بهای تمام‌شده واحد", "قیمت فروش پیشنهادی", "درصد سود (%) محموله", "وضعیت تسویه خرید",
     "پرداخت‌شده خرید", "مانده بدهی خرید", "مشخصات فنی محموله", "بهای کل محموله (تومان)", "رنگ‌های محموله",
@@ -521,7 +527,7 @@ def _center_message_buttons(dialog):
 
 
 class _MessageBoxPolisher(QObject):
-    """Translate standard Qt message-box buttons and center them consistently."""
+    """Translate standard Qt message-box buttons, center them, and ensure readable styling."""
 
     _BUTTON_LABELS = {
         "OK": "تأیید", "Ok": "تأیید", "Cancel": "انصراف",
@@ -532,17 +538,220 @@ class _MessageBoxPolisher(QObject):
     }
 
     def eventFilter(self, watched, event):
-        if event.type() == QEvent.Show and isinstance(watched, QDialog):
-            watched.setLayoutDirection(Qt.RightToLeft)
-            button_box = watched.findChild(QDialogButtonBox)
-            if button_box is not None:
-                button_box.setCenterButtons(True)
-                for button in button_box.buttons():
-                    translated = self._BUTTON_LABELS.get(button.text())
-                    if translated:
-                        button.setText(translated)
-                    button.setLayoutDirection(Qt.RightToLeft)
+        if event.type() != QEvent.Show:
+            return False
+        try:
+            if isinstance(watched, QDialog):
+                watched.setLayoutDirection(Qt.RightToLeft)
+                button_box = watched.findChild(QDialogButtonBox)
+                if button_box is not None:
+                    button_box.setCenterButtons(True)
+                    for button in button_box.buttons():
+                        raw_label = (button.text() or "").replace("&", "").strip()
+                        translated = self._BUTTON_LABELS.get(raw_label)
+                        if translated:
+                            button.setText(translated)
+                        button.setLayoutDirection(Qt.RightToLeft)
+                if isinstance(watched, QMessageBox) and not watched.styleSheet():
+                    is_dark = watched.palette().window().color().lightness() < 128
+                    if is_dark:
+                        qss = (
+                            "QMessageBox { background-color: #0b1220; color: #f8fafc; }"
+                            "QMessageBox QLabel { color: #f8fafc; background: transparent; }"
+                            "QMessageBox QPushButton { background-color: #0284c7; color: #ffffff; "
+                            "border: 1px solid #38bdf8; border-radius: 6px; padding: 6px 16px; "
+                            "min-width: 84px; font-weight: bold; }"
+                            "QMessageBox QPushButton:hover { background-color: #0369a1; }"
+                        )
+                    else:
+                        qss = (
+                            "QMessageBox { background-color: #f4f7fb; color: #0f172a; }"
+                            "QMessageBox QLabel { color: #0f172a; background: transparent; }"
+                            "QMessageBox QPushButton { background-color: #0284c7; color: #ffffff; "
+                            "border: 1px solid #0369a1; border-radius: 6px; padding: 6px 16px; "
+                            "min-width: 84px; font-weight: bold; }"
+                            "QMessageBox QPushButton:hover { background-color: #0369a1; }"
+                        )
+                    watched.setStyleSheet(qss)
+        except RuntimeError:
+            pass
         return False
+
+
+_ACTIVE_MAIN_WINDOW = None
+_CRASH_HOOK_ACTIVE = False
+_IN_CRASH_HANDLER = False
+_NATIVE_FAULT_LOG_HANDLE = None
+_QT_MSG_HANDLER_ACTIVE = False
+_PREV_QT_MSG_HANDLER = None
+
+
+def _get_log_dir() -> str:
+    local_app = os.environ.get("LOCALAPPDATA", "").strip()
+    if local_app:
+        log_dir = os.path.join(local_app, "Daqiq", "logs")
+    else:
+        log_dir = os.path.join(os.path.expanduser("~"), ".daqiq", "logs")
+    try:
+        os.makedirs(log_dir, exist_ok=True)
+    except OSError:
+        log_dir = os.path.dirname(os.path.abspath(__file__))
+    return log_dir
+
+
+def get_crash_log_path() -> str:
+    """Return persistent path for crash tracebacks under %LOCALAPPDATA%\\Daqiq\\logs."""
+    return os.path.join(_get_log_dir(), "daqiq_crash.log")
+
+
+def get_native_fault_log_path() -> str:
+    """Return persistent path for native C/faulthandler crash dumps under %LOCALAPPDATA%\\Daqiq\\logs."""
+    return os.path.join(_get_log_dir(), "daqiq_native_fault.log")
+
+
+def install_native_fault_and_qt_loggers() -> None:
+    """Enable native faulthandler and Qt critical/fatal message logging safely."""
+    global _NATIVE_FAULT_LOG_HANDLE, _QT_MSG_HANDLER_ACTIVE, _PREV_QT_MSG_HANDLER
+    if "PYTEST_CURRENT_TEST" not in os.environ and _NATIVE_FAULT_LOG_HANDLE is None:
+        try:
+            import faulthandler
+
+            fault_path = get_native_fault_log_path()
+            _NATIVE_FAULT_LOG_HANDLE = open(fault_path, "a", encoding="utf-8", buffering=1)
+            faulthandler.enable(file=_NATIVE_FAULT_LOG_HANDLE, all_threads=True)
+        except Exception:
+            _NATIVE_FAULT_LOG_HANDLE = None
+
+    if not _QT_MSG_HANDLER_ACTIVE:
+        try:
+            from PySide6.QtCore import QtMsgType, qInstallMessageHandler
+
+            def _qt_message_handler(msg_type, context, message):
+                try:
+                    if msg_type in (QtMsgType.QtCriticalMsg, QtMsgType.QtFatalMsg):
+                        import datetime as _dt
+
+                        severity = "FATAL" if msg_type == QtMsgType.QtFatalMsg else "CRITICAL"
+                        loc = f"{getattr(context, 'file', '')}:{getattr(context, 'line', 0)}"
+                        line = (
+                            f"[{_dt.datetime.now(_dt.timezone.utc).isoformat()}] "
+                            f"Qt {severity} ({loc}): {message}\n"
+                        )
+                        with open(get_crash_log_path(), "a", encoding="utf-8") as f:
+                            f.write(line)
+                except Exception:
+                    pass
+                if _PREV_QT_MSG_HANDLER is not None:
+                    try:
+                        _PREV_QT_MSG_HANDLER(msg_type, context, message)
+                    except Exception:
+                        pass
+
+            _PREV_QT_MSG_HANDLER = qInstallMessageHandler(_qt_message_handler)
+            _QT_MSG_HANDLER_ACTIVE = True
+        except Exception:
+            pass
+
+
+def write_crash_log(exc_type, exc_value, exc_tb, context: str = "unhandled") -> str:
+    """Write a full timestamped traceback to disk and return the log file path."""
+    import datetime as _dt
+    import platform
+    import traceback
+
+    log_path = get_crash_log_path()
+    tb_text = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+    entry = (
+        "============================================================\n"
+        f"Timestamp (UTC): {_dt.datetime.now(_dt.timezone.utc).isoformat()}\n"
+        f"Daqiq Version: {APP_VERSION}\n"
+        f"Context: {context}\n"
+        f"Platform: {platform.platform()} | Python {platform.python_version()}\n"
+        f"Executable: {sys.executable}\n"
+        "Traceback:\n"
+        f"{tb_text}\n"
+    )
+    try:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(entry)
+    except OSError:
+        pass
+    return log_path
+
+
+def _show_fatal_crash_dialog(log_path: str, exc_value: BaseException) -> None:
+    """Display a localized Persian error dialog so console-less Windows builds never vanish silently."""
+    try:
+        is_dark = False
+        try:
+            cfg = load_app_config()
+            is_dark = str(cfg.get("theme", "")).lower() == "dark"
+        except Exception:
+            pass
+        app = QApplication.instance()
+        if app is None:
+            app = QApplication(sys.argv[:1] if sys.argv else ["Daqiq"])
+            app.setLayoutDirection(Qt.RightToLeft)
+        msg = (
+            "متأسفانه خطای غیرمنتظره‌ای هنگام راه‌اندازی یا اجرای برنامه رخ داد.\n"
+            f"گزارش کامل خطا در فایل زیر ذخیره شد:\n{log_path}\n\n"
+            "لطفاً این گزارش را برای پشتیبانی ارسال فرمایید."
+        )
+        dlg = ThemedNoticeDialog(
+            parent=None,
+            title="بروز خطای غیرمنتظره",
+            message=msg,
+            kind="error",
+            is_dark_theme=is_dark,
+            buttons="ok",
+            details=f"{type(exc_value).__name__}: {exc_value}",
+        )
+        dlg.exec()
+    except Exception:
+        pass
+
+
+def handle_unhandled_exception(exc_type, exc_value, exc_tb, context: str = "sys.excepthook", show_dialog: bool = True) -> str:
+    """Log unhandled exceptions cleanly and present Persian crash dialog."""
+    global _IN_CRASH_HANDLER
+    if issubclass(exc_type, (KeyboardInterrupt, SystemExit)):
+        return ""
+    log_path = write_crash_log(exc_type, exc_value, exc_tb, context=context)
+    if show_dialog and not _IN_CRASH_HANDLER:
+        _IN_CRASH_HANDLER = True
+        try:
+            _show_fatal_crash_dialog(log_path, exc_value)
+        finally:
+            _IN_CRASH_HANDLER = False
+    return log_path
+
+
+def install_global_exception_hooks() -> None:
+    """Install sys.excepthook and threading.excepthook once per process."""
+    global _CRASH_HOOK_ACTIVE
+    if _CRASH_HOOK_ACTIVE:
+        return
+    _CRASH_HOOK_ACTIVE = True
+
+    def _sys_hook(exc_type, exc_value, exc_tb):
+        if issubclass(exc_type, (KeyboardInterrupt, SystemExit)):
+            sys.__excepthook__(exc_type, exc_value, exc_tb)
+            return
+        handle_unhandled_exception(exc_type, exc_value, exc_tb, context="sys.excepthook", show_dialog=True)
+
+    def _thread_hook(args):
+        handle_unhandled_exception(
+            args.exc_type,
+            args.exc_value,
+            args.exc_traceback,
+            context=f"threading.excepthook({getattr(args.thread, 'name', 'worker')})",
+            show_dialog=False,
+        )
+
+    sys.excepthook = _sys_hook
+    import threading
+    if hasattr(threading, "excepthook"):
+        threading.excepthook = _thread_hook
 
 
 def _window_title(shop_name: str) -> str:
@@ -671,13 +880,20 @@ def _report_sort_key(rows_data, headers, mode):
         except (TypeError, ValueError):
             return 0.0
 
+    def _chrono_key(val):
+        parsed = datetime_format.chronological_sort_key(val)
+        return parsed if parsed is not None else (1, 0, 0, 0, 0)
+
     if mode in ("activity_desc", "activity_asc"):
-        return lambda row: str(row[0] or "")
+        return lambda row: _chrono_key(row[0])
     if mode.startswith("transaction_"):
-        index = find_column((
+        date_idx = find_column((
             "تاریخ و ساعت", "تاریخ و ساعت فروش", "تاریخ خرید", "تاریخ",
         ))
-        return lambda row: str(row[index] or "") if index is not None else str(row[0] or "")
+        time_idx = find_column(("ساعت خرید",))
+        if date_idx is not None and time_idx is not None:
+            return lambda row: _chrono_key(f"{row[date_idx] or ''} {row[time_idx] or ''}".strip())
+        return lambda row: _chrono_key(row[date_idx]) if date_idx is not None else _chrono_key(row[0])
     if mode.startswith("amount_"):
         index = find_column((
             "مبلغ کل (تومان)", "مبلغ کل فاکتور", "مبلغ دریافتی (تومان)",
@@ -697,27 +913,17 @@ def _report_sort_key(rows_data, headers, mode):
 
 
 def _smart_table_sort_key(value):
-    """Build a locale-aware sort key for dates, numbers, codes and text."""
+    """Build a locale-aware, chronological sort key for dates, times, numbers, codes and text."""
     raw = strip_bidi_controls(str(value or "")).strip()
     if not raw:
         return (3, "")
 
+    chrono = datetime_format.chronological_sort_key(raw)
+    if chrono is not None:
+        return chrono
+
     clean = normalize_digits(raw).replace("٬", ",").replace("٫", ".")
     clean = clean.replace("\\u200e", "").replace("\\u200f", "").strip()
-
-    date_match = re.match(
-        r"^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(.*)$", clean
-    )
-    if date_match:
-        year, month, day, tail = date_match.groups()
-        return (0, int(year), int(month), int(day), tail.strip())
-
-    date_match = re.match(
-        r"^(\d{1,2})[-/](\d{1,2})[-/](\d{4})(.*)$", clean
-    )
-    if date_match:
-        day, month, year, tail = date_match.groups()
-        return (0, int(year), int(month), int(day), tail.strip())
 
     numeric = clean.replace(",", "").replace("تومان", "").replace("ریال", "")
     numeric = numeric.replace("%", "").replace(" ", "")
@@ -1273,7 +1479,13 @@ def select_startup_database_path(parent=None):
 
     chosen_path = os.path.abspath(dialog.selected_path)
     if dialog.rb_create.isChecked() or not os.path.isfile(chosen_path):
-        create_and_initialize_database(chosen_path)
+        created_db = create_and_initialize_database(chosen_path)
+        try:
+            created_db.close()
+        except Exception:
+            pass
+    # Reload app_config so any Light/Dark toggle performed inside DatabaseBootstrapDialog is preserved.
+    config = load_app_config()
     config["db_path"] = chosen_path
     recent = [
         os.path.abspath(path) for path in config.get("recent_databases", [])
@@ -1328,6 +1540,11 @@ class MainWindow(QMainWindow):
             self.license_service = None
         else:
             self.license_service = LicenseService(app_version=APP_VERSION)
+        if self.license_service is not None and getattr(self.license_service, "store_name_provider", None) is None:
+            self.license_service.store_name_provider = lambda: (
+                (self.db.get_setting("shop_name", "") or "").strip()
+                if getattr(self, "db", None) is not None else ""
+            )
         if self.active_employee and isinstance(self.active_employee, dict) and self.active_employee.get("id"):
             try:
                 self.db.record_employee_login(self.active_employee["id"])
@@ -1360,16 +1577,22 @@ class MainWindow(QMainWindow):
 
         self._apply_styles()
         self._build_ui()
+        self._install_tab_lock_filter()
         self._apply_global_rtl_alignment()
         app = QApplication.instance()
-        if app is not None and not getattr(app, "_accounting_message_box_polisher", None):
+        if (
+            app is not None
+            and not getattr(app, "_daqiq_msg_polisher", None)
+            and not getattr(app, "_accounting_message_box_polisher", None)
+        ):
             polisher = _MessageBoxPolisher(app)
             app.installEventFilter(polisher)
             app._accounting_message_box_polisher = polisher
         self.tabs.currentChanged.connect(self._on_main_tab_changed)
         self._setup_timers()
         self.refresh_all_data()
-        self._apply_employee_permissions()
+        self._sync_date_widgets_calendar()
+        self._apply_employee_permissions(select_first_unlocked=True)
         self._sync_all_default_operators()
 
     def _select_default_operator(self, combo: QComboBox):
@@ -1448,6 +1671,21 @@ class MainWindow(QMainWindow):
 
     def get_now_datetime_str(self) -> str:
         return datetime_format.get_now_datetime(self.get_active_calendar(), self.get_active_time_format())
+
+    def _sync_date_widgets_calendar(self):
+        cal = self.get_active_calendar()
+        for attr in (
+            "dt_batch_date",
+            "dt_sale_date",
+            "dt_war_start",
+            "dt_war_end",
+            "dt_upg_date",
+            "dt_rep_from",
+            "dt_rep_to",
+        ):
+            widget = getattr(self, attr, None)
+            if widget is not None and hasattr(widget, "set_calendar_format"):
+                widget.set_calendar_format(cal, convert_existing=False)
 
     def _switch_active_employee(self):
         with self.db.get_connection() as conn:
@@ -2087,28 +2325,113 @@ class MainWindow(QMainWindow):
         )
         self._refresh_visual_layout()
 
-    def _apply_employee_permissions(self):
+    _TAB_MODULES = (
+        "dashboard", "products", "batches", "sales", "services",
+        "upgrades", "suppliers", "reports", "employees", "settings",
+    )
+
+    def _is_license_feature_enabled(self, feature_id: str) -> bool:
+        if getattr(self, "license_service", None) is None:
+            return True
+        return bool(self.license_service.is_feature_enabled(feature_id))
+
+    def _show_license_locked_dialog(self, feature_id_or_name: str):
+        """Show the uniform polite Persian locked-access dialog with a shortcut to License Management."""
+        section_label = FEATURE_LABELS_FA.get(feature_id_or_name, feature_id_or_name)
+        msg = QMessageBox(self)
+        msg.setWindowTitle("دسترسی لایسنس")
+        msg.setIcon(QMessageBox.Information)
+        msg.setLayoutDirection(Qt.RightToLeft)
+        msg.setText(
+            f"بخش «{section_label}» در لایسنس فعال شما مجاز نیست.\n"
+            "برای تهیه یا فعال‌سازی لایسنس این بخش، از پنجره مدیریت لایسنس اقدام فرمایید."
+        )
+        btn_lic = msg.addButton("مدیریت لایسنس 🔑", QMessageBox.ActionRole)
+        msg.addButton("بستن", QMessageBox.AcceptRole)
+        _center_message_buttons(msg)
+        msg.exec()
+        if msg.clickedButton() is btn_lic:
+            self._open_license_dialog()
+
+    def _require_license_feature(self, feature_id: str) -> bool:
+        if self._is_license_feature_enabled(feature_id):
+            return True
+        self._show_license_locked_dialog(feature_id)
+        return False
+
+    def _install_tab_lock_filter(self):
+        """Intercept clicks on license-locked tabs cleanly without switching or flashing content."""
+        if not hasattr(self, "tabs") or self.tabs is None:
+            return
+        tab_bar = self.tabs.tabBar()
+        if tab_bar is None or getattr(self, "_tab_lock_filter", None) is not None:
+            return
+
+        win = self
+
+        class _TabLockFilter(QObject):
+            def eventFilter(self, watched, event):
+                if watched is tab_bar and event.type() in (
+                    QEvent.MouseButtonPress, QEvent.MouseButtonDblClick
+                ):
+                    pos = event.position().toPoint() if hasattr(event, "position") else event.pos()
+                    idx = tab_bar.tabAt(pos)
+                    if 0 <= idx < len(win._TAB_MODULES):
+                        module = win._TAB_MODULES[idx]
+                        lic_feature = TAB_MODULE_TO_FEATURE.get(module, module)
+                        if not win._is_license_feature_enabled(lic_feature):
+                            if event.type() == QEvent.MouseButtonPress:
+                                win._show_license_locked_dialog(lic_feature)
+                            return True
+                return False
+
+        self._tab_lock_filter = _TabLockFilter(tab_bar)
+        tab_bar.installEventFilter(self._tab_lock_filter)
+
+    def _select_first_unlocked_tab(self, force_first: bool = False):
+        """Land on the first unlocked tab automatically without spamming popups."""
+        if not hasattr(self, "tabs") or self.tabs is None:
+            return
+        cur = self.tabs.currentIndex()
+        if not force_first and 0 <= cur < len(self._TAB_MODULES):
+            cur_mod = self._TAB_MODULES[cur]
+            cur_feat = TAB_MODULE_TO_FEATURE.get(cur_mod, cur_mod)
+            if self.tabs.isTabEnabled(cur) and self._is_license_feature_enabled(cur_feat):
+                return
+        for idx, module in enumerate(self._TAB_MODULES):
+            lic_feat = TAB_MODULE_TO_FEATURE.get(module, module)
+            if self.tabs.isTabEnabled(idx) and self._is_license_feature_enabled(lic_feat):
+                self.tabs.blockSignals(True)
+                self.tabs.setCurrentIndex(idx)
+                self.tabs.blockSignals(False)
+                return
+
+    def _apply_employee_permissions(self, select_first_unlocked: bool = False):
         """Enforce per-module view and per-action grants selected in the RBAC editor."""
         grants = self._permission_grants()
         if not self.active_employee:
             grants = set(ALL_PERMISSION_KEYS)
 
-        tab_modules = (
-            "dashboard", "products", "batches", "sales", "services",
-            "upgrades", "suppliers", "reports", "employees", "settings",
-        )
+        tab_modules = self._TAB_MODULES
         is_scoped = self._is_scoped_access()
-        for index, module in enumerate(tab_modules):
-            emp_allowed = f"{module}.view" in grants
-            lic_feature = TAB_MODULE_TO_FEATURE.get(module, module)
-            lic_allowed = (
-                self.license_service.is_feature_enabled(lic_feature)
-                if getattr(self, "license_service", None) is not None
-                else True
-            )
-            self.tabs.setTabEnabled(index, emp_allowed and lic_allowed)
-            if not lic_allowed:
-                self.tabs.setTabToolTip(index, "این بخش در لایسنس فعال شما مجاز نیست.")
+        self.tabs.blockSignals(True)
+        try:
+            for index, module in enumerate(tab_modules):
+                emp_allowed = f"{module}.view" in grants
+                lic_feature = TAB_MODULE_TO_FEATURE.get(module, module)
+                lic_allowed = self._is_license_feature_enabled(lic_feature)
+                # Keep tab enabled only when both RBAC and license allow it;
+                # _TabLockFilter intercepts clicks even when disabled by license.
+                self.tabs.setTabEnabled(index, emp_allowed and lic_allowed)
+                if not lic_allowed:
+                    self.tabs.setTabToolTip(index, "این بخش در لایسنس فعال شما مجاز نیست.")
+                else:
+                    self.tabs.setTabToolTip(index, "")
+        finally:
+            self.tabs.blockSignals(False)
+
+        if select_first_unlocked:
+            self._select_first_unlocked_tab(force_first=True)
 
         for permission_key, widget in getattr(
             self, "_dashboard_permission_widgets", {}
@@ -2186,6 +2509,8 @@ class MainWindow(QMainWindow):
             self.gb_inventory_export.setEnabled(
                 "settings.edit" in grants and "settings.view" in grants
             )
+        if hasattr(self, "pr_sale_actual"):
+            self.pr_sale_actual.setReadOnly(not self._is_license_feature_enabled("price_edit"))
         if hasattr(self, "btn_switch_user"):
             self.btn_switch_user.setEnabled(True)
 
@@ -2607,6 +2932,8 @@ class MainWindow(QMainWindow):
                 pass
 
     def _run_periodic_backup(self):
+        if not self._is_license_feature_enabled("auto_backup"):
+            return
         try:
             saved_path = self.db.create_backup(automatic=True)
             if hasattr(self, "lbl_last_backup"):
@@ -2627,18 +2954,24 @@ class MainWindow(QMainWindow):
         self._restart_backup_timer()
 
     def _update_clock(self):
-        now = jdatetime.datetime.now()
-        w_day = PERSIAN_WEEKDAYS.get(now.weekday(), "")
-        date_str = now.strftime("%Y/%m/%d")
-        time_str = now.strftime("%H:%M:%S")
+        cal = self.get_active_calendar()
+        tf = self.get_active_time_format()
+        today_g = date.today()
+        # Python date.weekday(): Mon=0 .. Sun=6 -> Saturday=0 .. Friday=6
+        w_day = PERSIAN_WEEKDAYS.get((today_g.weekday() + 2) % 7, "")
+        date_str = datetime_format.get_today_date(cal)
+        time_str = datetime_format.get_now_time(tf)
+        cal_title = CALENDAR_NAMES_FA.get(cal, "شمسی")
         self.lbl_live_clock.setText(
-            f"📅 {date_str}  |  ⏰ {time_str}"
+            f"📅 {date_str}  |  ⏰ \u200e{time_str}"
         )
         self.lbl_live_clock.setToolTip(
-            f"تاریخ شمسی: {w_day} {date_str}\nساعت محلی: {time_str}"
+            f"تاریخ {cal_title}: {w_day} {date_str}\nساعت محلی: \u200e{time_str}"
         )
 
     def _export_safe_inventory(self):
+        if not self._require_license_feature("partner_export"):
+            return
         default_file = get_next_excel_filename(os.path.expanduser("~"), "R")
         path, _ = QFileDialog.getSaveFileName(
             self,
@@ -2828,29 +3161,30 @@ class MainWindow(QMainWindow):
             table.setRowHidden(row, query not in haystack)
 
     def _on_tab_bar_clicked(self, index: int):
-        tab_modules = (
-            "dashboard", "products", "batches", "sales", "services",
-            "upgrades", "suppliers", "reports", "employees", "settings",
-        )
-        if 0 <= index < len(tab_modules) and getattr(self, "license_service", None) is not None:
-            module = tab_modules[index]
+        if 0 <= index < len(self._TAB_MODULES):
+            module = self._TAB_MODULES[index]
             lic_feature = TAB_MODULE_TO_FEATURE.get(module, module)
-            if not self.license_service.is_feature_enabled(lic_feature):
-                QMessageBox.information(
-                    self,
-                    "دسترسی لایسنس",
-                    "این بخش در لایسنس فعال شما مجاز نیست. جهت ارتقا یا فعال‌سازی این ماژول با پشتیبانی تماس بگیرید.",
-                )
+            if not self._is_license_feature_enabled(lic_feature):
+                self._show_license_locked_dialog(lic_feature)
 
     def _open_license_dialog(self):
-        icon_path = resource_path("assets/daqiq_logo.png")
+        icon_path = resource_path("assets/daqiq_logo.svg")
+        if not os.path.exists(icon_path):
+            icon_path = resource_path("assets/daqiq_logo.png")
         service = getattr(self, "license_service", None) or LicenseService(app_version=APP_VERSION)
         dark = self.db.cfg.get("theme", "light") == "dark" if hasattr(self, "db") and self.db else False
         dlg = LicenseDialog(service, parent=self, icon_path=icon_path, is_dark_theme=dark, is_startup_gate=False)
         dlg.exec()
-        self._apply_employee_permissions()
+        self._apply_employee_permissions(select_first_unlocked=True)
 
     def _on_main_tab_changed(self, index):
+        if 0 <= index < len(self._TAB_MODULES):
+            module = self._TAB_MODULES[index]
+            lic_feature = TAB_MODULE_TO_FEATURE.get(module, module)
+            if not self._is_license_feature_enabled(lic_feature):
+                self._select_first_unlocked_tab()
+                self._show_license_locked_dialog(lic_feature)
+                return
         if index == getattr(self, "_settings_tab_index", -1):
             if getattr(self, "_settings_snapshot", None) is None:
                 self._settings_snapshot = SettingsSnapshot(self)
@@ -3391,22 +3725,22 @@ class MainWindow(QMainWindow):
         grid.addWidget(QLabel("شماره فاکتور:"), 1, 4)
         grid.addWidget(self.ed_batch_inv, 1, 5)
 
-        grid.addWidget(QLabel("تاریخ خرید:"), 2, 0)
-        grid.addWidget(self.dt_batch_date, 2, 1)
-        grid.addWidget(QLabel("تعداد خرید:"), 2, 2)
-        grid.addWidget(self.cb_batch_qty, 2, 3)
-        grid.addWidget(QLabel("قیمت خرید واحد (تومان):"), 2, 4)
-        grid.addWidget(self.pr_batch_buy, 2, 5)
+        grid.addWidget(QLabel("تعداد خرید:"), 2, 0)
+        grid.addWidget(self.cb_batch_qty, 2, 1)
+        grid.addWidget(QLabel("قیمت خرید واحد (تومان):"), 2, 2)
+        grid.addWidget(self.pr_batch_buy, 2, 3)
+        grid.addWidget(QLabel("هزینه جانبی کل (تومان):"), 2, 4)
+        grid.addWidget(self.pr_batch_extra, 2, 5)
 
-        grid.addWidget(QLabel("هزینه جانبی کل (تومان):"), 3, 0)
-        grid.addWidget(self.pr_batch_extra, 3, 1)
-        grid.addWidget(QLabel("قیمت فروش پیشنهادی:"), 3, 2)
-        grid.addWidget(self.pr_batch_suggest, 3, 3)
-        grid.addWidget(QLabel("وضعیت تسویه:"), 3, 4)
-        grid.addWidget(self.cb_batch_status, 3, 5)
+        grid.addWidget(QLabel("قیمت فروش پیشنهادی:"), 3, 0)
+        grid.addWidget(self.pr_batch_suggest, 3, 1)
+        grid.addWidget(QLabel("وضعیت تسویه:"), 3, 2)
+        grid.addWidget(self.cb_batch_status, 3, 3)
+        grid.addWidget(QLabel("مبلغ پرداخت‌شده:"), 3, 4)
+        grid.addWidget(self.pr_batch_paid, 3, 5)
 
-        grid.addWidget(QLabel("مبلغ پرداخت‌شده:"), 4, 0)
-        grid.addWidget(self.pr_batch_paid, 4, 1)
+        grid.addWidget(QLabel("تاریخ خرید:"), 4, 0)
+        grid.addWidget(self.dt_batch_date, 4, 1)
         grid.addWidget(QLabel("رنگ‌های این محموله:"), 4, 2)
         grid.addWidget(self.btn_batch_colors, 4, 3, 1, 3)
 
@@ -3445,6 +3779,7 @@ class MainWindow(QMainWindow):
                 "مسئول خرید",
                 "شماره فاکتور",
                 "تاریخ خرید",
+                "ساعت خرید",
                 "تعداد خرید",
                 "تعداد فروش",
                 "موجودی فعلی",
@@ -3547,6 +3882,8 @@ class MainWindow(QMainWindow):
 
     def _on_batch_serial_scanned(self):
         """Hardware barcode scanner (Keyboard Wedge) and manual Enter event handler for purchase batch entry."""
+        if not self._require_license_feature("barcode_scanner"):
+            return
         serial = self.ed_batch_serial_number.text().strip()
         if not serial:
             return
@@ -3574,7 +3911,7 @@ class MainWindow(QMainWindow):
         self._select_default_operator(self.cb_batch_buyer)
         self.ed_batch_inv.clear()
         self.ed_batch_serial.clear()
-        self.dt_batch_date.set_date(jdatetime.date.today().strftime("%Y/%m/%d"))
+        self.dt_batch_date.set_date(self.get_today_date_str())
         self.cb_batch_qty.setCurrentText("1")
         self.pr_batch_buy.set_value(0)
         self.pr_batch_extra.set_value(0)
@@ -3691,6 +4028,7 @@ class MainWindow(QMainWindow):
                     batch_values[11],
                     colors=self._checked_colors(self.btn_batch_colors),
                     supplier_name=supplier_name or None,
+                    purchase_time=self.get_now_time_str(),
                 )
 
             self.refresh_all_data()
@@ -3709,21 +4047,21 @@ class MainWindow(QMainWindow):
         self.ed_batch_code.setText(self.tbl_batches.item(r, 1).text())
         self.ed_batch_inv.setText(self.tbl_batches.item(r, 7).text())
         self.dt_batch_date.set_date(self.tbl_batches.item(r, 8).text())
-        self.cb_batch_qty.setCurrentText(self.tbl_batches.item(r, 9).text())
+        self.cb_batch_qty.setCurrentText(self.tbl_batches.item(r, 10).text())
         self.pr_batch_buy.set_value(
-            int(self.tbl_batches.item(r, 12).text().replace(",", ""))
-        )
-        self.pr_batch_extra.set_value(
             int(self.tbl_batches.item(r, 13).text().replace(",", ""))
         )
+        self.pr_batch_extra.set_value(
+            int(self.tbl_batches.item(r, 14).text().replace(",", ""))
+        )
         self.pr_batch_suggest.set_value(
-            int(self.tbl_batches.item(r, 16).text().replace(",", ""))
+            int(self.tbl_batches.item(r, 17).text().replace(",", ""))
         )
-        self.cb_batch_status.setCurrentText(self.tbl_batches.item(r, 18).text())
+        self.cb_batch_status.setCurrentText(self.tbl_batches.item(r, 19).text())
         self.pr_batch_paid.set_value(
-            int(self.tbl_batches.item(r, 19).text().replace(",", ""))
+            int(self.tbl_batches.item(r, 20).text().replace(",", ""))
         )
-        batch_serial_text = self.tbl_batches.item(r, 21).text()
+        batch_serial_text = self.tbl_batches.item(r, 22).text()
         with self.db.get_connection() as conn:
             batch_state = conn.execute(
                 """SELECT b.colors_json, b.supplier_id, b.buyer_employee_id, b.serial_numbers,
@@ -3813,6 +4151,8 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "خطا", str(exc))
 
     def _delete_selected_batch(self):
+        if not self._require_license_feature("batch_delete"):
+            return
         if not self.selected_batch_id:
             return
         if (
@@ -3919,12 +4259,15 @@ class MainWindow(QMainWindow):
         for label, days in warranty_options:
             self.cb_war_months.addItem(label, days)
         self.dt_war_end = JalaliDateEdit(default_today=False)
+        self.dt_sale_date = JalaliDateEdit(default_today=True)
+        self._synced_sale_war_start = None
         self.ed_sale_serial = SmartLineEdit("")
         self.ed_sale_serial.setPlaceholderText("اسکن بارکدخوان یا تایپ شماره سریال...")
         self.ed_sale_serial.setToolTip("شماره سریال یا بارکد کالا را وارد کنید یا با بارکدخوان اسکن نمایید.")
         self.ed_sale_serial.returnPressed.connect(self._on_sale_serial_scanned)
 
         self.dt_war_start.dateChanged.connect(self._recalc_warranty_end)
+        self.dt_sale_date.dateChanged.connect(self._on_sale_date_changed)
         self.cb_war_months.currentIndexChanged.connect(self._recalc_warranty_end)
         self.cb_war_months.currentTextChanged.connect(self._recalc_warranty_end)
 
@@ -3965,8 +4308,10 @@ class MainWindow(QMainWindow):
 
         grid.addWidget(QLabel("انقضای گارانتی:"), 5, 0)
         grid.addWidget(self.dt_war_end, 5, 1)
-        grid.addWidget(QLabel("رنگ‌های فروخته‌شده:"), 5, 2)
-        grid.addWidget(self.btn_sale_colors, 5, 3, 1, 3)
+        grid.addWidget(QLabel("تاریخ فروش:"), 5, 2)
+        grid.addWidget(self.dt_sale_date, 5, 3)
+        grid.addWidget(QLabel("رنگ‌های فروخته‌شده:"), 5, 4)
+        grid.addWidget(self.btn_sale_colors, 5, 5)
 
         grid.addWidget(QLabel("مشخصات فنی فروخته‌شده:"), 6, 0)
         grid.addWidget(self.ed_sale_specs, 6, 1, 1, 5)
@@ -4233,7 +4578,7 @@ class MainWindow(QMainWindow):
             self.cb_sale_batch.addItem(bidi_isolate_text(label), batch)
             self.cb_sale_batch.setItemSearchText(index, search_text)
             self.cb_sale_batch.setItemData(
-                index, mixed_bidi_tooltip(full_tooltip), Qt.ToolTipRole
+                index, bidi_isolate_text(full_tooltip), Qt.ToolTipRole
             )
         if self.cb_sale_batch.count():
             self.cb_sale_batch.setCurrentIndex(0)
@@ -4242,6 +4587,8 @@ class MainWindow(QMainWindow):
 
     def _on_sale_batch_changed(self):
         b = self.cb_sale_batch.currentData()
+        tip = self.cb_sale_batch.currentData(Qt.ToolTipRole) if self.cb_sale_batch.currentIndex() >= 0 else ""
+        self.cb_sale_batch.setToolTip(tip or "محموله دارای موجودی را انتخاب کنید.")
         if not b:
             self.cb_sale_qty.set_max_qty(1)
             self.pr_sale_suggest.set_value(0)
@@ -4266,6 +4613,8 @@ class MainWindow(QMainWindow):
 
     def _on_sale_serial_scanned(self):
         """Hardware barcode scanner (Keyboard Wedge) and manual Enter event handler for sales."""
+        if not self._require_license_feature("barcode_scanner"):
+            return
         serial = self.ed_sale_serial.text().strip()
         if not serial:
             return
@@ -4324,8 +4673,11 @@ class MainWindow(QMainWindow):
         self.cb_sale_status.setCurrentIndex(0)
         self.ed_war_company.clear()
         self.cb_war_months.setCurrentIndex(0)
+        self._synced_sale_war_start = None
         self.dt_war_start.set_date("")
         self.dt_war_end.set_date("")
+        if hasattr(self, "dt_sale_date"):
+            self.dt_sale_date.set_date(self.get_today_date_str())
         self.ed_sale_serial.clear()
         self.tbl_sales.clearSelection()
         self.cb_sale_qty.setCurrentText("1")
@@ -4397,10 +4749,38 @@ class MainWindow(QMainWindow):
             return amount * 30  # Months context in retail warranty
         return amount
 
+    def _on_sale_date_changed(self, new_date: str):
+        days = self._get_warranty_days()
+        if not new_date:
+            self._recalc_warranty_end()
+            return
+        cur_start = self.dt_war_start.get_date()
+        synced = getattr(self, "_synced_sale_war_start", None)
+        if (days > 0 and not cur_start) or (synced and cur_start == synced):
+            self.dt_war_start.blockSignals(True)
+            self.dt_war_start.set_date(new_date)
+            self.dt_war_start.blockSignals(False)
+            self._synced_sale_war_start = new_date
+        self._recalc_warranty_end()
+
     def _recalc_warranty_end(self, *_):
         days = self._get_warranty_days()
+        if not days:
+            self.dt_war_end.set_date("")
+            return
+        base_date = self.dt_war_start.get_date()
+        if not base_date and hasattr(self, "dt_sale_date"):
+            sale_d = self.dt_sale_date.get_date()
+            if sale_d:
+                self.dt_war_start.blockSignals(True)
+                self.dt_war_start.set_date(sale_d)
+                self.dt_war_start.blockSignals(False)
+                self._synced_sale_war_start = sale_d
+                base_date = sale_d
         self.dt_war_end.set_date(
-            add_jalali_days(self.dt_war_start.get_date(), days) if days else ""
+            add_jalali_days(base_date, days, cal_type=self.get_active_calendar())
+            if base_date
+            else ""
         )
 
     def _save_new_sale(self):
@@ -4426,10 +4806,8 @@ class MainWindow(QMainWindow):
                 "تعداد رنگ‌های انتخاب‌شده نمی‌تواند از تعداد فروش بیشتر باشد."
             )
             return
-        now_dt = (
-            f"{jdatetime.date.today().strftime('%Y/%m/%d')} "
-            f"{jdatetime.datetime.now().strftime('%H:%M:%S')}"
-        )
+        sale_d = self.dt_sale_date.get_date() if hasattr(self, "dt_sale_date") else ""
+        now_dt = f"{sale_d} {self.get_now_time_str()}".strip() if sale_d else self.get_now_datetime_str()
         try:
             war_days = self._get_warranty_days()
             self.db.add_sale(
@@ -4562,6 +4940,13 @@ class MainWindow(QMainWindow):
         )
 
         self.ed_war_company.setText(sale["warranty_company"] or "")
+        if hasattr(self, "dt_sale_date"):
+            raw_sale_dt = str(sale["sale_datetime"] or "").strip()
+            sale_date_part = raw_sale_dt.split(" ", 1)[0] if raw_sale_dt else ""
+            self.dt_sale_date.blockSignals(True)
+            self.dt_sale_date.set_date(sale_date_part)
+            self.dt_sale_date.blockSignals(False)
+            self._synced_sale_war_start = sale_date_part or None
         self.dt_war_start.set_date(sale["warranty_start"] or "")
         duration_days = int(sale["warranty_days"] or (int(sale["warranty_months"] or 0) * 30))
         if duration_days:
@@ -4613,6 +4998,7 @@ class MainWindow(QMainWindow):
                 specifications=self.ed_sale_specs.text().strip(),
                 colors=selected_colors,
                 customer_phone=self.ed_sale_phone.text().strip(),
+                sale_datetime=(self.dt_sale_date.get_date() if hasattr(self, "dt_sale_date") else None),
             )
             self.refresh_all_data()
             QMessageBox.information(self, "اصلاح فروش", "ردیف فروش با موفقیت اصلاح شد.")
@@ -4931,10 +5317,7 @@ class MainWindow(QMainWindow):
         if not d:
             QMessageBox.warning(self, "خطا", "ابتدا یک خدمت از لیست انتخاب کنید.")
             return
-        now_dt = (
-            f"{jdatetime.date.today().strftime('%Y/%m/%d')} "
-            f"{jdatetime.datetime.now().strftime('%H:%M:%S')}"
-        )
+        now_dt = self.get_now_datetime_str()
         self.db.add_service_record(
             "",
             d["id"],
@@ -5263,7 +5646,7 @@ class MainWindow(QMainWindow):
         self.chk_upg_add_cost.setChecked(False)
         self.chk_upg_consume_stock.setChecked(True)
         self.chk_upg_consume_stock.setEnabled(False)
-        self.dt_upg_date.set_date(jdatetime.date.today().strftime("%Y/%m/%d"))
+        self.dt_upg_date.set_date(self.get_today_date_str())
         self._on_upg_target_changed()
 
     def _on_upgrade_selected(self):
@@ -5696,38 +6079,48 @@ class MainWindow(QMainWindow):
 
     def _on_rep_preset_changed(self):
         preset = self.cb_rep_preset.currentText()
-        today_j = jdatetime.date.today()
-        today_g = today_j.togregorian()
+        cal = self.get_active_calendar()
+        self._sync_date_widgets_calendar()
+        today_g = date.today()
+
+        def _fmt_offset(days_ago: int) -> str:
+            g = today_g - timedelta(days=days_ago)
+            y, m, d = datetime_format.from_gregorian_date(g, cal)
+            return f"{y:04d}/{m:02d}/{d:02d}"
 
         if preset == "همه زمان‌ها":
-            self.dt_rep_from.set_date("1400/01/01")
-            self.dt_rep_to.set_date("1600/12/29")
+            if cal == CALENDAR_GREGORIAN:
+                self.dt_rep_from.set_date("1990/01/01")
+                self.dt_rep_to.set_date("2100/12/31")
+            elif cal == CALENDAR_HIJRI:
+                self.dt_rep_from.set_date("1430/01/01")
+                self.dt_rep_to.set_date("1550/12/29")
+            else:
+                self.dt_rep_from.set_date("1400/01/01")
+                self.dt_rep_to.set_date("1600/12/29")
         elif preset == "امروز":
-            s = today_j.strftime("%Y/%m/%d")
+            s = _fmt_offset(0)
             self.dt_rep_from.set_date(s)
             self.dt_rep_to.set_date(s)
         elif preset == "دیروز":
-            y_j = jdatetime.date.fromgregorian(date=today_g - timedelta(days=1))
-            s = y_j.strftime("%Y/%m/%d")
+            s = _fmt_offset(1)
             self.dt_rep_from.set_date(s)
             self.dt_rep_to.set_date(s)
         elif preset == "هفته گذشته":
-            w_j = jdatetime.date.fromgregorian(date=today_g - timedelta(days=7))
-            self.dt_rep_from.set_date(w_j.strftime("%Y/%m/%d"))
-            self.dt_rep_to.set_date(today_j.strftime("%Y/%m/%d"))
+            self.dt_rep_from.set_date(_fmt_offset(7))
+            self.dt_rep_to.set_date(_fmt_offset(0))
         elif preset == "یک ماه گذشته":
-            m_j = jdatetime.date.fromgregorian(date=today_g - timedelta(days=30))
-            self.dt_rep_from.set_date(m_j.strftime("%Y/%m/%d"))
-            self.dt_rep_to.set_date(today_j.strftime("%Y/%m/%d"))
+            self.dt_rep_from.set_date(_fmt_offset(30))
+            self.dt_rep_to.set_date(_fmt_offset(0))
         elif preset == "سال گذشته":
-            yr_j = jdatetime.date.fromgregorian(date=today_g - timedelta(days=365))
-            self.dt_rep_from.set_date(yr_j.strftime("%Y/%m/%d"))
-            self.dt_rep_to.set_date(today_j.strftime("%Y/%m/%d"))
+            self.dt_rep_from.set_date(_fmt_offset(365))
+            self.dt_rep_to.set_date(_fmt_offset(0))
 
         self._update_report_live()
 
     def _update_report_live(self):
         rep_type = self.cb_rep_type.currentText()
+        active_cal = self.get_active_calendar()
         d_from = self.dt_rep_from.get_date()
         d_to = self.dt_rep_to.get_date()
         emp_id = self.cb_rep_emp.currentData()
@@ -5826,7 +6219,7 @@ class MainWindow(QMainWindow):
                 total_profit = 0
                 for r in list(s_rows) + list(b_rows) + list(srv_rows):
                     d_only = (r["dt"] or "")[:10]
-                    if not (d_from <= d_only <= d_to):
+                    if not datetime_format.is_date_in_range(d_only, d_from, d_to, active_cal):
                         continue
                     if r["t_type"] == "خدمات":
                         if not service_is_visible(r["emp_id"], r["technician_id"]):
@@ -5940,7 +6333,7 @@ class MainWindow(QMainWindow):
                 sum_sale, sum_prof, sum_disc = 0, 0, 0
                 for r in q:
                     dt = r["sale_datetime"][:10]
-                    if not (d_from <= dt <= d_to):
+                    if not datetime_format.is_date_in_range(dt, d_from, d_to, active_cal):
                         continue
                     if not employee_is_visible(r["seller_employee_id"]):
                         continue
@@ -6012,6 +6405,7 @@ class MainWindow(QMainWindow):
                     "کد محموله",
                     "شماره فاکتور خرید",
                     "تاریخ خرید",
+                    "ساعت خرید",
                     "کد کالا",
                     "دسته‌بندی",
                     "زیرمجموعه",
@@ -6036,7 +6430,7 @@ class MainWindow(QMainWindow):
                 ]
                 q = conn.execute("""
                     SELECT b.id, b.batch_code, b.product_id, b.supplier_id, b.buyer_employee_id,
-                           b.invoice_number, b.purchase_date, b.initial_qty, b.sold_qty, b.returned_qty,
+                           b.invoice_number, b.purchase_date, b.purchase_time, b.initial_qty, b.sold_qty, b.returned_qty,
                            b.remaining_qty, b.unit_purchase_price, b.extra_cost_total, b.upgrade_cost_unit,
                            b.unit_cost_price, b.suggested_sell_price, b.profit_pct, b.paid_amount,
                            b.settlement_status, b.serial_numbers, b.colors_json, b.initial_specs,
@@ -6052,7 +6446,7 @@ class MainWindow(QMainWindow):
                 """).fetchall()
                 sum_buy, sum_debt, sum_b_prof = 0, 0, 0
                 for r in q:
-                    if not (d_from <= r["purchase_date"] <= d_to):
+                    if not datetime_format.is_date_in_range(r["purchase_date"], d_from, d_to, active_cal):
                         continue
                     if not employee_is_visible(r["buyer_employee_id"]):
                         continue
@@ -6079,6 +6473,7 @@ class MainWindow(QMainWindow):
                             r["batch_code"],
                             r["invoice_number"] or "-",
                             r["purchase_date"],
+                            r["purchase_time"] or "-",
                             r["code"],
                             r["category"],
                             r["sub_category"],
@@ -6224,31 +6619,44 @@ class MainWindow(QMainWindow):
                 for e in emps:
                     if emp_id and e["id"] != emp_id:
                         continue
-                    b_stat = conn.execute(
-                        """
-                        SELECT COUNT(*) as cnt,
-                               COALESCE(SUM(unit_purchase_price*initial_qty + extra_cost_total), 0) as amt
-                        FROM batches WHERE buyer_employee_id=? AND purchase_date BETWEEN ? AND ?
-                    """,
-                        (e["id"], d_from, d_to),
-                    ).fetchone()
-                    s_stat = conn.execute(
-                        """
-                        SELECT COUNT(*) as cnt, COALESCE(SUM(qty),0) as items_cnt,
-                               COALESCE(SUM(total_amount),0) as amt,
-                               COALESCE(SUM(total_discount),0) as disc,
-                               COALESCE(SUM(total_profit),0) as prof
-                        FROM sales WHERE seller_employee_id=? AND substr(sale_datetime,1,10) BETWEEN ? AND ?
-                    """,
-                        (e["id"], d_from, d_to),
-                    ).fetchone()
-                    srv_stat = conn.execute(
-                        """
-                        SELECT COUNT(*) as cnt, COALESCE(SUM(net_profit),0) as prof
-                        FROM service_records WHERE seller_employee_id=? AND substr(service_datetime,1,10) BETWEEN ? AND ?
-                    """,
-                        (e["id"], d_from, d_to),
-                    ).fetchone()
+                    b_rows = [
+                        r for r in conn.execute(
+                            "SELECT purchase_date, unit_purchase_price, initial_qty, extra_cost_total "
+                            "FROM batches WHERE buyer_employee_id=?",
+                            (e["id"],),
+                        ).fetchall()
+                        if datetime_format.is_date_in_range(r["purchase_date"], d_from, d_to, active_cal)
+                    ]
+                    b_stat = {
+                        "cnt": len(b_rows),
+                        "amt": sum((int(r["unit_purchase_price"]) * int(r["initial_qty"])) + int(r["extra_cost_total"]) for r in b_rows),
+                    }
+                    s_rows = [
+                        r for r in conn.execute(
+                            "SELECT sale_datetime, qty, total_amount, total_discount, total_profit "
+                            "FROM sales WHERE seller_employee_id=?",
+                            (e["id"],),
+                        ).fetchall()
+                        if datetime_format.is_date_in_range(r["sale_datetime"], d_from, d_to, active_cal)
+                    ]
+                    s_stat = {
+                        "cnt": len(s_rows),
+                        "items_cnt": sum(int(r["qty"]) for r in s_rows),
+                        "amt": sum(int(r["total_amount"]) for r in s_rows),
+                        "disc": sum(int(r["total_discount"]) for r in s_rows),
+                        "prof": sum(int(r["total_profit"]) for r in s_rows),
+                    }
+                    srv_rows = [
+                        r for r in conn.execute(
+                            "SELECT service_datetime, net_profit FROM service_records WHERE seller_employee_id=?",
+                            (e["id"],),
+                        ).fetchall()
+                        if datetime_format.is_date_in_range(r["service_datetime"], d_from, d_to, active_cal)
+                    ]
+                    srv_stat = {
+                        "cnt": len(srv_rows),
+                        "prof": sum(int(r["net_profit"]) for r in srv_rows),
+                    }
                     tot_emp_prof = int(s_stat["prof"]) + int(srv_stat["prof"])
                     rows_data.append(
                         [
@@ -6420,7 +6828,7 @@ class MainWindow(QMainWindow):
                 sum_fee, sum_side, sum_net, sum_adjustment, sum_receivable = 0, 0, 0, 0, 0
                 for r in q:
                     dt = r["service_datetime"][:10]
-                    if not (d_from <= dt <= d_to):
+                    if not datetime_format.is_date_in_range(dt, d_from, d_to, active_cal):
                         continue
                     if not service_is_visible(
                         r["seller_employee_id"], r["technician_employee_id"]
@@ -6482,7 +6890,7 @@ class MainWindow(QMainWindow):
                                p.code as p_code, p.serial_number as prod_serial, p.category,
                                p.sub_category, p.brand, p.model, p.specs_json, p.description as prod_desc,
                                p.reorder_point, p.default_profit_pct,
-                               b.batch_code, b.invoice_number as batch_inv, b.purchase_date,
+                               b.batch_code, b.invoice_number as batch_inv, b.purchase_date, b.purchase_time,
                                b.initial_qty as batch_initial_qty, b.sold_qty as batch_sold_qty,
                                b.remaining_qty as batch_remaining_qty, b.unit_purchase_price,
                                b.extra_cost_total, b.upgrade_cost_unit, b.unit_cost_price as batch_unit_cost,
@@ -6502,7 +6910,7 @@ class MainWindow(QMainWindow):
 
                     for r in joined_query:
                         dt = (r["sale_datetime"] or "")[:10]
-                        if not (d_from <= dt <= d_to):
+                        if not datetime_format.is_date_in_range(dt, d_from, d_to, active_cal):
                             continue
                         if not employee_is_visible(r["seller_employee_id"]):
                             continue
@@ -6533,6 +6941,7 @@ class MainWindow(QMainWindow):
                             "مسئول خرید": r["emp_name"] or "-",
                             "شماره فاکتور خرید": r["batch_inv"] or "-",
                             "تاریخ خرید": r["purchase_date"] or "-",
+                            "ساعت خرید": r["purchase_time"] or "-",
                             "تعداد خرید": r["batch_initial_qty"],
                             "تعداد فروش محموله": r["batch_sold_qty"],
                             "موجودی فعلی محموله": r["batch_remaining_qty"],
@@ -6591,6 +7000,8 @@ class MainWindow(QMainWindow):
         self.lbl_rep_totals.setText(summary_text)
 
     def _export_current_report(self):
+        if not self._require_license_feature("excel_report_export"):
+            return
         # بند ۹: نام‌گذاری خودکار فایل بر اساس تاریخ روز (مثلاً R14050809_115300.xlsx)
         default_path = get_next_excel_filename(os.path.expanduser("~"), "R")
         path, _ = QFileDialog.getSaveFileName(
@@ -7100,6 +7511,8 @@ class MainWindow(QMainWindow):
         self._sync_reports_tab_combo()
 
     def _add_custom_report(self):
+        if not self._require_license_feature("report_builder"):
+            return
         name = self.ed_custom_report_name.text().strip()
         if not name:
             QMessageBox.warning(self, "نام گزارش", "لطفاً نام گزارش را وارد کنید.")
@@ -7127,6 +7540,8 @@ class MainWindow(QMainWindow):
         )
 
     def _rename_custom_report(self):
+        if not self._require_license_feature("report_builder"):
+            return
         current_name = self.cb_report_export_type.currentText()
         if current_name in REPORT_AVAILABLE_COLUMNS or current_name == "تعریف گزارش جدید":
             QMessageBox.warning(self, "عدم امکان تغییر نام", "این مورد قابل تغییر نام نیست.")
@@ -7156,6 +7571,8 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "تغییر نام", f"نام گزارش به «{new_name}» تغییر یافت (در انتظار ذخیره تنظیمات).")
 
     def _delete_custom_report(self):
+        if not self._require_license_feature("report_builder"):
+            return
         current_name = self.cb_report_export_type.currentText()
         if current_name in REPORT_AVAILABLE_COLUMNS or current_name == "تعریف گزارش جدید":
             QMessageBox.warning(self, "عدم امکان حذف", "این مورد قابل حذف نیست.")
@@ -7401,6 +7818,8 @@ class MainWindow(QMainWindow):
             self.db.set_setting("custom_report_definitions", json.dumps(self._custom_report_draft_definitions, ensure_ascii=False))
 
     def _save_report_export_config_ui(self):
+        if not self._require_license_feature("report_builder"):
+            return
         report_type = self.cb_report_export_type.currentText()
         if report_type == "تعریف گزارش جدید":
             QMessageBox.information(
@@ -7670,7 +8089,7 @@ class MainWindow(QMainWindow):
 
         self.cb_time_format = QComboBox()
         self.cb_time_format.addItem("۲۴ ساعته (پیش‌فرض)", "24h")
-        self.cb_time_format.addItem("۱۲ ساعته (با ق.ظ / ب.ظ)", "12h")
+        self.cb_time_format.addItem("۱۲ ساعته (AM / PM)", "12h")
 
         f_gen.addRow("درصد سود پیش‌فرض فروشگاه (%):", self.sp_set_profit)
         f_gen.addRow("حداقل موجودی پیش‌فرض کالاها:", self.sp_default_min_inventory)
@@ -8424,6 +8843,8 @@ class MainWindow(QMainWindow):
         self._refresh_db_password_status()
 
     def _on_set_db_password_clicked(self):
+        if not self._require_license_feature("database_encryption"):
+            return
         dialog = QDialog(self)
         dialog.setWindowTitle("تعیین رمز عبور پایگاه داده")
         dialog.setLayoutDirection(Qt.RightToLeft)
@@ -8495,6 +8916,8 @@ class MainWindow(QMainWindow):
         dialog.exec()
 
     def _on_change_db_password_clicked(self):
+        if not self._require_license_feature("database_encryption"):
+            return
         dialog = QDialog(self)
         dialog.setWindowTitle("تغییر رمز عبور پایگاه داده")
         dialog.setLayoutDirection(Qt.RightToLeft)
@@ -8584,6 +9007,8 @@ class MainWindow(QMainWindow):
         dialog.exec()
 
     def _on_remove_db_password_clicked(self):
+        if not self._require_license_feature("database_encryption"):
+            return
         dialog = QDialog(self)
         dialog.setWindowTitle("حذف رمز عبور پایگاه داده")
         dialog.setLayoutDirection(Qt.RightToLeft)
@@ -9693,6 +10118,8 @@ class MainWindow(QMainWindow):
 
     def _import_product_taxonomy(self, import_path=None):
         """Action 2 (REQ-3): Scoped manual JSON import for product taxonomy only (services untouched)."""
+        if not import_path and not self._require_license_feature("taxonomy_import_export"):
+            return
         if import_path:
             path = import_path
         else:
@@ -9754,6 +10181,8 @@ class MainWindow(QMainWindow):
 
     def _import_service_taxonomy(self, import_path=None):
         """Action 2 (REQ-3): Scoped manual JSON import for service types only (products untouched)."""
+        if not import_path and not self._require_license_feature("taxonomy_import_export"):
+            return
         if import_path:
             path = import_path
         else:
@@ -9793,6 +10222,8 @@ class MainWindow(QMainWindow):
 
     def _export_product_taxonomy_section(self, export_path=None):
         """REQ-1: Scoped JSON export for product taxonomy only (categories, subcategories, attributes, colors)."""
+        if not export_path and not self._require_license_feature("taxonomy_import_export"):
+            return None
         if export_path:
             path = export_path
         else:
@@ -9829,6 +10260,8 @@ class MainWindow(QMainWindow):
 
     def _export_service_taxonomy_section(self, export_path=None):
         """REQ-1: Scoped JSON export for service types only (service_types)."""
+        if not export_path and not self._require_license_feature("taxonomy_import_export"):
+            return None
         if export_path:
             path = export_path
         else:
@@ -9862,6 +10295,8 @@ class MainWindow(QMainWindow):
 
     def _export_comprehensive_taxonomy(self, export_path=None):
         """REQ-1: Comprehensive JSON export of products and services matching default_taxonomy.json schema."""
+        if not export_path and not self._require_license_feature("taxonomy_import_export"):
+            return None
         if export_path:
             path = export_path
         else:
@@ -10293,6 +10728,12 @@ class MainWindow(QMainWindow):
 
         self.active_employee = selected_employee
         shop_name = (self.db.get_setting("shop_name", "فروشگاه من") or "فروشگاه من").strip()
+        if shop_name and shop_name != "فروشگاه من":
+            try:
+                self.db.cfg["last_store_name"] = shop_name
+                save_app_config(self.db.cfg)
+            except Exception:
+                pass
         self.setWindowTitle(_window_title(shop_name))
         if hasattr(self, "lbl_store_name"):
             self.lbl_store_name.setText(bidi_isolate_text(f"دقیق | {shop_name}"))
@@ -10316,6 +10757,8 @@ class MainWindow(QMainWindow):
             )
 
     def _create_and_connect_new_db(self):
+        if not self._require_license_feature("multi_database"):
+            return
         base_dir = os.path.dirname(os.path.abspath(self.db.db_path)) if self.db and self.db.db_path else None
         default_path = resolve_new_database_filename(base_dir)
         new_path, _ = QFileDialog.getSaveFileName(
@@ -10326,6 +10769,8 @@ class MainWindow(QMainWindow):
             self._switch_to_database_path(new_path, create_if_missing=True)
 
     def _connect_existing_db(self):
+        if not self._require_license_feature("multi_database"):
+            return
         ext_path, _ = QFileDialog.getOpenFileName(
             self, "انتخاب فایل پایگاه دادهٔ موجود", "",
             "پایگاه داده SQLite (*.db *.sqlite *.sqlite3)"
@@ -10396,6 +10841,8 @@ class MainWindow(QMainWindow):
         perform_historical_migration = False
 
         if cal_time_changed:
+            if not self._require_license_feature("custom_calendar_formats"):
+                return
             dlg = DatetimeMigrationChoiceDialog(
                 from_cal=current_stored_cal,
                 to_cal=target_cal,
@@ -10551,6 +10998,7 @@ class MainWindow(QMainWindow):
             self.db.cfg["zero_append_count"] = int(self.cb_zero_count.currentData())
             self.db.cfg["default_window_maximized"] = self.cb_win_mode.currentData() == "1"
             self.db.cfg["require_login_password"] = effective_password_policy
+            self.db.cfg["last_store_name"] = shop_name
             self._save_report_export_config_internal()
             self.db.set_db_config("auto_backup_enabled", self.chk_auto_bk.isChecked())
             self.db.set_db_config("auto_backup_interval_min", self.sp_bk_interval.value())
@@ -10623,7 +11071,14 @@ class MainWindow(QMainWindow):
             self.lbl_store_name.setToolTip(f"نام فروشگاه: {shop_name}")
 
         self._apply_product_catalog_config()
+        self._sync_date_widgets_calendar()
+        self._update_clock()
         self.refresh_all_data()
+        if hasattr(self, "_on_rep_preset_changed"):
+            self._on_rep_preset_changed()
+        self._clear_batch_form()
+        self._clear_sale_form()
+        self._clear_upgrade_form()
         self._refresh_multi_db_combo()
         self._restart_backup_timer()
         self._refresh_visual_layout()
@@ -10643,10 +11098,12 @@ class MainWindow(QMainWindow):
             subprocess.Popen(["xdg-open", folder])
 
     def _do_manual_backup(self):
+        if not self._require_license_feature("manual_backup_restore"):
+            return
         path, _ = QFileDialog.getSaveFileName(
             self,
             "ذخیره فایل پشتیبان",
-            f"Backup_{jdatetime.date.today().strftime('%Y%m%d')}.db",
+            f"Backup_{self.get_today_date_str().replace('/', '')}.db",
             "پایگاه داده SQLite (*.db)",
         )
         if not path:
@@ -10664,6 +11121,8 @@ class MainWindow(QMainWindow):
 
 
     def _do_restore_backup(self):
+        if not self._require_license_feature("manual_backup_restore"):
+            return
         path, _ = QFileDialog.getOpenFileName(
             self, "انتخاب فایل پشتیبان", "", "پایگاه داده SQLite (*.db)"
         )
@@ -10980,7 +11439,7 @@ class MainWindow(QMainWindow):
         with self.db.get_connection() as conn:
             rows = self._execute_scoped_query(conn, """
                 SELECT b.id, b.batch_code, b.product_id, b.supplier_id, b.buyer_employee_id,
-                       b.invoice_number, b.purchase_date, b.initial_qty, b.sold_qty, b.returned_qty,
+                       b.invoice_number, b.purchase_date, b.purchase_time, b.initial_qty, b.sold_qty, b.returned_qty,
                        b.remaining_qty, b.unit_purchase_price, b.extra_cost_total, b.upgrade_cost_unit,
                        b.unit_cost_price, b.suggested_sell_price, b.profit_pct, b.paid_amount,
                        b.settlement_status, b.serial_numbers, b.colors_json, b.initial_specs,
@@ -11011,6 +11470,7 @@ class MainWindow(QMainWindow):
                     r["emp_name"] or "-",
                     r["invoice_number"],
                     r["purchase_date"],
+                    r["purchase_time"] or "-",
                     r["initial_qty"],
                     r["sold_qty"],
                     r["remaining_qty"],
@@ -11028,7 +11488,7 @@ class MainWindow(QMainWindow):
                     "، ".join(self._decode_colors(r["colors_json"])) or "-",
                 ]
             )
-        self._populate_table_safely(self.tbl_batches, data, highlight_col=18)
+        self._populate_table_safely(self.tbl_batches, data, highlight_col=19)
 
     def _refresh_sales_table(self):
         with self.db.get_connection() as conn:
@@ -11251,6 +11711,8 @@ class MainWindow(QMainWindow):
         self._populate_table_safely(self.tbl_suppliers, data)
 
     def _refresh_employees_table(self):
+        cal = self.get_active_calendar()
+        tf = self.get_active_time_format()
         with self.db.get_connection() as conn:
             rows = self._execute_scoped_query(
                 conn,
@@ -11267,16 +11729,16 @@ class MainWindow(QMainWindow):
                 r["permissions"],
                 "بله" if r["password"] else "خیر",
                 "فعال" if r["is_active"] else "غیرفعال",
-                format_iso_to_jalali(r["created_at"]),
-                format_iso_to_jalali(r["updated_at"]),
-                format_iso_to_jalali(r["last_login_at"]),
+                format_iso_to_jalali(r["created_at"], cal_type=cal, time_fmt=tf),
+                format_iso_to_jalali(r["updated_at"], cal_type=cal, time_fmt=tf),
+                format_iso_to_jalali(r["last_login_at"], cal_type=cal, time_fmt=tf),
             ]
             for r in rows
         ]
         self._populate_table_safely(self.tbl_employees, data)
 
     def _refresh_dashboard(self):
-        today = jdatetime.date.today().strftime("%Y/%m/%d")
+        today = self.get_today_date_str()
         visible_employee_ids = self._visible_employee_ids()
         scoped = visible_employee_ids is not None
         permissions = self._permission_policy(self.active_employee.get("permissions") or "") if scoped and self.active_employee else ""
@@ -11483,13 +11945,130 @@ class MainWindow(QMainWindow):
 
 
 
+def _run_smoke_launch_db(app: QApplication, db_path: str, mode: str = "create") -> int:
+    """Non-interactive post-DB MainWindow launch verification for compiled-binary CI tests.
+
+    Never unlocks interactive user usage: destroys MainWindow and exits after 1.5s Qt event loop.
+    """
+    from types import SimpleNamespace
+
+    smoke_mode = (mode or "create").strip().lower()
+    if smoke_mode not in ("create", "existing"):
+        print(f"DAQIQ_SMOKE_LAUNCH_ERROR: Invalid --smoke-launch-mode: {mode!r}", file=sys.stderr, flush=True)
+        return 1
+
+    target_db = os.path.abspath(os.path.expanduser(db_path))
+    db = None
+    win = None
+    try:
+        dlg = DatabaseBootstrapDialog(target_db)
+        if smoke_mode == "existing":
+            dlg.rb_existing.setChecked(True)
+        else:
+            dlg.rb_create.setChecked(True)
+        dlg.ed_path.setText(target_db)
+        dlg._validate_and_accept()
+        if dlg.result() != QDialog.Accepted or not dlg.selected_path:
+            print("DAQIQ_SMOKE_LAUNCH_ERROR: DatabaseBootstrapDialog validation failed.", file=sys.stderr, flush=True)
+            return 1
+        chosen = os.path.abspath(dlg.selected_path)
+        if smoke_mode == "create" or not os.path.isfile(chosen):
+            created = create_and_initialize_database(chosen)
+            try:
+                created.close()
+            except Exception:
+                pass
+        dlg.close()
+
+        db = DatabaseManager(chosen)
+        active_emp, accepted = _resolve_startup_employee(db)
+        if not accepted:
+            print("DAQIQ_SMOKE_LAUNCH_ERROR: Employee login required in smoke DB.", file=sys.stderr, flush=True)
+            return 1
+
+        # Strictly ephemeral in-memory smoke entitlement stub; never persisted or usable interactively.
+        smoke_res = ValidationResult(
+            status=ValidationStatus.VALID,
+            is_valid=True,
+            license=None,
+            message_fa="smoke-check",
+        )
+        smoke_svc = SimpleNamespace(
+            check_license=lambda force_reload=False: smoke_res,
+            is_feature_enabled=lambda _feat: True,
+            is_write_allowed=lambda: True,
+            get_hardware_fingerprint=lambda: "fp_v1:smoke",
+            get_active_key_fingerprints=lambda: [],
+            store_name_provider=None,
+        )
+
+        win = MainWindow(db, active_emp, license_service=smoke_svc)
+        global _ACTIVE_MAIN_WINDOW
+        _ACTIVE_MAIN_WINDOW = win
+        win.show()
+
+        smoke_state = {"ok": False, "err": ""}
+
+        def _finish_smoke():
+            try:
+                if win is None or not win.isVisible():
+                    smoke_state["err"] = "MainWindow is not visible after 1.5s event loop."
+                elif win.tabs.count() < 10:
+                    smoke_state["err"] = f"Unexpected tab count: {win.tabs.count()}"
+                else:
+                    smoke_state["ok"] = True
+            except Exception as exc:
+                smoke_state["err"] = repr(exc)
+            finally:
+                try:
+                    if win is not None:
+                        win.close()
+                except Exception:
+                    pass
+                app.quit()
+
+        QTimer.singleShot(1500, _finish_smoke)
+        app.exec()
+        app.setQuitOnLastWindowClosed(True)
+
+        if not smoke_state["ok"]:
+            print(f"DAQIQ_SMOKE_LAUNCH_ERROR: {smoke_state['err']}", file=sys.stderr, flush=True)
+            return 1
+
+        print(
+            f"DAQIQ_SMOKE_LAUNCH_OK: mode={smoke_mode} visible=True tabs={win.tabs.count()} db={chosen}",
+            flush=True,
+        )
+        return 0
+    except Exception as exc:
+        write_crash_log(type(exc), exc, exc.__traceback__, context="smoke_launch_db")
+        print(f"DAQIQ_SMOKE_LAUNCH_ERROR: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
+        return 1
+    finally:
+        _ACTIVE_MAIN_WINDOW = None
+        if db is not None:
+            try:
+                db.close()
+            except Exception:
+                pass
+
+
 def main():
+    if "--print-paths" in sys.argv[1:]:
+        try:
+            print(format_resolved_paths_report(), flush=True)
+        except OSError:
+            pass
+        sys.exit(0)
+
+    install_native_fault_and_qt_loggers()
+
     smoke_log_file = None
     if os.environ.get("DAQIQ_SMOKE_TEST") == "1":
         try:
             smoke_log_file = os.environ.get("DAQIQ_SMOKE_LOG_PATH")
             if not smoke_log_file:
-                exe_dir = os.path.dirname(os.path.abspath(sys.executable))
+                exe_dir = str(get_executable_dir())
                 smoke_log_file = os.path.join(exe_dir, "smoke_test.log")
             with open(smoke_log_file, "a", encoding="utf-8") as f:
                 f.write("STEP 1: Entered main()\n")
@@ -11499,7 +12078,12 @@ def main():
     if sys.platform == "win32":
         try:
             import ctypes
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(f"ouncommono.Daqiq.{APP_VERSION}")
+            from ctypes import wintypes
+
+            fn = ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID
+            fn.argtypes = [wintypes.LPCWSTR]
+            fn.restype = ctypes.c_long
+            fn(f"ouncommono.Daqiq.{APP_VERSION}")
         except Exception:
             pass
 
@@ -11521,6 +12105,26 @@ def main():
     app.setLayoutDirection(Qt.RightToLeft)
     font = QFont("Tahoma", 10)
     app.setFont(font)
+    install_global_exception_hooks()
+    app.setQuitOnLastWindowClosed(False)
+    if not getattr(app, "_daqiq_msg_polisher", None):
+        polisher = _MessageBoxPolisher(app)
+        app.installEventFilter(polisher)
+        app._daqiq_msg_polisher = polisher
+
+    # Automated compiled-binary E2E launch smoke verification (--smoke-launch-db)
+    if "--smoke-launch-db" in sys.argv[1:]:
+        args = sys.argv[1:]
+        idx = args.index("--smoke-launch-db")
+        smoke_db = args[idx + 1] if idx + 1 < len(args) else ""
+        smoke_mode = "create"
+        if "--smoke-launch-mode" in args:
+            m_idx = args.index("--smoke-launch-mode")
+            if m_idx + 1 < len(args):
+                smoke_mode = args[m_idx + 1]
+        rc = _run_smoke_launch_db(app, smoke_db, mode=smoke_mode)
+        app.setQuitOnLastWindowClosed(True)
+        sys.exit(rc)
 
     if smoke_log_file:
         try:
@@ -11558,54 +12162,83 @@ def main():
                     f.write("STEP 5: Clean exit sys.exit(0)\n")
             except Exception:
                 pass
+        app.setQuitOnLastWindowClosed(True)
         sys.exit(0)
-    if not val_res.is_valid:
-        startup_cfg = load_app_config()
-        startup_dark = startup_cfg.get("theme", "light") == "dark"
-        dlg = LicenseDialog(
-            service=license_service,
-            icon_path=icon_path if os.path.exists(icon_path) else None,
-            is_dark_theme=startup_dark,
-            is_startup_gate=True,
-        )
-        if dlg.exec() != QDialog.Accepted:
-            sys.exit(0)
-        val_res = license_service.check_license()
+
+    exit_code = 0
+    try:
         if not val_res.is_valid:
+            startup_cfg = load_app_config()
+            startup_dark = startup_cfg.get("theme", "light") == "dark"
+            dlg_icon = resource_path("assets/daqiq_logo.svg")
+            if not os.path.exists(dlg_icon):
+                dlg_icon = icon_path
+            dlg = LicenseDialog(
+                service=license_service,
+                icon_path=dlg_icon if os.path.exists(dlg_icon) else None,
+                is_dark_theme=startup_dark,
+                is_startup_gate=True,
+            )
+            if dlg.exec() != QDialog.Accepted:
+                app.setQuitOnLastWindowClosed(True)
+                sys.exit(0)
+            val_res = license_service.check_license()
+            if not val_res.is_valid:
+                app.setQuitOnLastWindowClosed(True)
+                sys.exit(0)
+
+        selected_db_path = select_startup_database_path()
+        if not selected_db_path:
+            app.setQuitOnLastWindowClosed(True)
+            sys.exit(0)
+        db = DatabaseManager(selected_db_path)
+
+        # Database Password Startup Check (Item 13, REQ-5)
+        if db.is_password_protected() and not db.can_auto_unlock_locally():
+            unlocked = False
+            for _ in range(3):
+                pwd, ok = _prompt_database_password(None, "رمز عبور پایگاه داده را وارد کنید:")
+                if not ok:
+                    break
+                if db.verify_database_password(pwd):
+                    unlocked = True
+                    break
+                else:
+                    QMessageBox.warning(None, "رمز نادرست", "رمز عبور واردشده برای پایگاه داده صحیح نیست.")
+            if not unlocked:
+                app.setQuitOnLastWindowClosed(True)
+                sys.exit(0)
+
+        active_emp = None
+        active_emp, accepted = _resolve_startup_employee(db)
+        if not accepted:
+            app.setQuitOnLastWindowClosed(True)
             sys.exit(0)
 
-    selected_db_path = select_startup_database_path()
-    if not selected_db_path:
-        sys.exit(0)
-    db = DatabaseManager(selected_db_path)
+        win = MainWindow(db, active_emp, license_service=license_service)
+        global _ACTIVE_MAIN_WINDOW
+        _ACTIVE_MAIN_WINDOW = win
+        if bool(db.cfg.get("default_window_maximized", True)):
+            win.showMaximized()
+        else:
+            win.show()
+        app.processEvents()
+        app.setQuitOnLastWindowClosed(True)
+        exit_code = app.exec()
+    except Exception as exc:
+        app.setQuitOnLastWindowClosed(True)
+        handle_unhandled_exception(
+            type(exc),
+            exc,
+            exc.__traceback__,
+            context="main.startup",
+            show_dialog=True,
+        )
+        sys.exit(1)
+    finally:
+        _ACTIVE_MAIN_WINDOW = None
 
-    # Database Password Startup Check (Item 13, REQ-5)
-    if db.is_password_protected() and not db.can_auto_unlock_locally():
-        unlocked = False
-        for _ in range(3):
-            pwd, ok = _prompt_database_password(None, "رمز عبور پایگاه داده را وارد کنید:")
-            if not ok:
-                break
-            if db.verify_database_password(pwd):
-                unlocked = True
-                break
-            else:
-                QMessageBox.warning(None, "رمز نادرست", "رمز عبور واردشده برای پایگاه داده صحیح نیست.")
-        if not unlocked:
-            sys.exit(0)
-
-    active_emp = None
-    active_emp, accepted = _resolve_startup_employee(db)
-    if not accepted:
-        sys.exit(0)
-
-    win = MainWindow(db, active_emp, license_service=license_service)
-    if bool(db.cfg.get("default_window_maximized", True)):
-        win.showMaximized()
-    else:
-        win.show()
-
-    sys.exit(app.exec())
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":
