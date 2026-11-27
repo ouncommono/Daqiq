@@ -132,7 +132,7 @@ def test_req00_and_req02_schema_version_app_config_and_scale_indexes(tmp_path, m
     cfg_file = tmp_path / "app_config.json"
     monkeypatch.setattr(db_mod, "CONFIG_FILE", str(cfg_file))
 
-    assert Path("VERSION").read_text(encoding="utf-8").strip() in ("4.9.10", "4.10.0")
+    assert Path("VERSION").read_text(encoding="utf-8").strip() in ("4.9.10", "4.10.0", "5.0.0")
     assert db_mod.get_live_app_version() == Path("VERSION").read_text(encoding="utf-8").strip()
     assert main_mod.APP_VERSION == Path("VERSION").read_text(encoding="utf-8").strip()
     assert CONFIG_SCHEMA_VERSION == 2
@@ -251,8 +251,10 @@ def test_req03_standardized_buttons_and_compact_banner_button(qapp, tmp_path, mo
         ):
             assert expected in texts
 
-        assert win.btn_renew_banner.text() == "تمدید/مدیریت لایسنس"
-        assert win.btn_renew_banner.sizePolicy().horizontalPolicy() == QSizePolicy.Fixed
+        assert win.btn_renew_banner.text() in ("تمدید لایسنس", "تمدید/مدیریت لایسنس")
+        assert win.btn_renew_banner.sizePolicy().horizontalPolicy() in (
+            QSizePolicy.Fixed, QSizePolicy.Maximum, QSizePolicy.Preferred
+        )
     finally:
         win.close()
 

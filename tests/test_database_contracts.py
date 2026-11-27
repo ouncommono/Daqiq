@@ -1024,6 +1024,7 @@ def test_fresh_schema_has_v3_physical_column_order_and_metadata(manager):
             "paid_amount", "settlement_status", "colors_json",
             "initial_specs", "final_specs", "supplier_name_snapshot", "notes",
             "created_at", "updated_at", "row_version",
+            "settlement_subtype", "check_due_date", "check_status",
         ],
         "upgrades": [
             "id", "target_batch_id", "part_batch_id", "technician_id", "target_qty",
@@ -1040,6 +1041,7 @@ def test_fresh_schema_has_v3_physical_column_order_and_metadata(manager):
             "warranty_start", "warranty_months", "warranty_days", "warranty_end",
             "specifications", "colors_json", "notes",
             "created_at", "updated_at", "row_version", "customer_id", "payment_type",
+            "settlement_subtype", "check_due_date", "check_status",
         ],
         "service_records": [
             "id", "invoice_number", "service_id", "seller_employee_id",
@@ -1047,6 +1049,7 @@ def test_fresh_schema_has_v3_physical_column_order_and_metadata(manager):
             "historical_tariff", "service_fee", "side_cost", "paid_amount", "net_profit",
             "settlement_status", "service_datetime", "description", "created_at",
             "updated_at", "row_version",
+            "settlement_subtype", "check_due_date", "check_status", "customer_phone",
         ],
     }
     with manager.get_connection() as conn:
@@ -1283,6 +1286,7 @@ def test_v330_greenfield_schema_contracts_and_stock_balance_constraints(manager)
             "paid_amount", "settlement_status", "colors_json",
             "initial_specs", "final_specs", "supplier_name_snapshot", "notes",
             "created_at", "updated_at", "row_version",
+            "settlement_subtype", "check_due_date", "check_status",
         ],
         "upgrades": [
             "id", "target_batch_id", "part_batch_id", "technician_id", "target_qty",
@@ -1299,6 +1303,7 @@ def test_v330_greenfield_schema_contracts_and_stock_balance_constraints(manager)
             "warranty_start", "warranty_months", "warranty_days", "warranty_end",
             "specifications", "colors_json", "notes",
             "created_at", "updated_at", "row_version", "customer_id", "payment_type",
+            "settlement_subtype", "check_due_date", "check_status",
         ],
         "service_catalog": [
             "id", "code", "service_type", "name", "default_fee", "default_side_cost",
@@ -1314,6 +1319,7 @@ def test_v330_greenfield_schema_contracts_and_stock_balance_constraints(manager)
             "historical_tariff", "service_fee", "side_cost", "paid_amount", "net_profit",
             "settlement_status", "service_datetime", "description", "created_at",
             "updated_at", "row_version",
+            "settlement_subtype", "check_due_date", "check_status", "customer_phone",
         ],
         "payments": [
             "id", "ref_type", "ref_id", "amount", "payment_date",

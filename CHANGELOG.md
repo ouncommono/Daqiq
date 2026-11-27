@@ -1,3 +1,15 @@
+# Daqiq 5.0.0
+
+## Final Commercial Release: Multi-Item Invoices, Check Management, LAN Invoice Resolution, User Performance & Full UI/UX Overhaul
+
+- **Multi-Item Atomic Invoices (`database.py`, `main.py`, `utils/printing.py`)**: Upgraded Purchases (`خرید کالا`), Sales (`ثبت فروش`), and Service Desk (`میز خدمت`) with staged invoice-cart items under one atomic invoice header (`invoice_headers`) + `SINV-1001` as the first field in Service Desk, full multi-line A5/A4 B&W printing & Word export, and 3-option LAN duplicate invoice resolution (`جایگزینی با اطلاعات من` with stale `row_version` guard, `ثبت با شماره فاکتور بعدی`, `انصراف`).
+- **End-to-End Check Ledger & Unified Installments (`database.py`, `main.py`, `exporter.py`)**: Added `checks` table with check settlement subtype (`تسویه نقدی` / `تسویه چکی`), check due date, check status (`در انتظار وصول` / `وصول شد` / `برگشت خورد`), two Dashboard Check KPI cards (`چک‌های دریافتی` / `چک‌های پرداختی`), Receivable Check clearing inside `🤝 مشتریان`, Payable Checks inside Suppliers, and unified `فروش اقساطی` status with `اولین قسط هنگام خرید پرداخت شد` (checked by default) & today's default first due date.
+- **UI/UX, Navigation, Semantic Colors & Flush Search Bars (`main.py`, `utils_and_widgets.py`)**: Fixed Products tab vertical spacing and search width, enabled `Enter`-key barcode/code selection strictly on the 4 item/service selectors, merged customer search & input cleanly in Sales with bottom row order (`تاریخ فروش`, `رنگ‌ها`, `شرکت گارانتی`, `مدت`, `انقضای`, `شروع`), strictly enforced `0` as theme neutral text color, sharpened Light-mode `QRadioButton` contrast in `DatabaseBootstrapDialog`, standardized `مشتریان و اقساط` / `🤝 مشتریان`, Persianized Charts Top-N selector, made the top license banner single-line (`wordWrap=False`) with flexible button sizing, and aligned every table search bar flush next to `🖨️ چاپ`.
+- **Customers KPIs, User Performance Report & Report Sync (`database.py`, `main.py`, `utils/printing.py`)**: Replaced Customers right panel with 4 single-row KPI cards, added date-range `📊 گزارش عملکرد کاربران` in Employees & Roles with Excel + Print/Word export, synchronized all 14 Reports + Custom Report Builder + Excel Exporter columns (`settlement_subtype`, `check_due_date`, `check_status`), and added v5 entitlements (`checks_manage`, `multi_item_invoices`, `user_performance`).
+- **Complete-Wipe Zero-Qt Troubleshooter (`troubleshooter/core.py`, `troubleshooter/win_ui.py`)**: Extended `Daqiq-Troubleshooter.exe` reset mode to remove `LocalAppData\Daqiq`, `Roaming\Daqiq` (`.runtime_anchor.dat`), `ProgramData\Daqiq`, and `LocalAppData\Nuitka\Daqiq*` while unconditionally preserving 100% of default & custom manual/automatic backups.
+
+---
+
 # Daqiq 4.10.0
 
 ## Commercial Milestone: A5/A4 B&W Print + Editable Word (.docx), Customers & Installments, Native QPainter Charts, High-Load Scalability, Persistent Forms & Pure Win32 RTL Troubleshooter

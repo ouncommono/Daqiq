@@ -66,34 +66,64 @@ from PySide6.QtGui import QColor, QIntValidator, QPalette
 from PySide6.QtWidgets import QApplication, QSizePolicy
 
 
+def _qt_is_valid(obj) -> bool:
+    """Safely check whether a Shiboken/Qt C++ wrapper is still alive before accessing methods."""
+    if obj is None:
+        return False
+    try:
+        import shiboken6
+        return bool(shiboken6.isValid(obj))
+    except Exception:
+        return True
+
+
 def resolve_active_dark_theme(parent=None, db=None, default: bool = False) -> bool:
     """Resolve active Light/Dark theme from db, ancestor widget, or persisted app_config.json."""
     if db is not None and isinstance(getattr(db, "cfg", None), dict):
         return str(db.cfg.get("theme", "light")).strip().lower() == "dark"
     node = parent
     visited = set()
-    while node is not None and id(node) not in visited:
+    while _qt_is_valid(node) and id(node) not in visited:
         visited.add(id(node))
-        explicit = getattr(node, "is_dark_theme", None)
-        if isinstance(explicit, bool):
-            return explicit
-        node_db = getattr(node, "db", None)
-        if node_db is not None and isinstance(getattr(node_db, "cfg", None), dict):
-            return str(node_db.cfg.get("theme", "light")).strip().lower() == "dark"
-        node = node.parentWidget() if hasattr(node, "parentWidget") else None
-    app = QApplication.instance()
-    if app is not None:
-        active_win = app.activeWindow()
-        candidates = ([active_win] if active_win is not None else []) + list(app.topLevelWidgets())
-        for w in candidates:
-            if w is None or not getattr(w, "isVisible", lambda: False)():
-                continue
-            explicit = getattr(w, "is_dark_theme", None)
+        try:
+            explicit = getattr(node, "is_dark_theme", None)
             if isinstance(explicit, bool):
                 return explicit
-            w_db = getattr(w, "db", None)
-            if w_db is not None and isinstance(getattr(w_db, "cfg", None), dict):
-                return str(w_db.cfg.get("theme", "light")).strip().lower() == "dark"
+            node_db = getattr(node, "db", None)
+            if node_db is not None and isinstance(getattr(node_db, "cfg", None), dict):
+                return str(node_db.cfg.get("theme", "light")).strip().lower() == "dark"
+            node = node.parentWidget() if hasattr(node, "parentWidget") else None
+        except RuntimeError:
+            break
+    app = QApplication.instance()
+    if app is not None:
+        candidates = []
+        try:
+            active_win = app.activeWindow()
+            if _qt_is_valid(active_win):
+                candidates.append(active_win)
+        except RuntimeError:
+            pass
+        try:
+            import sys as _sys
+            main_mod = _sys.modules.get("main")
+            active_main = getattr(main_mod, "_ACTIVE_MAIN_WINDOW", None) if main_mod is not None else None
+            if _qt_is_valid(active_main) and active_main not in candidates:
+                candidates.append(active_main)
+        except RuntimeError:
+            pass
+        for w in candidates:
+            try:
+                if not _qt_is_valid(w) or not getattr(w, "isVisible", lambda: False)():
+                    continue
+                explicit = getattr(w, "is_dark_theme", None)
+                if isinstance(explicit, bool):
+                    return explicit
+                w_db = getattr(w, "db", None)
+                if w_db is not None and isinstance(getattr(w_db, "cfg", None), dict):
+                    return str(w_db.cfg.get("theme", "light")).strip().lower() == "dark"
+            except RuntimeError:
+                continue
     try:
         from database import load_app_config
         cfg = load_app_config()
@@ -831,6 +861,7 @@ class SearchableComboBox(QComboBox):
     """Editable combo with completion against visible labels and hidden search keywords."""
 
     SEARCH_ROLE = Qt.UserRole + 37
+    EXACT_CODE_ROLE = Qt.UserRole + 38
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -839,6 +870,7 @@ class SearchableComboBox(QComboBox):
         # Keep the logical order of mixed Persian/Latin selectors in the collapsed view.
         self.lineEdit().setLayoutDirection(Qt.LeftToRight)
         self.lineEdit().setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self._exact_enter_enabled = False
         self._search_proxy = _ComboSearchProxyModel(self.SEARCH_ROLE, self)
         self._search_proxy.setSourceModel(self.model())
         completer = QCompleter(self._search_proxy, self)
@@ -850,6 +882,61 @@ class SearchableComboBox(QComboBox):
         self.setCompleter(completer)
         self.lineEdit().textEdited.connect(self._normalize_search)
         self.currentTextChanged.connect(lambda t: self.setToolTip(t))
+
+    def set_exact_enter_selection(self, enabled: bool = True):
+        """Enable exact normalized-digit Enter/Return item selection without form submission."""
+        self._exact_enter_enabled = bool(enabled)
+        if self._exact_enter_enabled and self.lineEdit() is not None:
+            self.lineEdit().installEventFilter(self)
+            self.installEventFilter(self)
+
+    def setItemExactCode(self, index: int, code: str):
+        if 0 <= index < self.count():
+            norm = normalize_digits(str(code or "")).strip()
+            self.setItemData(index, norm, self.EXACT_CODE_ROLE)
+
+    def _find_exact_code_index(self, raw_query: str) -> int:
+        query = normalize_digits(str(raw_query or "")).strip().casefold()
+        if not query:
+            return -1
+        for idx in range(self.count()):
+            stored_code = normalize_digits(str(self.itemData(idx, self.EXACT_CODE_ROLE) or "")).strip().casefold()
+            if stored_code and stored_code == query:
+                return idx
+            data = self.itemData(idx)
+            if isinstance(data, dict):
+                for key in ("code", "batch_code", "p_code", "serial_number"):
+                    cand = normalize_digits(str(data.get(key) or "")).strip().casefold()
+                    if cand and cand == query:
+                        return idx
+            vis = normalize_digits(strip_bidi_controls(self.itemText(idx))).strip().casefold()
+            if vis == query:
+                return idx
+            if "|" in vis:
+                head = vis.split("|", 1)[0].strip()
+                if head == query:
+                    return idx
+        return -1
+
+    def eventFilter(self, watched, event):
+        if (
+            self._exact_enter_enabled
+            and event is not None
+            and event.type() == QEvent.KeyPress
+            and watched in (self, self.lineEdit())
+            and event.key() in (Qt.Key_Return, Qt.Key_Enter)
+        ):
+            raw_txt = self.lineEdit().text() if self.lineEdit() is not None else super().currentText()
+            matched_idx = self._find_exact_code_index(raw_txt)
+            if self.completer() and self.completer().popup():
+                self.completer().popup().hide()
+            if matched_idx >= 0:
+                if self.currentIndex() == matched_idx:
+                    self.setCurrentIndex(-1)
+                self.setCurrentIndex(matched_idx)
+                self.activated.emit(matched_idx)
+            return True
+        return super().eventFilter(watched, event)
 
     def setItemSearchText(self, index: int, search_text: str):
         if 0 <= index < self.count():

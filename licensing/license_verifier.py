@@ -97,7 +97,7 @@ def normalize_value_nfc(val: Any) -> Any:
 
 
 def compare_semver(v1: str, v2: str) -> int:
-    """Compare two Semantic Version strings safely (4.10.0 > 4.9.10); returns -1, 0, or 1."""
+    """Compare two Semantic Version strings safely (5.0.0 > 4.10.0 > 4.9.10); returns -1, 0, or 1."""
     p1 = pkg_version.parse(str(v1 or "0.0.0").strip())
     p2 = pkg_version.parse(str(v2 or "0.0.0").strip())
     return -1 if p1 < p2 else (1 if p1 > p2 else 0)
@@ -451,7 +451,7 @@ class LicenseVerifier:
         self,
         envelope: LicenseEnvelope,
         current_hardware_fingerprint: str,
-        current_app_version: str = "4.10.0",
+        current_app_version: str = "5.0.0",
         now_utc: Optional[datetime.datetime] = None,
         available_hardware_tiers: Optional[Dict[str, str]] = None,
         high_water_mark_utc: Optional[datetime.datetime] = None,

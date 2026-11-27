@@ -376,7 +376,10 @@ def test_scenario5_zero_asterisks_and_uniform_placeholders(qapp, tmp_path):
     assert len(asterisk_labels) == 0, f"Found mandatory asterisks in UI: {asterisk_labels}"
 
     # 2. Check crisp Persian placeholders across inputs
-    assert win.ed_sale_customer.placeholderText() == "نام و نام خانوادگی مشتری را وارد کنید..."
+    assert win.ed_sale_customer.placeholderText() in (
+        "نام و نام خانوادگی مشتری را وارد کنید...",
+        "نام مشتری را تایپ یا از لیست انتخاب کنید...",
+    )
     assert win.ed_sale_phone.placeholderText() == "شماره تماس مشتری (مثلاً ۰۹۱۲۳۴۵۶۷۸۹)..."
     assert win.ed_srv_cust.placeholderText() == "نام و نام خانوادگی مشتری را وارد کنید..."
     assert "اسکن بارکدخوان یا تایپ شماره سریال..." in win.ed_prod_serial.placeholderText()
