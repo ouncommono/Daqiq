@@ -66,34 +66,64 @@ from PySide6.QtGui import QColor, QIntValidator, QPalette
 from PySide6.QtWidgets import QApplication, QSizePolicy
 
 
+def _qt_is_valid(obj) -> bool:
+    """Safely check whether a Shiboken/Qt C++ wrapper is still alive before accessing methods."""
+    if obj is None:
+        return False
+    try:
+        import shiboken6
+        return bool(shiboken6.isValid(obj))
+    except Exception:
+        return True
+
+
 def resolve_active_dark_theme(parent=None, db=None, default: bool = False) -> bool:
     """Resolve active Light/Dark theme from db, ancestor widget, or persisted app_config.json."""
     if db is not None and isinstance(getattr(db, "cfg", None), dict):
         return str(db.cfg.get("theme", "light")).strip().lower() == "dark"
     node = parent
     visited = set()
-    while node is not None and id(node) not in visited:
+    while _qt_is_valid(node) and id(node) not in visited:
         visited.add(id(node))
-        explicit = getattr(node, "is_dark_theme", None)
-        if isinstance(explicit, bool):
-            return explicit
-        node_db = getattr(node, "db", None)
-        if node_db is not None and isinstance(getattr(node_db, "cfg", None), dict):
-            return str(node_db.cfg.get("theme", "light")).strip().lower() == "dark"
-        node = node.parentWidget() if hasattr(node, "parentWidget") else None
-    app = QApplication.instance()
-    if app is not None:
-        active_win = app.activeWindow()
-        candidates = ([active_win] if active_win is not None else []) + list(app.topLevelWidgets())
-        for w in candidates:
-            if w is None or not getattr(w, "isVisible", lambda: False)():
-                continue
-            explicit = getattr(w, "is_dark_theme", None)
+        try:
+            explicit = getattr(node, "is_dark_theme", None)
             if isinstance(explicit, bool):
                 return explicit
-            w_db = getattr(w, "db", None)
-            if w_db is not None and isinstance(getattr(w_db, "cfg", None), dict):
-                return str(w_db.cfg.get("theme", "light")).strip().lower() == "dark"
+            node_db = getattr(node, "db", None)
+            if node_db is not None and isinstance(getattr(node_db, "cfg", None), dict):
+                return str(node_db.cfg.get("theme", "light")).strip().lower() == "dark"
+            node = node.parentWidget() if hasattr(node, "parentWidget") else None
+        except RuntimeError:
+            break
+    app = QApplication.instance()
+    if app is not None:
+        candidates = []
+        try:
+            active_win = app.activeWindow()
+            if _qt_is_valid(active_win):
+                candidates.append(active_win)
+        except RuntimeError:
+            pass
+        try:
+            import sys as _sys
+            main_mod = _sys.modules.get("main")
+            active_main = getattr(main_mod, "_ACTIVE_MAIN_WINDOW", None) if main_mod is not None else None
+            if _qt_is_valid(active_main) and active_main not in candidates:
+                candidates.append(active_main)
+        except RuntimeError:
+            pass
+        for w in candidates:
+            try:
+                if not _qt_is_valid(w) or not getattr(w, "isVisible", lambda: False)():
+                    continue
+                explicit = getattr(w, "is_dark_theme", None)
+                if isinstance(explicit, bool):
+                    return explicit
+                w_db = getattr(w, "db", None)
+                if w_db is not None and isinstance(getattr(w_db, "cfg", None), dict):
+                    return str(w_db.cfg.get("theme", "light")).strip().lower() == "dark"
+            except RuntimeError:
+                continue
     try:
         from database import load_app_config
         cfg = load_app_config()

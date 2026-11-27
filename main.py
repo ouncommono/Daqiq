@@ -1752,6 +1752,12 @@ class MainWindow(QMainWindow):
                 self.clock_timer.stop()
             if hasattr(self, "_license_timer") and self._license_timer.isActive():
                 self._license_timer.stop()
+            if hasattr(self, "_sync_timer") and self._sync_timer.isActive():
+                self._sync_timer.stop()
+            if hasattr(self, "_prod_search_timer") and self._prod_search_timer.isActive():
+                self._prod_search_timer.stop()
+            if hasattr(self, "_rep_search_timer") and self._rep_search_timer.isActive():
+                self._rep_search_timer.stop()
             if hasattr(self, "db") and self.db:
                 with self.db.get_connection() as conn:
                     conn.commit()
