@@ -21,7 +21,14 @@ BACKUP_NAME_PATTERNS = (
     re.compile(r".*\.pre_cal_migration_.*\.bak$", re.IGNORECASE),
 )
 
-PROTECTED_LICENSE_SUBDIR = "licensing"
+LEGACY_LICENSE_DIRS = ("license", "licensing", ".roaming_anchor")
+LICENSE_AND_ANCHOR_FILES = (
+    "license.daqlic",
+    ".clock_state.dat",
+    ".runtime_anchor.dat",
+    "clock_state.json",
+    "secure_vault.dat",
+)
 
 
 @dataclass
@@ -32,6 +39,7 @@ class TroubleshootingPlan:
     config_files: List[Path] = field(default_factory=list)
     cache_paths: List[Path] = field(default_factory=list)
     runtime_paths: List[Path] = field(default_factory=list)
+    license_paths: List[Path] = field(default_factory=list)
     protected_backup_dirs: List[Path] = field(default_factory=list)
     protected_backup_files: List[Path] = field(default_factory=list)
     database_files: List[Path] = field(default_factory=list)
@@ -44,6 +52,7 @@ class TroubleshootingResult:
     removed_configs: List[Path] = field(default_factory=list)
     removed_caches: List[Path] = field(default_factory=list)
     removed_runtime: List[Path] = field(default_factory=list)
+    removed_licenses: List[Path] = field(default_factory=list)
     removed_databases: List[Path] = field(default_factory=list)
     preserved_backups: List[Path] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
@@ -337,17 +346,26 @@ def discover_troubleshooting_targets(
     executable_dir: Optional[Path] = None,
     local_app_data: Optional[Path] = None,
     roaming_app_data: Optional[Path] = None,
+    program_data: Optional[Path] = None,
     temp_dir: Optional[Path] = None,
     process_lister=None,
 ) -> TroubleshootingPlan:
-    """Scan all caches, configs, backups, and DB paths without modifying anything."""
+    """Scan all caches, configs, licenses/anchors, backups, and DB paths without modifying anything."""
     exe_dir = resolve_executable_dir(executable_dir)
     local_root = Path(local_app_data) if local_app_data else Path(os.environ.get("LOCALAPPDATA") or (Path.home() / "AppData" / "Local"))
     roaming_root = Path(roaming_app_data) if roaming_app_data else Path(os.environ.get("APPDATA") or (Path.home() / "AppData" / "Roaming"))
+    if program_data is not None:
+        prog_root = Path(program_data)
+    elif sys.platform == "win32":
+        prog_root = Path(os.environ.get("PROGRAMDATA") or r"C:\ProgramData")
+    else:
+        prog_root = Path("/tmp")
     tmp_root = Path(temp_dir) if temp_dir else Path(os.environ.get("TEMP") or os.environ.get("TMP") or "/tmp")
 
     local_daqiq = local_root / "Daqiq"
     roaming_daqiq = roaming_root / "Daqiq"
+    program_daqiq = prog_root / "Daqiq"
+    nuitka_root = local_root / "Nuitka"
 
     cfg_candidates = [
         exe_dir / "app_config.json",
@@ -369,24 +387,52 @@ def discover_troubleshooting_targets(
 
     cache_paths: List[Path] = []
     runtime_paths: List[Path] = []
+    license_paths: List[Path] = []
+    seen_targets: Set[str] = set()
+
+    def _append_unique(target_list: List[Path], path_obj: Path):
+        nk = _norm_key(path_obj)
+        if nk not in seen_targets:
+            seen_targets.add(nk)
+            target_list.append(path_obj)
 
     if local_daqiq.is_dir():
         try:
             for child in sorted(local_daqiq.iterdir()):
-                if child.name.lower() == PROTECTED_LICENSE_SUBDIR:
-                    continue
-                if child.name.lower() in ("logs", "cache", "qtwebengine", "qmlcache"):
-                    runtime_paths.append(child)
+                low = child.name.lower()
+                if low in LEGACY_LICENSE_DIRS or low in LICENSE_AND_ANCHOR_FILES:
+                    _append_unique(license_paths, child)
+                elif low in ("logs", "cache", "qtwebengine", "qmlcache", "tmp", "qt"):
+                    _append_unique(runtime_paths, child)
                 else:
-                    cache_paths.append(child)
+                    _append_unique(cache_paths, child)
         except OSError:
             pass
 
     if roaming_daqiq.is_dir():
+        for sub_name in LEGACY_LICENSE_DIRS:
+            cand = roaming_daqiq / sub_name
+            if cand.exists():
+                _append_unique(license_paths, cand)
+        for fname in LICENSE_AND_ANCHOR_FILES:
+            cand = roaming_daqiq / fname
+            if cand.exists():
+                _append_unique(license_paths, cand)
         for sub_name in ("logs", "cache", "tmp", "Qt"):
             cand = roaming_daqiq / sub_name
             if cand.exists():
-                runtime_paths.append(cand)
+                _append_unique(runtime_paths, cand)
+
+    if program_daqiq.is_dir():
+        _append_unique(license_paths, program_daqiq)
+
+    if nuitka_root.is_dir():
+        try:
+            for child in sorted(nuitka_root.iterdir()):
+                if child.name.lower().startswith("daqiq"):
+                    _append_unique(cache_paths, child)
+        except OSError:
+            pass
 
     if tmp_root.is_dir():
         my_pid_tag = f"daqiqtroubleshooter_{os.getpid()}"
@@ -396,7 +442,7 @@ def discover_troubleshooting_targets(
                 if low == my_pid_tag:
                     continue
                 if low.startswith("daqiq_") or low == "daqiq":
-                    cache_paths.append(child)
+                    _append_unique(cache_paths, child)
         except OSError:
             pass
 
@@ -408,6 +454,7 @@ def discover_troubleshooting_targets(
         config_files=config_files,
         cache_paths=cache_paths,
         runtime_paths=runtime_paths,
+        license_paths=license_paths,
         protected_backup_dirs=protected_dirs,
         protected_backup_files=protected_files,
         database_files=db_files,
@@ -506,6 +553,18 @@ def execute_troubleshooting_reset(
                 res.removed_runtime.append(rp)
         except OSError as exc:
             res.warnings.append(f"پاک‌سازی مسیر موقت ممکن نشد ({rp}): {exc}")
+
+    for lp in plan.license_paths:
+        if _is_path_protected(lp, plan):
+            continue
+        if dry_run:
+            res.removed_licenses.append(lp)
+            continue
+        try:
+            if lp.exists() and _safe_remove_path(lp, plan):
+                res.removed_licenses.append(lp)
+        except OSError as exc:
+            res.warnings.append(f"پاک‌سازی فایل یا پوشه لایسنس ممکن نشد ({lp}): {exc}")
 
     if delete_databases:
         for dbp in plan.database_files:

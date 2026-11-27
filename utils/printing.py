@@ -197,9 +197,18 @@ def build_sales_invoice_spec(
         summary.append(("تخفیف کل", f"{_fmt_int_fa(grand_discount)} تومان"))
     summary.append(("جمع کل قابل پرداخت", f"{_fmt_int_fa(grand_total)} تومان"))
     remaining = max(0, grand_total - grand_paid)
+    first_item = records[0] if records else {}
+    is_chk = (
+        str(first_item.get("settlement_subtype") or "").strip() == "تسویه چکی"
+        or str(first_item.get("payment_type") or "").strip().lower() == "check"
+    )
+    chk_due = str(first_item.get("check_due_date") or "").strip()
     if any_installment or remaining > 0:
         summary.append(("مبلغ پرداخت‌شده / پیش‌پرداخت", f"{_fmt_int_fa(grand_paid)} تومان"))
         summary.append(("مانده حساب", f"{_fmt_int_fa(remaining)} تومان"))
+    elif is_chk:
+        chk_desc = f"تسویه چکی (سررسید: {to_persian_digits(chk_due)})" if chk_due else "تسویه چکی"
+        summary.append(("نحوه پرداخت", chk_desc))
     else:
         summary.append(("وضعیت پرداخت", "تسویه‌شده"))
 
@@ -253,6 +262,19 @@ def build_purchase_voucher_spec(
             _fmt_int_fa(tot),
         ])
 
+    summary_pairs = [
+        ("جمع کل فاکتورهای خرید", f"{_fmt_int_fa(grand_total)} تومان"),
+        ("جمع پرداخت‌شده", f"{_fmt_int_fa(grand_paid)} تومان"),
+        ("مانده بدهی به تأمین‌کننده", f"{_fmt_int_fa(grand_rem)} تومان"),
+    ]
+    chk_notes = [
+        f"{str(rec.get('settlement_subtype'))} (سررسید: {to_persian_digits(rec.get('check_due_date') or '-')})"
+        for rec in records
+        if str(rec.get("settlement_subtype") or "") == "تسویه چکی"
+    ]
+    if chk_notes:
+        summary_pairs.append(("جزئیات تسویه", chk_notes[0]))
+
     return PrintDocumentSpec(
         section_key="batches",
         title="رسید خرید و ثبت محموله",
@@ -263,11 +285,7 @@ def build_purchase_voucher_spec(
         rows=rows,
         right_align_cols={3, 4},
         col_widths_pct=[6, 11, 14, 15, 22, 8, 12, 12],
-        summary_pairs=[
-            ("جمع کل فاکتورهای خرید", f"{_fmt_int_fa(grand_total)} تومان"),
-            ("جمع پرداخت‌شده", f"{_fmt_int_fa(grand_paid)} تومان"),
-            ("مانده بدهی به تأمین‌کننده", f"{_fmt_int_fa(grand_rem)} تومان"),
-        ],
+        summary_pairs=summary_pairs,
         signatures=("امضای انباردار / خریدار", "تأیید مدیریت"),
     )
 
@@ -345,6 +363,9 @@ def build_service_or_upgrade_spec(
     if rem > 0:
         summary.append(("مبلغ پرداخت‌شده", f"{_fmt_int_fa(tot_paid)} تومان"))
         summary.append(("مانده حساب", f"{_fmt_int_fa(rem)} تومان"))
+    elif str(first.get("settlement_subtype") or "").strip() == "تسویه چکی":
+        chk_due = str(first.get("check_due_date") or "").strip()
+        summary.append(("نحوه پرداخت", f"تسویه چکی (سررسید: {to_persian_digits(chk_due)})" if chk_due else "تسویه چکی"))
     return PrintDocumentSpec(
         section_key="service_records",
         title="فاکتور خدمات و تعمیرات",
@@ -587,6 +608,47 @@ def build_section_table_spec(
             rows=rows,
             right_align_cols={2, 3},
             col_widths_pct=[8, 13, 20, 41, 18],
+        )
+
+    if section_key == "employee_performance":
+        headers = [
+            "ردیف", "نام کاربر", "تعداد فروش", "فروش کل (تومان)", "سود فروش",
+            "تعداد خدمات", "سود خدمات", "ارتقا", "وصول اقساط", "مجموع سودآوری",
+        ]
+        rows = []
+        tot_rev = 0
+        tot_prof = 0
+        for idx, r in enumerate(raw_rows, 1):
+            rev = _to_int(_get(r, "جمع فروش (تومان)", default="0"))
+            prf = _to_int(_get(r, "مجموع سودآوری (تومان)", default="0"))
+            tot_rev += rev
+            tot_prof += prf
+            rows.append([
+                to_persian_digits(idx),
+                _get(r, "نام کاربر"),
+                to_persian_digits(_get(r, "تعداد فاکتور فروش", default="۰")),
+                _fmt_int_fa(rev),
+                to_persian_digits(_get(r, "سود فروش (تومان)", default="۰")),
+                to_persian_digits(_get(r, "تعداد خدمات", default="۰")),
+                to_persian_digits(_get(r, "سود خدمات (تومان)", default="۰")),
+                to_persian_digits(_get(r, "تعداد ارتقا", default="۰")),
+                to_persian_digits(_get(r, "اقساط وصول‌شده (تومان)", default="۰")),
+                _fmt_int_fa(prf),
+            ])
+        return PrintDocumentSpec(
+            section_key="employee_performance",
+            title=report_title or "گزارش بازه‌ای عملکرد کاربران",
+            shop_name=shop_name,
+            print_time=print_time,
+            meta_pairs=[("تعداد کاربران", to_persian_digits(len(rows))), ("تاریخ چاپ", print_time)],
+            headers=headers,
+            rows=rows,
+            right_align_cols={1},
+            col_widths_pct=[5, 16, 7, 13, 12, 7, 11, 6, 11, 12],
+            summary_pairs=[
+                ("مجموع فروش بازه", f"{_fmt_int_fa(tot_rev)} تومان"),
+                ("مجموع سودآوری", f"{_fmt_int_fa(tot_prof)} تومان"),
+            ],
         )
 
     title_fallback = {

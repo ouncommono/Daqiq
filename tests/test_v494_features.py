@@ -556,8 +556,9 @@ def test_purchase_layout_order_and_purchase_time_and_sales_date(qapp, monkeypatc
         r_we, c_we, _, _ = sale_grid.getItemPosition(sale_grid.indexOf(win.dt_war_end))
         r_sd, c_sd, _, _ = sale_grid.getItemPosition(sale_grid.indexOf(win.dt_sale_date))
         r_sc, c_sc, _, _ = sale_grid.getItemPosition(sale_grid.indexOf(win.btn_sale_colors))
-        assert r_we == r_sd == r_sc == 5
-        assert c_we < c_sd < c_sc
+        assert r_sd == r_sc == 4
+        assert r_we == 5
+        assert c_sd < c_sc
 
         win.cb_war_months.setCurrentText("1 ماه")
         win.dt_sale_date.set_date("1405/03/01")

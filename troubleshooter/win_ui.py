@@ -1,4 +1,4 @@
-"""Zero-Qt pure Win32 / CLI UI for Daqiq-Troubleshooter.exe (v4.10.0).
+"""Zero-Qt pure Win32 / CLI UI for Daqiq-Troubleshooter.exe (v5.0.0).
 
 Uses ONLY Python standard library + native Win32 APIs (``user32.CreateWindowExW`` with
 ``WS_EX_LAYOUTRTL``, GDI typography, and 100% Persian horizontally-centered bottom buttons).
@@ -338,18 +338,19 @@ def run_interactive_native_ui() -> int:
         plan = discover_troubleshooting_targets()
 
     summary_lines = [
-        "ابزار مستقل عیب‌یابی و بازنشانی امن دقیق (بدون وابستگی به Qt)",
+        "ابزار مستقل عیب‌یابی و بازنشانی کامل دقیق (بدون وابستگی به Qt)",
         "",
         f"• فایل‌های پیکربندی شناسایی‌شده: {len(plan.config_files)}",
         f"• پوشه/فایل‌های کش و گزارش خطا: {len(plan.cache_paths)}",
         f"• پوشه‌های موقت اجرا: {len(plan.runtime_paths)}",
+        f"• فایل‌ها و لنگرهای لایسنس برای بازنشانی کامل: {len(plan.license_paths)}",
         f"• فایل‌های پایگاه داده فعال یافت‌شده: {len(plan.database_files)}",
         "",
         f"• حفاظت کامل از پشتیبان‌ها: {len(plan.protected_backup_dirs)} پوشه پشتیبان و "
         f"{len(plan.protected_backup_files)} فایل پشتیبان (دستی و خودکار، مسیر پیش‌فرض و سفارشی) "
         "به‌طور کامل حفظ می‌شوند و به هیچ عنوان حذف نخواهند شد.",
         "",
-        "آیا مایل به شروع پاک‌سازی کش، پوشه‌های موقت و پیکربندی آسیب‌دیده هستید؟",
+        "آیا مایل به شروع بازنشانی کامل برنامه (پاک‌سازی پیکربندی، کش و لایسنس) هستید؟",
     ]
     proceed = show_native_persian_dialog(
         "عیب‌یابی و بازنشانی امن دقیق",
@@ -406,6 +407,7 @@ def run_interactive_native_ui() -> int:
         f"• پیکربندی‌های پاک‌شده: {len(result.removed_configs)}",
         f"• کش‌های پاک‌شده: {len(result.removed_caches)}",
         f"• پوشه‌های موقت پاک‌شده: {len(result.removed_runtime)}",
+        f"• فایل‌ها و لنگرهای لایسنس پاک‌شده: {len(result.removed_licenses)}",
         f"• پایگاه‌های داده حذف‌شده: {len(result.removed_databases)}",
         f"• پشتیبان‌های محافظت‌شده (بدون تغییر): {len(result.preserved_backups)}",
     ]
@@ -432,12 +434,27 @@ def run_self_test() -> int:
         exe_dir = root / "exe"
         local_app = root / "local"
         roaming_app = root / "roaming"
+        prog_data = root / "progdata"
         tmp_dir = root / "tmp"
         db_dir = root / "docs" / "DaqiqDBs"
         custom_bk = root / "custom_bk"
         default_bk = db_dir / "Backups"
-        for d in (exe_dir, local_app / "Daqiq", roaming_app / "Daqiq", tmp_dir, default_bk, custom_bk):
+        nuitka_daqiq = local_app / "Nuitka" / "Daqiq"
+        for d in (
+            exe_dir,
+            local_app / "Daqiq" / "license",
+            roaming_app / "Daqiq",
+            prog_data / "Daqiq" / "license",
+            nuitka_daqiq,
+            tmp_dir,
+            default_bk,
+            custom_bk,
+        ):
             d.mkdir(parents=True, exist_ok=True)
+        (local_app / "Daqiq" / "license" / "license.daqlic").write_text("{}", encoding="utf-8")
+        (roaming_app / "Daqiq" / ".runtime_anchor.dat").write_text("{}", encoding="utf-8")
+        (prog_data / "Daqiq" / "license" / "license.daqlic").write_text("{}", encoding="utf-8")
+        (nuitka_daqiq / "cached.bin").write_bytes(b"123")
         active_db = db_dir / "store.db"
         active_db.write_bytes(b"SQLite format 3\x00test")
         bk_file = default_bk / "store_backup_14050101_000000.db"
@@ -452,12 +469,17 @@ def run_self_test() -> int:
             executable_dir=exe_dir,
             local_app_data=local_app,
             roaming_app_data=roaming_app,
+            program_data=prog_data,
             temp_dir=tmp_dir,
             process_lister=lambda: [],
         )
         res = execute_troubleshooting_reset(plan, delete_databases=True, process_lister=lambda: [])
         assert not res.aborted_reason, res.aborted_reason
         assert not (exe_dir / "app_config.json").exists()
+        assert not (local_app / "Daqiq" / "license" / "license.daqlic").exists()
+        assert not (roaming_app / "Daqiq" / ".runtime_anchor.dat").exists()
+        assert not (prog_data / "Daqiq" / "license" / "license.daqlic").exists()
+        assert not nuitka_daqiq.exists()
         assert not active_db.exists()
         assert bk_file.read_bytes() == b"BACKUP_SAFE"
         assert bk_custom.read_bytes() == b"CUSTOM_BACKUP_SAFE"

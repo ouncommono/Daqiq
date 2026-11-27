@@ -60,6 +60,9 @@ SUBFEATURE_PARENT_TAB: Dict[str, str] = {
     "installments": "customers",
     "charts_analytics": "reports",
     "word_export": "reports",
+    "checks_manage": "customers",
+    "multi_item_invoices": "sales",
+    "user_performance": "employees",
 }
 
 OPTIONAL_DEFAULT_TRUE_FEATURES = frozenset({
@@ -69,6 +72,9 @@ OPTIONAL_DEFAULT_TRUE_FEATURES = frozenset({
     "installments",
     "charts_analytics",
     "word_export",
+    "checks_manage",
+    "multi_item_invoices",
+    "user_performance",
 })
 
 ALL_LICENSE_FEATURES = CORE_TAB_FEATURES + tuple(SUBFEATURE_PARENT_TAB.keys())
@@ -157,6 +163,9 @@ FEATURE_LABELS_FA: Dict[str, str] = {
     "installments": "فروش و پرداخت اقساطی",
     "charts_analytics": "گزارش‌های نموداری و تحلیل‌ها",
     "word_export": "خروجی قابل ویرایش Word",
+    "checks_manage": "مدیریت چک‌ها",
+    "multi_item_invoices": "ثبت فاکتور چندقلمی",
+    "user_performance": "گزارش عملکرد کاربران",
 }
 
 
@@ -208,7 +217,7 @@ class LicenseService:
         verifier: Optional[LicenseVerifier] = None,
         hardware_provider: Optional[HardwareIdentitySource] = None,
         clock_provider: Optional[Callable[[], datetime.datetime]] = None,
-        app_version: str = "4.10.0",
+        app_version: str = "5.0.0",
         store_name_provider: Optional[Callable[[], str]] = None,
     ):
         self.store = store or LicenseStore()

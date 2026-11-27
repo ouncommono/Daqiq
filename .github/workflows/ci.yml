@@ -165,7 +165,7 @@ jobs:
         shell: pwsh
         run: |
           $ver = (Get-Content VERSION).Trim()
-          if (-not $ver) { $ver = "4.10.0" }
+          if (-not $ver) { $ver = "5.0.0" }
           Write-Output "APP_VERSION=$ver" >> $env:GITHUB_ENV
           Write-Output "Building Daqiq onefile for version: $ver"
 
@@ -340,7 +340,7 @@ jobs:
         shell: pwsh
         run: |
           $ver = (Get-Content VERSION).Trim()
-          if (-not $ver) { $ver = "4.10.0" }
+          if (-not $ver) { $ver = "5.0.0" }
           Write-Output "APP_VERSION=$ver" >> $env:GITHUB_ENV
 
       - name: Download Build Artifacts
@@ -382,8 +382,8 @@ jobs:
             gh pr create `
               --base main `
               --head $currentBranch `
-              --title "Release v${{ env.APP_VERSION }} - Commercial Print & Word Export, Customers & Installments, Native Charts & High-Load Scale" `
-              --body "Daqiq v${{ env.APP_VERSION }} Commercial Milestone Release featuring A5/A4 monochrome printing + editable RTL Word (.docx) export, Customers CRM & installment financing with LAN OCC, pure QPainter interactive analytics charts, 50k+ row DB scalability, persistent Purchase/Sales forms, and pure zero-Qt Win32 RTL Troubleshooter. Strictly unmerged."
+              --title "Release v${{ env.APP_VERSION }} - Multi-Item Invoices, Check Ledger, LAN Invoice Resolution, User Performance & Full UI/UX Upgrade" `
+              --body "Daqiq v${{ env.APP_VERSION }} Final Commercial Release featuring multi-item atomic Purchases/Sales/Services invoices, full Check Management & Suppliers/Customers clearance, 3-option LAN duplicate invoice conflict resolution, barcode/code Enter selection, unified Installment status, 4-card Customers KPI & User Performance reporting, semantic neutral-zero coloring, and Complete-Wipe Zero-Qt Troubleshooter. Strictly unmerged."
           }
 
       - name: Publish Official Release on Matching Version Tag
