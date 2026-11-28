@@ -504,7 +504,7 @@ def _resolve_app_security_id(explicit_security_id: Optional[str] = None) -> str:
 
 
 def create_device_request_dict(
-    app_version: str = "5.0.0",
+    app_version: str = "5.0.1",
     device_label: str = "",
     store_name: str = "",
     fp_prefix: Optional[str] = None,

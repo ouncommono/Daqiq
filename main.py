@@ -83,6 +83,8 @@ from utils_and_widgets import (
     SmoothScrollTableWidget,
     SmoothScrollListWidget,
     CollapsibleSection,
+    HoverSidebarTabsWidget,
+    apply_interactive_cursors,
     bidi_isolate_text,
     strip_bidi_controls,
     mixed_bidi_tooltip,
@@ -142,7 +144,7 @@ def _load_app_version() -> str:
                         return ver
             except Exception:
                 pass
-    return "5.0.0"
+    return "5.0.1"
 
 APP_VERSION = _load_app_version()
 
@@ -228,35 +230,35 @@ REPORT_AVAILABLE_COLUMNS = {
         "پرداخت‌شده (تومان)", "مانده حساب (تومان)", "سود خالص (تومان)", "وضعیت تسویه",
     ],
     "۱. گزارش کامل تمام فروش‌ها": [
-        "شناسه", "شماره فاکتور", "کد کالا", "شماره سریال", "مشخصات کالا", "تاریخ و ساعت فروش",
-        "کد محموله", "فروشنده", "نام مشتری", "شماره تماس مشتری", "تعداد", "قیمت پیشنهادی واحد",
+        "شناسه", "شناسه فاکتور فروش", "کد کالا", "شناسه فاکتور تأمین‌کننده", "شماره سریال", "مشخصات کالا", "تاریخ و ساعت فروش",
+        "شناسه فاکتور خرید", "فروشنده", "نام مشتری", "شماره تماس مشتری", "تعداد", "قیمت پیشنهادی واحد",
         "قیمت فروش واحد", "بهای تمام‌شده واحد", "تخفیف (-) / تشدید (+)",
         "سود واحد", "سود کل", "مبلغ کل فاکتور", "دریافتی", "مانده حساب",
         "وضعیت تسویه", "نحوه تسویه", "سررسید چک", "وضعیت چک", "گارانتی", "رنگ‌ها", "مشخصات فنی", "توضیحات",
     ],
     "۱۱. گزارش تخفیف‌ها و تشدیدهای فروش": [
-        "شماره فاکتور", "تاریخ فروش", "کد کالا", "عنوان کالا", "فروشنده",
+        "شناسه فاکتور فروش", "تاریخ فروش", "کد کالا", "عنوان کالا", "فروشنده",
         "مشتری", "تعداد", "قیمت پیشنهادی واحد", "قیمت فروش واحد", "تخفیف واحد",
         "تخفیف کل", "تشدید واحد", "تشدید کل", "تخفیف (-) / تشدید (+) کل",
         "درصد اثر بر قیمت (%)",
     ],
     "۱۲. گزارش کامل خدمات انجام‌شده": [
-        "شناسه", "شماره قبض", "تاریخ و ساعت", "کد خدمت", "نوع خدمت",
+        "شناسه", "شناسه فاکتور خدمت", "تاریخ و ساعت", "کد خدمت", "نوع خدمت",
         "عنوان خدمت", "ثبت‌کننده / پذیرش", "کارشناس / تکنسین", "مشتری",
         "تعرفه مرجع", "اجرت دریافتی", "هزینه جانبی", "دریافتی", "مانده طلب",
         "وضعیت تسویه", "نحوه تسویه", "سررسید چک", "وضعیت چک", "سود خالص خدمت", "شرح خدمت",
     ],
     "۲. گزارش کامل تمام خریدها (محموله‌ها)": [
-        "شناسه", "کد محموله", "کد کالا", "شماره سریال", "مشخصات کالا", "تأمین‌کننده",
-        "مسئول خرید", "شماره فاکتور", "تاریخ خرید", "تعداد خرید", "تعداد فروش",
+        "شناسه", "شناسه فاکتور خرید", "کد کالا", "شناسه فاکتور تأمین‌کننده", "شماره سریال", "مشخصات کالا", "تأمین‌کننده",
+        "مسئول خرید", "تاریخ خرید", "تعداد خرید", "تعداد فروش",
         "موجودی فعلی", "قیمت خرید واحد", "هزینه جانبی کل", "هزینه ارتقا واحد",
         "بهای تمام‌شده واحد", "قیمت فروش پیشنهادی", "درصد سود (%)", "وضعیت تسویه", "نحوه تسویه", "سررسید چک", "وضعیت چک",
         "پرداخت‌شده", "مانده بدهی", "مشخصات فنی / توضیحات", "بهای کل محموله (تومان)",
         "رنگ‌های محموله",
     ],
     "۹. گزارش بدهی به تأمین‌کنندگان": [
-        "شناسه محموله", "کد محموله", "کد کالا", "مشخصات کالا", "تأمین‌کننده",
-        "شماره فاکتور خرید", "تاریخ خرید", "بهای کل محموله (تومان)",
+        "شناسه محموله", "شناسه فاکتور خرید", "کد کالا", "شناسه فاکتور تأمین‌کننده", "مشخصات کالا", "تأمین‌کننده",
+        "تاریخ خرید", "بهای کل محموله (تومان)",
         "مبلغ پرداخت‌شده (تومان)", "مانده بدهی (تومان)", "وضعیت تسویه",
     ],
     "۳. گزارش موجودی فعلی کالاها": [
@@ -305,6 +307,14 @@ REPORT_AVAILABLE_COLUMNS = {
         "درآمد خدمات (تومان)", "سود خدمات (تومان)", "تعداد ارتقا", "درآمد ارتقا (تومان)",
         "اقساط وصول‌شده (تومان)", "مجموع سودآوری (تومان)",
     ],
+    "۱۵. گزارش پیش‌فاکتورها": [
+        "شناسه", "شناسه پیش‌فاکتور", "تاریخ و ساعت", "تاریخ اعتبار", "نام مشتری",
+        "تلفن مشتری", "فروشنده", "تعداد اقلام", "جمع کل (تومان)", "وضعیت", "شناسه فاکتور فروش", "توضیحات",
+    ],
+    "۱۶. گزارش اقساط تأمین‌کنندگان": [
+        "شناسه قسط", "نام تأمین‌کننده", "تلفن تأمین‌کننده", "شناسه فاکتور خرید", "شناسه فاکتور تأمین‌کننده",
+        "شماره قسط", "تاریخ سررسید", "مبلغ قسط (تومان)", "پرداخت‌شده (تومان)", "مانده قسط (تومان)", "وضعیت",
+    ],
 }
 
 ALL_SYSTEM_COLUMNS = [
@@ -312,13 +322,13 @@ ALL_SYSTEM_COLUMNS = [
     "کد کالا", "شماره سریال", "دسته‌بندی", "زیرمجموعه", "برند", "مدل", "مشخصات فنی",
     "موجودی کل", "تعداد فروش", "حداقل موجودی", "درصد سود (%)", "وضعیت موجودی", "توضیحات",
     # محموله‌ها / خرید
-    "کد محموله", "تأمین‌کننده", "مسئول خرید", "شماره فاکتور خرید", "تاریخ خرید", "تعداد خرید",
+    "شناسه فاکتور خرید", "شناسه فاکتور تأمین‌کننده", "تأمین‌کننده", "مسئول خرید", "تاریخ خرید", "تعداد خرید",
     "تعداد فروش محموله", "موجودی فعلی محموله", "قیمت خرید واحد", "هزینه جانبی کل", "هزینه ارتقا واحد",
     "بهای تمام‌شده واحد", "قیمت فروش پیشنهادی", "درصد سود (%) محموله", "وضعیت تسویه خرید",
     "پرداخت‌شده خرید", "مانده بدهی خرید", "مشخصات فنی محموله", "بهای کل محموله (تومان)", "رنگ‌های محموله",
     "نحوه تسویه خرید", "سررسید چک خرید", "وضعیت چک خرید",
     # فروش
-    "شماره فاکتور فروش", "تاریخ و ساعت فروش", "فروشنده", "نام مشتری", "شماره تماس مشتری",
+    "شناسه فاکتور فروش", "تاریخ و ساعت فروش", "فروشنده", "نام مشتری", "شماره تماس مشتری",
     "تعداد فروش", "قیمت پیشنهادی واحد فروش", "قیمت فروش واحد", "تخفیف (-) / تشدید (+)",
     "بهای تمام‌شده واحد فروش", "سود هر واحد", "سود کل فروش", "مبلغ کل فاکتور", "دریافتی فروش",
     "وضعیت تسویه فروش", "نحوه تسویه فروش", "سررسید چک فروش", "وضعیت چک فروش", "قسط اول هنگام خرید",
@@ -480,6 +490,9 @@ PERMISSION_GROUPS = [
     ("ثبت فروش", "sales", [
         ("view", "مشاهده"), ("create", "ثبت"), ("edit", "ویرایش"), ("delete", "حذف"),
     ]),
+    ("پیش‌فاکتورها", "proforma", [
+        ("view", "مشاهده"), ("create", "ثبت"), ("edit", "ویرایش"), ("delete", "حذف"),
+    ]),
     ("میز خدمت", "services", [
         ("view", "مشاهده"), ("create", "ثبت"), ("edit", "ویرایش"), ("delete", "حذف"),
     ]),
@@ -527,7 +540,7 @@ ROLE_PERMISSION_PRESETS = {
         "dashboard.metric.total_stock", "dashboard.metric.low_stock_count",
         "dashboard.metric.supplier_debt", "dashboard.metric.service_profit_today",
         "dashboard.table.low_stock", "dashboard.table.employee_performance",
-        "products.view", "batches.view", "sales.view", "customers.view",
+        "products.view", "batches.view", "sales.view", "proforma.view", "customers.view",
         "services.view", "upgrades.view", "reports.view", "charts.view",
     ],
     "فروش و خدمات (گزارش محدود به عملکرد خود)": [
@@ -536,6 +549,7 @@ ROLE_PERMISSION_PRESETS = {
         "dashboard.metric.sales_count_today", "dashboard.metric.service_profit_today",
         "dashboard.table.employee_performance",
         "sales.view", "sales.create", "sales.edit",
+        "proforma.view", "proforma.create", "proforma.edit",
         "customers.view", "customers.create", "customers.edit",
         "services.view", "services.create", "services.edit", "reports.view", "charts.view",
     ],
@@ -596,6 +610,12 @@ class _MessageBoxPolisher(QObject):
                         if translated:
                             button.setText(translated)
                         button.setLayoutDirection(Qt.RightToLeft)
+                if isinstance(watched, QMessageBox):
+                    for lbl in watched.findChildren(QLabel):
+                        lbl.setLayoutDirection(Qt.RightToLeft)
+                        if not lbl.pixmap() or lbl.pixmap().isNull():
+                            lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                apply_interactive_cursors(watched)
                 obj_name = watched.objectName() or ""
                 if obj_name not in self._SELF_STYLED_OBJECTS and not watched.styleSheet():
                     is_dark = resolve_active_dark_theme(parent=watched.parentWidget() or watched)
@@ -1413,15 +1433,17 @@ class DatabaseBootstrapDialog(QDialog):
         layout.addLayout(header_row)
 
         detail = QLabel(
-            "می‌توانید یک پایگاه دادهٔ جدید بسازید یا فایل پایگاه دادهٔ قبلی خود را به برنامه متصل کنید. "
-            "مسیر پیشنهادی قابل ویرایش است."
+            "می‌توانید یک پایگاه دادهٔ جدید بسازید یا فایل پایگاه دادهٔ قبلی فروشگاه را انتخاب کنید. "
+            "مسیر پیشنهادی قابل تغییر است."
         )
         detail.setWordWrap(True)
         detail.setObjectName("settingsHint")
         layout.addWidget(detail)
 
-        self.rb_create = QRadioButton("ایجاد پایگاه دادهٔ جدید در مسیر زیر")
+        self.rb_create = QRadioButton("ساخت پایگاه دادهٔ جدید در مسیر زیر")
         self.rb_existing = QRadioButton("اتصال به پایگاه دادهٔ موجود")
+        self.rb_create.setCursor(Qt.PointingHandCursor)
+        self.rb_existing.setCursor(Qt.PointingHandCursor)
         self.rb_create.setChecked(True)
         layout.addWidget(self.rb_create)
         layout.addWidget(self.rb_existing)
@@ -1431,6 +1453,7 @@ class DatabaseBootstrapDialog(QDialog):
         self.ed_path.setClearButtonEnabled(True)
         self.ed_path.setToolTip("مسیر و نام فایل پایگاه داده با پسوند .db")
         self.btn_browse = QPushButton("انتخاب مسیر…")
+        self.btn_browse.setCursor(Qt.PointingHandCursor)
         self.btn_browse.clicked.connect(self._browse)
         path_row.addWidget(self.ed_path, 1)
         path_row.addWidget(self.btn_browse)
@@ -1441,6 +1464,8 @@ class DatabaseBootstrapDialog(QDialog):
         )
         buttons.button(QDialogButtonBox.Ok).setText("ادامه")
         buttons.button(QDialogButtonBox.Cancel).setText("انصراف")
+        buttons.button(QDialogButtonBox.Ok).setCursor(Qt.PointingHandCursor)
+        buttons.button(QDialogButtonBox.Cancel).setCursor(Qt.PointingHandCursor)
         buttons.setCenterButtons(True)
         buttons.accepted.connect(self._validate_and_accept)
         buttons.rejected.connect(self.reject)
@@ -1464,30 +1489,41 @@ class DatabaseBootstrapDialog(QDialog):
         self.setPalette(build_theme_palette(self.is_dark_theme))
         if self.is_dark_theme:
             self.setStyleSheet(
-                "QDialog { background-color: #0f172a; color: #f8fafc; } "
+                "QDialog { background-color: #0b1220; color: #f8fafc; } "
                 "QLabel { color: #f1f5f9; background: transparent; } "
-                "QRadioButton { color: #f1f5f9; font-size: 11px; background: transparent; } "
-                "QLineEdit { background-color: #1e293b; color: #f8fafc; border: 1px solid #475569; padding: 6px; border-radius: 4px; } "
-                "QPushButton { background-color: #334155; color: #f8fafc; border: 1px solid #64748b; padding: 6px 12px; border-radius: 4px; } "
+                "QLabel#settingsHint { color: #cbd5e1; font-size: 12px; } "
+                "QRadioButton { color: #e2e8f0; font-size: 12px; font-weight: 500; background: #111c30; border: 1.5px solid #334155; border-radius: 7px; padding: 7px 12px; spacing: 10px; } "
+                "QRadioButton:hover { border-color: #3b82f6; background: #17253d; } "
+                "QRadioButton:checked { background-color: #172554; color: #ffffff; font-weight: bold; border: 2px solid #38bdf8; } "
+                "QRadioButton::indicator { width: 16px; height: 16px; border-radius: 8px; border: 2px solid #94a3b8; background: #0f172a; } "
+                "QRadioButton::indicator:checked { border: 2px solid #7dd3fc; background-color: #0284c7; } "
+                "QLineEdit { background-color: #17253d; color: #f8fafc; border: 1px solid #334155; padding: 6px; border-radius: 5px; } "
+                "QPushButton { background-color: #1e293b; color: #f8fafc; border: 1px solid #475569; padding: 6px 14px; border-radius: 5px; font-weight: bold; } "
+                "QPushButton:hover { background-color: #334155; border-color: #38bdf8; } "
             )
             self.btn_theme_toggle.setText("☀️ حالت روشن")
             self.btn_theme_toggle.setStyleSheet(
-                "background-color: #334155; color: #f8fafc; border: 1px solid #64748b; border-radius: 6px; padding: 4px 10px; font-weight: bold;"
+                "QPushButton { background-color: #1e293b; color: #f8fafc; border: 1px solid #475569; border-radius: 6px; padding: 5px 12px; font-weight: bold; } "
+                "QPushButton:hover { background-color: #334155; }"
             )
         else:
             self.setStyleSheet(
-                "QDialog { background-color: #f8fafc; color: #0f172a; } "
+                "QDialog { background-color: #f4f7fb; color: #0f172a; } "
                 "QLabel { color: #0f172a; background: transparent; } "
-                "QRadioButton { color: #0f172a; font-size: 11.5px; font-weight: 500; background: #ffffff; border: 1.5px solid #cbd5e1; border-radius: 6px; padding: 6px 10px; spacing: 8px; } "
+                "QLabel#settingsHint { color: #475569; font-size: 12px; } "
+                "QRadioButton { color: #0f172a; font-size: 12px; font-weight: 500; background: #ffffff; border: 1.5px solid #cbd5e1; border-radius: 7px; padding: 7px 12px; spacing: 10px; } "
+                "QRadioButton:hover { border-color: #2563eb; background: #f8fafc; } "
                 "QRadioButton:checked { background-color: #eff6ff; color: #1e3a8a; font-weight: bold; border: 2px solid #2563eb; } "
                 "QRadioButton::indicator { width: 16px; height: 16px; border-radius: 8px; border: 2px solid #64748b; background: #ffffff; } "
                 "QRadioButton::indicator:checked { border: 2px solid #1d4ed8; background-color: #2563eb; } "
-                "QLineEdit { background-color: #ffffff; color: #0f172a; border: 1px solid #cbd5e1; padding: 6px; border-radius: 4px; } "
-                "QPushButton { background-color: #f1f5f9; color: #0f172a; border: 1px solid #cbd5e1; padding: 6px 12px; border-radius: 4px; } "
+                "QLineEdit { background-color: #ffffff; color: #0f172a; border: 1px solid #cbd5e1; padding: 6px; border-radius: 5px; } "
+                "QPushButton { background-color: #f1f5f9; color: #0f172a; border: 1px solid #cbd5e1; padding: 6px 14px; border-radius: 5px; font-weight: bold; } "
+                "QPushButton:hover { background-color: #e2e8f0; border-color: #2563eb; } "
             )
             self.btn_theme_toggle.setText("🌙 حالت تاریک")
             self.btn_theme_toggle.setStyleSheet(
-                "background-color: #f1f5f9; color: #0f172a; border: 1px solid #cbd5e1; border-radius: 6px; padding: 4px 10px; font-weight: bold;"
+                "QPushButton { background-color: #eff6ff; color: #1e3a8a; border: 1px solid #bfdbfe; border-radius: 6px; padding: 5px 12px; font-weight: bold; } "
+                "QPushButton:hover { background-color: #dbeafe; }"
             )
         st = self.style()
         if st is not None:
@@ -1700,8 +1736,10 @@ class MainWindow(QMainWindow):
 
         self._apply_styles()
         self._build_ui()
+        self._style_top_bar()
         self._install_tab_lock_filter()
         self._apply_global_rtl_alignment()
+        apply_interactive_cursors(self)
         app = QApplication.instance()
         if (
             app is not None
@@ -1738,6 +1776,7 @@ class MainWindow(QMainWindow):
         for cb in (
             getattr(self, "cb_batch_buyer", None),
             getattr(self, "cb_sale_seller", None),
+            getattr(self, "cb_pf_seller", None),
             getattr(self, "cb_srv_seller", None),
             getattr(self, "cb_upg_tech", None),
         ):
@@ -2036,12 +2075,19 @@ class MainWindow(QMainWindow):
         target = permission_name
         if target is None and self.active_employee:
             target = self.active_employee.get("permissions")
+        def _with_proforma_compat(raw_perms: list) -> set:
+            grants = set(raw_perms or [])
+            if not any(k.startswith("proforma.") for k in grants):
+                for act in ("view", "create", "edit", "delete"):
+                    if f"sales.{act}" in grants:
+                        grants.add(f"proforma.{act}")
+            return grants
         for level in self._get_access_levels():
             if level["name"] == target:
-                return set(level.get("permissions") or [])
+                return _with_proforma_compat(level.get("permissions") or [])
         for level in self._get_access_levels():
             if level["policy"] == target:
-                return set(level.get("permissions") or [])
+                return _with_proforma_compat(level.get("permissions") or [])
         if str(target or "").strip() in ("all", "دسترسی کامل"):
             return set(ALL_PERMISSION_KEYS)
         return set()
@@ -2421,8 +2467,9 @@ class MainWindow(QMainWindow):
         self.setUpdatesEnabled(False)
         try:
             self._apply_styles()
+            self._style_top_bar()
             self.btn_theme.setText(
-                "☀️ حالت روشن" if self.db.cfg["theme"] == "dark" else "🌙 حالت تیره"
+                "☀️ حالت روشن" if self.db.cfg["theme"] == "dark" else "🌙 حالت تاریک"
             )
             self._update_license_banner()
         finally:
@@ -2456,13 +2503,13 @@ class MainWindow(QMainWindow):
                 )
         self._tables_auto_fit = enable_auto_fit
         self.btn_table_width.setText(
-            "↔️ بازگشت به اندازه ثابت ستون‌ها" if self._tables_auto_fit
-            else "↔️ اندازه‌گذاری هوشمند ستون‌ها"
+            "↔️ عرض پیش‌فرض ستون‌ها" if self._tables_auto_fit
+            else "↔️ تنظیم عرض ستون‌ها"
         )
         self._refresh_visual_layout()
 
     _TAB_MODULES = (
-        "dashboard", "products", "batches", "sales", "services",
+        "dashboard", "products", "batches", "sales", "proforma", "services",
         "upgrades", "suppliers", "customers", "reports", "charts",
         "employees", "settings",
     )
@@ -2846,11 +2893,12 @@ class MainWindow(QMainWindow):
             QPushButton {{ background-color: #2563eb; color: #ffffff; border: none;
                 border-radius: 6px; padding: 7px 14px; font-weight: bold; }}
             QPushButton:hover {{ background-color: #1d4ed8; }}
-            QPushButton#btnDanger {{ background-color: #dc2626; }}
+            QPushButton#btnDanger {{ background-color: #dc2626; color: #ffffff; }}
             QPushButton#btnDanger:hover {{ background-color: #b91c1c; }}
-            QPushButton#btnSuccess {{ background-color: #059669; }}
+            QPushButton#btnSuccess {{ background-color: #059669; color: #ffffff; }}
             QPushButton#btnSuccess:hover {{ background-color: #047857; }}
-            QPushButton#btnSecondary {{ background-color: #475569; }}
+            QPushButton#btnSecondary {{ background-color: #475569; color: #ffffff; }}
+            QPushButton#btnSecondary:hover {{ background-color: #334155; }}
             QPushButton#btnSettingsLicense {{
                 background-color: {"#0d9488" if dark else "#0f766e"}; color: #ffffff;
                 border: none; border-radius: 6px; padding: 7px 14px; font-weight: bold;
@@ -2863,6 +2911,37 @@ class MainWindow(QMainWindow):
                 border-radius: 7px; text-align: center; font-weight: 700;
             }}
             QPushButton#collapsibleSectionHeader:hover {{ background: {hover}; border-color: {accent}; }}
+            QFrame#hoverSidebarNav {{
+                background: {"#0b1220" if dark else "#eff6ff"};
+                border: 1px solid {"#2a3b58" if dark else "#bfdbfe"};
+                border-radius: 10px;
+            }}
+            QScrollArea#hoverSidebarScroll, QWidget#hoverSidebarContainer {{
+                background: transparent;
+                border: none;
+            }}
+            QPushButton#hoverSidebarItem {{
+                background: transparent;
+                color: {"#e2e8f0" if dark else "#1e3a8a"};
+                border: 1px solid transparent;
+                border-radius: 8px;
+                padding: 7px 10px;
+                font-weight: 600;
+                text-align: right;
+            }}
+            QPushButton#hoverSidebarItem:hover {{
+                background: {"#17253d" if dark else "#dbeafe"};
+                border-color: {"#38bdf8" if dark else "#93c5fd"};
+            }}
+            QPushButton#hoverSidebarItem[navActive="true"] {{
+                background: #2563eb;
+                color: #ffffff;
+                border: 1px solid #1d4ed8;
+                font-weight: bold;
+            }}
+            QPushButton#hoverSidebarItem[navLocked="true"] {{
+                color: {"#64748b" if dark else "#94a3b8"};
+            }}
             QTableWidget {{ background-color: {panel}; color: {text};
                 alternate-background-color: {alternate}; gridline-color: {border};
                 border: 1px solid {border}; border-radius: 6px; }}
@@ -2872,6 +2951,7 @@ class MainWindow(QMainWindow):
             QTabWidget::pane {{ border: 1px solid {border}; background: {bg}; }}
             QTabBar::tab {{ background: {alternate}; color: {text}; padding: 9px 14px;
                 font-weight: bold; border-top-left-radius: 6px; border-top-right-radius: 6px; margin-left: 2px; }}
+            QTabBar::tab:hover {{ background: {hover}; }}
             QTabBar::tab:selected {{ background: #2563eb; color: #ffffff; }}
             QCheckBox {{ font-weight: bold; color: {text}; spacing: 8px; padding: 6px 12px; }}
             QCheckBox::indicator {{ width: 18px; height: 18px; border-radius: 4px;
@@ -2976,15 +3056,16 @@ class MainWindow(QMainWindow):
         btn_switch_user = QPushButton("🔑 تغییر کاربر")
         self.btn_switch_user = btn_switch_user
         self.btn_switch_user.setToolTip("تغییر کاربر فعال؛ برای همه سطوح دسترسی")
-        btn_switch_user.setStyleSheet("background-color: #475569; color: white; padding: 6px 8px;")
+        btn_switch_user.setObjectName("btnSecondary")
         btn_switch_user.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         btn_switch_user.clicked.connect(self._switch_active_employee)
 
-        self.btn_theme = QPushButton("☀️ حالت روشن" if self.db.cfg.get("theme") == "dark" else "🌙 حالت تیره")
+        self.btn_theme = QPushButton("☀️ حالت روشن" if self.db.cfg.get("theme") == "dark" else "🌙 حالت تاریک")
         self.btn_theme.clicked.connect(self._toggle_theme)
         self.btn_theme.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-        self.btn_table_width = QPushButton("↔️ اندازه‌گذاری هوشمند ستون‌ها")
+        self.btn_table_width = QPushButton("↔️ تنظیم عرض ستون‌ها")
         self.btn_table_width.setObjectName("btnSecondary")
+        self.btn_table_width.setToolTip("تنظیم خودکار عرض ستون‌های جدول‌ها متناسب با محتوا یا بازگشت به عرض پیش‌فرض")
         self.btn_table_width.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
         self.btn_table_width.clicked.connect(self._toggle_table_autosize)
 
@@ -3006,29 +3087,31 @@ class MainWindow(QMainWindow):
         top_layout.addWidget(title_lbl, 0)
         main_layout.addWidget(top_bar)
 
-        # نوار هشدار وضعیت لایسنس (تک‌خطی با دکمه انعطاف‌پذیر در گوشه چپ بالا)
+        # نوار هشدار وضعیت لایسنس (تک‌خطی با دکمه پهن و واضح تمدید لایسنس)
         self.license_banner_frame = QFrame()
         self.license_banner_frame.setObjectName("licenseBannerFrame")
         self.license_banner_frame.setVisible(False)
+        self.license_banner_frame.setMaximumHeight(44)
         banner_layout = QHBoxLayout(self.license_banner_frame)
-        banner_layout.setContentsMargins(10, 4, 10, 4)
-        banner_layout.setSpacing(10)
+        banner_layout.setContentsMargins(12, 4, 12, 4)
+        banner_layout.setSpacing(12)
         self.lbl_license_banner = QLabel()
         self.lbl_license_banner.setObjectName("licenseBannerLabel")
         self.lbl_license_banner.setWordWrap(False)
         self.lbl_license_banner.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.lbl_license_banner.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.btn_renew_banner = QPushButton("تمدید لایسنس")
+        self.btn_renew_banner = QPushButton("🔑 تمدید لایسنس")
         self.btn_renew_banner.setObjectName("licenseBannerButton")
-        self.btn_renew_banner.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
-        self.btn_renew_banner.setMinimumWidth(0)
+        self.btn_renew_banner.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
+        self.btn_renew_banner.setMinimumWidth(136)
+        self.btn_renew_banner.setCursor(Qt.PointingHandCursor)
         self.btn_renew_banner.clicked.connect(self._open_license_dialog)
         banner_layout.addWidget(self.lbl_license_banner, 1)
         banner_layout.addWidget(self.btn_renew_banner, 0, Qt.AlignVCenter)
         main_layout.addWidget(self.license_banner_frame)
 
-        # --- تب‌های برنامه با ترتیب جدید (بند ۵: تب ارتقای لپ‌تاپ بلافاصله بعد از مدیریت خدمات) ---
-        self.tabs = QTabWidget()
+        # --- ناوبری سایدبار کشویی راست‌چین با قابلیت باز شدن هنگام هاور ---
+        self.tabs = HoverSidebarTabsWidget()
         self.tabs.tabBarClicked.connect(self._on_tab_bar_clicked)
         main_layout.addWidget(self.tabs)
 
@@ -3036,6 +3119,7 @@ class MainWindow(QMainWindow):
         self._init_tab_products()
         self._init_tab_batches()
         self._init_tab_sales()
+        self._init_tab_proforma()
         self._init_tab_services()
         self._init_tab_upgrades()  # بند ۵: بلافاصله بعد از تب مدیریت خدمات
         self._init_tab_suppliers_payments()
@@ -3176,7 +3260,7 @@ class MainWindow(QMainWindow):
             if hasattr(self, "btn_renew_banner") and self.btn_renew_banner is not None:
                 self.btn_renew_banner.setStyleSheet(
                     f"QPushButton {{ background-color: {btn_bg}; color: #ffffff; font-weight: bold; "
-                    f"padding: 5px 14px; border-radius: 6px; border: none; }} "
+                    f"padding: 6px 24px; border-radius: 6px; border: none; min-width: 132px; }} "
                     f"QPushButton:hover {{ background-color: {btn_hover}; }}"
                 )
 
@@ -3429,7 +3513,83 @@ class MainWindow(QMainWindow):
         tbl.horizontalScrollBar().setSingleStep(18)
         tbl.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         tbl.horizontalHeader().setStretchLastSection(True)
+        if headers:
+            h0 = str(headers[0] or "").strip()
+            if h0 in ("شناسه", "ردیف", "شناسه قسط", "شناسه چک"):
+                fm = QFontMetrics(tbl.horizontalHeader().font())
+                compact_w = max(56, min(86, fm.horizontalAdvance(h0) + 28))
+                tbl.setColumnWidth(0, compact_w)
         return tbl
+
+    @staticmethod
+    def _selected_row_ids(table: QTableWidget, col: int = 0) -> list:
+        """Return unique integer IDs from all currently selected table rows."""
+        if table is None:
+            return []
+        sel = table.selectionModel()
+        if sel is not None and sel.hasSelection():
+            rows = sorted({idx.row() for idx in sel.selectedRows()})
+            if not rows:
+                rows = sorted({idx.row() for idx in sel.selectedIndexes()})
+        else:
+            rows = sorted({it.row() for it in table.selectedItems()})
+        ids = []
+        for r in rows:
+            item = table.item(r, col)
+            if item is not None:
+                try:
+                    ids.append(int(str(item.text() or "").strip()))
+                except (TypeError, ValueError):
+                    pass
+        return ids
+
+    def _style_top_bar(self):
+        """Style top header bar in harmony with LicenseDialog Light & Dark palettes."""
+        if not hasattr(self, "top_bar") or self.top_bar is None:
+            return
+        dark = bool(hasattr(self, "db") and self.db and self.db.cfg.get("theme", "light") == "dark")
+        if dark:
+            self.top_bar.setStyleSheet(
+                "background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0f172a, stop:1 #1e3a8a); "
+                "border: 1px solid #334155; border-radius: 10px; padding: 5px;"
+            )
+            if hasattr(self, "lbl_store_name"):
+                self.lbl_store_name.setStyleSheet(
+                    "color: #ffffff; font-size: 15px; font-weight: bold; "
+                    "background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.22); "
+                    "border-radius: 7px; padding: 5px 10px;"
+                )
+            if hasattr(self, "lbl_live_clock"):
+                self.lbl_live_clock.setStyleSheet(
+                    "color: #38bdf8; font-size: 12px; font-weight: bold; "
+                    "background: rgba(255,255,255,0.08); padding: 4px 8px; border-radius: 6px;"
+                )
+            if hasattr(self, "lbl_active_user"):
+                self.lbl_active_user.setStyleSheet(
+                    "color: #fde047; font-size: 12px; font-weight: bold; "
+                    "background: rgba(255,255,255,0.12); padding: 4px 8px; border-radius: 6px;"
+                )
+        else:
+            self.top_bar.setStyleSheet(
+                "background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #dbeafe, stop:1 #eff6ff); "
+                "border: 1.5px solid #93c5fd; border-radius: 10px; padding: 5px;"
+            )
+            if hasattr(self, "lbl_store_name"):
+                self.lbl_store_name.setStyleSheet(
+                    "color: #1e3a8a; font-size: 15px; font-weight: bold; "
+                    "background: #ffffff; border: 1px solid #bfdbfe; "
+                    "border-radius: 7px; padding: 5px 10px;"
+                )
+            if hasattr(self, "lbl_live_clock"):
+                self.lbl_live_clock.setStyleSheet(
+                    "color: #0369a1; font-size: 12px; font-weight: bold; "
+                    "background: #ffffff; border: 1px solid #bfdbfe; padding: 4px 8px; border-radius: 6px;"
+                )
+            if hasattr(self, "lbl_active_user"):
+                self.lbl_active_user.setStyleSheet(
+                    "color: #1e40af; font-size: 12px; font-weight: bold; "
+                    "background: #ffffff; border: 1px solid #bfdbfe; padding: 4px 8px; border-radius: 6px;"
+                )
 
     def _sort_table_by_header(self, table: QTableWidget, column: int):
         """Toggle ascending/descending sorting for the clicked table column."""
@@ -3512,6 +3672,42 @@ class MainWindow(QMainWindow):
             elif rep_title.startswith("۱۲."):
                 effective_kind = "service_records"
 
+        if key == "proformas":
+            pf_ids = []
+            for row_vals in matrix:
+                try:
+                    pf_ids.append(int(row_vals[0]))
+                except (TypeError, ValueError, IndexError):
+                    pass
+            records = []
+            for pid in pf_ids:
+                det = self.db.get_proforma_detail(pid)
+                if not det:
+                    continue
+                for it in det.get("items", []):
+                    bm = " ".join(
+                        v for v in (str(it.get("product_brand") or "").strip(), str(it.get("product_model") or "").strip())
+                        if v
+                    )
+                    records.append({
+                        "proforma_number": det.get("proforma_number") or "-",
+                        "proforma_datetime": det.get("proforma_datetime") or "-",
+                        "valid_until": det.get("valid_until") or "",
+                        "customer_name": det.get("customer_name") or "",
+                        "customer_phone": det.get("customer_phone") or "",
+                        "seller_name": det.get("seller_name") or "",
+                        "product_title": bm or str(it.get("product_name") or it.get("product_code") or "کالا"),
+                        "qty": int(it.get("qty") or 1),
+                        "actual_unit_price": int(it.get("actual_unit_price") or 0),
+                        "line_total": int(it.get("line_total") or 0),
+                        "notes": str(it.get("notes") or det.get("notes") or ""),
+                    })
+            spec = build_proforma_invoice_spec(records, shop_info)
+            def _render_pf(is_a5=True, _spec=spec):
+                return render_spec_to_html(_spec, is_a5=is_a5)
+            _render_pf.spec = spec
+            return spec.title, _render_pf
+
         if effective_kind == "sales":
             records = []
             if key == "sales":
@@ -3533,7 +3729,7 @@ class MainWindow(QMainWindow):
                             inv_marks = ",".join("?" for _ in inv_nums)
                             db_rows = conn.execute(
                                 f"""
-                                SELECT s.*, p.code AS p_code, p.category, p.sub_category, p.brand, p.model,
+                                SELECT s.*, p.code AS p_code, p.name AS product_name, p.category, p.sub_category, p.brand, p.model,
                                        e.name AS emp_name
                                 FROM sales s
                                 JOIN products p ON s.product_id = p.id
@@ -3546,7 +3742,7 @@ class MainWindow(QMainWindow):
                         else:
                             db_rows = conn.execute(
                                 f"""
-                                SELECT s.*, p.code AS p_code, p.category, p.sub_category, p.brand, p.model,
+                                SELECT s.*, p.code AS p_code, p.name AS product_name, p.category, p.sub_category, p.brand, p.model,
                                        e.name AS emp_name
                                 FROM sales s
                                 JOIN products p ON s.product_id = p.id
@@ -3557,9 +3753,8 @@ class MainWindow(QMainWindow):
                                 sale_ids,
                             ).fetchall()
                     for r in db_rows:
-                        prod_prefix = str(r["sub_category"] or r["category"] or "").strip()
                         bm = " ".join(v for v in (str(r["brand"] or "").strip(), str(r["model"] or "").strip()) if v)
-                        title = " | ".join(v for v in (prod_prefix, bm) if v) or r["p_code"]
+                        title = bm or str(r["product_name"] or r["p_code"] or "کالا")
                         war = (
                             f"{r['warranty_company']} ({r['warranty_end']})".strip(" ()")
                             if (r["warranty_company"] or r["warranty_end"])
@@ -3676,7 +3871,7 @@ class MainWindow(QMainWindow):
                         tot_bill = r["unit_purchase_price"] * r["initial_qty"] + r["extra_cost_total"]
                         debt = receivable_balance(tot_bill, r["paid_amount"], r["settlement_status"])
                         records.append({
-                            "batch_code": r["batch_code"],
+                            "batch_code": r["purchase_invoice_code"] or r["batch_code"],
                             "invoice_number": r["invoice_number"],
                             "purchase_date": r["purchase_date"],
                             "supplier_name": r["sup_name"] or r["supplier_name_snapshot"] or "-",
@@ -4037,9 +4232,10 @@ class MainWindow(QMainWindow):
                 self.db.cfg["theme"] = new_theme
                 save_app_config(self.db.cfg)
                 self._apply_styles()
+                self._style_top_bar()
                 self._refresh_dashboard_card_styles()
                 if hasattr(self, "btn_theme"):
-                    self.btn_theme.setText("☀️ حالت روشن" if new_theme == "dark" else "🌙 حالت تیره")
+                    self.btn_theme.setText("☀️ حالت روشن" if new_theme == "dark" else "🌙 حالت تاریک")
         self._update_license_banner()
         self._apply_employee_permissions(select_first_unlocked=False)
 
@@ -4063,6 +4259,7 @@ class MainWindow(QMainWindow):
         for cb in (
             getattr(self, "cb_batch_buyer", None),
             getattr(self, "cb_sale_seller", None),
+            getattr(self, "cb_pf_seller", None),
             getattr(self, "cb_srv_seller", None),
             getattr(self, "cb_upg_tech", None),
         ):
@@ -4176,8 +4373,12 @@ class MainWindow(QMainWindow):
     def _init_tab_dashboard(self):
         tab = QWidget()
         layout = QVBoxLayout(tab)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(10)
 
         cards_layout = QGridLayout()
+        cards_layout.setHorizontalSpacing(10)
+        cards_layout.setVerticalSpacing(10)
         self.lbl_dash_sales_today = self._make_stat_card(
             cards_layout, 0, 0, "فروش امروز (تومان)", "0", "primary"
         )
@@ -4209,7 +4410,7 @@ class MainWindow(QMainWindow):
             cards_layout, 2, 1, "اقساط سررسید گذشته", "0", "danger"
         )
         self.lbl_dash_recv_checks = self._make_stat_card(
-            cards_layout, 2, 2, "چک‌های دریافتنی در انتظار وصول", "0", "info"
+            cards_layout, 2, 2, "چک‌های مشتریان در انتظار وصول", "0", "info"
         )
         self.lbl_dash_pay_checks = self._make_stat_card(
             cards_layout, 2, 3, "چک‌های پرداختی در انتظار وصول", "0", "rose"
@@ -4222,8 +4423,9 @@ class MainWindow(QMainWindow):
         gb_low.setAlignment(Qt.AlignRight)
         l_low = QVBoxLayout(gb_low)
         self.tbl_dash_low = self._create_table(
-            ["کد کالا", "محموله", "مشخصات کالا", "مشخصات فنی", "موجودی فعلی", "حداقل موجودی", "وضعیت"]
+            ["کد کالا", "شناسه فاکتور خرید", "مشخصات کالا", "مشخصات فنی", "موجودی فعلی", "حداقل موجودی", "وضعیت"]
         )
+        self.tbl_dash_low.setMinimumHeight(290)
         self._add_table_search(
             l_low, self.tbl_dash_low, "dashboard_low",
             "🔍 جست‌وجو در هشدارهای موجودی..."
@@ -4237,6 +4439,7 @@ class MainWindow(QMainWindow):
         self.tbl_dash_emp = self._create_table(
             ["نام فروشنده", "تعداد فروش", "مبلغ کل فروش (تومان)", "تخفیف داده شده", "سود حاصل از فروش"]
         )
+        self.tbl_dash_emp.setMinimumHeight(290)
         self._dashboard_permission_widgets = {
             "dashboard.metric.sales_today": self.lbl_dash_sales_today.parentWidget(),
             "dashboard.metric.profit_today": self.lbl_dash_profit_today.parentWidget(),
@@ -4282,6 +4485,8 @@ class MainWindow(QMainWindow):
     def _init_tab_products(self):
         tab = QWidget()
         layout = QVBoxLayout(tab)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(8)
         self.selected_product_id = None
         self._selected_product_row_version = None
 
@@ -4300,7 +4505,7 @@ class MainWindow(QMainWindow):
         f_layout.setVerticalSpacing(10)
         f_layout.setContentsMargins(14, 18, 14, 12)
 
-        self.ed_prod_code = SmartLineEdit("P-1001")
+        self.ed_prod_code = SmartLineEdit("SKU-1001")
         self.ed_prod_code.setToolTip("در صورت خالی بودن، کد بعدی به‌صورت خودکار تخصیص می‌یابد.")
         self.ed_prod_serial = SmartLineEdit("")
         self.ed_prod_serial.setPlaceholderText("اسکن بارکدخوان یا تایپ شماره سریال...")
@@ -4426,6 +4631,7 @@ class MainWindow(QMainWindow):
         btn_row.addWidget(self._create_table_print_button(self.tbl_products, "products"), 0)
         layout.addLayout(btn_row)
 
+        self.tbl_products.setMinimumHeight(290)
         self.tbl_products.itemSelectionChanged.connect(self._on_product_row_selected)
         layout.addWidget(self.tbl_products, 1)
 
@@ -4434,7 +4640,7 @@ class MainWindow(QMainWindow):
     def _clear_product_form(self):
         self.selected_product_id = None
         self._selected_product_row_version = None
-        self._set_generated_code_placeholder(self.ed_prod_code, "products", "code", "P-")
+        self._set_generated_code_placeholder(self.ed_prod_code, "products", "code", "SKU-")
         self.ed_prod_serial.clear()
         self.cb_prod_cat.setCurrentIndex(0)
         self._configure_product_specs(self.cb_prod_cat.currentText())
@@ -4625,14 +4831,21 @@ class MainWindow(QMainWindow):
 
 
     def _delete_selected_product(self):
-        if not self.selected_product_id:
+        if not self._require_license_write_allowed():
             return
-        if (
-            _ask_yes_no(self, "تأیید حذف", "آیا از حذف این کالا اطمینان دارید؟")
-            is True
-        ):
+        ids = self._selected_row_ids(self.tbl_products)
+        if not ids and self.selected_product_id:
+            ids = [int(self.selected_product_id)]
+        if not ids:
+            return
+        prompt = (
+            "آیا از حذف این کالا اطمینان دارید؟"
+            if len(ids) == 1
+            else f"آیا از حذف {len(ids)} کالای انتخاب‌شده به همراه سوابق وابسته اطمینان دارید؟"
+        )
+        if _ask_yes_no(self, "تأیید حذف", prompt) is True:
             try:
-                self.db.delete_product(self.selected_product_id)
+                self.db.delete_products_batch(ids)
                 self.refresh_all_data()
                 self._clear_product_form()
             except Exception as e:
@@ -4644,10 +4857,12 @@ class MainWindow(QMainWindow):
     def _init_tab_batches(self):
         tab = QWidget()
         layout = QVBoxLayout(tab)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(8)
         self.selected_batch_id = None
         self._selected_batch_row_version = None
 
-        gb = QGroupBox("ثبت خرید کالا از تأمین‌کننده (ایجاد محموله جدید)")
+        gb = QGroupBox("ثبت خرید کالا از تأمین‌کننده (ایجاد فاکتور خرید و محموله)")
         grid = QGridLayout(gb)
         grid.setContentsMargins(12, 16, 12, 10)
         grid.setHorizontalSpacing(10)
@@ -4657,8 +4872,8 @@ class MainWindow(QMainWindow):
         for column in (0, 2, 4):
             grid.setColumnStretch(column, 0)
 
-        self.ed_batch_code = SmartLineEdit("C-1001")
-        self.ed_batch_code.setToolTip("در صورت خالی بودن، کد محموله بعدی خودکار تخصیص می‌یابد.")
+        self.ed_batch_code = SmartLineEdit("PINV-1001")
+        self.ed_batch_code.setToolTip("شناسه فاکتور خرید؛ در صورت خالی بودن، شناسه بعدی (PINV-...) خودکار تخصیص می‌یابد.")
         self.cb_batch_prod = SearchableComboBox()
         self.cb_batch_prod.set_exact_enter_selection(True)
         self.cb_batch_prod.setToolTip("نام دسته‌بندی، زیرگروه (مثلاً کیبورد)، برند، مدل یا کد کالا را تایپ کنید")
@@ -4672,7 +4887,8 @@ class MainWindow(QMainWindow):
         self.cb_batch_buyer = SearchableComboBox()
         self.cb_batch_buyer.setEditable(False)
         self.ed_batch_inv = SmartLineEdit("")
-        self.ed_batch_inv.setPlaceholderText("شماره فاکتور خرید (خودکار یا دستی)...")
+        self.ed_batch_inv.setPlaceholderText("شناسه فاکتور تأمین‌کننده (اختیاری)...")
+        self.ed_batch_inv.setToolTip("شماره فاکتور کاغذی یا سیستمی تأمین‌کننده (می‌تواند خالی بماند؛ برای همه اقلام فاکتور ثبت می‌شود).")
         self.dt_batch_date = JalaliDateEdit(default_today=True)
         self.cb_batch_qty = QuantitySelector(500)
         self.pr_batch_buy = PriceInput(self.db)
@@ -4680,9 +4896,9 @@ class MainWindow(QMainWindow):
         self.pr_batch_suggest = PriceInput(self.db)
         self.pr_batch_paid = PriceInput(self.db)
 
-        # وضعیت تسویه + زیرانتخاب نقدی/چکی (REQ-05)
+        # وضعیت تسویه + زیرانتخاب نقدی/چکی + خرید اقساطی (REQ-06)
         self.cb_batch_status = QComboBox()
-        self.cb_batch_status.addItems(["تسویه‌شده", "تسویه‌نشده", "تسویه جزئی"])
+        self.cb_batch_status.addItems(["تسویه‌شده", "تسویه جزئی", "تسویه‌نشده", "خرید اقساطی"])
         self.cb_batch_status.currentTextChanged.connect(self._on_batch_status_changed)
 
         self.cb_batch_subtype = QComboBox()
@@ -4704,15 +4920,46 @@ class MainWindow(QMainWindow):
         b_chk_l.addStretch(1)
         self.batch_check_panel.setVisible(False)
 
+        self.batch_inst_plan_box = QWidget()
+        bi_l = QHBoxLayout(self.batch_inst_plan_box)
+        bi_l.setContentsMargins(0, 2, 0, 2)
+        bi_l.setSpacing(8)
+        self.sp_batch_inst_count = QSpinBox()
+        self.sp_batch_inst_count.setRange(1, 60)
+        self.sp_batch_inst_count.setValue(6)
+        self.sp_batch_inst_count.valueChanged.connect(self._update_batch_installment_preview)
+        self.sp_batch_inst_interval = QSpinBox()
+        self.sp_batch_inst_interval.setRange(1, 365)
+        self.sp_batch_inst_interval.setValue(30)
+        self.sp_batch_inst_interval.valueChanged.connect(self._update_batch_installment_preview)
+        self.dt_batch_inst_start = JalaliDateEdit(default_today=True)
+        self.dt_batch_inst_start.dateChanged.connect(self._update_batch_installment_preview)
+        self.chk_batch_inst_first_paid = QCheckBox("قسط اول هنگام ثبت پرداخت شد")
+        self.chk_batch_inst_first_paid.setChecked(True)
+        self.chk_batch_inst_first_paid.toggled.connect(self._update_batch_installment_preview)
+        self.pr_batch_paid.valueChanged.connect(self._update_batch_installment_preview)
+        self.lbl_batch_inst_preview = QLabel("")
+        self.lbl_batch_inst_preview.setObjectName("settingsHint")
+        bi_l.addWidget(QLabel("تعداد اقساط:"))
+        bi_l.addWidget(self.sp_batch_inst_count)
+        bi_l.addWidget(QLabel("فاصله (روز):"))
+        bi_l.addWidget(self.sp_batch_inst_interval)
+        bi_l.addWidget(QLabel("سررسید قسط اول:"))
+        bi_l.addWidget(self.dt_batch_inst_start)
+        bi_l.addWidget(self.chk_batch_inst_first_paid)
+        bi_l.addWidget(self.lbl_batch_inst_preview, 1)
+        self.batch_inst_plan_box.setVisible(False)
+
         self._batch_cart_items = []
         self.batch_cart_box = QGroupBox("اقلام افزوده‌شده به فاکتور خرید فعلی")
         b_cart_l = QVBoxLayout(self.batch_cart_box)
         b_cart_l.setContentsMargins(8, 12, 8, 6)
         b_cart_l.setSpacing(4)
         self.tbl_batch_cart = self._create_table(
-            ["ردیف", "کد محموله", "کالا", "تعداد", "خرید واحد", "هزینه جانبی", "جمع کل (تومان)", "سریال", "رنگ‌ها"]
+            ["ردیف", "شناسه قلم", "کالا", "تعداد", "خرید واحد", "هزینه جانبی", "جمع کل (تومان)", "سریال", "رنگ‌ها"]
         )
-        self.tbl_batch_cart.setMaximumHeight(130)
+        self.tbl_batch_cart.setMinimumHeight(140)
+        self.tbl_batch_cart.setMaximumHeight(200)
         b_cart_l.addWidget(self.tbl_batch_cart)
         b_cart_foot = QHBoxLayout()
         self.lbl_batch_cart_total = QLabel("جمع کل اقلام فاکتور: 0 تومان")
@@ -4744,7 +4991,7 @@ class MainWindow(QMainWindow):
         st_h.addWidget(self.cb_batch_status, 1)
         st_h.addWidget(self.cb_batch_subtype, 1)
 
-        grid.addWidget(QLabel("کد محموله:"), 0, 0)
+        grid.addWidget(QLabel("شناسه فاکتور خرید:"), 0, 0)
         grid.addWidget(self.ed_batch_code, 0, 1)
         grid.addWidget(QLabel("انتخاب کالا:"), 0, 2)
         grid.addWidget(self.cb_batch_prod, 0, 3)
@@ -4755,7 +5002,7 @@ class MainWindow(QMainWindow):
         grid.addWidget(self.cb_batch_supplier, 1, 1)
         grid.addWidget(QLabel("مسئول خرید:"), 1, 2)
         grid.addWidget(self.cb_batch_buyer, 1, 3)
-        grid.addWidget(QLabel("شماره فاکتور:"), 1, 4)
+        grid.addWidget(QLabel("شناسه فاکتور تأمین‌کننده:"), 1, 4)
         grid.addWidget(self.ed_batch_inv, 1, 5)
 
         grid.addWidget(QLabel("تعداد خرید:"), 2, 0)
@@ -4780,7 +5027,8 @@ class MainWindow(QMainWindow):
         grid.addWidget(QLabel("مشخصات فنی / توضیحات:"), 5, 0)
         grid.addWidget(self.ed_batch_serial, 5, 1, 1, 5)
         grid.addWidget(self.batch_check_panel, 6, 0, 1, 6)
-        grid.addWidget(self.batch_cart_box, 7, 0, 1, 6)
+        grid.addWidget(self.batch_inst_plan_box, 7, 0, 1, 6)
+        grid.addWidget(self.batch_cart_box, 8, 0, 1, 6)
 
         layout.addWidget(gb)
 
@@ -4810,13 +5058,13 @@ class MainWindow(QMainWindow):
         self.tbl_batches = self._create_table(
             [
                 "شناسه",
-                "کد محموله",
+                "شناسه فاکتور خرید",
                 "کد کالا",
+                "شناسه فاکتور تأمین‌کننده",
                 "شماره سریال",
                 "مشخصات کالا",
                 "تأمین‌کننده",
                 "مسئول خرید",
-                "شماره فاکتور",
                 "تاریخ خرید",
                 "تعداد خرید",
                 "تعداد فروش",
@@ -4835,6 +5083,7 @@ class MainWindow(QMainWindow):
                 "رنگ‌های محموله",
             ]
         )
+        self.tbl_batches.setMinimumHeight(290)
         self.tbl_batches.itemSelectionChanged.connect(self._on_batch_row_selected)
         self._add_table_search(btn_row, self.tbl_batches, "batches", "🔍 جست‌وجو در خریدها و محموله‌ها...")
         layout.addWidget(self.tbl_batches)
@@ -4939,8 +5188,9 @@ class MainWindow(QMainWindow):
     def _clear_batch_form(self):
         self.selected_batch_id = None
         self._selected_batch_row_version = None
-        self._set_generated_code_placeholder(self.ed_batch_code, "batches", "batch_code", "C-")
-        self._set_generated_code_placeholder(self.ed_batch_inv, "batches", "invoice_number", "PINV-")
+        self._set_generated_code_placeholder(self.ed_batch_code, "batches", "purchase_invoice_code", "PINV-")
+        self.ed_batch_inv.clear()
+        self.ed_batch_inv.setPlaceholderText("شناسه فاکتور تأمین‌کننده (اختیاری)...")
         self.ed_batch_serial_number.clear()
         self.cb_batch_prod.setCurrentIndex(-1)
         self.cb_batch_prod.clearEditText()
@@ -4949,7 +5199,6 @@ class MainWindow(QMainWindow):
         self.cb_batch_buyer.setCurrentIndex(-1)
         self.cb_batch_buyer.clearEditText()
         self._select_default_operator(self.cb_batch_buyer)
-        self.ed_batch_inv.clear()
         self.ed_batch_serial.clear()
         self.dt_batch_date.set_date(self.get_today_date_str())
         self.cb_batch_qty.setCurrentText("1")
@@ -4966,6 +5215,12 @@ class MainWindow(QMainWindow):
             self.dt_batch_chk_due.set_date(self.get_today_date_str())
         if hasattr(self, "cb_batch_chk_status"):
             self.cb_batch_chk_status.setCurrentIndex(0)
+        if hasattr(self, "batch_inst_plan_box"):
+            self.batch_inst_plan_box.setVisible(False)
+        if hasattr(self, "chk_batch_inst_first_paid"):
+            self.chk_batch_inst_first_paid.setChecked(True)
+        if hasattr(self, "dt_batch_inst_start"):
+            self.dt_batch_inst_start.set_date(self.get_today_date_str())
         self._batch_cart_items = []
         self._refresh_batch_cart_ui()
         self._populate_color_checklist(
@@ -5056,8 +5311,36 @@ class MainWindow(QMainWindow):
         if hasattr(self, "batch_check_panel"):
             self.batch_check_panel.setVisible(is_chk)
 
+    def _update_batch_installment_preview(self, *_):
+        if not hasattr(self, "cb_batch_status") or self.cb_batch_status.currentText().strip() != "خرید اقساطی":
+            return
+        total_bill = self._batch_cart_grand_total()
+        down = min(total_bill, self.pr_batch_paid.get_value())
+        financed = max(0, total_bill - down)
+        cnt = max(1, int(self.sp_batch_inst_count.value()))
+        base_amt, rem = divmod(financed, cnt)
+        last_amt = base_amt + rem
+        first_paid = hasattr(self, "chk_batch_inst_first_paid") and self.chk_batch_inst_first_paid.isChecked()
+        first_note = " (قسط اول پرداخت‌شده)" if first_paid and financed > 0 else ""
+        if financed <= 0:
+            self.lbl_batch_inst_preview.setText("باقی‌مانده‌ای برای تقسیط وجود ندارد.")
+        elif rem == 0:
+            self.lbl_batch_inst_preview.setText(f"مبلغ تقسیط: {financed:,} ت | {cnt} قسط × {base_amt:,} ت{first_note}")
+        else:
+            self.lbl_batch_inst_preview.setText(
+                f"مبلغ تقسیط: {financed:,} ت | {cnt - 1} قسط {base_amt:,} ت + قسط آخر {last_amt:,} ت{first_note}"
+            )
+
     def _on_batch_status_changed(self, st):
-        is_settled = str(st or "").startswith("تسویه‌شده")
+        st_clean = str(st or "").strip()
+        is_inst = (st_clean == "خرید اقساطی")
+        is_settled = st_clean.startswith("تسویه‌شده")
+        if is_inst and not self._require_license_feature("supplier_installments"):
+            self.cb_batch_status.blockSignals(True)
+            self.cb_batch_status.setCurrentIndex(0)
+            self.cb_batch_status.blockSignals(False)
+            is_inst = False
+            is_settled = True
         if hasattr(self, "cb_batch_subtype"):
             self.cb_batch_subtype.setVisible(is_settled)
             if not is_settled:
@@ -5065,10 +5348,18 @@ class MainWindow(QMainWindow):
                 self.cb_batch_subtype.setCurrentIndex(0)
                 self.cb_batch_subtype.blockSignals(False)
         self._on_batch_subtype_changed(self.cb_batch_subtype.currentText() if hasattr(self, "cb_batch_subtype") else "تسویه نقدی")
+        if hasattr(self, "batch_inst_plan_box"):
+            self.batch_inst_plan_box.setVisible(is_inst)
         tot = self._batch_cart_grand_total()
-        if is_settled:
+        if is_inst:
+            if self.pr_batch_paid.get_value() >= tot:
+                self.pr_batch_paid.set_value(0)
+            if hasattr(self, "dt_batch_inst_start") and not self.dt_batch_inst_start.get_date():
+                self.dt_batch_inst_start.set_date(self.get_today_date_str())
+            self._update_batch_installment_preview()
+        elif is_settled:
             self.pr_batch_paid.set_value(tot)
-        elif str(st or "").startswith("تسویه‌نشده"):
+        elif st_clean.startswith("تسویه‌نشده"):
             self.pr_batch_paid.set_value(0)
 
     def _recalc_batch_suggested(self):
@@ -5099,7 +5390,7 @@ class MainWindow(QMainWindow):
                 return
             cart = [
                 {
-                    "batch_code": self.ed_batch_code.text().strip(),
+                    "batch_code": "",
                     "product_id": int(product["id"]),
                     "initial_qty": self.cb_batch_qty.get_qty(),
                     "unit_purchase_price": self.pr_batch_buy.get_value(),
@@ -5119,27 +5410,48 @@ class MainWindow(QMainWindow):
                 else self.cb_batch_supplier.currentText().strip()
             )
             buyer_id = self.cb_batch_buyer.currentData()
+            pinv_code = self.ed_batch_code.text().strip()
             inv_no = self.ed_batch_inv.text().strip()
             purchase_date_only = self.dt_batch_date.get_date()
             purchase_dt = (
                 f"{purchase_date_only} {self.get_now_time_str()}".strip()
                 if purchase_date_only else self.get_now_datetime_str()
             )
-            status_val = self.cb_batch_status.currentText()
+            status_val = self.cb_batch_status.currentText().strip()
+            is_installment = (status_val == "خرید اقساطی")
+            if is_installment and not self._require_license_feature("supplier_installments"):
+                return
             subtype_val = (
                 self.cb_batch_subtype.currentText()
                 if status_val.startswith("تسویه‌شده") and hasattr(self, "cb_batch_subtype")
                 else ""
             )
+            is_check = (status_val.startswith("تسویه‌شده") and subtype_val == "تسویه چکی")
             chk_due = (
                 self.dt_batch_chk_due.get_date()
-                if subtype_val == "تسویه چکی" and hasattr(self, "dt_batch_chk_due")
+                if is_check and hasattr(self, "dt_batch_chk_due")
                 else ""
             )
             chk_status = (
                 (self.cb_batch_chk_status.currentData() or "pending")
-                if subtype_val == "تسویه چکی" and hasattr(self, "cb_batch_chk_status")
+                if is_check and hasattr(self, "cb_batch_chk_status")
                 else ""
+            )
+            inst_plan_payload = None
+            if is_installment:
+                inst_plan_payload = {
+                    "down_payment": self.pr_batch_paid.get_value(),
+                    "count": int(self.sp_batch_inst_count.value()),
+                    "interval_days": int(self.sp_batch_inst_interval.value()),
+                    "start_due_date": self.dt_batch_inst_start.get_date() or purchase_date_only or self.get_today_date_str(),
+                    "cal_type": self.get_active_calendar(),
+                    "first_installment_paid": bool(
+                        hasattr(self, "chk_batch_inst_first_paid") and self.chk_batch_inst_first_paid.isChecked()
+                    ),
+                }
+            payment_type = (
+                "installment" if is_installment
+                else ("check" if is_check else ("partial" if status_val == "تسویه جزئی" else "cash"))
             )
             paid_val = self.pr_batch_paid.get_value()
             op_name = str(self.active_employee.get("name") or "") if self.active_employee else "مدیر سیستم"
@@ -5161,6 +5473,7 @@ class MainWindow(QMainWindow):
                     self.db.add_purchase_invoice(
                         inv_no,
                         cart,
+                        purchase_invoice_code=pinv_code,
                         supplier_id=supplier_id,
                         supplier_name=supplier_name or None,
                         buyer_employee_id=buyer_id,
@@ -5168,8 +5481,10 @@ class MainWindow(QMainWindow):
                         settlement_status=status_val,
                         settlement_subtype=subtype_val,
                         paid_amount=paid_val,
+                        payment_type=payment_type,
                         check_due_date=chk_due,
                         check_status=chk_status,
+                        installment_plan=inst_plan_payload,
                         notes=kept_specs,
                         operator_name=op_name,
                         conflict_resolution=res_mode,
@@ -5271,9 +5586,9 @@ class MainWindow(QMainWindow):
         self.ed_batch_serial_number.setText(serial_number)
         self.ed_batch_serial.setText(specifications)
 
-        # Reset ONLY: کد محموله، شماره فاکتور، انتخاب رنگ
+        # Reset ONLY: شناسه فاکتور خرید، شناسه فاکتور تأمین‌کننده (اختیاری)، انتخاب رنگ
         self.ed_batch_code.clear()
-        self._set_generated_code_placeholder(self.ed_batch_code, "batches", "batch_code", "C-")
+        self._set_generated_code_placeholder(self.ed_batch_code, "batches", "purchase_invoice_code", "PINV-")
         self.ed_batch_inv.clear()
         self._populate_color_checklist(
             self.btn_batch_colors,
@@ -5287,29 +5602,9 @@ class MainWindow(QMainWindow):
             return
         r = items[0].row()
         self.selected_batch_id = int(self.tbl_batches.item(r, 0).text())
-        self.ed_batch_code.setText(self.tbl_batches.item(r, 1).text())
-        self.ed_batch_inv.setText(self.tbl_batches.item(r, 7).text())
-        raw_purchase_dt = self.tbl_batches.item(r, 8).text().strip()
-        self.dt_batch_date.set_date(raw_purchase_dt.split(" ", 1)[0] if raw_purchase_dt else "")
-        self.cb_batch_qty.setCurrentText(self.tbl_batches.item(r, 9).text())
-        self.pr_batch_buy.set_value(
-            int(self.tbl_batches.item(r, 12).text().replace(",", ""))
-        )
-        self.pr_batch_extra.set_value(
-            int(self.tbl_batches.item(r, 13).text().replace(",", ""))
-        )
-        self.pr_batch_suggest.set_value(
-            int(self.tbl_batches.item(r, 16).text().replace(",", ""))
-        )
-        self.cb_batch_status.setCurrentText(self.tbl_batches.item(r, 18).text())
-        self.pr_batch_paid.set_value(
-            int(self.tbl_batches.item(r, 19).text().replace(",", ""))
-        )
-        batch_serial_text = self.tbl_batches.item(r, 21).text()
         with self.db.get_connection() as conn:
             batch_state = conn.execute(
-                """SELECT b.colors_json, b.supplier_id, b.buyer_employee_id, b.serial_numbers,
-                          b.product_id, b.row_version, p.code, p.name, p.category, p.sub_category,
+                """SELECT b.*, p.code, p.name, p.category, p.sub_category,
                           p.brand, p.model, p.specs_json, p.description
                    FROM batches b JOIN products p ON p.id=b.product_id
                    WHERE b.id=?""",
@@ -5319,6 +5614,17 @@ class MainWindow(QMainWindow):
             self._selected_batch_row_version = (
                 int(batch_state["row_version"]) if "row_version" in batch_state.keys() else 1
             )
+            self.ed_batch_code.setText(batch_state["purchase_invoice_code"] or batch_state["batch_code"] or "")
+            self.ed_batch_inv.setText(batch_state["invoice_number"] or "")
+            raw_pd = str(batch_state["purchase_date"] or "").strip()
+            self.dt_batch_date.set_date(raw_pd.split(" ", 1)[0] if raw_pd else "")
+            self.cb_batch_qty.setCurrentText(str(int(batch_state["initial_qty"] or 1)))
+            self.pr_batch_buy.set_value(int(batch_state["unit_purchase_price"] or 0))
+            self.pr_batch_extra.set_value(int(batch_state["extra_cost_total"] or 0))
+            self.pr_batch_suggest.set_value(int(batch_state["suggested_sell_price"] or 0))
+            self.cb_batch_status.setCurrentText(str(batch_state["settlement_status"] or "تسویه‌شده"))
+            self.pr_batch_paid.set_value(int(batch_state["paid_amount"] or 0))
+            batch_serial_text = str(batch_state["initial_specs"] or batch_state["notes"] or "")
             self.ed_batch_serial_number.setText(batch_state["serial_numbers"] or "")
             product_index = next(
                 (
@@ -5420,16 +5726,22 @@ class MainWindow(QMainWindow):
     def _delete_selected_batch(self):
         if not self._require_license_feature("batch_delete"):
             return
-        if not self.selected_batch_id:
+        if not self._require_license_write_allowed():
             return
-        if (
-            _ask_yes_no(
-                self, "تأیید حذف", "آیا از حذف این محموله خرید اطمینان دارید؟"
-            )
-            is True
-        ):
+        ids = self._selected_row_ids(self.tbl_batches)
+        if not ids and self.selected_batch_id:
+            ids = [int(self.selected_batch_id)]
+        if not ids:
+            return
+        prompt = (
+            "آیا از حذف این محموله خرید اطمینان دارید؟"
+            if len(ids) == 1
+            else f"آیا از حذف {len(ids)} محموله/ردیف خرید انتخاب‌شده و سوابق وابسته اطمینان دارید؟"
+        )
+        if _ask_yes_no(self, "تأیید حذف", prompt) is True:
             try:
-                self.db.delete_batch(self.selected_batch_id)
+                self.db.delete_batches_batch(ids)
+                self._clear_batch_form()
                 self.refresh_all_data()
             except Exception as e:
                 QMessageBox.critical(self, "خطا", str(e))
@@ -5440,6 +5752,8 @@ class MainWindow(QMainWindow):
     def _init_tab_sales(self):
         tab = QWidget()
         layout = QVBoxLayout(tab)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(8)
         self.selected_sale_id = None
         self._selected_sale_row_version = None
 
@@ -5454,8 +5768,8 @@ class MainWindow(QMainWindow):
             grid.setColumnStretch(column, 0)
 
         self.ed_sale_inv = SmartLineEdit("")
-        self.ed_sale_inv.setPlaceholderText("شماره فاکتور فروش (خودکار یا دستی)...")
-        self.ed_sale_inv.setToolTip("در صورت خالی بودن، شماره فاکتور بعدی خودکار تخصیص می‌یابد.")
+        self.ed_sale_inv.setPlaceholderText("شناسه فاکتور فروش (خودکار یا دستی)...")
+        self.ed_sale_inv.setToolTip("در صورت خالی بودن، شناسه فاکتور فروش بعدی خودکار تخصیص می‌یابد.")
         self.cb_sale_prod = SearchableComboBox()
         self.cb_sale_prod.set_exact_enter_selection(True)
         self.cb_sale_prod.setToolTip(
@@ -5580,7 +5894,7 @@ class MainWindow(QMainWindow):
         ss_h.addWidget(self.cb_sale_status, 1)
         ss_h.addWidget(self.cb_sale_subtype, 1)
 
-        grid.addWidget(QLabel("شماره فاکتور:"), 0, 0)
+        grid.addWidget(QLabel("شناسه فاکتور فروش:"), 0, 0)
         grid.addWidget(self.ed_sale_inv, 0, 1)
         grid.addWidget(QLabel("انتخاب کالا:"), 0, 2)
         grid.addWidget(self.cb_sale_prod, 0, 3)
@@ -5616,12 +5930,12 @@ class MainWindow(QMainWindow):
         grid.addWidget(QLabel("شرکت گارانتی:"), 4, 4)
         grid.addWidget(self.ed_war_company, 4, 5)
 
-        grid.addWidget(QLabel("مدت گارانتی:"), 5, 0)
-        grid.addWidget(self.cb_war_months, 5, 1)
-        grid.addWidget(QLabel("انقضای گارانتی:"), 5, 2)
-        grid.addWidget(self.dt_war_end, 5, 3)
-        grid.addWidget(QLabel("شروع گارانتی:"), 5, 4)
-        grid.addWidget(self.dt_war_start, 5, 5)
+        grid.addWidget(QLabel("شروع گارانتی:"), 5, 0)
+        grid.addWidget(self.dt_war_start, 5, 1)
+        grid.addWidget(QLabel("مدت گارانتی:"), 5, 2)
+        grid.addWidget(self.cb_war_months, 5, 3)
+        grid.addWidget(QLabel("انقضای گارانتی:"), 5, 4)
+        grid.addWidget(self.dt_war_end, 5, 5)
 
         grid.addWidget(QLabel("مشخصات فنی فروخته‌شده:"), 6, 0)
         grid.addWidget(self.ed_sale_specs, 6, 1, 1, 5)
@@ -5664,7 +5978,8 @@ class MainWindow(QMainWindow):
         self.tbl_sale_cart = self._create_table(
             ["ردیف", "کالا", "محموله", "تعداد", "قیمت فروش واحد", "جمع کل (تومان)", "سریال", "رنگ‌ها"]
         )
-        self.tbl_sale_cart.setMaximumHeight(130)
+        self.tbl_sale_cart.setMinimumHeight(140)
+        self.tbl_sale_cart.setMaximumHeight(200)
         s_cart_l.addWidget(self.tbl_sale_cart)
         s_cart_foot = QHBoxLayout()
         self.lbl_sale_cart_total = QLabel("جمع کل اقلام فاکتور: 0 تومان")
@@ -5709,12 +6024,13 @@ class MainWindow(QMainWindow):
         self.tbl_sales = self._create_table(
             [
                 "شناسه",
-                "شماره فاکتور",
+                "شناسه فاکتور فروش",
                 "کد کالا",
+                "شناسه فاکتور تأمین‌کننده",
                 "شماره سریال",
                 "مشخصات کالا",
                 "تاریخ و ساعت فروش",
-                "کد محموله",
+                "شناسه فاکتور خرید",
                 "فروشنده",
                 "نام مشتری",
                 "شماره تماس مشتری",
@@ -5733,6 +6049,7 @@ class MainWindow(QMainWindow):
                 "رنگ‌های فروخته‌شده",
             ]
         )
+        self.tbl_sales.setMinimumHeight(290)
         self.tbl_sales.itemSelectionChanged.connect(self._on_sale_row_selected)
         self._add_table_search(btn_row, self.tbl_sales, "sales", "🔍 جست‌وجو در فاکتورها و فروش‌ها...")
         layout.addWidget(self.tbl_sales)
@@ -6809,18 +7126,545 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "خطا", str(e))
 
     def _delete_selected_sale(self):
-        if not self.selected_sale_id:
+        if not self._require_license_write_allowed():
             return
-        if (
-            _ask_yes_no(
-                self,
-                "حذف فروش",
-                "آیا از حذف این فروش و بازگرداندن کالا به موجودی انبار اطمینان دارید؟",
+        ids = self._selected_row_ids(self.tbl_sales)
+        if not ids and self.selected_sale_id:
+            ids = [int(self.selected_sale_id)]
+        if not ids:
+            return
+        prompt = (
+            "آیا از حذف این فروش و بازگرداندن کالا به موجودی انبار اطمینان دارید؟"
+            if len(ids) == 1
+            else f"آیا از حذف {len(ids)} ردیف فروش انتخاب‌شده و بازگشت کالاها به موجودی انبار اطمینان دارید؟"
+        )
+        if _ask_yes_no(self, "حذف فروش", prompt) is True:
+            try:
+                self.db.delete_sales_batch(ids)
+                self._clear_sale_form()
+                self.refresh_all_data()
+            except Exception as e:
+                QMessageBox.critical(self, "خطا در حذف فروش", str(e))
+
+    # =========================================================================
+    # ۴-ب. تب پیش‌فاکتور (صدور، ویرایش، چاپ و تبدیل اتمیک به فاکتور فروش - REQ-12)
+    # =========================================================================
+    def _init_tab_proforma(self):
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(8)
+        self.selected_proforma_id = None
+        self._selected_proforma_row_version = None
+        self._pf_cart_items = []
+
+        gb = QGroupBox("صدور و مدیریت پیش‌فاکتور (بدون کسر موجودی تا زمان تبدیل قطعی)")
+        grid = QGridLayout(gb)
+        grid.setContentsMargins(12, 16, 12, 10)
+        grid.setHorizontalSpacing(10)
+        grid.setVerticalSpacing(7)
+        for col in (1, 3, 5):
+            grid.setColumnStretch(col, 1)
+        for col in (0, 2, 4):
+            grid.setColumnStretch(col, 0)
+
+        self.ed_pf_num = SmartLineEdit("")
+        self.ed_pf_num.setPlaceholderText("PF-1001")
+        self.ed_pf_num.setToolTip("در صورت خالی بودن، شناسه پیش‌فاکتور بعدی (PF-...) خودکار تخصیص می‌یابد.")
+        self.cb_pf_prod = SearchableComboBox()
+        self.cb_pf_prod.set_exact_enter_selection(True)
+        self.cb_pf_prod.currentIndexChanged.connect(lambda _=0: self._on_pf_prod_changed(select_first=True))
+        self.cb_pf_batch = SearchableComboBox()
+        self.cb_pf_batch.set_exact_enter_selection(True)
+        self.cb_pf_batch.currentIndexChanged.connect(self._on_pf_batch_changed)
+        self.cb_pf_seller = SearchableComboBox()
+        self.cb_pf_seller.setEditable(False)
+
+        self._selected_pf_customer_id = None
+        self.cb_pf_customer = SearchableComboBox()
+        self.cb_pf_customer.setLayoutDirection(Qt.RightToLeft)
+        self.cb_pf_customer.view().setLayoutDirection(Qt.RightToLeft)
+        self.cb_pf_customer.lineEdit().setPlaceholderText("نام مشتری را تایپ یا انتخاب کنید...")
+        self.cb_pf_customer.activated.connect(self._on_pf_customer_activated)
+        self.ed_pf_customer = self.cb_pf_customer.lineEdit()
+        self.ed_pf_phone = SmartLineEdit("")
+        self.ed_pf_phone.setPlaceholderText("شماره تماس مشتری...")
+
+        self.cb_pf_qty = QuantitySelector(100)
+        self.cb_pf_qty.setEditable(0)
+        self.pr_pf_actual = PriceInput(self.db)
+        self.pr_pf_suggest = PriceInput(self.db)
+        self.pr_pf_suggest.setReadOnly(True)
+        self.dt_pf_date = JalaliDateEdit(default_today=True)
+        self.dt_pf_valid_until = JalaliDateEdit(default_today=False)
+        self.ed_pf_notes = SmartLineEdit("")
+        self.ed_pf_notes.setPlaceholderText("توضیحات یا شرایط اعتبار پیش‌فاکتور...")
+
+        grid.addWidget(QLabel("شناسه پیش‌فاکتور:"), 0, 0)
+        grid.addWidget(self.ed_pf_num, 0, 1)
+        grid.addWidget(QLabel("انتخاب کالا:"), 0, 2)
+        grid.addWidget(self.cb_pf_prod, 0, 3)
+        grid.addWidget(QLabel("محموله مرجع:"), 0, 4)
+        grid.addWidget(self.cb_pf_batch, 0, 5)
+
+        grid.addWidget(QLabel("فروشنده:"), 1, 0)
+        grid.addWidget(self.cb_pf_seller, 1, 1)
+        grid.addWidget(QLabel("نام مشتری:"), 1, 2)
+        grid.addWidget(self.cb_pf_customer, 1, 3)
+        grid.addWidget(QLabel("شماره تماس:"), 1, 4)
+        grid.addWidget(self.ed_pf_phone, 1, 5)
+
+        grid.addWidget(QLabel("تعداد:"), 2, 0)
+        grid.addWidget(self.cb_pf_qty, 2, 1)
+        grid.addWidget(QLabel("قیمت واحد پیشنهادی:"), 2, 2)
+        grid.addWidget(self.pr_pf_suggest, 2, 3)
+        grid.addWidget(QLabel("قیمت واحد پیش‌فاکتور:"), 2, 4)
+        grid.addWidget(self.pr_pf_actual, 2, 5)
+
+        grid.addWidget(QLabel("تاریخ صدور:"), 3, 0)
+        grid.addWidget(self.dt_pf_date, 3, 1)
+        grid.addWidget(QLabel("اعتبار تا تاریخ:"), 3, 2)
+        grid.addWidget(self.dt_pf_valid_until, 3, 3)
+        grid.addWidget(QLabel("توضیحات:"), 3, 4)
+        grid.addWidget(self.ed_pf_notes, 3, 5)
+
+        self.pf_cart_box = QGroupBox("اقلام افزوده‌شده به پیش‌فاکتور فعلی")
+        pf_cl = QVBoxLayout(self.pf_cart_box)
+        pf_cl.setContentsMargins(8, 12, 8, 6)
+        pf_cl.setSpacing(4)
+        self.tbl_pf_cart = self._create_table(
+            ["ردیف", "کالا", "محموله", "تعداد", "قیمت واحد (تومان)", "جمع کل (تومان)", "توضیحات"]
+        )
+        self.tbl_pf_cart.setMinimumHeight(140)
+        self.tbl_pf_cart.setMaximumHeight(200)
+        pf_cl.addWidget(self.tbl_pf_cart)
+        pf_cfoot = QHBoxLayout()
+        self.lbl_pf_cart_total = QLabel("جمع کل پیش‌فاکتور: 0 تومان")
+        btn_pf_cart_del = QPushButton("🗑️ حذف ردیف انتخابی از پیش‌فاکتور")
+        btn_pf_cart_del.setObjectName("btnSecondary")
+        btn_pf_cart_del.clicked.connect(self._remove_selected_pf_cart_item)
+        pf_cfoot.addWidget(self.lbl_pf_cart_total, 1)
+        pf_cfoot.addWidget(btn_pf_cart_del)
+        pf_cl.addLayout(pf_cfoot)
+        self.pf_cart_box.setVisible(False)
+        grid.addWidget(self.pf_cart_box, 4, 0, 1, 6)
+
+        layout.addWidget(gb)
+
+        btn_row = QHBoxLayout()
+        btn_clr = QPushButton("پاک کردن فرم")
+        btn_clr.setObjectName("btnSecondary")
+        btn_clr.clicked.connect(self._clear_proforma_form)
+        btn_stage = QPushButton("➕ افزودن قلم به پیش‌فاکتور")
+        btn_stage.setObjectName("btnSecondary")
+        btn_stage.clicked.connect(self._stage_proforma_item)
+        btn_save = QPushButton("✅ ثبت پیش‌فاکتور")
+        btn_save.clicked.connect(self._save_new_proforma)
+        btn_edit = QPushButton("✏️ ویرایش پیش‌فاکتور انتخابی")
+        btn_edit.setObjectName("btnSuccess")
+        btn_edit.clicked.connect(self._update_selected_proforma)
+        btn_convert = QPushButton("🔄 تبدیل به فاکتور فروش")
+        btn_convert.clicked.connect(self._convert_selected_proforma_to_sale)
+        btn_del = QPushButton("🗑️ حذف پیش‌فاکتور انتخابی")
+        btn_del.setObjectName("btnDanger")
+        btn_del.clicked.connect(self._delete_selected_proforma)
+        btn_row.addWidget(btn_clr)
+        btn_row.addWidget(btn_stage)
+        btn_row.addWidget(btn_save)
+        btn_row.addWidget(btn_edit)
+        btn_row.addWidget(btn_convert)
+        btn_row.addWidget(btn_del)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
+
+        self.tbl_proformas = self._create_table(
+            [
+                "شناسه",
+                "شناسه پیش‌فاکتور",
+                "تاریخ صدور",
+                "اعتبار تا",
+                "نام مشتری",
+                "شماره تماس",
+                "فروشنده",
+                "تعداد اقلام",
+                "جمع کل (تومان)",
+                "وضعیت",
+                "فاکتور فروش مرتبط",
+                "توضیحات",
+            ]
+        )
+        self.tbl_proformas.setMinimumHeight(290)
+        self.tbl_proformas.itemSelectionChanged.connect(self._on_proforma_selected)
+        self._add_table_search(btn_row, self.tbl_proformas, "proformas", "🔍 جست‌وجو در پیش‌فاکتورها...")
+        layout.addWidget(self.tbl_proformas, 1)
+
+        self._add_scrollable_tab(tab, "📄 پیش‌فاکتور")
+
+    def _on_pf_customer_activated(self, index: int):
+        data = self.cb_pf_customer.itemData(index)
+        if isinstance(data, dict) and data.get("id"):
+            self._selected_pf_customer_id = int(data["id"])
+            self.cb_pf_customer.blockSignals(True)
+            self.ed_pf_customer.setText(str(data.get("name") or ""))
+            self.cb_pf_customer.blockSignals(False)
+            self.ed_pf_phone.setText(str(data.get("phone") or ""))
+
+    def _on_pf_prod_changed(self, select_first: bool = False):
+        prod = self.cb_pf_prod.currentData()
+        self.cb_pf_batch.blockSignals(True)
+        self.cb_pf_batch.clear()
+        with self.db.get_connection() as conn:
+            if prod and not prod.get("_all_products"):
+                batches = conn.execute(
+                    """SELECT b.*, p.code AS p_code, p.brand, p.model, p.category, p.sub_category
+                       FROM batches b JOIN products p ON p.id=b.product_id
+                       WHERE b.product_id=? AND b.remaining_qty > 0
+                       ORDER BY b.updated_at DESC, b.id DESC""",
+                    (int(prod["id"]),),
+                ).fetchall()
+            else:
+                batches = conn.execute(
+                    """SELECT b.*, p.code AS p_code, p.brand, p.model, p.category, p.sub_category
+                       FROM batches b JOIN products p ON p.id=b.product_id
+                       WHERE b.remaining_qty > 0
+                       ORDER BY b.updated_at DESC, b.id DESC"""
+                ).fetchall()
+        for row in batches:
+            b = dict(row)
+            pinv_lbl = b.get("purchase_invoice_code") or b.get("batch_code") or "-"
+            bm = " ".join(v for v in (str(b.get("brand") or "").strip(), str(b.get("model") or "").strip()) if v) or b.get("p_code")
+            lbl = f"{pinv_lbl} | {bm} | موجودی: {b['remaining_qty']} | {int(b['suggested_sell_price']):,} ت"
+            self.cb_pf_batch.addItem(bidi_isolate_text(lbl), b)
+        if select_first and self.cb_pf_batch.count():
+            self.cb_pf_batch.setCurrentIndex(0)
+        else:
+            self.cb_pf_batch.setCurrentIndex(-1)
+        self.cb_pf_batch.blockSignals(False)
+        self._on_pf_batch_changed()
+
+    def _on_pf_batch_changed(self):
+        b = self.cb_pf_batch.currentData()
+        if isinstance(b, dict):
+            sug = int(b.get("suggested_sell_price") or 0)
+            self.pr_pf_suggest.set_value(sug)
+            self.pr_pf_actual.set_value(sug)
+            rem = max(1, int(b.get("remaining_qty") or 1))
+            self.cb_pf_qty.set_max_qty(rem)
+        else:
+            self.pr_pf_suggest.set_value(0)
+            self.pr_pf_actual.set_value(0)
+
+    def _refresh_pf_cart_ui(self):
+        rows = []
+        tot = 0
+        for idx, it in enumerate(self._pf_cart_items, 1):
+            line_tot = int(it["qty"]) * int(it["actual_unit_price"])
+            tot += line_tot
+            rows.append([
+                idx,
+                it.get("product_label") or "-",
+                it.get("batch_code") or "-",
+                int(it["qty"]),
+                f"{int(it['actual_unit_price']):,}",
+                f"{line_tot:,}",
+                it.get("notes") or "-",
+            ])
+        self._populate_table_safely(self.tbl_pf_cart, rows)
+        self.lbl_pf_cart_total.setText(f"تعداد اقلام: {len(rows)} | جمع کل پیش‌فاکتور: {tot:,} تومان")
+        self.pf_cart_box.setVisible(bool(rows))
+
+    def _stage_proforma_item(self):
+        b = self.cb_pf_batch.currentData()
+        if not isinstance(b, dict):
+            QMessageBox.warning(self, "انتخاب کالا", "لطفاً یک محموله موجود را برای پیش‌فاکتور انتخاب کنید.")
+            return
+        qty = self.cb_pf_qty.get_qty()
+        act_u = self.pr_pf_actual.get_value()
+        sug_u = self.pr_pf_suggest.get_value()
+        bm = " ".join(v for v in (str(b.get("brand") or "").strip(), str(b.get("model") or "").strip()) if v) or b.get("p_code")
+        self._pf_cart_items.append({
+            "product_id": int(b["product_id"]),
+            "batch_id": int(b["id"]),
+            "product_label": bm,
+            "batch_code": str(b.get("purchase_invoice_code") or b.get("batch_code") or ""),
+            "qty": qty,
+            "suggested_unit_price": sug_u,
+            "actual_unit_price": act_u,
+            "notes": self.ed_pf_notes.text().strip(),
+        })
+        self.cb_pf_qty.setCurrentText("1")
+        self._refresh_pf_cart_ui()
+
+    def _remove_selected_pf_cart_item(self):
+        items = self.tbl_pf_cart.selectedItems()
+        if not items:
+            return
+        r = items[0].row()
+        if 0 <= r < len(self._pf_cart_items):
+            self._pf_cart_items.pop(r)
+            self._refresh_pf_cart_ui()
+
+    def _clear_proforma_form(self):
+        self.selected_proforma_id = None
+        self._selected_proforma_row_version = None
+        self._selected_pf_customer_id = None
+        self._set_generated_code_placeholder(self.ed_pf_num, "proforma_invoices", "proforma_number", "PF-")
+        self.cb_pf_customer.blockSignals(True)
+        self.cb_pf_customer.setCurrentIndex(-1)
+        self.cb_pf_customer.clearEditText()
+        self.cb_pf_customer.blockSignals(False)
+        self.ed_pf_phone.clear()
+        self.ed_pf_notes.clear()
+        self.dt_pf_date.set_date(self.get_today_date_str())
+        self.dt_pf_valid_until.set_date("")
+        self.cb_pf_qty.setCurrentText("1")
+        self._pf_cart_items = []
+        self._refresh_pf_cart_ui()
+        self.tbl_proformas.clearSelection()
+
+    def _collect_proforma_cart(self) -> list:
+        cart = list(self._pf_cart_items or [])
+        if cart:
+            return cart
+        b = self.cb_pf_batch.currentData()
+        if not isinstance(b, dict):
+            return []
+        return [{
+            "product_id": int(b["product_id"]),
+            "batch_id": int(b["id"]),
+            "qty": self.cb_pf_qty.get_qty(),
+            "suggested_unit_price": self.pr_pf_suggest.get_value(),
+            "actual_unit_price": self.pr_pf_actual.get_value(),
+            "notes": self.ed_pf_notes.text().strip(),
+        }]
+
+    def _save_new_proforma(self):
+        if not self._require_license_feature("proforma_invoices"):
+            return
+        if not self._require_license_write_allowed():
+            return
+        items = self._collect_proforma_cart()
+        if not items:
+            QMessageBox.warning(self, "انتخاب کالا", "حداقل یک قلم کالا برای پیش‌فاکتور انتخاب کنید.")
+            return
+        try:
+            pf_d = self.dt_pf_date.get_date() or self.get_today_date_str()
+            pf_dt = f"{pf_d} {self.get_now_time_str()}".strip()
+            op = str(self.active_employee.get("name") or "") if self.active_employee else "مدیر سیستم"
+            pf_no = self.db.add_proforma_invoice(
+                self.ed_pf_num.text().strip(),
+                items,
+                customer_id=getattr(self, "_selected_pf_customer_id", None),
+                customer_name=self.ed_pf_customer.text().strip() or "مشتری حضوری",
+                customer_phone=self.ed_pf_phone.text().strip(),
+                seller_employee_id=self.cb_pf_seller.currentData(),
+                proforma_datetime=pf_dt,
+                valid_until=self.dt_pf_valid_until.get_date(),
+                notes=self.ed_pf_notes.text().strip(),
+                operator_name=op,
             )
-            is True
-        ):
-            self.db.delete_sale(self.selected_sale_id)
+            self._clear_proforma_form()
             self.refresh_all_data()
+            QMessageBox.information(self, "ثبت پیش‌فاکتور", f"پیش‌فاکتور با شناسه «{pf_no}» ثبت شد.")
+        except Exception as exc:
+            QMessageBox.critical(self, "خطا در ثبت پیش‌فاکتور", str(exc))
+
+    def _on_proforma_selected(self):
+        items = self.tbl_proformas.selectedItems()
+        if not items:
+            return
+        r = items[0].row()
+        pf_id = int(self.tbl_proformas.item(r, 0).text())
+        detail = self.db.get_proforma_detail(pf_id)
+        if not detail:
+            return
+        self.selected_proforma_id = pf_id
+        self._selected_proforma_row_version = int(detail.get("row_version") or 1)
+        self._selected_pf_customer_id = detail.get("customer_id")
+        self.ed_pf_num.setText(str(detail.get("proforma_number") or ""))
+        self.cb_pf_customer.blockSignals(True)
+        self.ed_pf_customer.setText(str(detail.get("customer_name") or ""))
+        self.cb_pf_customer.blockSignals(False)
+        self.ed_pf_phone.setText(str(detail.get("customer_phone") or ""))
+        self.ed_pf_notes.setText(str(detail.get("notes") or ""))
+        raw_dt = str(detail.get("proforma_datetime") or "").strip()
+        self.dt_pf_date.set_date(raw_dt.split(" ", 1)[0] if raw_dt else "")
+        self.dt_pf_valid_until.set_date(str(detail.get("valid_until") or ""))
+        s_idx = self.cb_pf_seller.findData(detail.get("seller_employee_id"))
+        if s_idx >= 0:
+            self.cb_pf_seller.setCurrentIndex(s_idx)
+        self._pf_cart_items = []
+        for it in detail.get("items", []):
+            bm = " ".join(v for v in (str(it.get("product_brand") or "").strip(), str(it.get("product_model") or "").strip()) if v) or str(it.get("product_name") or "")
+            self._pf_cart_items.append({
+                "product_id": int(it["product_id"]),
+                "batch_id": int(it["batch_id"]),
+                "product_label": bm,
+                "batch_code": str(it.get("purchase_invoice_code") or it.get("batch_code") or ""),
+                "qty": int(it["qty"]),
+                "suggested_unit_price": int(it["suggested_unit_price"]),
+                "actual_unit_price": int(it["actual_unit_price"]),
+                "notes": str(it.get("notes") or ""),
+            })
+        self._refresh_pf_cart_ui()
+
+    def _update_selected_proforma(self):
+        if not self._require_license_feature("proforma_invoices"):
+            return
+        if not self._require_license_write_allowed():
+            return
+        if not self.selected_proforma_id:
+            QMessageBox.warning(self, "انتخاب پیش‌فاکتور", "ابتدا یک پیش‌فاکتور را از جدول انتخاب کنید.")
+            return
+        items = self._collect_proforma_cart()
+        if not items:
+            return
+        try:
+            pf_d = self.dt_pf_date.get_date() or self.get_today_date_str()
+            pf_dt = f"{pf_d} {self.get_now_time_str()}".strip()
+            op = str(self.active_employee.get("name") or "") if self.active_employee else "مدیر سیستم"
+            self.db.update_proforma_invoice(
+                self.selected_proforma_id,
+                self.ed_pf_num.text().strip(),
+                items,
+                customer_id=getattr(self, "_selected_pf_customer_id", None),
+                customer_name=self.ed_pf_customer.text().strip(),
+                customer_phone=self.ed_pf_phone.text().strip(),
+                seller_employee_id=self.cb_pf_seller.currentData(),
+                proforma_datetime=pf_dt,
+                valid_until=self.dt_pf_valid_until.get_date(),
+                notes=self.ed_pf_notes.text().strip(),
+                operator_name=op,
+                expected_row_version=self._selected_proforma_row_version,
+            )
+            self.refresh_all_data()
+            QMessageBox.information(self, "ویرایش شد", "پیش‌فاکتور با موفقیت به‌روزرسانی شد.")
+        except Exception as exc:
+            QMessageBox.critical(self, "خطا در ویرایش پیش‌فاکتور", str(exc))
+
+    def _convert_selected_proforma_to_sale(self):
+        if not self._require_license_feature("proforma_invoices"):
+            return
+        if not self._require_license_write_allowed():
+            return
+        ids = self._selected_row_ids(self.tbl_proformas)
+        pf_id = ids[0] if ids else self.selected_proforma_id
+        if not pf_id:
+            QMessageBox.warning(self, "انتخاب پیش‌فاکتور", "ابتدا یک پیش‌فاکتور باز را از جدول انتخاب کنید.")
+            return
+        detail = self.db.get_proforma_detail(pf_id)
+        if not detail:
+            return
+        if detail.get("status") != "open":
+            QMessageBox.warning(self, "امکان تبدیل وجود ندارد", "فقط پیش‌فاکتورهای «باز» قابل تبدیل به فاکتور فروش هستند.")
+            return
+        tot_bill = int(detail.get("total_amount") or 0)
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"تبدیل پیش‌فاکتور {detail.get('proforma_number')} به فاکتور فروش")
+        dlg.setLayoutDirection(Qt.RightToLeft)
+        dlg.setMinimumWidth(420)
+        fl = QFormLayout(dlg)
+        cb_st = QComboBox()
+        cb_st.addItems(["تسویه‌شده", "تسویه جزئی", "تسویه‌نشده"])
+        cb_sub = QComboBox()
+        cb_sub.addItems(["تسویه نقدی", "تسویه چکی"])
+        pr_paid = PriceInput(self.db)
+        pr_paid.set_value(tot_bill)
+        dt_chk = JalaliDateEdit(default_today=True)
+        lbl_chk = QLabel("سررسید چک:")
+        lbl_chk.setVisible(False)
+        dt_chk.setVisible(False)
+        def _sync_pf_conv(*_):
+            st_v = cb_st.currentText()
+            is_set = st_v == "تسویه‌شده"
+            cb_sub.setVisible(is_set)
+            is_c = is_set and cb_sub.currentText() == "تسویه چکی"
+            lbl_chk.setVisible(is_c)
+            dt_chk.setVisible(is_c)
+            if is_set:
+                pr_paid.set_value(tot_bill)
+            elif st_v == "تسویه‌نشده":
+                pr_paid.set_value(0)
+        cb_st.currentTextChanged.connect(_sync_pf_conv)
+        cb_sub.currentTextChanged.connect(_sync_pf_conv)
+        fl.addRow("مبلغ کل فاکتور:", QLabel(f"{tot_bill:,} تومان"))
+        fl.addRow("وضعیت تسویه:", cb_st)
+        fl.addRow("نحوه تسویه:", cb_sub)
+        fl.addRow("مبلغ دریافتی (تومان):", pr_paid)
+        fl.addRow(lbl_chk, dt_chk)
+        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        btns.button(QDialogButtonBox.Ok).setText("تبدیل قطعی به فروش")
+        btns.button(QDialogButtonBox.Cancel).setText("انصراف")
+        btns.setCenterButtons(True)
+        btns.accepted.connect(dlg.accept)
+        btns.rejected.connect(dlg.reject)
+        fl.addRow(btns)
+        apply_dialog_theme(dlg, is_dark=(self.db.cfg.get("theme", "light") == "dark"))
+        if dlg.exec() != QDialog.Accepted:
+            return
+        try:
+            op = str(self.active_employee.get("name") or "") if self.active_employee else "مدیر سیستم"
+            st_val = cb_st.currentText()
+            sub_val = cb_sub.currentText() if st_val == "تسویه‌شده" else ""
+            sale_inv = self.db.convert_proforma_to_sale(
+                pf_id,
+                sale_datetime=self.get_now_datetime_str(),
+                settlement_status=st_val,
+                settlement_subtype=sub_val,
+                paid_amount=pr_paid.get_value(),
+                payment_type=("check" if sub_val == "تسویه چکی" else ("partial" if st_val == "تسویه جزئی" else "cash")),
+                check_due_date=dt_chk.get_date() if sub_val == "تسویه چکی" else "",
+                operator_name=op,
+                expected_row_version=int(detail.get("row_version") or 1),
+            )
+            self._clear_proforma_form()
+            self.refresh_all_data()
+            QMessageBox.information(self, "تبدیل موفق", f"پیش‌فاکتور با موفقیت به فاکتور فروش «{sale_inv}» تبدیل شد.")
+        except Exception as exc:
+            QMessageBox.critical(self, "خطا در تبدیل پیش‌فاکتور", str(exc))
+
+    def _delete_selected_proforma(self):
+        if not self._require_license_feature("proforma_invoices"):
+            return
+        if not self._require_license_write_allowed():
+            return
+        ids = self._selected_row_ids(self.tbl_proformas)
+        if not ids and self.selected_proforma_id:
+            ids = [int(self.selected_proforma_id)]
+        if not ids:
+            return
+        prompt = (
+            "آیا از حذف این پیش‌فاکتور اطمینان دارید؟"
+            if len(ids) == 1
+            else f"آیا از حذف {len(ids)} پیش‌فاکتور انتخاب‌شده اطمینان دارید؟"
+        )
+        if _ask_yes_no(self, "حذف پیش‌فاکتور", prompt) is True:
+            self.db.delete_proformas_batch(ids)
+            self._clear_proforma_form()
+            self.refresh_all_data()
+
+    def _refresh_proformas_table(self):
+        if not hasattr(self, "tbl_proformas"):
+            return
+        st_fa = {"open": "باز", "converted": "تبدیل‌شده به فروش", "cancelled": "لغو شده"}
+        rows = self.db.list_proforma_invoices(visible_employee_ids=self._visible_employee_ids())
+        data = []
+        for r in rows:
+            data.append([
+                int(r["id"]),
+                r.get("proforma_number") or "-",
+                r.get("proforma_datetime") or "-",
+                r.get("valid_until") or "-",
+                r.get("customer_name") or "مشتری حضوری",
+                r.get("customer_phone") or "-",
+                r.get("seller_name") or "-",
+                int(r.get("item_count") or 0),
+                f"{int(r.get('total_amount') or 0):,}",
+                st_fa.get(str(r.get("status") or "open"), r.get("status") or "-"),
+                r.get("converted_sale_invoice") or "-",
+                r.get("notes") or "-",
+            ])
+        self._populate_table_safely(self.tbl_proformas, data)
 
     # =========================================================================
     # ۵. تب مدیریت خدمات (بند ۴ و ۱۲)
@@ -6828,66 +7672,30 @@ class MainWindow(QMainWindow):
     def _init_tab_services(self):
         tab = QWidget()
         layout = QVBoxLayout(tab)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(8)
         self.selected_srv_cat_id = None
         self.selected_srv_rec_id = None
 
-        top_h = QHBoxLayout()
-        # الف) تعریف، ویرایش و حذف لیست خدمات (بند ۴)
-        gb_cat = QGroupBox("تعریف و مدیریت فهرست خدمات")
-        v_cat = QVBoxLayout(gb_cat)
-        f_cat = QFormLayout()
-        self.cb_srv_type = QComboBox()
-        self.cb_srv_type.addItems(
-            self.catalog_config.get("service_types") or []
-        )
-        self.ed_srv_code = SmartLineEdit("")
-        self.ed_srv_code.setPlaceholderText("کد خدمت (مثلاً S-1001)...")
-        self.ed_srv_code.setToolTip("در صورت خالی بودن، کد خدمت بعدی خودکار تخصیص می‌یابد.")
-        self.ed_srv_name = SmartLineEdit("")
-        self.ed_srv_name.setPlaceholderText("عنوان خدمت (مثلاً نصب ویندوز، نصب آنتی‌ویروس...)")
-        self.pr_srv_def_fee = PriceInput(self.db)
-        self.pr_srv_def_side = PriceInput(self.db)
+        self.services_subtabs = QTabWidget()
 
-        f_cat.addRow("نوع خدمت:", self.cb_srv_type)
-        f_cat.addRow("کد خدمت:", self.ed_srv_code)
-        f_cat.addRow("عنوان خدمت:", self.ed_srv_name)
-        f_cat.addRow("هزینه خدمت (تومان):", self.pr_srv_def_fee)
-        f_cat.addRow("هزینه جانبی پیش‌فرض:", self.pr_srv_def_side)
-        v_cat.addLayout(f_cat)
+        # زیرتب ۱: ثبت فاکتور خدمات برای مشتری (REQ-03)
+        sub_rec = QWidget()
+        v_rec_page = QVBoxLayout(sub_rec)
+        v_rec_page.setContentsMargins(8, 8, 8, 8)
+        v_rec_page.setSpacing(8)
 
-        cat_btns = QHBoxLayout()
-        btn_clr_cat = QPushButton("پاک کردن فرم")
-        btn_clr_cat.setObjectName("btnSecondary")
-        btn_clr_cat.clicked.connect(self._clear_service_cat_form)
-        btn_add_cat = QPushButton("➕ افزودن خدمت جدید")
-        btn_add_cat.clicked.connect(self._add_new_service_tariff)
-        btn_edit_cat = QPushButton("✏️ ویرایش خدمت انتخابی")
-        btn_edit_cat.setObjectName("btnSuccess")
-        btn_edit_cat.clicked.connect(self._edit_selected_service_tariff)
-        btn_del_cat = QPushButton("حذف")
-        btn_del_cat.setObjectName("btnDanger")
-        btn_del_cat.setToolTip("حذف خدمت انتخابی از فهرست")
-        btn_del_cat.clicked.connect(self._delete_selected_service_tariff)
-        cat_btns.addWidget(btn_clr_cat)
-        cat_btns.addWidget(btn_add_cat)
-        cat_btns.addWidget(btn_edit_cat)
-        cat_btns.addWidget(btn_del_cat)
-        v_cat.addLayout(cat_btns)
-
-        self.tbl_srv_catalog = self._create_table(
-            ["شناسه", "کد خدمت", "نوع خدمت", "عنوان خدمت", "هزینه خدمت (تومان)", "هزینه جانبی پیش‌فرض"]
-        )
-        self.tbl_srv_catalog.setMaximumHeight(160)
-        self.tbl_srv_catalog.itemSelectionChanged.connect(self._on_srv_catalog_table_selected)
-        self._add_table_search(cat_btns, self.tbl_srv_catalog, "service_catalog", "🔍 جست‌وجو در فهرست تعرفه‌های خدمات...")
-        v_cat.addWidget(self.tbl_srv_catalog)
-
-        # ب) ثبت انجام خدمت برای مشتری (REQ-16, REQ-17)
         gb_rec = QGroupBox("ثبت فاکتور خدمات برای مشتری")
-        f_rec = QFormLayout(gb_rec)
+        grid_rec = QGridLayout(gb_rec)
+        grid_rec.setContentsMargins(12, 16, 12, 10)
+        grid_rec.setHorizontalSpacing(10)
+        grid_rec.setVerticalSpacing(7)
+        for col in (1, 3, 5):
+            grid_rec.setColumnStretch(col, 1)
+
         self.ed_srv_inv = SmartLineEdit("")
-        self.ed_srv_inv.setPlaceholderText("شماره فاکتور خدمت (SINV-1001)...")
-        self.ed_srv_inv.setToolTip("در صورت خالی بودن، شماره فاکتور خدمت بعدی خودکار تخصیص می‌یابد.")
+        self.ed_srv_inv.setPlaceholderText("شناسه فاکتور خدمت (SINV-1001)...")
+        self.ed_srv_inv.setToolTip("در صورت خالی بودن، شناسه فاکتور خدمت بعدی خودکار تخصیص می‌یابد.")
         self.cb_srv_select = SearchableComboBox()
         self.cb_srv_select.set_exact_enter_selection(True)
         self.cb_srv_select.currentIndexChanged.connect(self._on_srv_catalog_picked)
@@ -6919,6 +7727,7 @@ class MainWindow(QMainWindow):
         srv_chk_l.addWidget(self.dt_srv_chk_due)
         srv_chk_l.addWidget(QLabel("وضعیت چک:"))
         srv_chk_l.addWidget(self.cb_srv_chk_status)
+        srv_chk_l.addStretch(1)
         self.srv_check_panel.setVisible(False)
         self.pr_srv_paid = PriceInput(self.db)
         self.ed_srv_desc = SmartLineEdit("توضیحات خدمات انجام شده...")
@@ -6926,14 +7735,15 @@ class MainWindow(QMainWindow):
         self._srv_cart_items = []
         self.srv_cart_box = QGroupBox("خدمات افزوده‌شده به فاکتور فعلی")
         sv_c_l = QVBoxLayout(self.srv_cart_box)
-        sv_c_l.setContentsMargins(6, 10, 6, 4)
+        sv_c_l.setContentsMargins(8, 12, 8, 6)
         sv_c_l.setSpacing(4)
         self.tbl_srv_cart = self._create_table(["ردیف", "خدمت", "هزینه خدمت", "هزینه جانبی", "شرح"])
-        self.tbl_srv_cart.setMaximumHeight(110)
+        self.tbl_srv_cart.setMinimumHeight(140)
+        self.tbl_srv_cart.setMaximumHeight(200)
         sv_c_l.addWidget(self.tbl_srv_cart)
         sv_c_foot = QHBoxLayout()
         self.lbl_srv_cart_total = QLabel("جمع کل خدمات: 0 تومان")
-        btn_sv_cart_del = QPushButton("حذف ردیف")
+        btn_sv_cart_del = QPushButton("🗑️ حذف ردیف")
         btn_sv_cart_del.setObjectName("btnSecondary")
         btn_sv_cart_del.clicked.connect(self._remove_selected_srv_cart_item)
         sv_c_foot.addWidget(self.lbl_srv_cart_total, 1)
@@ -6941,12 +7751,46 @@ class MainWindow(QMainWindow):
         sv_c_l.addLayout(sv_c_foot)
         self.srv_cart_box.setVisible(False)
 
-        # نمایش زنده تخفیف/تشدید و سود خالص خدمت
         self.lbl_srv_diff_summary = QLabel("تخفیف (-) / تشدید (+): 0 تومان | سود خالص: 0 تومان")
         self.lbl_srv_diff_summary.setObjectName("saleSummary")
 
         self.pr_srv_paid.valueChanged.connect(self._recalc_srv_live_summary)
         self.pr_srv_side.valueChanged.connect(self._recalc_srv_live_summary)
+
+        srv_st_wrap = QWidget()
+        srv_st_h = QHBoxLayout(srv_st_wrap)
+        srv_st_h.setContentsMargins(0, 0, 0, 0)
+        srv_st_h.setSpacing(6)
+        srv_st_h.addWidget(self.cb_srv_status, 1)
+        srv_st_h.addWidget(self.cb_srv_subtype, 1)
+
+        grid_rec.addWidget(QLabel("شناسه فاکتور خدمت:"), 0, 0)
+        grid_rec.addWidget(self.ed_srv_inv, 0, 1)
+        grid_rec.addWidget(QLabel("انتخاب خدمت:"), 0, 2)
+        grid_rec.addWidget(self.cb_srv_select, 0, 3)
+        grid_rec.addWidget(QLabel("مسئول خدمت:"), 0, 4)
+        grid_rec.addWidget(self.cb_srv_seller, 0, 5)
+
+        grid_rec.addWidget(QLabel("نام مشتری:"), 1, 0)
+        grid_rec.addWidget(self.ed_srv_cust, 1, 1)
+        grid_rec.addWidget(QLabel("شماره تماس مشتری:"), 1, 2)
+        grid_rec.addWidget(self.ed_srv_phone, 1, 3)
+        grid_rec.addWidget(QLabel("هزینه خدمت (تومان):"), 1, 4)
+        grid_rec.addWidget(self.pr_srv_fee, 1, 5)
+
+        grid_rec.addWidget(QLabel("هزینه‌های جانبی (تومان):"), 2, 0)
+        grid_rec.addWidget(self.pr_srv_side, 2, 1)
+        grid_rec.addWidget(QLabel("وضعیت تسویه:"), 2, 2)
+        grid_rec.addWidget(srv_st_wrap, 2, 3)
+        grid_rec.addWidget(QLabel("مبلغ دریافتی (تومان):"), 2, 4)
+        grid_rec.addWidget(self.pr_srv_paid, 2, 5)
+
+        grid_rec.addWidget(QLabel("شرح خدمات:"), 3, 0)
+        grid_rec.addWidget(self.ed_srv_desc, 3, 1, 1, 5)
+        grid_rec.addWidget(self.srv_check_panel, 4, 0, 1, 6)
+        grid_rec.addWidget(self.srv_cart_box, 5, 0, 1, 6)
+        grid_rec.addWidget(self.lbl_srv_diff_summary, 6, 0, 1, 6)
+        v_rec_page.addWidget(gb_rec)
 
         btn_rec_row = QHBoxLayout()
         btn_clr_srv = QPushButton("پاک کردن فرم")
@@ -6960,47 +7804,22 @@ class MainWindow(QMainWindow):
         btn_edit_srv = QPushButton("✏️ ویرایش فاکتور خدمت")
         btn_edit_srv.setObjectName("btnSuccess")
         btn_edit_srv.clicked.connect(self._update_selected_service_record)
-        btn_del_srv = QPushButton("حذف")
+        btn_del_srv = QPushButton("🗑️ حذف فاکتور خدمت انتخابی")
         btn_del_srv.setObjectName("btnDanger")
-        btn_del_srv.setToolTip("حذف فاکتور خدمت انتخابی")
+        btn_del_srv.setToolTip("حذف فاکتور یا ردیف‌های خدمت انتخاب‌شده")
         btn_del_srv.clicked.connect(self._delete_selected_service_record)
         btn_rec_row.addWidget(btn_clr_srv)
         btn_rec_row.addWidget(btn_stage_srv)
         btn_rec_row.addWidget(btn_add_srv)
         btn_rec_row.addWidget(btn_edit_srv)
         btn_rec_row.addWidget(btn_del_srv)
+        btn_rec_row.addStretch()
+        v_rec_page.addLayout(btn_rec_row)
 
-        srv_st_wrap = QWidget()
-        srv_st_h = QHBoxLayout(srv_st_wrap)
-        srv_st_h.setContentsMargins(0, 0, 0, 0)
-        srv_st_h.setSpacing(6)
-        srv_st_h.addWidget(self.cb_srv_status, 1)
-        srv_st_h.addWidget(self.cb_srv_subtype, 1)
-
-        f_rec.addRow("شماره فاکتور خدمت:", self.ed_srv_inv)
-        f_rec.addRow("انتخاب خدمت:", self.cb_srv_select)
-        f_rec.addRow("مسئول خدمت:", self.cb_srv_seller)
-        f_rec.addRow("نام مشتری:", self.ed_srv_cust)
-        f_rec.addRow("شماره تماس مشتری:", self.ed_srv_phone)
-        f_rec.addRow("هزینه خدمت (تومان):", self.pr_srv_fee)
-        f_rec.addRow("هزینه‌های جانبی (تومان):", self.pr_srv_side)
-        f_rec.addRow("وضعیت تسویه:", srv_st_wrap)
-        f_rec.addRow(self.srv_check_panel)
-        f_rec.addRow("مبلغ دریافتی (تومان):", self.pr_srv_paid)
-        f_rec.addRow("شرح خدمات:", self.ed_srv_desc)
-        f_rec.addRow(self.srv_cart_box)
-        f_rec.addRow(self.lbl_srv_diff_summary)
-        f_rec.addRow(btn_rec_row)
-
-        top_h.addWidget(gb_cat, 3)
-        top_h.addWidget(gb_rec, 3)
-        layout.addLayout(top_h)
-
-        # بند ۴: حذف ستون «تعرفه تاریخی زمان ثبت» از نمایش جدول و اکتفا به «هزینه خدمت»
         self.tbl_services = self._create_table(
             [
                 "شناسه",
-                "شماره فاکتور",
+                "شناسه فاکتور خدمت",
                 "تاریخ و ساعت",
                 "نوع خدمت",
                 "نام خدمت",
@@ -7015,14 +7834,84 @@ class MainWindow(QMainWindow):
                 "شرح خدمات",
             ]
         )
+        self.tbl_services.setMinimumHeight(290)
         self.tbl_services.itemSelectionChanged.connect(self._on_srv_rec_selected)
         self._add_table_search(btn_rec_row, self.tbl_services, "service_records", "🔍 جست‌وجو در فاکتورهای خدمات...")
-        layout.addWidget(self.tbl_services)
+        v_rec_page.addWidget(self.tbl_services, 1)
+
+        # زیرتب ۲: تعریف و مدیریت فهرست خدمات (REQ-03)
+        sub_cat = QWidget()
+        v_cat_page = QVBoxLayout(sub_cat)
+        v_cat_page.setContentsMargins(8, 8, 8, 8)
+        v_cat_page.setSpacing(8)
+
+        gb_cat = QGroupBox("تعریف و مدیریت فهرست خدمات")
+        grid_cat = QGridLayout(gb_cat)
+        grid_cat.setContentsMargins(12, 16, 12, 10)
+        grid_cat.setHorizontalSpacing(10)
+        grid_cat.setVerticalSpacing(7)
+        for col in (1, 3, 5):
+            grid_cat.setColumnStretch(col, 1)
+
+        self.cb_srv_type = QComboBox()
+        self.cb_srv_type.addItems(self.catalog_config.get("service_types") or [])
+        self.ed_srv_code = SmartLineEdit("")
+        self.ed_srv_code.setPlaceholderText("کد خدمت (SVC-1001)...")
+        self.ed_srv_code.setToolTip("در صورت خالی بودن، کد خدمت بعدی (SVC-...) خودکار تخصیص می‌یابد.")
+        self.ed_srv_name = SmartLineEdit("")
+        self.ed_srv_name.setPlaceholderText("عنوان خدمت (مثلاً نصب ویندوز، نصب آنتی‌ویروس...)")
+        self.pr_srv_def_fee = PriceInput(self.db)
+        self.pr_srv_def_side = PriceInput(self.db)
+
+        grid_cat.addWidget(QLabel("نوع خدمت:"), 0, 0)
+        grid_cat.addWidget(self.cb_srv_type, 0, 1)
+        grid_cat.addWidget(QLabel("کد خدمت:"), 0, 2)
+        grid_cat.addWidget(self.ed_srv_code, 0, 3)
+        grid_cat.addWidget(QLabel("عنوان خدمت:"), 0, 4)
+        grid_cat.addWidget(self.ed_srv_name, 0, 5)
+        grid_cat.addWidget(QLabel("هزینه خدمت (تومان):"), 1, 0)
+        grid_cat.addWidget(self.pr_srv_def_fee, 1, 1, 1, 2)
+        grid_cat.addWidget(QLabel("هزینه جانبی پیش‌فرض:"), 1, 3)
+        grid_cat.addWidget(self.pr_srv_def_side, 1, 4, 1, 2)
+        v_cat_page.addWidget(gb_cat)
+
+        cat_btns = QHBoxLayout()
+        btn_clr_cat = QPushButton("پاک کردن فرم")
+        btn_clr_cat.setObjectName("btnSecondary")
+        btn_clr_cat.clicked.connect(self._clear_service_cat_form)
+        btn_add_cat = QPushButton("➕ افزودن خدمت جدید")
+        btn_add_cat.clicked.connect(self._add_new_service_tariff)
+        btn_edit_cat = QPushButton("✏️ ویرایش خدمت انتخابی")
+        btn_edit_cat.setObjectName("btnSuccess")
+        btn_edit_cat.clicked.connect(self._edit_selected_service_tariff)
+        btn_del_cat = QPushButton("🗑️ حذف خدمت انتخابی")
+        btn_del_cat.setObjectName("btnDanger")
+        btn_del_cat.setToolTip("حذف خدمت انتخابی از فهرست خدمات")
+        btn_del_cat.clicked.connect(self._delete_selected_service_tariff)
+        cat_btns.addWidget(btn_clr_cat)
+        cat_btns.addWidget(btn_add_cat)
+        cat_btns.addWidget(btn_edit_cat)
+        cat_btns.addWidget(btn_del_cat)
+        cat_btns.addStretch()
+        v_cat_page.addLayout(cat_btns)
+
+        self.tbl_srv_catalog = self._create_table(
+            ["شناسه", "کد خدمت", "نوع خدمت", "عنوان خدمت", "هزینه خدمت (تومان)", "هزینه جانبی پیش‌فرض"]
+        )
+        self.tbl_srv_catalog.setMinimumHeight(290)
+        self.tbl_srv_catalog.itemSelectionChanged.connect(self._on_srv_catalog_table_selected)
+        self._add_table_search(cat_btns, self.tbl_srv_catalog, "service_catalog", "🔍 جست‌وجو در فهرست تعرفه‌های خدمات...")
+        v_cat_page.addWidget(self.tbl_srv_catalog, 1)
+
+        self.services_subtabs.addTab(sub_rec, "🧾 ثبت فاکتور خدمات برای مشتری")
+        self.services_subtabs.addTab(sub_cat, "🛠️ تعریف و مدیریت فهرست خدمات")
+        layout.addWidget(self.services_subtabs, 1)
+
         self._add_scrollable_tab(tab, "🛠️ میز خدمت")
-        
+
     def _clear_service_cat_form(self):
         self.selected_srv_cat_id = None
-        self._set_generated_code_placeholder(self.ed_srv_code, "service_catalog", "code", "S-")
+        self._set_generated_code_placeholder(self.ed_srv_code, "service_catalog", "code", "SVC-")
         self.cb_srv_type.setCurrentIndex(0)
         self.ed_srv_name.clear()
         self.pr_srv_def_fee.set_value(0)
@@ -7437,10 +8326,22 @@ class MainWindow(QMainWindow):
         self.refresh_all_data()
 
     def _delete_selected_service_record(self):
-        if not self.selected_srv_rec_id:
+        if not self._require_license_write_allowed():
             return
-        self.db.delete_service_record(self.selected_srv_rec_id)
-        self.refresh_all_data()
+        ids = self._selected_row_ids(self.tbl_services)
+        if not ids and self.selected_srv_rec_id:
+            ids = [int(self.selected_srv_rec_id)]
+        if not ids:
+            return
+        prompt = (
+            "آیا از حذف این فاکتور خدمت اطمینان دارید؟"
+            if len(ids) == 1
+            else f"آیا از حذف {len(ids)} ردیف خدمت انتخاب‌شده اطمینان دارید؟"
+        )
+        if _ask_yes_no(self, "تأیید حذف خدمت", prompt) is True:
+            self.db.delete_service_records_batch(ids)
+            self._clear_service_rec_form()
+            self.refresh_all_data()
 
     # =========================================================================
     # ۶. تب ارتقای لپ‌تاپ (بند ۵: قرار گرفته بلافاصله بعد از تب مدیریت خدمات)
@@ -7554,9 +8455,10 @@ class MainWindow(QMainWindow):
                 "وضعیت کسر موجودی",
             ]
         )
+        self.tbl_upgrades.setMinimumHeight(290)
         self.tbl_upgrades.itemSelectionChanged.connect(self._on_upgrade_selected)
         self._add_table_search(upg_btn_row, self.tbl_upgrades, "upgrades", "🔍 جست‌وجو در سوابق ارتقا...")
-        layout.addWidget(self.tbl_upgrades)
+        layout.addWidget(self.tbl_upgrades, 1)
         self._add_scrollable_tab(tab, "🔧 ارتقای کالا")
 
     def _on_upg_target_changed(self):
@@ -7816,27 +8718,26 @@ class MainWindow(QMainWindow):
 
 
     def _revert_selected_upgrade(self):
-        items = self.tbl_upgrades.selectedItems()
-        if not items:
+        if not self._require_license_write_allowed():
+            return
+        ids = self._selected_row_ids(self.tbl_upgrades)
+        if not ids:
             QMessageBox.warning(
-                self, "انتخاب رکورد", "ابتدا یک ردیف ارتقا را از جدول پایین انتخاب کنید."
+                self, "انتخاب رکورد", "ابتدا یک یا چند ردیف ارتقا را از جدول پایین انتخاب کنید."
             )
             return
-        upg_id = int(self.tbl_upgrades.item(items[0].row(), 0).text())
-        if (
-            _ask_yes_no(
-                self,
-                "تأیید برگشت ارتقا",
-                "آیا از برگشت این ارتقا، بازگرداندن قطعه به موجودی انبار و بازگشت مشخصات قبلی کالا اطمینان دارید؟",
-            )
-            is True
-        ):
+        prompt = (
+            "آیا از برگشت این ارتقا، بازگرداندن قطعه به موجودی انبار و بازگشت مشخصات قبلی کالا اطمینان دارید؟"
+            if len(ids) == 1
+            else f"آیا از برگشت {len(ids)} رکورد ارتقای انتخاب‌شده و بازگشت قطعات به انبار اطمینان دارید؟"
+        )
+        if _ask_yes_no(self, "تأیید برگشت ارتقا", prompt) is True:
             try:
-                self.db.revert_upgrade(upg_id)
+                self.db.revert_upgrades_batch(ids)
                 self.refresh_all_data()
                 self._clear_upgrade_form()
                 QMessageBox.information(
-                    self, "برگشت ارتقا", "ارتقای کالا به حالت قبل بازگردانده شد و قطعه به انبار برگشت."
+                    self, "برگشت ارتقا", "ارتقاهای انتخاب‌شده با موفقیت به حالت قبل بازگردانده شدند."
                 )
             except Exception as e:
                 QMessageBox.critical(self, "خطا", str(e))
@@ -7848,7 +8749,20 @@ class MainWindow(QMainWindow):
     def _init_tab_suppliers_payments(self):
         tab = QWidget()
         layout = QVBoxLayout(tab)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(8)
         self.selected_supplier_id = None
+        self._selected_supplier_row_version = None
+        self.selected_supplier_installment_id = None
+        self._selected_supplier_installment_row_version = None
+
+        self.suppliers_subtabs = QTabWidget()
+
+        # زیرتب ۱: ثبت و فهرست تأمین‌کنندگان
+        sub_sup_main = QWidget()
+        v_main = QVBoxLayout(sub_sup_main)
+        v_main.setContentsMargins(8, 8, 8, 8)
+        v_main.setSpacing(8)
 
         gb_sup = QGroupBox("ثبت، ویرایش و حذف تأمین‌کنندگان (عمده‌فروشان)")
         v_sup = QVBoxLayout(gb_sup)
@@ -7881,7 +8795,7 @@ class MainWindow(QMainWindow):
         btn_sup_row.addWidget(btn_del_sup)
         btn_sup_row.addStretch()
         v_sup.addLayout(btn_sup_row)
-        layout.addWidget(gb_sup)
+        v_main.addWidget(gb_sup)
 
         self.tbl_suppliers = self._create_table(
             [
@@ -7889,22 +8803,71 @@ class MainWindow(QMainWindow):
                 "نام تأمین‌کننده",
                 "تلفن تماس",
                 "آدرس / توضیحات",
-                "تعداد محموله‌های خرید",
+                "تعداد فاکتورهای خرید",
                 "مجموع مبلغ خرید (تومان)",
                 "مجموع پرداخت‌شده (تومان)",
                 "مانده بدهی به تأمین‌کننده (تومان)",
+                "اقساط معوق",
+                "چک در انتظار وصول",
             ]
         )
+        self.tbl_suppliers.setMinimumHeight(290)
         self.tbl_suppliers.itemSelectionChanged.connect(self._on_supplier_selected)
         self._add_table_search(btn_sup_row, self.tbl_suppliers, "suppliers", "🔍 جست‌وجو در تأمین‌کنندگان...")
-        layout.addWidget(self.tbl_suppliers, 2)
+        v_main.addWidget(self.tbl_suppliers, 1)
 
-        gb_sup_chk = QGroupBox("چک‌های پرداختی به تأمین‌کنندگان")
-        v_sc = QVBoxLayout(gb_sup_chk)
-        self.tbl_supplier_checks = self._create_table(
-            ["شناسه چک", "شماره فاکتور", "تأمین‌کننده", "مبلغ چک (تومان)", "سررسید چک", "وضعیت چک", "تاریخ وصول"]
+        # زیرتب ۲: سوابق خرید و اقساط تأمین‌کننده انتخابی + چک‌های پرداختی (REQ-06)
+        sub_sup_ledger = QWidget()
+        v_ledger = QVBoxLayout(sub_sup_ledger)
+        v_ledger.setContentsMargins(8, 8, 8, 8)
+        v_ledger.setSpacing(8)
+        self.lbl_selected_supplier_banner = QLabel("برای مشاهده فاکتورهای خرید و دفتر اقساط، یک تأمین‌کننده را انتخاب کنید.")
+        self.lbl_selected_supplier_banner.setObjectName("reportSummary")
+        v_ledger.addWidget(self.lbl_selected_supplier_banner)
+
+        self.supplier_detail_tabs = QTabWidget()
+
+        tab_sb = QWidget()
+        v_sb = QVBoxLayout(tab_sb)
+        self.tbl_supplier_batches = self._create_table(
+            ["شناسه فاکتور خرید", "شناسه فاکتور تأمین‌کننده", "تاریخ خرید", "کالا", "تعداد", "مبلغ کل (تومان)", "پرداخت‌شده (تومان)", "نوع پرداخت", "وضعیت تسویه"]
         )
-        self.tbl_supplier_checks.setMaximumHeight(160)
+        self.tbl_supplier_batches.setMinimumHeight(220)
+        v_sb.addWidget(self.tbl_supplier_batches)
+        self.supplier_detail_tabs.addTab(tab_sb, "🧾 فاکتورهای خرید")
+
+        tab_si = QWidget()
+        v_si = QVBoxLayout(tab_si)
+        self.tbl_supplier_installments = self._create_table(
+            ["شناسه قسط", "شناسه فاکتور خرید", "شماره قسط", "سررسید", "مبلغ قسط (تومان)", "پرداختی (تومان)", "مانده قسط (تومان)", "وضعیت", "تاریخ پرداخت"]
+        )
+        self.tbl_supplier_installments.setMinimumHeight(220)
+        self.tbl_supplier_installments.itemSelectionChanged.connect(self._on_supplier_installment_selected)
+        v_si.addWidget(self.tbl_supplier_installments)
+
+        sup_pay_bar = QHBoxLayout()
+        self.pr_sup_inst_pay_amt = PriceInput(self.db)
+        self.dt_sup_inst_pay_date = JalaliDateEdit(default_today=True)
+        self.ed_sup_inst_pay_note = SmartLineEdit("")
+        self.ed_sup_inst_pay_note.setPlaceholderText("یادداشت پرداخت قسط به تأمین‌کننده...")
+        self.btn_pay_sup_inst = QPushButton("✅ ثبت پرداخت قسط تأمین‌کننده")
+        self.btn_pay_sup_inst.setObjectName("btnSuccess")
+        self.btn_pay_sup_inst.clicked.connect(self._pay_selected_supplier_installment)
+        sup_pay_bar.addWidget(QLabel("مبلغ پرداخت (تومان):"))
+        sup_pay_bar.addWidget(self.pr_sup_inst_pay_amt)
+        sup_pay_bar.addWidget(QLabel("تاریخ پرداخت:"))
+        sup_pay_bar.addWidget(self.dt_sup_inst_pay_date)
+        sup_pay_bar.addWidget(self.ed_sup_inst_pay_note, 1)
+        sup_pay_bar.addWidget(self.btn_pay_sup_inst)
+        v_si.addLayout(sup_pay_bar)
+        self.supplier_detail_tabs.addTab(tab_si, "📅 اقساط و پرداختی‌ها")
+
+        tab_sc = QWidget()
+        v_sc = QVBoxLayout(tab_sc)
+        self.tbl_supplier_checks = self._create_table(
+            ["شناسه چک", "شناسه فاکتور خرید", "تأمین‌کننده", "مبلغ چک (تومان)", "سررسید چک", "وضعیت چک", "تاریخ وصول"]
+        )
+        self.tbl_supplier_checks.setMinimumHeight(220)
         v_sc.addWidget(self.tbl_supplier_checks)
         sc_bar = QHBoxLayout()
         btn_sup_chk_clear = QPushButton("✅ وصول شد")
@@ -7917,7 +8880,13 @@ class MainWindow(QMainWindow):
         sc_bar.addWidget(btn_sup_chk_bounce)
         sc_bar.addStretch(1)
         v_sc.addLayout(sc_bar)
-        layout.addWidget(gb_sup_chk, 1)
+        self.supplier_detail_tabs.addTab(tab_sc, "💳 چک‌های پرداختی")
+
+        v_ledger.addWidget(self.supplier_detail_tabs, 1)
+
+        self.suppliers_subtabs.addTab(sub_sup_main, "🏭 مدیریت و فهرست تأمین‌کنندگان")
+        self.suppliers_subtabs.addTab(sub_sup_ledger, "📑 سوابق خرید، اقساط و چک‌های تأمین‌کنندگان")
+        layout.addWidget(self.suppliers_subtabs, 1)
         self._add_scrollable_tab(tab, "💳 تأمین‌کنندگان")
 
     def _add_supplier(self):
@@ -7959,6 +8928,108 @@ class MainWindow(QMainWindow):
         addr = self.tbl_suppliers.item(r, 3).text()
         self.ed_sup_phone.setText("" if phone == "-" else phone)
         self.ed_sup_addr.setText("" if addr == "-" else addr)
+        try:
+            detail = self.db.get_supplier_purchases_and_installments(self.selected_supplier_id)
+            self._populate_supplier_detail_tables(detail)
+        except Exception:
+            pass
+
+    def _populate_supplier_detail_tables(self, data: dict):
+        sup = data.get("supplier") or {}
+        if hasattr(self, "lbl_selected_supplier_banner"):
+            sname = sup.get("name") or "-"
+            sphone = sup.get("phone") or "-"
+            self.lbl_selected_supplier_banner.setText(
+                f"تأمین‌کننده انتخابی: {sname}   |   تلفن: {sphone}"
+            )
+        if hasattr(self, "tbl_supplier_batches"):
+            b_rows = []
+            for b in data.get("batches", []):
+                ptype = {"installment": "اقساطی", "check": "چکی", "partial": "نقد/جزئی"}.get(
+                    str(b.get("payment_type") or "cash"), "نقدی"
+                )
+                b_rows.append([
+                    b.get("purchase_invoice_code") or b.get("batch_code") or "-",
+                    b.get("invoice_number") or "-",
+                    b.get("purchase_date") or "-",
+                    b.get("product_label") or "-",
+                    int(b.get("initial_qty") or 0),
+                    f"{int(b.get('total_amount') or 0):,}",
+                    f"{int(b.get('paid_amount') or 0):,}",
+                    ptype,
+                    b.get("settlement_status") or "-",
+                ])
+            self._populate_table_safely(self.tbl_supplier_batches, b_rows, highlight_col=8)
+        if hasattr(self, "tbl_supplier_installments"):
+            st_fa = {"pending": "در انتظار", "partial": "پرداخت جزئی", "paid": "پرداخت‌شده"}
+            i_rows = []
+            for ins in data.get("installments", []):
+                due_v = int(ins.get("due_amount") or 0)
+                paid_v = int(ins.get("paid_amount") or 0)
+                rem_v = max(0, due_v - paid_v)
+                i_rows.append([
+                    int(ins["id"]),
+                    ins.get("purchase_invoice_code") or "-",
+                    int(ins.get("installment_no") or 1),
+                    ins.get("due_date") or "-",
+                    f"{due_v:,}",
+                    f"{paid_v:,}",
+                    f"{rem_v:,}",
+                    st_fa.get(str(ins.get("status") or "pending"), str(ins.get("status") or "-")),
+                    ins.get("paid_date") or "-",
+                ])
+            self._populate_table_safely(self.tbl_supplier_installments, i_rows, highlight_col=7)
+
+    def _on_supplier_installment_selected(self):
+        items = self.tbl_supplier_installments.selectedItems()
+        if not items:
+            self.selected_supplier_installment_id = None
+            self._selected_supplier_installment_row_version = None
+            return
+        r = items[0].row()
+        iid = int(self.tbl_supplier_installments.item(r, 0).text())
+        self.selected_supplier_installment_id = iid
+        with self.db.get_connection() as conn:
+            row = conn.execute(
+                "SELECT due_amount, paid_amount, row_version FROM supplier_installment_payments WHERE id=?",
+                (iid,),
+            ).fetchone()
+        if row:
+            self._selected_supplier_installment_row_version = int(row["row_version"] or 1)
+            self.pr_sup_inst_pay_amt.set_value(max(0, int(row["due_amount"]) - int(row["paid_amount"])))
+
+    def _pay_selected_supplier_installment(self):
+        if not self._require_license_feature("supplier_installments"):
+            return
+        if not self._require_license_write_allowed():
+            return
+        if not getattr(self, "selected_supplier_installment_id", None):
+            QMessageBox.warning(self, "انتخاب قسط", "ابتدا یک قسط را از جدول اقساط تأمین‌کننده انتخاب کنید.")
+            return
+        amt = self.pr_sup_inst_pay_amt.get_value()
+        if amt <= 0:
+            QMessageBox.warning(self, "مبلغ نامعتبر", "مبلغ پرداخت قسط باید بزرگ‌تر از صفر باشد.")
+            return
+        p_date = self.dt_sup_inst_pay_date.get_date() or self.get_today_date_str()
+        op = str(self.active_employee.get("name") or "") if self.active_employee else "مدیر سیستم"
+        try:
+            self.db.pay_supplier_installment(
+                self.selected_supplier_installment_id,
+                amt,
+                p_date,
+                notes=self.ed_sup_inst_pay_note.text().strip(),
+                operator_name=op,
+                expected_row_version=getattr(self, "_selected_supplier_installment_row_version", None),
+            )
+            self.ed_sup_inst_pay_note.clear()
+            keep_sid = self.selected_supplier_id
+            self.refresh_all_data()
+            if keep_sid:
+                detail = self.db.get_supplier_purchases_and_installments(keep_sid)
+                self._populate_supplier_detail_tables(detail)
+            QMessageBox.information(self, "پرداخت ثبت شد", "پرداخت قسط تأمین‌کننده ثبت و با فاکتور خرید همگام شد.")
+        except Exception as exc:
+            QMessageBox.critical(self, "خطا در ثبت پرداخت قسط", str(exc))
 
     def _update_supplier(self):
         if not self.selected_supplier_id:
@@ -8010,9 +9081,14 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "خطا در ویرایش", str(e))
 
     def _delete_supplier(self):
-        if not self.selected_supplier_id:
+        if not self._require_license_write_allowed():
+            return
+        ids = self._selected_row_ids(self.tbl_suppliers)
+        if not ids and self.selected_supplier_id:
+            ids = [int(self.selected_supplier_id)]
+        if not ids:
             QMessageBox.warning(
-                self, "انتخاب تأمین‌کننده", "ابتدا یک تأمین‌کننده را از جدول انتخاب کنید."
+                self, "انتخاب تأمین‌کننده", "ابتدا یک یا چند تأمین‌کننده را از جدول انتخاب کنید."
             )
             return
         msg = QMessageBox(self)
@@ -8029,8 +9105,8 @@ class MainWindow(QMainWindow):
         if clicked == btn_cancel or clicked is None:
             return
         try:
-            self.db.delete_supplier(
-                self.selected_supplier_id,
+            self.db.delete_suppliers_batch(
+                ids,
                 delete_related_data=(clicked == btn_delete_all),
             )
             self.selected_supplier_id = None
@@ -8047,10 +9123,20 @@ class MainWindow(QMainWindow):
     def _init_tab_customers(self):
         tab = QWidget()
         layout = QVBoxLayout(tab)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(8)
         self.selected_customer_id = None
         self._selected_customer_row_version = None
         self.selected_installment_id = None
         self._selected_installment_row_version = None
+
+        self.customers_subtabs = QTabWidget()
+
+        # زیرتب ۱: ثبت و فهرست مشتریان
+        sub_c_main = QWidget()
+        v_main = QVBoxLayout(sub_c_main)
+        v_main.setContentsMargins(8, 8, 8, 8)
+        v_main.setSpacing(8)
 
         gb_cust = QGroupBox("ثبت، ویرایش و مدیریت حساب مشتریان")
         v_cust = QVBoxLayout(gb_cust)
@@ -8090,9 +9176,9 @@ class MainWindow(QMainWindow):
         btn_edit_cust = QPushButton("✏️ ویرایش مشتری انتخابی")
         btn_edit_cust.setObjectName("btnSuccess")
         btn_edit_cust.clicked.connect(self._update_customer)
-        btn_del_cust = QPushButton("حذف")
+        btn_del_cust = QPushButton("🗑️ حذف مشتری انتخابی")
         btn_del_cust.setObjectName("btnDanger")
-        btn_del_cust.setToolTip("حذف مشتری انتخابی")
+        btn_del_cust.setToolTip("حذف مشتری یا مشتریان انتخاب‌شده")
         btn_del_cust.clicked.connect(self._delete_customer)
         btn_cust_row.addWidget(btn_clr_cust)
         btn_cust_row.addWidget(btn_add_cust)
@@ -8100,15 +9186,15 @@ class MainWindow(QMainWindow):
         btn_cust_row.addWidget(btn_del_cust)
         btn_cust_row.addStretch()
         v_cust.addLayout(btn_cust_row)
-        layout.addWidget(gb_cust)
+        v_main.addWidget(gb_cust)
 
-        # REQ-14: کارت‌های شاخص کلیدی مشتریان (KPIs)
+        # کارت‌های شاخص کلیدی مشتریان (KPIs)
         cust_kpi_grid = QGridLayout()
         self.lbl_cust_kpi_total = self._make_stat_card(cust_kpi_grid, 0, 0, "تعداد کل مشتریان", "0", "primary")
         self.lbl_cust_kpi_debt = self._make_stat_card(cust_kpi_grid, 0, 1, "مجموع مانده بدهی مشتریان (تومان)", "0", "danger")
         self.lbl_cust_kpi_overdue = self._make_stat_card(cust_kpi_grid, 0, 2, "اقساط معوق / سررسید گذشته", "0", "warning")
-        self.lbl_cust_kpi_checks = self._make_stat_card(cust_kpi_grid, 0, 3, "چک‌های دریافتنی در انتظار وصول", "0", "info")
-        layout.addLayout(cust_kpi_grid)
+        self.lbl_cust_kpi_checks = self._make_stat_card(cust_kpi_grid, 0, 3, "چک‌های مشتریان در انتظار وصول", "0", "info")
+        v_main.addLayout(cust_kpi_grid)
 
         self.tbl_customers = self._create_table(
             [
@@ -8125,10 +9211,16 @@ class MainWindow(QMainWindow):
                 "چک در انتظار وصول",
             ]
         )
+        self.tbl_customers.setMinimumHeight(290)
         self.tbl_customers.itemSelectionChanged.connect(self._on_customer_selected)
         self._add_table_search(btn_cust_row, self.tbl_customers, "customers", "🔍 جست‌وجو در مشتریان (نام، تلفن، کد ملی)...")
-        layout.addWidget(self.tbl_customers, 2)
+        v_main.addWidget(self.tbl_customers, 1)
 
+        # زیرتب ۲: دفتر اقساط، فاکتورها و چک‌های مشتری انتخابی (REQ-06)
+        sub_c_ledger = QWidget()
+        v_c_ledger = QVBoxLayout(sub_c_ledger)
+        v_c_ledger.setContentsMargins(8, 8, 8, 8)
+        v_c_ledger.setSpacing(8)
         gb_ledger = QGroupBox("سوابق، اقساط و چک‌های مشتری انتخابی")
         v_ledger = QVBoxLayout(gb_ledger)
         self.cust_detail_tabs = QTabWidget()
@@ -8136,18 +9228,18 @@ class MainWindow(QMainWindow):
         tab_csales = QWidget()
         v_sales = QVBoxLayout(tab_csales)
         self.tbl_cust_sales = self._create_table(
-            ["شماره فاکتور", "تاریخ فروش", "کالا", "تعداد", "مبلغ کل (تومان)", "پرداختی (تومان)", "نوع فروش", "وضعیت تسویه"]
+            ["شناسه فاکتور فروش", "تاریخ فروش", "کالا", "تعداد", "مبلغ کل (تومان)", "پرداختی (تومان)", "نوع فروش", "وضعیت تسویه"]
         )
-        self.tbl_cust_sales.setMinimumHeight(140)
+        self.tbl_cust_sales.setMinimumHeight(220)
         v_sales.addWidget(self.tbl_cust_sales)
         self.cust_detail_tabs.addTab(tab_csales, "🧾 فاکتورهای مشتری")
 
         tab_cinst = QWidget()
         v_inst = QVBoxLayout(tab_cinst)
         self.tbl_cust_installments = self._create_table(
-            ["شناسه قسط", "شماره فاکتور", "شماره قسط", "سررسید", "مبلغ قسط (تومان)", "پرداختی (تومان)", "مانده قسط (تومان)", "وضعیت", "تاریخ پرداخت"]
+            ["شناسه قسط", "شناسه فاکتور فروش", "شماره قسط", "سررسید", "مبلغ قسط (تومان)", "پرداختی (تومان)", "مانده قسط (تومان)", "وضعیت", "تاریخ پرداخت"]
         )
-        self.tbl_cust_installments.setMinimumHeight(140)
+        self.tbl_cust_installments.setMinimumHeight(220)
         self.tbl_cust_installments.itemSelectionChanged.connect(self._on_installment_selected)
         v_inst.addWidget(self.tbl_cust_installments)
 
@@ -8171,9 +9263,9 @@ class MainWindow(QMainWindow):
         tab_cchk = QWidget()
         v_cchk = QVBoxLayout(tab_cchk)
         self.tbl_cust_checks = self._create_table(
-            ["شناسه چک", "شماره فاکتور", "مبلغ چک (تومان)", "سررسید چک", "وضعیت چک", "تاریخ وصول", "توضیحات"]
+            ["شناسه چک", "شناسه فاکتور فروش", "مبلغ چک (تومان)", "سررسید چک", "وضعیت چک", "تاریخ وصول", "توضیحات"]
         )
-        self.tbl_cust_checks.setMinimumHeight(140)
+        self.tbl_cust_checks.setMinimumHeight(220)
         v_cchk.addWidget(self.tbl_cust_checks)
         chk_bar = QHBoxLayout()
         btn_cust_chk_clear = QPushButton("✅ وصول شد")
@@ -8186,10 +9278,14 @@ class MainWindow(QMainWindow):
         chk_bar.addWidget(btn_cust_chk_bounce)
         chk_bar.addStretch(1)
         v_cchk.addLayout(chk_bar)
-        self.cust_detail_tabs.addTab(tab_cchk, "🧾 چک‌های دریافتنی")
+        self.cust_detail_tabs.addTab(tab_cchk, "🧾 چک‌های مشتریان")
 
         v_ledger.addWidget(self.cust_detail_tabs)
-        layout.addWidget(gb_ledger, 2)
+        v_c_ledger.addWidget(gb_ledger, 1)
+
+        self.customers_subtabs.addTab(sub_c_main, "👥 فهرست و ثبت مشتریان")
+        self.customers_subtabs.addTab(sub_c_ledger, "📅 دفتر اقساط، فاکتورها و چک‌ها")
+        layout.addWidget(self.customers_subtabs, 1)
         self._add_scrollable_tab(tab, "🤝 مشتریان")
 
     def _clear_customer_form(self):
@@ -8379,13 +9475,21 @@ class MainWindow(QMainWindow):
     def _delete_customer(self):
         if not self._require_license_write_allowed():
             return
-        if not self.selected_customer_id:
-            QMessageBox.warning(self, "انتخاب مشتری", "ابتدا یک مشتری را از جدول انتخاب کنید.")
+        ids = self._selected_row_ids(self.tbl_customers)
+        if not ids and self.selected_customer_id:
+            ids = [int(self.selected_customer_id)]
+        if not ids:
+            QMessageBox.warning(self, "انتخاب مشتری", "ابتدا یک یا چند مشتری را از جدول انتخاب کنید.")
             return
-        if not _ask_yes_no(self, "حذف مشتری", "آیا از حذف این مشتری از فهرست مشتریان اطمینان دارید؟"):
+        prompt = (
+            "آیا از حذف این مشتری از فهرست مشتریان اطمینان دارید؟"
+            if len(ids) == 1
+            else f"آیا از حذف {len(ids)} مشتری انتخاب‌شده اطمینان دارید؟"
+        )
+        if not _ask_yes_no(self, "حذف مشتری", prompt):
             return
         try:
-            self.db.delete_customer(self.selected_customer_id, expected_row_version=self._selected_customer_row_version)
+            self.db.delete_customers_batch(ids)
             self._clear_customer_form()
             self.refresh_all_data()
         except Exception as exc:
@@ -8587,10 +9691,11 @@ class MainWindow(QMainWindow):
         search_row.addWidget(QLabel("جست‌وجو / فیلتر:"))
         search_row.addWidget(self.ed_rep_search, 1)
         self.tbl_report = self._create_table(["ستون ۱"])
+        self.tbl_report.setMinimumHeight(290)
         search_row.addWidget(self._create_table_print_button(self.tbl_report, "reports"), 0)
         layout.addLayout(search_row)
 
-        layout.addWidget(self.tbl_report)
+        layout.addWidget(self.tbl_report, 1)
 
         self.cb_rep_type.currentIndexChanged.connect(self._update_report_live)
         self.cb_rep_sort.currentIndexChanged.connect(self._update_report_live)
@@ -8953,6 +10058,9 @@ class MainWindow(QMainWindow):
             self.cb_rep_type.addItem("۷. گزارش جامع عملکرد هر کاربر / فروشنده")
             self.cb_rep_type.addItem("۱۰. گزارش فاکتورهای تسویه‌نشده (طلب و بدهی)")
             self.cb_rep_type.addItem("۱۳. گزارش اقساط و بدهی مشتریان")
+            self.cb_rep_type.addItem("۱۴. گزارش عملکرد بازه‌ای کاربران")
+            self.cb_rep_type.addItem("۱۵. گزارش پیش‌فاکتورها")
+            self.cb_rep_type.addItem("۱۶. گزارش اقساط تأمین‌کنندگان")
 
         custom_defs = self._get_custom_report_definitions()
         if custom_defs:
@@ -9180,14 +10288,15 @@ class MainWindow(QMainWindow):
             # ۱ و ۱۱. گزارش کامل تمام فروش‌ها / تخفیف‌ها و تشدیدها
             elif rep_type.startswith("۱.") or rep_type.startswith("۱۱."):
                 headers = [
-                    "شماره فاکتور",
+                    "شناسه فاکتور فروش",
                     "کد کالا",
+                    "شناسه فاکتور تأمین‌کننده",
                     "شماره سریال",
                     "مشخصات کالا",
                     "تاریخ و ساعت فروش",
                     "دسته‌بندی",
                     "زیرمجموعه",
-                    "کد محموله",
+                    "شناسه فاکتور خرید",
                     "فروشنده",
                     "نام مشتری",
                     "شماره تماس مشتری",
@@ -9219,7 +10328,9 @@ class MainWindow(QMainWindow):
                            s.warranty_start, s.warranty_months, s.warranty_days, s.warranty_end,
                            s.serial_number, s.specifications, s.colors_json, s.notes,
                            s.created_at, s.updated_at, p.code, p.category, p.sub_category,
-                           p.brand, p.model, b.batch_code, b.final_specs, b.initial_specs,
+                           p.brand, p.model, b.batch_code, b.purchase_invoice_code,
+                           b.invoice_number as supplier_invoice_number,
+                           b.final_specs, b.initial_specs,
                            e.name as emp_name
                     FROM sales s
                     JOIN products p ON s.product_id=p.id
@@ -9242,7 +10353,7 @@ class MainWindow(QMainWindow):
                     diff_val = (int(r["actual_unit_price"]) - int(r["suggested_unit_price"])) * int(r["qty"])
                     if rep_type.startswith("۱۱.") and diff_val == 0:
                         continue
-                    search_pool = f"{r['invoice_number']} {r['code']} {r['serial_number'] or ''} {r['category']} {r['sub_category']} {r['brand']} {r['model']} {r['batch_code']} {r['customer_name'] or ''} {r['customer_phone'] or ''}".lower()
+                    search_pool = f"{r['invoice_number']} {r['code']} {r['supplier_invoice_number'] or ''} {r['serial_number'] or ''} {r['category']} {r['sub_category']} {r['brand']} {r['model']} {r['purchase_invoice_code'] or r['batch_code']} {r['customer_name'] or ''} {r['customer_phone'] or ''}".lower()
                     if q_txt and q_txt not in search_pool:
                         continue
 
@@ -9260,12 +10371,13 @@ class MainWindow(QMainWindow):
                             r["updated_at"] or r["sale_datetime"] or "",
                             r["invoice_number"],
                             r["code"],
+                            r["supplier_invoice_number"] or "-",
                             r["serial_number"] or "-",
                             f"{r['brand']} {r['model']}".strip() or r["sub_category"],
                             r["sale_datetime"],
                             r["category"],
                             r["sub_category"],
-                            r["batch_code"],
+                            r["purchase_invoice_code"] or r["batch_code"],
                             r["emp_name"],
                             r["customer_name"] or "-",
                             r["customer_phone"] or "-",
@@ -9303,10 +10415,10 @@ class MainWindow(QMainWindow):
                 or rep_type.startswith("۹.")
             ):
                 headers = [
-                    "کد محموله",
-                    "شماره فاکتور خرید",
-                    "تاریخ خرید",
+                    "شناسه فاکتور خرید",
                     "کد کالا",
+                    "شناسه فاکتور تأمین‌کننده",
+                    "تاریخ خرید",
                     "دسته‌بندی",
                     "زیرمجموعه",
                     "برند و مدل",
@@ -9332,7 +10444,7 @@ class MainWindow(QMainWindow):
                     "مشخصات / توضیحات",
                 ]
                 q = conn.execute("""
-                    SELECT b.id, b.batch_code, b.product_id, b.supplier_id, b.buyer_employee_id,
+                    SELECT b.id, b.batch_code, b.purchase_invoice_code, b.product_id, b.supplier_id, b.buyer_employee_id,
                            b.invoice_number, b.purchase_date, b.initial_qty, b.sold_qty, b.returned_qty,
                            b.remaining_qty, b.unit_purchase_price, b.extra_cost_total, b.upgrade_cost_unit,
                            b.unit_cost_price, b.suggested_sell_price, b.profit_pct, b.paid_amount,
@@ -9359,7 +10471,8 @@ class MainWindow(QMainWindow):
                         continue
                     if cat and cat != "همه دسته‌ها" and r["category"] != cat:
                         continue
-                    search_pool = f"{r['batch_code']} {r['invoice_number']} {r['code']} {r['category']} {r['sub_category']} {r['brand']} {r['model']} {r['sup_name']}".lower()
+                    pinv = r["purchase_invoice_code"] or r["batch_code"]
+                    search_pool = f"{pinv} {r['batch_code']} {r['invoice_number'] or ''} {r['code']} {r['category']} {r['sub_category']} {r['brand']} {r['model']} {r['sup_name']}".lower()
                     if q_txt and q_txt not in search_pool:
                         continue
 
@@ -9375,10 +10488,10 @@ class MainWindow(QMainWindow):
                     rows_data.append(
                         [
                             r["updated_at"] or r["purchase_date"] or "",
-                            r["batch_code"],
+                            pinv,
+                            r["code"],
                             r["invoice_number"] or "-",
                             r["purchase_date"],
-                            r["code"],
                             r["category"],
                             r["sub_category"],
                             f"{r['brand']} {r['model']}".strip() or r["sub_category"],
@@ -9886,6 +10999,75 @@ class MainWindow(QMainWindow):
                     f"مجموع سودآوری: {tot_prof_u:,} تومان"
                 )
 
+            # ۱۵. گزارش پیش‌فاکتورها
+            elif rep_type.startswith("۱۵."):
+                headers = list(REPORT_AVAILABLE_COLUMNS["۱۵. گزارش پیش‌فاکتورها"])
+                pf_rows = self.db.list_proformas()
+                tot_pf = 0
+                st_pf_fa = {"open": "باز", "converted": "تبدیل‌شده", "expired": "منقضی", "cancelled": "لغوشده"}
+                for pf in pf_rows:
+                    d_only = str(pf.get("proforma_datetime") or "")[:10]
+                    if d_only and not datetime_format.is_date_in_range(d_only, d_from, d_to, active_cal):
+                        continue
+                    if q_txt and q_txt not in f"{pf.get('proforma_number')} {pf.get('customer_name')} {pf.get('customer_phone')} {pf.get('converted_invoice_number') or ''}".lower():
+                        continue
+                    tot_pf += int(pf.get("total_amount") or 0)
+                    rows_data.append([
+                        pf.get("updated_at") or pf.get("proforma_datetime") or "",
+                        int(pf["id"]),
+                        pf.get("proforma_number") or "-",
+                        pf.get("proforma_datetime") or "-",
+                        pf.get("valid_until") or "-",
+                        pf.get("customer_name") or "-",
+                        pf.get("customer_phone") or "-",
+                        pf.get("seller_name") or "-",
+                        int(pf.get("item_count") or 0),
+                        f"{int(pf.get('total_amount') or 0):,}",
+                        st_pf_fa.get(str(pf.get("status") or "open"), str(pf.get("status") or "open")),
+                        pf.get("converted_invoice_number") or "-",
+                        pf.get("notes") or "-",
+                    ])
+                summary_text = f"تعداد پیش‌فاکتور: {len(rows_data)}   |   جمع کل مبلغ پیش‌فاکتورها: {tot_pf:,} تومان"
+
+            # ۱۶. گزارش اقساط تأمین‌کنندگان
+            elif rep_type.startswith("۱۶."):
+                headers = list(REPORT_AVAILABLE_COLUMNS["۱۶. گزارش اقساط تأمین‌کنندگان"])
+                today_s = self.get_today_date_str()[:10]
+                tot_due, tot_paid, tot_rem = 0, 0, 0
+                for si in self.db.get_supplier_installments_overview():
+                    d_only = str(si.get("due_date") or "")[:10]
+                    if d_only and not datetime_format.is_date_in_range(d_only, d_from, d_to, active_cal):
+                        continue
+                    if q_txt and q_txt not in f"{si.get('supplier_name')} {si.get('purchase_invoice_code')} {si.get('supplier_invoice_number')}".lower():
+                        continue
+                    due_v = int(si.get("due_amount") or 0)
+                    paid_v = int(si.get("paid_amount") or 0)
+                    rem_v = max(0, due_v - paid_v)
+                    tot_due += due_v
+                    tot_paid += paid_v
+                    tot_rem += rem_v
+                    st_raw = str(si.get("status") or "pending")
+                    st_label = "پرداخت‌شده" if st_raw == "paid" else ("معوق" if (today_s and d_only < today_s) else ("جزئی" if st_raw == "partial" else "در انتظار"))
+                    rows_data.append([
+                        si.get("due_date") or "",
+                        int(si["id"]),
+                        si.get("supplier_name") or "-",
+                        si.get("supplier_phone") or "-",
+                        si.get("purchase_invoice_code") or "-",
+                        si.get("supplier_invoice_number") or "-",
+                        int(si.get("installment_no") or 1),
+                        si.get("due_date") or "-",
+                        f"{due_v:,}",
+                        f"{paid_v:,}",
+                        f"{rem_v:,}",
+                        st_label,
+                    ])
+                summary_text = (
+                    f"کل اقساط بازه: {tot_due:,} تومان   |   "
+                    f"پرداخت‌شده: {tot_paid:,} تومان   |   "
+                    f"مانده بدهی اقساط تأمین‌کننده: {tot_rem:,} تومان"
+                )
+
             else:
                 custom_defs = self._get_custom_report_definitions()
                 exp_cfgs = self._get_report_excel_export_configs()
@@ -9904,7 +11086,7 @@ class MainWindow(QMainWindow):
                                p.code as p_code, p.serial_number as prod_serial, p.category,
                                p.sub_category, p.brand, p.model, p.specs_json, p.description as prod_desc,
                                p.reorder_point, p.default_profit_pct,
-                               b.batch_code, b.invoice_number as batch_inv, b.purchase_date,
+                               b.batch_code, b.purchase_invoice_code, b.invoice_number as batch_inv, b.purchase_date,
                                b.initial_qty as batch_initial_qty, b.sold_qty as batch_sold_qty,
                                b.remaining_qty as batch_remaining_qty, b.unit_purchase_price,
                                b.extra_cost_total, b.upgrade_cost_unit, b.unit_cost_price as batch_unit_cost,
@@ -9932,10 +11114,11 @@ class MainWindow(QMainWindow):
                             continue
                         if cat and cat != "همه دسته‌ها" and r["category"] != cat:
                             continue
-                        search_haystack = f"{r['invoice_number']} {r['p_code']} {r['prod_serial'] or ''} {r['serial_number'] or ''} {r['customer_name'] or ''} {r['customer_phone'] or ''} {r['brand']} {r['model']} {r['batch_code']}".lower()
+                        search_haystack = f"{r['invoice_number']} {r['p_code']} {r['batch_inv'] or ''} {r['prod_serial'] or ''} {r['serial_number'] or ''} {r['customer_name'] or ''} {r['customer_phone'] or ''} {r['brand']} {r['model']} {r['purchase_invoice_code'] or r['batch_code']}".lower()
                         if q_txt and q_txt not in search_haystack:
                             continue
 
+                        pinv_disp = r["purchase_invoice_code"] or r["batch_code"]
                         val_map = {
                             "کد کالا": r["p_code"],
                             "شماره سریال": r["prod_serial"] or r["serial_number"] or "-",
@@ -9950,7 +11133,9 @@ class MainWindow(QMainWindow):
                             "درصد سود (%)": r["default_profit_pct"],
                             "وضعیت موجودی": "موجود" if r["batch_remaining_qty"] > r["reorder_point"] else ("کم‌موجود" if r["batch_remaining_qty"] > 0 else "ناموجود"),
                             "توضیحات": r["prod_desc"] or "-",
-                            "کد محموله": r["batch_code"],
+                            "شناسه فاکتور خرید": pinv_disp,
+                            "کد محموله": pinv_disp,
+                            "شناسه فاکتور تأمین‌کننده": r["batch_inv"] or "-",
                             "تأمین‌کننده": r["sup_name"] or "-",
                             "مسئول خرید": r["emp_name"] or "-",
                             "شماره فاکتور خرید": r["batch_inv"] or "-",
@@ -9975,6 +11160,7 @@ class MainWindow(QMainWindow):
                             "مشخصات فنی محموله": r["batch_initial_specs"] or "-",
                             "بهای کل محموله (تومان)": f"{(r['unit_purchase_price'] * r['batch_initial_qty'] + r['extra_cost_total']):,}",
                             "رنگ‌های محموله": "، ".join(self._decode_colors(r["batch_colors_json"])) or "-",
+                            "شناسه فاکتور فروش": r["invoice_number"],
                             "شماره فاکتور فروش": r["invoice_number"],
                             "تاریخ و ساعت فروش": r["sale_datetime"],
                             "فروشنده": r["emp_name"] or "-",
@@ -10143,7 +11329,13 @@ class MainWindow(QMainWindow):
         btn_row.addStretch()
         grid.addLayout(btn_row, 3, 0, 1, 6)
 
-        layout.addWidget(gb)
+        self.employees_subtabs = QTabWidget()
+
+        sub_emp_main = QWidget()
+        v_emp_main = QVBoxLayout(sub_emp_main)
+        v_emp_main.setContentsMargins(8, 8, 8, 8)
+        v_emp_main.setSpacing(8)
+        v_emp_main.addWidget(gb)
 
         self.tbl_employees = self._create_table(
             [
@@ -10159,11 +11351,16 @@ class MainWindow(QMainWindow):
                 "آخرین ورود",
             ]
         )
+        self.tbl_employees.setMinimumHeight(290)
         self.tbl_employees.itemSelectionChanged.connect(self._on_emp_selected)
         self._add_table_search(btn_row, self.tbl_employees, "employees", "🔍 جست‌وجو در کارکنان...")
-        layout.addWidget(self.tbl_employees)
+        v_emp_main.addWidget(self.tbl_employees, 1)
 
-        # REQ-12: گزارش بازه‌ای عملکرد کاربران داخل تب مدیریت کاربران
+        # زیرتب ۲: گزارش بازه‌ای عملکرد کاربران (REQ-06)
+        sub_emp_perf = QWidget()
+        v_emp_perf = QVBoxLayout(sub_emp_perf)
+        v_emp_perf.setContentsMargins(8, 8, 8, 8)
+        v_emp_perf.setSpacing(8)
         gb_perf = QGroupBox("📊 گزارش عملکرد کاربران (در بازه زمانی)")
         perf_v = QVBoxLayout(gb_perf)
         perf_flt = QHBoxLayout()
@@ -10198,10 +11395,14 @@ class MainWindow(QMainWindow):
                 "اقساط وصول‌شده (تومان)", "مجموع سودآوری (تومان)",
             ]
         )
-        self.tbl_emp_performance.setMinimumHeight(180)
+        self.tbl_emp_performance.setMinimumHeight(290)
         self._add_table_search(perf_flt, self.tbl_emp_performance, "employee_performance", "🔍 جست‌وجو در عملکرد کاربران...")
-        perf_v.addWidget(self.tbl_emp_performance)
-        layout.addWidget(gb_perf)
+        perf_v.addWidget(self.tbl_emp_performance, 1)
+        v_emp_perf.addWidget(gb_perf, 1)
+
+        self.employees_subtabs.addTab(sub_emp_main, "👥 مدیریت حساب کاربران")
+        self.employees_subtabs.addTab(sub_emp_perf, "📊 عملکرد کاربران")
+        layout.addWidget(self.employees_subtabs, 1)
 
         self._add_scrollable_tab(tab, "👤 مدیریت کاربران")
 
@@ -10453,12 +11654,17 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "رمز حذف شد", "رمز عبور پس از تأیید رمز فعلی حذف شد.")
 
     def _delete_employee(self):
-        """مورد ۳: پنجره سه‌گزینه‌ای حذف کاربر"""
-        if not self.selected_emp_id:
-            QMessageBox.warning(self, "انتخاب کاربر", "ابتدا یک کاربر را از جدول انتخاب کنید.")
+        """مورد ۳: پنجره سه‌گزینه‌ای حذف کاربر (تکی یا گروهی)"""
+        if not self._require_license_write_allowed():
+            return
+        ids = self._selected_row_ids(self.tbl_employees)
+        if not ids and self.selected_emp_id:
+            ids = [int(self.selected_emp_id)]
+        if not ids:
+            QMessageBox.warning(self, "انتخاب کاربر", "ابتدا یک یا چند کاربر را از جدول انتخاب کنید.")
             return
 
-        if self.active_employee and int(self.active_employee.get("id", -1)) == int(self.selected_emp_id):
+        if self.active_employee and int(self.active_employee.get("id", -1)) in ids:
             QMessageBox.warning(
                 self, "کاربر فعال",
                 "حساب کاربری فعال را نمی‌توان از همان نشست حذف کرد. ابتدا با حساب مدیریتی دیگری وارد شوید."
@@ -10467,7 +11673,7 @@ class MainWindow(QMainWindow):
         msg = QMessageBox(self)
         msg.setWindowTitle("حذف کاربر")
         msg.setText(
-            "روش حذف کاربر را انتخاب کنید."
+            f"روش حذف {'کاربر' if len(ids) == 1 else f'{len(ids)} کاربر انتخاب‌شده'} را انتخاب کنید."
         )
         btn_cancel = msg.addButton("انصراف", QMessageBox.RejectRole)
         btn_keep_data = msg.addButton(
@@ -10485,7 +11691,7 @@ class MainWindow(QMainWindow):
 
         delete_all = clicked == btn_del_data
         try:
-            self.db.delete_employee_custom(self.selected_emp_id, delete_related_data=delete_all)
+            self.db.delete_employees_batch(ids, delete_related_data=delete_all)
             self.selected_emp_id = None
             self.ed_emp_name.clear()
             self.ed_emp_phone.clear()
@@ -11137,7 +12343,7 @@ class MainWindow(QMainWindow):
         security_layout.addWidget(gb_db_pwd)
 
         gb_security.setTitle("")
-        layout.addWidget(CollapsibleSection("امنیت و ورود کاربران", gb_security))
+        sec_security = CollapsibleSection("امنیت و ورود کاربران", gb_security)
 
         gb_access_levels = QGroupBox("مدیریت سطوح دسترسی")
         self.gb_access_levels = gb_access_levels
@@ -11275,7 +12481,7 @@ class MainWindow(QMainWindow):
         f_gen.addRow("قالب تقویم:", self.cb_calendar_format)
         f_gen.addRow("قالب ساعت:", self.cb_time_format)
         gb_gen.setTitle("")
-        layout.addWidget(CollapsibleSection("تنظیمات عمومی فروش و نمایش", gb_gen))
+        sec_gen = CollapsibleSection("تنظیمات عمومی فروش و نمایش", gb_gen)
 
         # Per-database product taxonomy and catalog customization.
         gb_catalog = QGroupBox("")
@@ -11739,9 +12945,9 @@ class MainWindow(QMainWindow):
         self.catalog_tabs.addTab(report_export_page, "تنظیمات خروجی اکسل گزارش‌ها")
         self.catalog_tabs.addTab(access_management_page, "مدیریت سطوح دسترسی")
         self.catalog_tabs.currentChanged.connect(self._on_catalog_subtab_changed)
-        layout.addWidget(CollapsibleSection(
+        sec_catalog = CollapsibleSection(
             "مدیریت ساختار کالاها، خدمات، خروجی‌ها و دسترسی‌ها", gb_catalog
-        ))
+        )
 
         gb_db = QGroupBox("پایگاه دادهٔ فعال و پشتیبان‌گیری خودکار")
         self.gb_db = gb_db
@@ -11839,7 +13045,28 @@ class MainWindow(QMainWindow):
         f_db.addRow(bk_btn_row)
         f_db.addRow(self.lbl_last_backup)
         gb_db.setTitle("")
-        layout.addWidget(CollapsibleSection("پایگاه داده و پشتیبان‌گیری", gb_db))
+        sec_db = CollapsibleSection("پایگاه داده و پشتیبان‌گیری", gb_db)
+
+        def _wrap_settings_subtab(*widgets):
+            page = QWidget()
+            p_lay = QVBoxLayout(page)
+            p_lay.setContentsMargins(10, 10, 10, 10)
+            p_lay.setSpacing(10)
+            p_lay.setAlignment(Qt.AlignTop)
+            for w in widgets:
+                p_lay.addWidget(w)
+            p_lay.addStretch(1)
+            page.setMinimumWidth(860)
+            sc = SmoothScrollArea()
+            sc.setWidget(page)
+            return sc
+
+        self.settings_subtabs = QTabWidget()
+        self.settings_subtabs.addTab(_wrap_settings_subtab(sec_gen), "🎨 عمومی و نمایش")
+        self.settings_subtabs.addTab(_wrap_settings_subtab(sec_security), "🔐 امنیت و رمز عبور")
+        self.settings_subtabs.addTab(_wrap_settings_subtab(sec_catalog), "📦 کالاها، خدمات و دسترسی‌ها")
+        self.settings_subtabs.addTab(_wrap_settings_subtab(sec_db), "💾 پایگاه داده و پشتیبان‌گیری")
+        layout.addWidget(self.settings_subtabs, 1)
 
         settings_container = QWidget()
         settings_container_layout = QVBoxLayout(settings_container)
@@ -11847,9 +13074,7 @@ class MainWindow(QMainWindow):
         settings_container_layout.setSpacing(0)
 
         tab.setMinimumWidth(940)
-        scroll = SmoothScrollArea()
-        scroll.setWidget(tab)
-        settings_container_layout.addWidget(scroll, 1)
+        settings_container_layout.addWidget(tab, 1)
 
         floating_bar = QWidget()
         floating_bar.setObjectName("floatingSettingsBar")
@@ -14351,6 +15576,7 @@ class MainWindow(QMainWindow):
         self._refresh_products_table()
         self._refresh_batches_table()
         self._refresh_sales_table()
+        self._refresh_proformas_table()
         self._refresh_upgrades_table()
         self._refresh_services_table()
         self._refresh_suppliers_table()
@@ -14583,22 +15809,40 @@ class MainWindow(QMainWindow):
         self._on_upg_target_changed()
 
         if not self.selected_product_id and not self.ed_prod_code.text().strip():
-            self.ed_prod_code.setPlaceholderText(self.db.generate_next_code("products", "code", "P-", 1001))
+            self.ed_prod_code.setPlaceholderText(self.db.generate_next_code("products", "code", "SKU-", 1001))
         if not self.selected_batch_id and not self.ed_batch_code.text().strip():
-            self.ed_batch_code.setPlaceholderText(self.db.generate_next_code("batches", "batch_code", "C-", 1001))
-        if not self.selected_batch_id and hasattr(self, "ed_batch_inv") and not self.ed_batch_inv.text().strip():
-            self.ed_batch_inv.setPlaceholderText(self.db.generate_next_code("batches", "invoice_number", "PINV-", 1001))
+            self.ed_batch_code.setPlaceholderText(self.db.generate_next_code("batches", "purchase_invoice_code", "PINV-", 1001))
         if not self.selected_sale_id and not self.ed_sale_inv.text().strip():
             self.ed_sale_inv.setPlaceholderText(self.db.generate_next_code("sales", "invoice_number", "INV-", 1001))
         if not self.selected_srv_cat_id and not self.ed_srv_code.text().strip():
-            self.ed_srv_code.setPlaceholderText(self.db.generate_next_code("service_catalog", "code", "S-", 1001))
+            self.ed_srv_code.setPlaceholderText(self.db.generate_next_code("service_catalog", "code", "SVC-", 1001))
         if not self.selected_srv_rec_id and hasattr(self, "ed_srv_inv") and not self.ed_srv_inv.text().strip():
             self.ed_srv_inv.setPlaceholderText(self.db.generate_next_code("service_records", "invoice_number", "SINV-", 1001))
+        if hasattr(self, "ed_pf_num") and not getattr(self, "selected_proforma_id", None) and not self.ed_pf_num.text().strip():
+            self.ed_pf_num.setPlaceholderText(self.db.generate_next_code("proforma_invoices", "proforma_number", "PF-", 1001))
+
+        if hasattr(self, "cb_pf_prod"):
+            self.cb_pf_prod.blockSignals(True)
+            self.cb_pf_prod.clear()
+            self.cb_pf_prod.addItem("همه کالاها", {"_all_products": True})
+            for idx_p in range(1, self.cb_sale_prod.count()):
+                self.cb_pf_prod.addItem(self.cb_sale_prod.itemText(idx_p), self.cb_sale_prod.itemData(idx_p))
+            self.cb_pf_prod.blockSignals(False)
+            self._on_pf_prod_changed(select_first=False)
+        if hasattr(self, "cb_pf_seller"):
+            self.cb_pf_seller.clear()
+            for e in emps:
+                self.cb_pf_seller.addItem(e["name"], e["id"])
+            self._select_default_operator(self.cb_pf_seller)
 
         if hasattr(self, "cb_sale_customer"):
             kept_txt = self.ed_sale_customer.text() if hasattr(self, "ed_sale_customer") else ""
+            kept_pf_txt = self.ed_pf_customer.text() if hasattr(self, "ed_pf_customer") else ""
             self.cb_sale_customer.blockSignals(True)
             self.cb_sale_customer.clear()
+            if hasattr(self, "cb_pf_customer"):
+                self.cb_pf_customer.blockSignals(True)
+                self.cb_pf_customer.clear()
             with self.db.get_connection() as conn:
                 custs = conn.execute("SELECT id, name, phone FROM customers ORDER BY updated_at DESC, id DESC").fetchall()
             for idx_c, crow in enumerate(custs):
@@ -14606,12 +15850,22 @@ class MainWindow(QMainWindow):
                 lbl = f"{cdict['name']} ({cdict['phone']})" if cdict.get("phone") else cdict["name"]
                 self.cb_sale_customer.addItem(bidi_isolate_text(lbl), cdict)
                 self.cb_sale_customer.setItemSearchText(idx_c, f"{cdict['name']} {cdict.get('phone') or ''}")
+                if hasattr(self, "cb_pf_customer"):
+                    self.cb_pf_customer.addItem(bidi_isolate_text(lbl), cdict)
+                    self.cb_pf_customer.setItemSearchText(idx_c, f"{cdict['name']} {cdict.get('phone') or ''}")
             self.cb_sale_customer.setCurrentIndex(-1)
             if kept_txt:
                 self.ed_sale_customer.setText(kept_txt)
             else:
                 self.cb_sale_customer.clearEditText()
             self.cb_sale_customer.blockSignals(False)
+            if hasattr(self, "cb_pf_customer"):
+                self.cb_pf_customer.setCurrentIndex(-1)
+                if kept_pf_txt:
+                    self.ed_pf_customer.setText(kept_pf_txt)
+                else:
+                    self.cb_pf_customer.clearEditText()
+                self.cb_pf_customer.blockSignals(False)
 
         if hasattr(self, "cb_chart_cat"):
             cur_ccat = self.cb_chart_cat.currentText()
@@ -14677,7 +15931,7 @@ class MainWindow(QMainWindow):
     def _refresh_batches_table(self):
         with self.db.get_connection() as conn:
             rows = self._execute_scoped_query(conn, """
-                SELECT b.id, b.batch_code, b.product_id, b.supplier_id, b.buyer_employee_id,
+                SELECT b.id, b.batch_code, b.purchase_invoice_code, b.product_id, b.supplier_id, b.buyer_employee_id,
                        b.invoice_number, b.purchase_date, b.initial_qty, b.sold_qty, b.returned_qty,
                        b.remaining_qty, b.unit_purchase_price, b.extra_cost_total, b.upgrade_cost_unit,
                        b.unit_cost_price, b.suggested_sell_price, b.profit_pct, b.paid_amount,
@@ -14701,13 +15955,13 @@ class MainWindow(QMainWindow):
             data.append(
                 [
                     r["id"],
-                    r["batch_code"],
+                    r["purchase_invoice_code"] or r["batch_code"],
                     r["p_code"],
+                    r["invoice_number"] or "-",
                     r["serial_numbers"] or "-",
                     prod_title,
                     r["sup_name"] or "-",
                     r["emp_name"] or "-",
-                    r["invoice_number"],
                     r["purchase_date"],
                     r["initial_qty"],
                     r["sold_qty"],
@@ -14739,7 +15993,8 @@ class MainWindow(QMainWindow):
                        s.warranty_start, s.warranty_months, s.warranty_days, s.warranty_end,
                        s.serial_number, s.specifications, s.colors_json, s.notes,
                        s.created_at, s.updated_at, p.code as p_code, p.category,
-                       p.sub_category, p.brand, p.model, b.batch_code, b.final_specs,
+                       p.sub_category, p.brand, p.model, b.batch_code, b.purchase_invoice_code,
+                       b.invoice_number AS supplier_invoice_number, b.final_specs,
                        b.initial_specs, e.name as emp_name
                 FROM sales s
                 JOIN products p ON s.product_id=p.id
@@ -14771,10 +16026,11 @@ class MainWindow(QMainWindow):
                     r["id"],
                     r["invoice_number"],
                     r["p_code"],
+                    r["supplier_invoice_number"] or "-",
                     r["serial_number"] or "",
                     prod_title,
                     r["sale_datetime"],
-                    r["batch_code"],
+                    r["purchase_invoice_code"] or r["batch_code"],
                     r["emp_name"],
                     r["customer_name"] or "",
                     r["customer_phone"] or "",
@@ -14793,7 +16049,7 @@ class MainWindow(QMainWindow):
                     "، ".join(self._decode_colors(r["colors_json"])) or "-",
                 ]
             )
-        self._populate_table_safely(self.tbl_sales, data, highlight_col=19)
+        self._populate_table_safely(self.tbl_sales, data, highlight_col=20)
 
     def _refresh_upgrades_table(self):
         with self.db.get_connection() as conn:
@@ -14908,45 +16164,35 @@ class MainWindow(QMainWindow):
         self._populate_table_safely(self.tbl_services, rec_data, highlight_col=8)
 
     def _refresh_suppliers_table(self):
-        with self.db.get_connection() as conn:
-            rows = self._execute_scoped_query(conn, """
-                SELECT s.id, s.name, s.phone, s.address, s.notes, s.created_at, s.updated_at,
-                       COUNT(b.id) as b_cnt,
-                       COALESCE(SUM(b.unit_purchase_price*b.initial_qty + b.extra_cost_total), 0) as tot_buy,
-                       COALESCE(SUM(b.paid_amount), 0) as tot_paid,
-                       COALESCE(SUM(
-                           CASE
-                               WHEN b.settlement_status IN ('تسویه جزئی', 'تسویه‌نشده')
-                               THEN MAX(
-                                   0,
-                                   b.unit_purchase_price * b.initial_qty
-                                   + COALESCE(b.extra_cost_total, 0)
-                                   - COALESCE(b.paid_amount, 0)
-                               )
-                               ELSE 0
-                           END
-                       ), 0) AS tot_debt
-                FROM suppliers s
-                LEFT JOIN batches b ON s.id = b.supplier_id
-                GROUP BY s.id
-                ORDER BY s.updated_at DESC, s.id DESC
-            """, "b.buyer_employee_id").fetchall()
+        today = self.get_today_date_str()[:10]
+        rows = self.db.list_suppliers_with_ledgers(today_str=today)
         data = []
         for r in rows:
-            debt = int(r["tot_debt"] or 0)
+            debt = int(r.get("remaining_debt") or 0)
+            ov_cnt = int(r.get("overdue_count") or 0)
+            op_cnt = int(r.get("open_installments") or 0)
+            inst_txt = f"{ov_cnt} معوق / {op_cnt} باز" if op_cnt > 0 else "0"
             data.append(
                 [
                     r["id"],
                     r["name"],
                     r["phone"] or "-",
                     r["address"] or "-",
-                    r["b_cnt"],
-                    f"{int(r['tot_buy']):,}",
-                    f"{int(r['tot_paid']):,}",
+                    int(r.get("invoice_count") or 0),
+                    f"{int(r.get('total_purchases') or 0):,}",
+                    f"{int(r.get('total_paid') or 0):,}",
                     f"{debt:,}",
+                    inst_txt,
+                    int(r.get("pending_checks_count") or 0),
                 ]
             )
         self._populate_table_safely(self.tbl_suppliers, data)
+        if hasattr(self, "selected_supplier_id") and self.selected_supplier_id:
+            try:
+                det = self.db.get_supplier_purchases_and_installments(self.selected_supplier_id)
+                self._populate_supplier_detail_tables(det)
+            except Exception:
+                pass
         if hasattr(self, "tbl_supplier_checks"):
             st_fa_map = {"pending": "در انتظار وصول", "cleared": "وصول شده", "bounced": "برگشتی"}
             chk_rows = []
@@ -15170,7 +16416,7 @@ class MainWindow(QMainWindow):
         )
         try:
             inst_ov = self.db.get_installments_overview(today)
-            c_debt_val = int(inst_ov.get("total_receivables", 0))
+            c_debt_val = int(inst_ov.get("total_receivables", inst_ov.get("total_customer_debt", 0)))
             self.lbl_dash_cust_debt.setText(f"{c_debt_val:,}")
             self.lbl_dash_cust_debt.setStyleSheet(
                 "color: #dc2626; background: transparent; font-size: 18px; font-weight: bold;"

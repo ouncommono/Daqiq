@@ -63,6 +63,8 @@ SUBFEATURE_PARENT_TAB: Dict[str, str] = {
     "checks_manage": "customers",
     "multi_item_invoices": "sales",
     "user_performance": "employees",
+    "proforma_invoices": "sales",
+    "supplier_installments": "suppliers_payments",
 }
 
 OPTIONAL_DEFAULT_TRUE_FEATURES = frozenset({
@@ -75,6 +77,8 @@ OPTIONAL_DEFAULT_TRUE_FEATURES = frozenset({
     "checks_manage",
     "multi_item_invoices",
     "user_performance",
+    "proforma_invoices",
+    "supplier_installments",
 })
 
 ALL_LICENSE_FEATURES = CORE_TAB_FEATURES + tuple(SUBFEATURE_PARENT_TAB.keys())
@@ -86,6 +90,7 @@ TAB_MODULE_TO_FEATURE: Dict[str, str] = {
     "batches": "batches",
     "purchases": "batches",
     "sales": "sales",
+    "proforma": "proforma_invoices",
     "services": "services",
     "upgrades": "upgrades",
     "suppliers": "suppliers_payments",
@@ -155,7 +160,7 @@ FEATURE_LABELS_FA: Dict[str, str] = {
     "inventory_export": "خروجی موجودی همکار و انبار",
     "multi_pc_lan": "اشتراک‌گذاری شبکه (چند کاربر همزمان)",
     "concurrent_edit": "مدیریت ویرایش همزمان",
-    "dark_theme": "حالت تیره",
+    "dark_theme": "حالت تاریک",
     "light_theme": "حالت روشن",
     "print_invoices": "چاپ فاکتورها و گزارش‌ها",
     "backup_export": "پشتیبان‌گیری و خروجی اطلاعات",
@@ -166,6 +171,9 @@ FEATURE_LABELS_FA: Dict[str, str] = {
     "checks_manage": "مدیریت چک‌ها",
     "multi_item_invoices": "ثبت فاکتور چندقلمی",
     "user_performance": "گزارش عملکرد کاربران",
+    "proforma": "پیش‌فاکتورها",
+    "proforma_invoices": "پیش‌فاکتورها و تبدیل به فاکتور فروش",
+    "supplier_installments": "خرید اقساطی و اقساط تأمین‌کنندگان",
 }
 
 
@@ -217,7 +225,7 @@ class LicenseService:
         verifier: Optional[LicenseVerifier] = None,
         hardware_provider: Optional[HardwareIdentitySource] = None,
         clock_provider: Optional[Callable[[], datetime.datetime]] = None,
-        app_version: str = "5.0.0",
+        app_version: str = "5.0.1",
         store_name_provider: Optional[Callable[[], str]] = None,
     ):
         self.store = store or LicenseStore()
