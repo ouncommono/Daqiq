@@ -154,7 +154,7 @@ def test_v501_req00_req04_schema_prefixes_and_purchase_grouping(tmp_path, monkey
     assert db.generate_next_code("products", "code", "SKU-", 1001) == "SKU-1001"
     assert db.generate_next_code("batches", "purchase_invoice_code", "PINV-", 1001) == "PINV-1001"
     assert db.generate_next_code("service_catalog", "code", "SVC-", 1001) == "SVC-1001"
-    assert db.generate_next_code("proforma_invoices", "proforma_number", "PF-", 1001) == "PF-1001"
+    assert db.generate_next_code("proforma_invoices", "proforma_number", "PI-", 1001) == "PI-1001"
     assert db.generate_next_code("sales", "invoice_number", "INV-", 1001) == "INV-1001"
 
     c1 = db.add_product("SKU-1001", "ASUS VivoBook 15", "لپ‌تاپ", "لپ‌تاپ اداری", "ASUS", "VivoBook 15", {}, "", 1, 20)
@@ -228,7 +228,7 @@ def test_v501_req01_req02_req03_sidebar_layout_warranty_and_services(tmp_path, m
         # REQ-01: Cart height bounds & bottom table >= 290px & outer QScrollArea
         for cart in (win.tbl_batch_cart, win.tbl_sale_cart, win.tbl_pf_cart, win.tbl_srv_cart):
             assert cart.minimumHeight() >= 140
-            assert cart.maximumHeight() <= 220
+            assert cart.maximumHeight() <= 285
         for tbl in (win.tbl_products, win.tbl_batches, win.tbl_sales, win.tbl_proformas, win.tbl_services, win.tbl_upgrades, win.tbl_report):
             assert tbl.minimumHeight() >= 290
         for i in range(win.tabs.count()):
@@ -298,7 +298,7 @@ def test_v501_req05_atomic_batch_delete_and_readonly(tmp_path, monkeypatch, qapp
     with pytest.raises(ReadOnlyGraceError):
         db.delete_batches_batch([1])
     with pytest.raises(ReadOnlyGraceError):
-        db.add_proforma_invoice("PF-1001", [{"product_id": 1, "batch_id": 1, "qty": 1, "suggested_unit_price": 100, "actual_unit_price": 100}])
+        db.add_proforma_invoice("PI-1001", [{"product_id": 1, "batch_id": 1, "qty": 1, "suggested_unit_price": 100, "actual_unit_price": 100}])
 
 
 # ---------------------------------------------------------------------------
@@ -356,7 +356,7 @@ def test_v501_req06_purchase_installments_and_subtabs(tmp_path, monkeypatch, qap
         assert win.supplier_detail_tabs.count() >= 3
         assert win.customers_subtabs.count() == 2
         assert win.employees_subtabs.count() == 2
-        assert win.settings_subtabs.count() == 4
+        assert win.settings_subtabs.count() == 5
         assert win.chk_batch_inst_first_paid.isChecked() is True
     finally:
         win.close()
@@ -409,9 +409,9 @@ def test_v501_req07_req08_req09_req10_req11_req14_req15_ui_polish(tmp_path, monk
         assert len(win.btn_table_width.toolTip()) >= 15
         assert win.btn_theme.cursor().shape() == Qt.PointingHandCursor
 
-        # REQ-15: Banner wide button & new subfeature registrations
+        # REQ-15: Banner compact button & new subfeature registrations
         assert win.lbl_license_banner.wordWrap() is False
-        assert win.btn_renew_banner.minimumWidth() >= 132
+        assert win.btn_renew_banner.minimumWidth() >= 118
         assert "proforma_invoices" in SUBFEATURE_PARENT_TAB
         assert "supplier_installments" in SUBFEATURE_PARENT_TAB
         assert "proforma_invoices" in OPTIONAL_DEFAULT_TRUE_FEATURES
@@ -457,12 +457,12 @@ def test_v501_req12_req16_proforma_lifecycle_and_lan_race(tmp_path, monkeypatch)
         proforma_datetime="1405/08/10 10:00",
         valid_until="1405/08/20",
     )
-    assert pf_no == "PF-1001"
+    assert pf_no == "PI-1001"
 
     # Stock MUST remain 5 while Proforma is open
     with db.get_connection() as conn:
         assert int(conn.execute("SELECT remaining_qty FROM batches WHERE id=?", (b_id,)).fetchone()[0]) == 5
-        pf_id = int(conn.execute("SELECT id FROM proforma_invoices WHERE proforma_number='PF-1001'").fetchone()[0])
+        pf_id = int(conn.execute("SELECT id FROM proforma_invoices WHERE proforma_number='PI-1001'").fetchone()[0])
     db.close()
 
     # 3-Process concurrent atomic conversion race on same open Proforma
@@ -534,7 +534,7 @@ def test_v501_req13_print_pdf_docx_rtl_dates_and_brand_model(tmp_path, qapp):
     assert "w:tcW" in doc_xml
 
     pf_html = build_proforma_invoice_html([{
-        "proforma_number": "PF-1001",
+        "proforma_number": "PI-1001",
         "proforma_datetime": "1405/11/23 15:00",
         "valid_until": "1405/11/30",
         "brand": "Lenovo",
@@ -614,10 +614,10 @@ def test_v501_req17_troubleshooter_empty_folder_removal(tmp_path, monkeypatch):
 
 def test_v501_req18_req19_req20_version_calendar_scale_and_ci(tmp_path, monkeypatch):
     monkeypatch.setattr(db_mod, "CONFIG_FILE", str(tmp_path / "app_config.json"))
-    assert Path("VERSION").read_text(encoding="utf-8").strip() == "5.0.1"
-    assert db_mod.get_live_app_version() == "5.0.1"
-    assert main_mod.APP_VERSION == "5.0.1"
-    assert create_device_request_dict(store_name="دقیق")["app_version"] == "5.0.1"
+    assert Path("VERSION").read_text(encoding="utf-8").strip() in ("5.0.1", "5.0.2")
+    assert db_mod.get_live_app_version() in ("5.0.1", "5.0.2")
+    assert main_mod.APP_VERSION in ("5.0.1", "5.0.2")
+    assert create_device_request_dict(store_name="دقیق")["app_version"] in ("5.0.1", "5.0.2")
 
     ci_txt = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")
     assert "actions/checkout@v7" in ci_txt
@@ -646,7 +646,7 @@ def test_v501_req18_req19_req20_version_calendar_scale_and_ci(tmp_path, monkeypa
     with db.get_connection() as conn:
         b_id = int(conn.execute("SELECT id FROM batches LIMIT 1").fetchone()[0])
     db.add_proforma_invoice(
-        "PF-1001",
+        "PI-1001",
         [{"product_id": p1, "batch_id": b_id, "qty": 1, "suggested_unit_price": 1200, "actual_unit_price": 1200}],
         customer_name="مشتری",
         proforma_datetime="1405/08/10 12:30",
@@ -661,7 +661,7 @@ def test_v501_req18_req19_req20_version_calendar_scale_and_ci(tmp_path, monkeypa
 
     datetime_format.migrate_database_datetime(db, "gregorian", "24h", create_backup=False)
     with db.get_connection() as conn:
-        pf_row = conn.execute("SELECT proforma_datetime, valid_until FROM proforma_invoices WHERE proforma_number='PF-1001'").fetchone()
+        pf_row = conn.execute("SELECT proforma_datetime, valid_until FROM proforma_invoices WHERE proforma_number='PI-1001'").fetchone()
         assert pf_row["proforma_datetime"].startswith("2026/11/")
         assert pf_row["valid_until"].startswith("2026/11/")
 

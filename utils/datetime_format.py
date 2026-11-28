@@ -558,6 +558,7 @@ _DATE_ONLY_COLUMNS = {
     "cleared_date",
     "check_due_date",
     "start_due_date",
+    "installment_start_due",
     "valid_until",
 }
 

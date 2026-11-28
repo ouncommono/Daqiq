@@ -39,5 +39,36 @@ def build_brand_assets(base_dir=None):
     pil_img.save(ico_path, format="ICO", sizes=ico_sizes)
     print(f"Generated multi-resolution ICO saved to: {ico_path} ({os.path.getsize(ico_path)} bytes)")
 
+    # Generate distinct metallic wrench icon for Daqiq-Troubleshooter.exe (REQ-21)
+    ts_svg = b"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#0284c7"/>
+    </linearGradient>
+    <linearGradient id="metal" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f8fafc"/>
+      <stop offset="100%" stop-color="#cbd5e1"/>
+    </linearGradient>
+  </defs>
+  <rect x="24" y="24" width="464" height="464" rx="108" fill="url(#bg)" stroke="#38bdf8" stroke-width="14"/>
+  <circle cx="256" cy="256" r="184" fill="none" stroke="rgba(255,255,255,0.16)" stroke-width="6"/>
+  <path d="M342 120c-36-8-76 6-100 34-21 25-26 60-14 91l-96 96c-16 16-16 42 0 58 16 16 42 16 58 0l96-96c31 12 66 7 91-14 28-24 42-64 34-100l-52 52-40-11-11-40 52-52c-6-10-11-14-18-18z"
+        fill="url(#metal)" stroke="#0f172a" stroke-width="10" stroke-linejoin="round"/>
+  <circle cx="163" cy="369" r="12" fill="#0284c7"/>
+</svg>"""
+    ts_png_path = os.path.join(assets_dir, "daqiq_troubleshooter.png")
+    ts_ico_path = os.path.join(assets_dir, "daqiq_troubleshooter.ico")
+    ts_renderer = QSvgRenderer(QByteArray(ts_svg))
+    ts_img = QImage(512, 512, QImage.Format_ARGB32_Premultiplied)
+    ts_img.fill(Qt.transparent)
+    ts_p = QPainter(ts_img)
+    ts_renderer.render(ts_p)
+    ts_p.end()
+    ts_img.save(ts_png_path, "PNG")
+    ts_pil = Image.open(ts_png_path).convert("RGBA")
+    ts_pil.save(ts_ico_path, format="ICO", sizes=ico_sizes)
+    print(f"Generated troubleshooter ICO saved to: {ts_ico_path} ({os.path.getsize(ts_ico_path)} bytes)")
+
 if __name__ == "__main__":
     build_brand_assets()

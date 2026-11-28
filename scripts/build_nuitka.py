@@ -20,7 +20,7 @@ def get_version(repo_root: Path) -> str:
     v_path = repo_root / "VERSION"
     if v_path.is_file():
         return v_path.read_text(encoding="utf-8").strip()
-    return "5.0.1"
+    return "5.0.2"
 
 
 def compute_sha256(file_path: Path) -> str:
@@ -78,7 +78,8 @@ def build(mode: str, repo_root: Path, skip_shards: bool = False) -> int:
         "--noinclude-IPython-mode=nofollow",
         "--nofollow-import-to=pytest,unittest,doctest,pydoc,tkinter,turtle,distutils,lib2to3,setuptools,pip,wheel,tools,troubleshooter",
         "--windows-console-mode=attach",
-        f"--windows-icon-from-ico={repo_root / 'assets' / 'daqiq_logo.ico'}",
+        f"--windows-icon-from-ico={repo_root / 'assets' / 'daqiq_troubleshooter.ico'}",
+        f"--include-data-files={repo_root / 'assets' / 'daqiq_troubleshooter.ico'}=assets/daqiq_troubleshooter.ico",
         f"--company-name=ouncommono",
         f"--product-name=Daqiq",
         f"--file-version={version}.0",
@@ -213,7 +214,8 @@ def build_troubleshooter(mode: str, repo_root: Path, version: str) -> int:
         "--noinclude-IPython-mode=nofollow",
         "--nofollow-import-to=PySide6,PyQt5,PyQt6,shiboken6,main,database,licensing,utils,ui,charts,tools,pytest,unittest,doctest,pydoc,tkinter,turtle,setuptools,pip,wheel",
         "--windows-console-mode=attach",
-        f"--windows-icon-from-ico={repo_root / 'assets' / 'daqiq_logo.ico'}",
+        f"--windows-icon-from-ico={repo_root / 'assets' / 'daqiq_troubleshooter.ico'}",
+        f"--include-data-files={repo_root / 'assets' / 'daqiq_troubleshooter.ico'}=assets/daqiq_troubleshooter.ico",
         "--company-name=ouncommono",
         "--product-name=Daqiq-Troubleshooter",
         f"--file-version={version}.0",

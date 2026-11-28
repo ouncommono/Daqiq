@@ -597,7 +597,7 @@ def test_troubleshooter_isolation_backup_protection_and_db_prompt(tmp_path):
 def test_v499_version_ci_and_config_alignment():
     """Verify live version consistency and CI dual-exe + Node 24 pipeline alignment."""
     live_ver = Path("VERSION").read_text(encoding="utf-8").strip()
-    assert live_ver in ("4.9.9", "4.9.10", "4.10.0", "5.0.0", "5.0.1")
+    assert live_ver in ("4.9.9", "4.9.10", "4.10.0", "5.0.0", "5.0.1", "5.0.2")
     assert db_mod.get_live_app_version() == live_ver
 
     ci_yml = Path(".github/workflows/ci.yml").read_text(encoding="utf-8")

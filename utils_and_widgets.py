@@ -67,7 +67,7 @@ from PySide6.QtCore import (
     QPoint,
     QRect,
 )
-from PySide6.QtGui import QColor, QIntValidator, QPalette
+from PySide6.QtGui import QColor, QFontMetrics, QIntValidator, QPalette
 from PySide6.QtWidgets import QApplication, QSizePolicy
 
 
@@ -795,13 +795,15 @@ class PriceInput(QLineEdit):
     def _on_edited(self, txt):
         self._raw_typed = True
         clean = "".join(ch for ch in normalize_digits(txt) if ch.isdigit())
+        was_blocked = self.signalsBlocked()
         self.blockSignals(True)
         if clean:
             self.setText(f"{int(clean):,}")
         else:
             self.setText("")
-        self.blockSignals(False)
-        self.valueChanged.emit(self.get_value())
+        self.blockSignals(was_blocked)
+        if not was_blocked:
+            self.valueChanged.emit(self.get_value())
 
     def _apply_auto_zeros(self):
         if not self._raw_typed:
@@ -811,10 +813,12 @@ class PriceInput(QLineEdit):
         val = self.get_value()
         if zeros > 0 and val > 0:
             val = val * (10**zeros)
+            was_blocked = self.signalsBlocked()
             self.blockSignals(True)
             self.setText(f"{val:,}")
-            self.blockSignals(False)
-            self.valueChanged.emit(val)
+            self.blockSignals(was_blocked)
+            if not was_blocked:
+                self.valueChanged.emit(val)
 
     def get_value(self) -> int:
         clean = "".join(ch for ch in normalize_digits(self.text()) if ch.isdigit())
@@ -822,11 +826,13 @@ class PriceInput(QLineEdit):
 
     def set_value(self, amount: int):
         self._raw_typed = False
+        was_blocked = self.signalsBlocked()
         self.blockSignals(True)
         self.setText(f"{int(amount):,}" if amount else "0")
-        self.blockSignals(False)
+        self.blockSignals(was_blocked)
         self.setToolTip(f"{int(amount):,} تومان" if amount else "0 تومان")
-        self.valueChanged.emit(int(amount) if amount else 0)
+        if not was_blocked:
+            self.valueChanged.emit(int(amount) if amount else 0)
 
 
 class _ComboSearchProxyModel(QSortFilterProxyModel):
@@ -872,6 +878,9 @@ class SearchableComboBox(QComboBox):
         super().__init__(parent)
         self.setEditable(True)
         self.setInsertPolicy(QComboBox.NoInsert)
+        self.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.setMinimumContentsLength(10)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         # Keep the logical order of mixed Persian/Latin selectors in the collapsed view.
         self.lineEdit().setLayoutDirection(Qt.LeftToRight)
         self.lineEdit().setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
@@ -1957,6 +1966,16 @@ class HoverSidebarTabsWidget(QWidget):
     COLLAPSED_WIDTH = 56
     EXPANDED_WIDTH = 224
 
+    def _compute_expanded_width(self) -> int:
+        fm = QFontMetrics(self.font())
+        max_w = 0
+        for idx in range(len(self._labels)):
+            icon_txt = self._icons[idx] if idx < len(self._icons) else ""
+            label_txt = self._labels[idx]
+            sample = f"{icon_txt}  {label_txt} 🔒"
+            max_w = max(max_w, fm.horizontalAdvance(sample))
+        return max(self.EXPANDED_WIDTH, max_w + 52)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setLayoutDirection(Qt.RightToLeft)
@@ -2050,6 +2069,8 @@ class HoverSidebarTabsWidget(QWidget):
             is_active = idx == self._current_index
             btn.setProperty("navActive", "true" if is_active else "false")
             btn.setProperty("navLocked", "false" if is_enabled else "true")
+            btn.setProperty("navExpanded", "true" if self._expanded else "false")
+            btn.setLayoutDirection(Qt.RightToLeft if self._expanded else Qt.LeftToRight)
             if self._expanded:
                 lock_suffix = " 🔒" if not is_enabled else ""
                 btn.setText(f"{icon_txt}  {label_txt}{lock_suffix}")
@@ -2066,7 +2087,7 @@ class HoverSidebarTabsWidget(QWidget):
         if not self._expanded:
             self._expanded = True
             self._refresh_button_labels()
-            self._animate_sidebar_width(self.EXPANDED_WIDTH)
+            self._animate_sidebar_width(self._compute_expanded_width())
 
     def _schedule_collapse_sidebar(self):
         self._leave_timer.start()

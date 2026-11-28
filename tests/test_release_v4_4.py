@@ -460,10 +460,9 @@ class ReleaseV44Tests(unittest.TestCase):
             # Verify navigation back to Dashboard (tab 0)
             self.assertEqual(window.tabs.currentIndex(), 0)
 
-            # Verify all sections are collapsed
+            # Settings tab uses clean nested sub-tabs without CollapsibleSection wrappers (v5.0.2)
             settings_page = window.tabs.widget(window._settings_tab_index)
-            for section in settings_page.findChildren(CollapsibleSection):
-                self.assertFalse(section.is_expanded())
+            self.assertEqual(len(settings_page.findChildren(CollapsibleSection)), 0)
         finally:
             window.close()
 

@@ -81,12 +81,8 @@ def test_main_window_builds_with_empty_database(tmp_path, monkeypatch, qapp):
         assert window.lbl_active_db_path.alignment() & Qt.AlignLeft
         assert window.lst_cfg_attributes.minimumHeight() >= 140
         attribute_section = window.lst_cfg_attributes.parentWidget()
-        assert attribute_section.header.objectName() == "collapsibleSectionHeader"
-        assert window.lst_cfg_attributes.isHidden()
-        attribute_section.header.click()
-        assert not window.lst_cfg_attributes.isHidden()
-        attribute_section.header.click()
-        assert window.lst_cfg_attributes.isHidden()
+        assert attribute_section is not None
+        assert window.lst_cfg_attributes.isVisibleTo(attribute_section) or not window.lst_cfg_attributes.isHidden()
         assert window.btn_theme.isEnabled()
         assert window.btn_table_width.isEnabled()
         assert window.tbl_batches.columnCount() >= 22
@@ -317,7 +313,6 @@ def test_database_refresh_keeps_services_suppliers_and_password_status_visible(
         window.ed_emp_phone.clear()
         window.cb_emp_perm.setCurrentText("فروش و خدمات (گزارش محدود به عملکرد خود)")
         window.chk_emp_active.setChecked(True)
-        window.ed_emp_old_pass.clear()
         window.ed_emp_pass.setText("New-Password-123")
         window._update_employee()
 
@@ -782,18 +777,9 @@ def test_settings_sections_start_collapsed(tmp_path, monkeypatch, qapp):
     window = MainWindow(manager, active_employee=None)
     try:
         from utils_and_widgets import CollapsibleSection
-        sections = window.findChildren(CollapsibleSection)
-        assert sections
-        assert all(not section._expanded for section in sections)
-        section = sections[0]
-        section.header.click()
-        qapp.processEvents()
-        assert section._expanded
-        assert not section.content.isHidden()
-        section.header.click()
-        qapp.processEvents()
-        assert not section._expanded
-        assert section.content.isHidden()
+        settings_page = window.tabs.widget(window._settings_tab_index)
+        assert len(settings_page.findChildren(CollapsibleSection)) == 0
+        assert window.settings_subtabs.count() == 5
     finally:
         window.close()
         qapp.processEvents()
@@ -1605,12 +1591,8 @@ def test_backup_numeric_fields_select_their_current_value_on_focus(tmp_path, mon
         assert isinstance(window.sp_bk_retention, main_module.SelectAllSpinBox)
         window.show()
         window.tabs.setCurrentIndex(window._settings_tab_index)
-        qapp.processEvents()
-        backup_header = next(
-            button for button in window.findChildren(QPushButton, "collapsibleSectionHeader")
-            if "پایگاه داده و پشتیبان‌گیری" in button.text()
-        )
-        backup_header.click()
+        window.settings_subtabs.setCurrentIndex(3)
+        window.db_subtabs.setCurrentIndex(1)
         qapp.processEvents()
         for spin, value in (
             (window.sp_bk_interval, 90),

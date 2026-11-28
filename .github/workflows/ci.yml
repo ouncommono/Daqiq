@@ -165,7 +165,7 @@ jobs:
         shell: pwsh
         run: |
           $ver = (Get-Content VERSION).Trim()
-          if (-not $ver) { $ver = "5.0.1" }
+          if (-not $ver) { $ver = "5.0.2" }
           Write-Output "APP_VERSION=$ver" >> $env:GITHUB_ENV
           Write-Output "Building Daqiq onefile for version: $ver"
 
@@ -340,7 +340,7 @@ jobs:
         shell: pwsh
         run: |
           $ver = (Get-Content VERSION).Trim()
-          if (-not $ver) { $ver = "5.0.1" }
+          if (-not $ver) { $ver = "5.0.2" }
           Write-Output "APP_VERSION=$ver" >> $env:GITHUB_ENV
 
       - name: Download Build Artifacts
@@ -382,8 +382,8 @@ jobs:
             gh pr create `
               --base main `
               --head $currentBranch `
-              --title "Release v${{ env.APP_VERSION }} - Multi-Item Invoices, Check Ledger, LAN Invoice Resolution, User Performance & Full UI/UX Upgrade" `
-              --body "Daqiq v${{ env.APP_VERSION }} Final Commercial Release featuring multi-item atomic Purchases/Sales/Services invoices, full Check Management & Suppliers/Customers clearance, 3-option LAN duplicate invoice conflict resolution, barcode/code Enter selection, unified Installment status, 4-card Customers KPI & User Performance reporting, semantic neutral-zero coloring, and Complete-Wipe Zero-Qt Troubleshooter. Strictly unmerged."
+              --title "Release v${{ env.APP_VERSION }} - Full Invoice Editing, Service Installments, Proforma PI-, Report Alignment & High-Res Charts" `
+              --body "Daqiq v${{ env.APP_VERSION }} Commercial Release featuring multi-item invoice editing, service installment plans, PI- proforma prefix & service appending, unified ledger dropdowns, Print/PDF/Word layout parity, high-res >=2400px chart exports, and wrench-badged Zero-Qt Troubleshooter. Strictly unmerged."
           }
 
       - name: Publish Official Release on Matching Version Tag

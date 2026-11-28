@@ -123,6 +123,25 @@ def to_ascii_digits(text: Any) -> str:
     return str(text).translate(_PERSIAN_TO_ASCII)
 
 
+def default_print_filename(prefix: str = "Daqiq", ext: str = "pdf", calendar_mode: str = "jalali") -> str:
+    """Generate a descriptive timestamped export filename (Daqiq_<Date>_<Time>.<ext>)."""
+    import datetime as _dt
+    try:
+        import jdatetime as _jdt
+    except Exception:
+        _jdt = None
+    now_g = _dt.datetime.now()
+    if str(calendar_mode or "jalali").lower() == "jalali" and _jdt is not None:
+        now_j = _jdt.datetime.fromgregorian(datetime=now_g)
+        date_part = now_j.strftime("%Y-%m-%d")
+    else:
+        date_part = now_g.strftime("%Y-%m-%d")
+    time_part = now_g.strftime("%H-%M-%S")
+    safe_prefix = re.sub(r"[^A-Za-z0-9_\-]+", "_", str(prefix or "Daqiq")).strip("_") or "Daqiq"
+    clean_ext = str(ext or "pdf").lstrip(".")
+    return f"{safe_prefix}_{date_part}_{time_part}.{clean_ext}"
+
+
 def _fmt_int_fa(val: Any) -> str:
     if val is None or isinstance(val, bool):
         return "۰"
@@ -186,16 +205,16 @@ def build_sales_invoice_spec(
     inv_display = "، ".join(inv_nos) if inv_nos else "-"
     customer = str(first.get("customer_name") or "").strip()
     cust_phone = str(first.get("customer_phone") or "").strip()
+    seller_name = str(first.get("seller_name") or first.get("employee_name") or "").strip()
     sale_dt = to_persian_digits(str(first.get("sale_datetime") or print_time or "-").strip())
 
     meta: List[Tuple[str, str]] = [
         ("شماره فاکتور", inv_display),
         ("تاریخ و ساعت", sale_dt),
+        ("خریدار", customer if customer and customer != "-" else "-"),
+        ("تلفن خریدار", to_persian_digits(cust_phone) if cust_phone and cust_phone != "-" else "-"),
+        ("فروشنده", seller_name if seller_name and seller_name != "-" else "-"),
     ]
-    if customer and customer != "-":
-        meta.append(("خریدار", customer))
-    if cust_phone and cust_phone != "-":
-        meta.append(("تلفن خریدار", to_persian_digits(cust_phone)))
 
     rows: List[List[str]] = []
     grand_total = 0
@@ -304,19 +323,18 @@ def build_proforma_invoice_spec(
     pf_display = "، ".join(pf_nos) if pf_nos else "-"
     customer = str(first.get("customer_name") or "").strip()
     cust_phone = str(first.get("customer_phone") or "").strip()
+    seller_name = str(first.get("seller_name") or first.get("employee_name") or "").strip()
     pf_dt = to_persian_digits(str(first.get("proforma_datetime") or print_time or "-").strip())
     valid_until = to_persian_digits(str(first.get("valid_until") or "").strip())
 
     meta: List[Tuple[str, str]] = [
         ("شماره پیش‌فاکتور", pf_display),
         ("تاریخ صدور", pf_dt),
+        ("تاریخ اعتبار", valid_until if valid_until and valid_until != "-" else "-"),
+        ("خریدار", customer if customer and customer != "-" else "-"),
+        ("تلفن خریدار", to_persian_digits(cust_phone) if cust_phone and cust_phone != "-" else "-"),
+        ("فروشنده", seller_name if seller_name and seller_name != "-" else "-"),
     ]
-    if valid_until and valid_until != "-":
-        meta.append(("تاریخ اعتبار", valid_until))
-    if customer and customer != "-":
-        meta.append(("خریدار", customer))
-    if cust_phone and cust_phone != "-":
-        meta.append(("تلفن خریدار", to_persian_digits(cust_phone)))
 
     headers = ["ردیف", "شرح کالا", "تعداد", "فی (تومان)", "مبلغ کل (تومان)"]
     widths = [8, 48, 10, 16, 18]
@@ -479,9 +497,15 @@ def build_service_or_upgrade_spec(
     tot_paid = 0
     first = records[0] if records else {}
     cust = str(first.get("customer_name") or "").strip()
-    meta = [("تعداد ردیف", to_persian_digits(len(records))), ("تاریخ چاپ", print_time)]
-    if cust and cust not in ("-", "مشتری حضوری"):
-        meta.insert(0, ("نام مشتری", cust))
+    cust_phone = str(first.get("customer_phone") or "").strip()
+    tech_name = str(first.get("technician_name") or first.get("seller_name") or "").strip()
+    meta = [
+        ("تعداد ردیف", to_persian_digits(len(records))),
+        ("نام مشتری", cust if cust and cust != "-" else "-"),
+        ("تلفن مشتری", to_persian_digits(cust_phone) if cust_phone and cust_phone != "-" else "-"),
+        ("مسئول", tech_name if tech_name and tech_name != "-" else "-"),
+        ("تاریخ چاپ", print_time),
+    ]
     for idx, rec in enumerate(records, 1):
         fee = int(rec.get("service_fee") or 0)
         paid = int(rec.get("paid_amount") or 0)
@@ -977,12 +1001,13 @@ def render_spec_to_html(spec: PrintDocumentSpec, *, is_a5: bool = True) -> str:
         ths.append(f"<th align='center' valign='middle'{w_attr}{w_style}>{_esc_html_dates(h)}</th>")
 
     trs: List[str] = []
-    for row in spec.rows:
+    for r_idx, row in enumerate(spec.rows):
+        row_bg = " background-color:#f3f4f6;" if (r_idx % 2 == 1) else " background-color:#ffffff;"
         tds = []
         for idx, cell in enumerate(row):
             w_pct = f"{spec.col_widths_pct[idx]}%" if (spec.col_widths_pct and idx < len(spec.col_widths_pct)) else ""
             w_attr = f" width='{w_pct}'" if w_pct else ""
-            tds.append(f"<td align='center' valign='middle'{w_attr} style='text-align:center;vertical-align:middle;'>{_esc_html_dates(cell)}</td>")
+            tds.append(f"<td align='center' valign='middle'{w_attr} style='text-align:center;vertical-align:middle;{row_bg}'>{_esc_html_dates(cell)}</td>")
         trs.append(f"<tr>{''.join(tds)}</tr>")
 
     table_html = (
@@ -1006,9 +1031,9 @@ def render_spec_to_html(spec: PrintDocumentSpec, *, is_a5: bool = True) -> str:
     body = f"""
     <table width="100%" cellspacing="0" cellpadding="5" class="header-box">
       <tr>
-        <td width="36%" align="right" valign="middle"><div class="shop-name">{_esc_html_dates(spec.shop_name)}</div>{phone_html}</td>
-        <td width="32%" align="center" valign="middle"><div class="doc-title">{_esc_html_dates(spec.title)}</div></td>
-        <td width="32%" align="left" valign="middle" style="text-align:left;"><div><b>تاریخ چاپ:</b> {_esc_html_dates(spec.print_time or '-')}</div></td>
+        <td width="28%" align="right" valign="middle"><div class="shop-name">{_esc_html_dates(spec.shop_name)}</div>{phone_html}</td>
+        <td width="44%" align="center" valign="middle"><div class="doc-title">{_esc_html_dates(spec.title)}</div></td>
+        <td width="28%" align="left" valign="middle" style="text-align:left;"><div><b>تاریخ چاپ:</b> {_esc_html_dates(spec.print_time or '-')}</div></td>
       </tr>
     </table>
     {meta_html}
@@ -1118,8 +1143,47 @@ def configure_printer(
 
 
 def render_html_to_printer(html_content: str, printer: QPrinter) -> None:
-    """Render HTML cleanly across dynamic pages with running Persian page footers ('صفحه ۱ از ۳')."""
+    """Render HTML cleanly at native printer DPI across dynamic pages with running Persian page footers ('صفحه ۱ از ۳')."""
     doc = QTextDocument()
+    is_offscreen = str(os.environ.get("QT_QPA_PLATFORM") or "").strip().lower() == "offscreen"
+    paint_rect = printer.pageLayout().paintRectPixels(printer.resolution())
+    use_device_dpi = (not is_offscreen) and paint_rect.width() > 50 and paint_rect.height() > 50
+
+    if use_device_dpi:
+        doc.documentLayout().setPaintDevice(printer)
+        dpi = max(72.0, float(printer.resolution() or 300))
+        footer_h = round(18.0 * (dpi / 72.0))
+        body_w = float(paint_rect.width())
+        body_h = max(120.0, float(paint_rect.height()) - footer_h)
+        doc.setDefaultFont(QFont("B Nazanin", 10, QFont.Weight.Bold))
+        doc.setPageSize(QSizeF(body_w, body_h))
+        doc.setHtml(html_content)
+        total_pages = max(1, int(doc.pageCount()))
+        painter = QPainter()
+        if not painter.begin(printer):
+            doc.print_(printer)
+            return
+        try:
+            footer_font = QFont("B Nazanin", 8, QFont.Weight.Bold)
+            for page_idx in range(total_pages):
+                if page_idx > 0:
+                    printer.newPage()
+                painter.save()
+                y_offset = page_idx * body_h
+                painter.translate(0.0, -y_offset)
+                doc.drawContents(painter, QRectF(0.0, y_offset, body_w, body_h))
+                painter.restore()
+                painter.save()
+                painter.setFont(footer_font)
+                painter.setPen(QColor("#000000"))
+                footer_rect = QRectF(0.0, body_h + round(2.0 * (dpi / 72.0)), body_w, footer_h)
+                footer_text = f"صفحه {to_persian_digits(page_idx + 1)} از {to_persian_digits(total_pages)}"
+                painter.drawText(footer_rect, Qt.AlignCenter, footer_text)
+                painter.restore()
+        finally:
+            painter.end()
+        return
+
     doc.setDefaultFont(QFont("B Nazanin", 10, QFont.Weight.Bold))
     page_rect = printer.pageRect(QPrinter.Unit.Point)
     body_w = max(120.0, float(page_rect.width()))
@@ -1133,8 +1197,6 @@ def render_html_to_printer(html_content: str, printer: QPrinter) -> None:
         doc.print_(printer)
         return
     try:
-        # Scale QTextDocument logical points cleanly onto physical printer DPI coordinates
-        paint_rect = printer.pageLayout().paintRectPixels(printer.resolution())
         scale_x = paint_rect.width() / body_w if body_w > 0 else 1.0
         footer_h_pts = 16.0
         footer_font = QFont("B Nazanin", 8, QFont.Weight.Bold)
@@ -1150,7 +1212,6 @@ def render_html_to_printer(html_content: str, printer: QPrinter) -> None:
             doc.drawContents(painter, clip)
             painter.restore()
 
-            # Running footer in Persian numerals
             painter.save()
             painter.scale(scale_x, scale_x)
             painter.setFont(footer_font)
@@ -1270,6 +1331,11 @@ def _set_table_rtl_and_borders(table) -> None:
     tblW.set(qn("w:w"), "5000")
     tblW.set(qn("w:type"), "pct")
     tblPr.append(tblW)
+    for old_lay in tblPr.findall(qn("w:tblLayout")):
+        tblPr.remove(old_lay)
+    tblLayout = OxmlElement("w:tblLayout")
+    tblLayout.set(qn("w:type"), "fixed")
+    tblPr.append(tblLayout)
     bidi_vis = OxmlElement("w:bidiVisual")
     tblPr.append(bidi_vis)
     borders = parse_xml(
@@ -1283,6 +1349,22 @@ def _set_table_rtl_and_borders(table) -> None:
         "</w:tblBorders>"
     )
     tblPr.append(borders)
+
+
+def _apply_table_col_grid(table, usable_w_mm: float, col_pcts: Sequence[float]) -> None:
+    """Write explicit <w:tblGrid><w:gridCol/></w:tblGrid> in twips so Word honors exact column proportions."""
+    tbl = table._tbl
+    old_grid = tbl.find(qn("w:tblGrid"))
+    if old_grid is not None:
+        tbl.remove(old_grid)
+    grid = OxmlElement("w:tblGrid")
+    total_dxa = max(1200, int(round(usable_w_mm * 56.6929)))
+    for pct in col_pcts:
+        col_el = OxmlElement("w:gridCol")
+        col_el.set(qn("w:w"), str(max(240, int(round(total_dxa * (pct / 100.0))))))
+        grid.append(col_el)
+    tblPr = tbl.tblPr
+    tblPr.addnext(grid)
 
 
 def _shade_cell(cell, hex_fill: str) -> None:
@@ -1352,13 +1434,19 @@ def export_spec_to_docx(
     sec.right_margin = Mm(9)
     sec.left_margin = Mm(9)
 
-    # Header band (logical RTL column order with <w:bidiVisual/>: 0=right shop, 1=center title, 2=left date)
+    usable_w_mm = max(80.0, float(w_mm) - 18.0)
+
+    # Header band (logical RTL column order with <w:bidiVisual/>: 28% shop, 44% title, 28% date)
     hdr_tbl = doc.add_table(rows=1, cols=3)
     _set_table_rtl_and_borders(hdr_tbl)
+    _apply_table_col_grid(hdr_tbl, usable_w_mm, [28.0, 44.0, 28.0])
     c0, c1, c2 = hdr_tbl.rows[0].cells
-    _set_cell_pct_width(c0, 36.0)
-    _set_cell_pct_width(c1, 32.0)
-    _set_cell_pct_width(c2, 32.0)
+    _set_cell_pct_width(c0, 28.0)
+    _set_cell_pct_width(c1, 44.0)
+    _set_cell_pct_width(c2, 28.0)
+    c0.width = Mm(usable_w_mm * 0.28)
+    c1.width = Mm(usable_w_mm * 0.44)
+    c2.width = Mm(usable_w_mm * 0.28)
     c0.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
     c1.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
     c2.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
@@ -1409,8 +1497,12 @@ def export_spec_to_docx(
     if spec.headers:
         tbl = doc.add_table(rows=1 + len(spec.rows), cols=len(spec.headers))
         _set_table_rtl_and_borders(tbl)
-        usable_w_mm = max(80.0, float(w_mm) - 18.0)
         equal_pct = 100.0 / max(1, len(spec.headers))
+        grid_pcts = [
+            float(spec.col_widths_pct[i]) if (spec.col_widths_pct and i < len(spec.col_widths_pct)) else equal_pct
+            for i in range(len(spec.headers))
+        ]
+        _apply_table_col_grid(tbl, usable_w_mm, grid_pcts)
         hdr_row = tbl.rows[0]
         hdr_trPr = hdr_row._tr.get_or_add_trPr()
         hdr_trPr.append(OxmlElement("w:tblHeader"))
@@ -1441,7 +1533,7 @@ def export_spec_to_docx(
                 _set_cell_pct_width(cell, pct)
                 cell.width = Mm(usable_w_mm * pct / 100.0)
                 if r_idx % 2 == 0:
-                    _shade_cell(cell, "FAFAFA")
+                    _shade_cell(cell, "F3F4F6")
                 p = cell.paragraphs[0]
                 _set_paragraph_rtl(p)
                 p.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -1635,8 +1727,9 @@ class PrintPreviewDialog(QDialog):
         if spec is None:
             QMessageBox.warning(self, "خروجی Word", "قالب داده‌های این سند برای تبدیل به Word آماده نیست.")
             return
+        suggested_name = default_print_filename(f"Daqiq_{spec.section_key or 'Doc'}", "docx")
         path, _ = QFileDialog.getSaveFileName(
-            self, "ذخیره فایل قابل ویرایش Word", "Daqiq_Document.docx", "Word Document (*.docx)"
+            self, "ذخیره فایل قابل ویرایش Word", suggested_name, "Word Document (*.docx)"
         )
         if not path:
             return
@@ -1649,8 +1742,11 @@ class PrintPreviewDialog(QDialog):
             QMessageBox.critical(self, "خطا در ذخیره Word", str(exc))
 
     def _save_pdf(self) -> None:
+        spec = self.current_spec()
+        sec_key = spec.section_key if spec is not None else "Print"
+        suggested_name = default_print_filename(f"Daqiq_{sec_key or 'Print'}", "pdf")
         path, _ = QFileDialog.getSaveFileName(
-            self, "ذخیره فایل PDF", "Daqiq_Print.pdf", "PDF Files (*.pdf)"
+            self, "ذخیره فایل PDF", suggested_name, "PDF Files (*.pdf)"
         )
         if not path:
             return

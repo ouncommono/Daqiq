@@ -65,6 +65,8 @@ SUBFEATURE_PARENT_TAB: Dict[str, str] = {
     "user_performance": "employees",
     "proforma_invoices": "sales",
     "supplier_installments": "suppliers_payments",
+    "incidental_costs": "sales",
+    "service_installments": "services",
 }
 
 OPTIONAL_DEFAULT_TRUE_FEATURES = frozenset({
@@ -79,6 +81,8 @@ OPTIONAL_DEFAULT_TRUE_FEATURES = frozenset({
     "user_performance",
     "proforma_invoices",
     "supplier_installments",
+    "incidental_costs",
+    "service_installments",
 })
 
 ALL_LICENSE_FEATURES = CORE_TAB_FEATURES + tuple(SUBFEATURE_PARENT_TAB.keys())
@@ -174,6 +178,8 @@ FEATURE_LABELS_FA: Dict[str, str] = {
     "proforma": "پیش‌فاکتورها",
     "proforma_invoices": "پیش‌فاکتورها و تبدیل به فاکتور فروش",
     "supplier_installments": "خرید اقساطی و اقساط تأمین‌کنندگان",
+    "incidental_costs": "هزینه جانبی در فاکتورها",
+    "service_installments": "فروش اقساطی خدمات",
 }
 
 
@@ -225,7 +231,7 @@ class LicenseService:
         verifier: Optional[LicenseVerifier] = None,
         hardware_provider: Optional[HardwareIdentitySource] = None,
         clock_provider: Optional[Callable[[], datetime.datetime]] = None,
-        app_version: str = "5.0.1",
+        app_version: str = "5.0.2",
         store_name_provider: Optional[Callable[[], str]] = None,
     ):
         self.store = store or LicenseStore()
