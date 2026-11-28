@@ -50,6 +50,9 @@ from PySide6.QtWidgets import (
     QTableWidget,
     QListWidget,
     QAbstractItemView,
+    QFrame,
+    QStackedWidget,
+    QToolButton,
 )
 from PySide6.QtCore import (
     Qt,
@@ -61,6 +64,8 @@ from PySide6.QtCore import (
     QEasingCurve,
     QAbstractAnimation,
     QTimer,
+    QPoint,
+    QRect,
 )
 from PySide6.QtGui import QColor, QIntValidator, QPalette
 from PySide6.QtWidgets import QApplication, QSizePolicy
@@ -1912,3 +1917,287 @@ class DynamicAttributeValuesWidget(QWidget):
 
     def _on_add_after(self, row):
         self.add_row("", after_row=row)
+
+
+class _SidebarBarFacade(QFrame):
+    """QTabBar-compatible facade for the right-side hover sidebar navigation rail."""
+
+    def __init__(self, owner):
+        super().__init__(owner)
+        self._owner = owner
+        self.setObjectName("hoverSidebarNav")
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setMouseTracking(True)
+
+    def count(self) -> int:
+        return self._owner.count()
+
+    def tabAt(self, pos) -> int:
+        for idx, btn in enumerate(self._owner._buttons):
+            top_left = btn.mapTo(self, QPoint(0, 0))
+            if QRect(top_left, btn.size()).contains(pos):
+                return idx
+        return -1
+
+    def enterEvent(self, event):
+        self._owner._expand_sidebar()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._owner._schedule_collapse_sidebar()
+        super().leaveEvent(event)
+
+
+class HoverSidebarTabsWidget(QWidget):
+    """Right-side hover-expandable sidebar + stacked page area with QTabWidget compatibility API."""
+
+    currentChanged = Signal(int)
+    tabBarClicked = Signal(int)
+
+    COLLAPSED_WIDTH = 56
+    EXPANDED_WIDTH = 224
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setLayoutDirection(Qt.RightToLeft)
+        self._pages: list[QWidget] = []
+        self._titles: list[str] = []
+        self._icons: list[str] = []
+        self._labels: list[str] = []
+        self._enabled: list[bool] = []
+        self._tooltips: list[str] = []
+        self._buttons: list[QPushButton] = []
+        self._current_index: int = -1
+        self._expanded: bool = False
+
+        root = QHBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(8)
+
+        self._sidebar_frame = _SidebarBarFacade(self)
+        self._sidebar_frame.setMinimumWidth(self.COLLAPSED_WIDTH)
+        self._sidebar_frame.setMaximumWidth(self.COLLAPSED_WIDTH)
+        self._sidebar_frame.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+
+        sidebar_outer = QVBoxLayout(self._sidebar_frame)
+        sidebar_outer.setContentsMargins(4, 6, 4, 6)
+        sidebar_outer.setSpacing(4)
+
+        self._nav_scroll = SmoothScrollArea(self._sidebar_frame)
+        self._nav_scroll.setObjectName("hoverSidebarScroll")
+        self._nav_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._nav_scroll.setFrameShape(QScrollArea.NoFrame)
+        self._nav_scroll.setWidgetResizable(True)
+        self._nav_container = QWidget()
+        self._nav_container.setObjectName("hoverSidebarContainer")
+        self._nav_layout = QVBoxLayout(self._nav_container)
+        self._nav_layout.setContentsMargins(2, 2, 2, 2)
+        self._nav_layout.setSpacing(4)
+        self._nav_layout.addStretch(1)
+        self._nav_scroll.setWidget(self._nav_container)
+        sidebar_outer.addWidget(self._nav_scroll, 1)
+
+        self._stack = QStackedWidget(self)
+        self._stack.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+        root.addWidget(self._sidebar_frame, 0)
+        root.addWidget(self._stack, 1)
+
+        self._leave_timer = QTimer(self)
+        self._leave_timer.setSingleShot(True)
+        self._leave_timer.setInterval(120)
+        self._leave_timer.timeout.connect(self._collapse_sidebar)
+
+        self._anim_min = QPropertyAnimation(self._sidebar_frame, b"minimumWidth", self)
+        self._anim_min.setDuration(140)
+        self._anim_min.setEasingCurve(QEasingCurve.OutCubic)
+        self._anim_max = QPropertyAnimation(self._sidebar_frame, b"maximumWidth", self)
+        self._anim_max.setDuration(140)
+        self._anim_max.setEasingCurve(QEasingCurve.OutCubic)
+
+    @staticmethod
+    def _split_icon_and_label(title: str) -> tuple[str, str]:
+        raw = str(title or "").strip()
+        if not raw:
+            return "•", ""
+        parts = raw.split(" ", 1)
+        if len(parts) == 2 and parts[0]:
+            return parts[0].strip(), parts[1].strip()
+        return raw[:1], raw
+
+    def _animate_sidebar_width(self, target_w: int):
+        cur_w = int(self._sidebar_frame.width() or self.COLLAPSED_WIDTH)
+        self._anim_min.stop()
+        self._anim_max.stop()
+        if QApplication.instance() is None or os.environ.get("QT_QPA_PLATFORM", "") == "offscreen":
+            self._sidebar_frame.setMinimumWidth(target_w)
+            self._sidebar_frame.setMaximumWidth(target_w)
+            return
+        self._anim_min.setStartValue(cur_w)
+        self._anim_min.setEndValue(target_w)
+        self._anim_max.setStartValue(cur_w)
+        self._anim_max.setEndValue(target_w)
+        self._anim_min.start()
+        self._anim_max.start()
+
+    def _refresh_button_labels(self):
+        for idx, btn in enumerate(self._buttons):
+            icon_txt = self._icons[idx]
+            label_txt = self._labels[idx]
+            tip_base = self._titles[idx]
+            custom_tip = self._tooltips[idx]
+            is_enabled = self._enabled[idx]
+            is_active = idx == self._current_index
+            btn.setProperty("navActive", "true" if is_active else "false")
+            btn.setProperty("navLocked", "false" if is_enabled else "true")
+            if self._expanded:
+                lock_suffix = " 🔒" if not is_enabled else ""
+                btn.setText(f"{icon_txt}  {label_txt}{lock_suffix}")
+            else:
+                btn.setText(icon_txt)
+            btn.setToolTip(custom_tip or tip_base)
+            st = btn.style()
+            if st is not None:
+                st.unpolish(btn)
+                st.polish(btn)
+
+    def _expand_sidebar(self):
+        self._leave_timer.stop()
+        if not self._expanded:
+            self._expanded = True
+            self._refresh_button_labels()
+            self._animate_sidebar_width(self.EXPANDED_WIDTH)
+
+    def _schedule_collapse_sidebar(self):
+        self._leave_timer.start()
+
+    def _collapse_sidebar(self):
+        if self._expanded:
+            self._expanded = False
+            self._refresh_button_labels()
+            self._animate_sidebar_width(self.COLLAPSED_WIDTH)
+
+    def is_sidebar_expanded(self) -> bool:
+        return bool(self._expanded)
+
+    def addTab(self, widget: QWidget, title: str) -> int:
+        idx = len(self._pages)
+        icon_txt, label_txt = self._split_icon_and_label(title)
+        self._pages.append(widget)
+        self._titles.append(str(title or ""))
+        self._icons.append(icon_txt)
+        self._labels.append(label_txt)
+        self._enabled.append(True)
+        self._tooltips.append("")
+        self._stack.addWidget(widget)
+
+        btn = QPushButton(icon_txt, self._nav_container)
+        btn.setObjectName("hoverSidebarItem")
+        btn.setCursor(Qt.PointingHandCursor)
+        btn.setMinimumHeight(40)
+        btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        btn.setProperty("navActive", "false")
+        btn.setProperty("navLocked", "false")
+        btn.clicked.connect(lambda _checked=False, b=btn: self._on_nav_button_clicked(b))
+        self._buttons.append(btn)
+        # Insert just before bottom stretch item
+        self._nav_layout.insertWidget(self._nav_layout.count() - 1, btn)
+        if self._current_index < 0:
+            self._current_index = 0
+            self._stack.setCurrentIndex(0)
+        self._refresh_button_labels()
+        return idx
+
+    def _on_nav_button_clicked(self, btn: QPushButton):
+        try:
+            idx = self._buttons.index(btn)
+        except ValueError:
+            return
+        self.tabBarClicked.emit(idx)
+        if 0 <= idx < len(self._enabled) and self._enabled[idx]:
+            self.setCurrentIndex(idx)
+
+    def count(self) -> int:
+        return len(self._pages)
+
+    def widget(self, index: int) -> QWidget | None:
+        if 0 <= index < len(self._pages):
+            return self._pages[index]
+        return None
+
+    def indexOf(self, widget: QWidget) -> int:
+        try:
+            return self._pages.index(widget)
+        except ValueError:
+            return -1
+
+    def currentIndex(self) -> int:
+        return self._current_index
+
+    def currentWidget(self) -> QWidget | None:
+        return self.widget(self._current_index)
+
+    def setCurrentIndex(self, index: int):
+        if not (0 <= index < len(self._pages)):
+            return
+        changed = (index != self._current_index)
+        self._current_index = index
+        self._stack.setCurrentIndex(index)
+        self._refresh_button_labels()
+        if changed and not self.signalsBlocked():
+            self.currentChanged.emit(index)
+
+    def setCurrentWidget(self, widget: QWidget):
+        idx = self.indexOf(widget)
+        if idx >= 0:
+            self.setCurrentIndex(idx)
+
+    def isTabEnabled(self, index: int) -> bool:
+        if 0 <= index < len(self._enabled):
+            return bool(self._enabled[index])
+        return False
+
+    def setTabEnabled(self, index: int, enabled: bool):
+        if 0 <= index < len(self._enabled):
+            self._enabled[index] = bool(enabled)
+            self._refresh_button_labels()
+
+    def tabText(self, index: int) -> str:
+        if 0 <= index < len(self._titles):
+            return self._titles[index]
+        return ""
+
+    def setTabText(self, index: int, text: str):
+        if 0 <= index < len(self._titles):
+            self._titles[index] = str(text or "")
+            ic, lb = self._split_icon_and_label(self._titles[index])
+            self._icons[index] = ic
+            self._labels[index] = lb
+            self._refresh_button_labels()
+
+    def tabToolTip(self, index: int) -> str:
+        if 0 <= index < len(self._tooltips):
+            return self._tooltips[index]
+        return ""
+
+    def setTabToolTip(self, index: int, tip: str):
+        if 0 <= index < len(self._tooltips):
+            self._tooltips[index] = str(tip or "")
+            self._refresh_button_labels()
+
+    def tabBar(self) -> _SidebarBarFacade:
+        return self._sidebar_frame
+
+
+def apply_interactive_cursors(root_widget: QWidget):
+    """Ensure every interactive button/checkbox/radio/tab control displays Qt.PointingHandCursor."""
+    if not _qt_is_valid(root_widget):
+        return
+    try:
+        from PySide6.QtWidgets import QAbstractButton, QTabBar
+        for child in root_widget.findChildren(QAbstractButton):
+            child.setCursor(Qt.PointingHandCursor)
+        for tb in root_widget.findChildren(QTabBar):
+            tb.setCursor(Qt.PointingHandCursor)
+    except Exception:
+        pass

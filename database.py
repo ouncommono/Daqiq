@@ -139,8 +139,12 @@ ROW_VERSION_TABLES = (
     "payments",
     "installment_plans",
     "installment_payments",
+    "supplier_installment_plans",
+    "supplier_installment_payments",
     "checks",
     "invoice_headers",
+    "proforma_invoices",
+    "proforma_items",
 )
 
 
@@ -162,7 +166,7 @@ def get_live_app_version() -> str:
                     return text
         except OSError:
             pass
-    return "5.0.0"
+    return "5.0.1"
 
 SQLITE_INTEGER_MIN = -(1 << 63)
 SQLITE_INTEGER_MAX = (1 << 63) - 1
@@ -178,7 +182,7 @@ EXPECTED_SCHEMA_COLUMNS = {
     "suppliers": ("id", "name", "phone", "address", "notes", "created_at", "updated_at", "row_version"),
     "customers": ("id", "name", "phone", "notes", "created_at", "updated_at", "row_version", "national_id", "address", "last_modified_by", "last_modified_at"),
     "products": ("id", "code", "serial_number", "name", "category", "sub_category", "brand", "model", "specs_json", "description", "reorder_point", "default_profit_pct", "is_active", "created_at", "updated_at", "row_version"),
-    "batches": ("id", "batch_code", "product_id", "serial_numbers", "supplier_id", "buyer_employee_id", "invoice_number", "purchase_date", "initial_qty", "sold_qty", "returned_qty", "remaining_qty", "unit_purchase_price", "extra_cost_total", "upgrade_cost_unit", "unit_cost_price", "suggested_sell_price", "profit_pct", "paid_amount", "settlement_status", "colors_json", "initial_specs", "final_specs", "supplier_name_snapshot", "notes", "created_at", "updated_at", "row_version", "settlement_subtype", "check_due_date", "check_status"),
+    "batches": ("id", "batch_code", "product_id", "serial_numbers", "supplier_id", "buyer_employee_id", "invoice_number", "purchase_date", "initial_qty", "sold_qty", "returned_qty", "remaining_qty", "unit_purchase_price", "extra_cost_total", "upgrade_cost_unit", "unit_cost_price", "suggested_sell_price", "profit_pct", "paid_amount", "settlement_status", "colors_json", "initial_specs", "final_specs", "supplier_name_snapshot", "notes", "created_at", "updated_at", "row_version", "settlement_subtype", "check_due_date", "check_status", "purchase_invoice_code", "payment_type"),
     "upgrades": ("id", "target_batch_id", "part_batch_id", "technician_id", "target_qty", "part_qty_used", "stock_deducted_qty", "part_unit_cost", "labor_cost_unit", "added_cost_unit", "upgrade_date", "serial_number", "manual_part_description", "old_specs", "new_specs", "notes", "created_at", "updated_at", "row_version"),
     "sales": ("id", "invoice_number", "product_id", "batch_id", "serial_number", "seller_employee_id", "customer_name", "customer_phone", "qty", "returned_qty", "suggested_unit_price", "actual_unit_price", "unit_cost_price", "unit_discount", "total_discount", "price_Markup_unit", "unit_profit", "total_profit", "total_amount", "paid_amount", "settlement_status", "sale_datetime", "warranty_company", "warranty_start", "warranty_months", "warranty_days", "warranty_end", "specifications", "colors_json", "notes", "created_at", "updated_at", "row_version", "customer_id", "payment_type", "settlement_subtype", "check_due_date", "check_status"),
     "service_catalog": ("id", "code", "service_type", "name", "default_fee", "default_side_cost", "description", "is_active", "created_at", "updated_at", "row_version"),
@@ -188,8 +192,12 @@ EXPECTED_SCHEMA_COLUMNS = {
     "audit_logs": ("id", "action_time", "action_type", "details", "created_at", "updated_at"),
     "installment_plans": ("id", "sale_id", "customer_id", "total_bill", "down_payment", "financed_amount", "installment_count", "interval_days", "start_due_date", "status", "notes", "last_modified_by", "last_modified_at", "created_at", "updated_at", "row_version", "first_installment_paid"),
     "installment_payments": ("id", "plan_id", "installment_no", "due_date", "due_amount", "paid_amount", "paid_date", "status", "notes", "last_modified_by", "last_modified_at", "created_at", "updated_at", "row_version"),
+    "supplier_installment_plans": ("id", "purchase_invoice_code", "batch_id", "supplier_id", "total_bill", "down_payment", "financed_amount", "installment_count", "interval_days", "start_due_date", "status", "notes", "last_modified_by", "last_modified_at", "created_at", "updated_at", "row_version", "first_installment_paid"),
+    "supplier_installment_payments": ("id", "plan_id", "installment_no", "due_date", "due_amount", "paid_amount", "paid_date", "status", "notes", "last_modified_by", "last_modified_at", "created_at", "updated_at", "row_version"),
     "checks": ("id", "direction", "ref_type", "ref_id", "invoice_number", "customer_id", "supplier_id", "party_name", "party_phone", "check_number", "amount", "due_date", "status", "cleared_date", "notes", "last_modified_by", "last_modified_at", "created_at", "updated_at", "row_version"),
     "invoice_headers": ("id", "invoice_kind", "invoice_number", "party_id", "party_name", "party_phone", "operator_id", "total_amount", "paid_amount", "settlement_status", "settlement_subtype", "check_due_date", "check_status", "first_installment_paid", "item_count", "invoice_datetime", "notes", "last_modified_by", "last_modified_at", "created_at", "updated_at", "row_version"),
+    "proforma_invoices": ("id", "proforma_number", "customer_id", "customer_name", "customer_phone", "seller_employee_id", "proforma_datetime", "valid_until", "status", "converted_sale_invoice", "total_amount", "notes", "last_modified_by", "last_modified_at", "created_at", "updated_at", "row_version"),
+    "proforma_items": ("id", "proforma_id", "line_no", "product_id", "batch_id", "qty", "suggested_unit_price", "actual_unit_price", "line_total", "serial_number", "warranty_company", "warranty_start", "warranty_months", "warranty_days", "warranty_end", "specifications", "colors_json", "notes", "created_at", "updated_at", "row_version"),
 }
 
 def validate_schema_column_order(conn):
@@ -1328,6 +1336,8 @@ class DatabaseManager:
                     settlement_subtype TEXT NOT NULL DEFAULT '',
                     check_due_date TEXT DEFAULT '',
                     check_status TEXT DEFAULT '',
+                    purchase_invoice_code TEXT NOT NULL DEFAULT '',
+                    payment_type TEXT NOT NULL DEFAULT 'cash',
                     CONSTRAINT ck_batches_stock_balance CHECK (
                         sold_qty + returned_qty <= initial_qty
                         AND remaining_qty = initial_qty - sold_qty - returned_qty
@@ -1606,6 +1616,108 @@ class DatabaseManager:
                 )
             """)
 
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS supplier_installment_plans (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    purchase_invoice_code TEXT NOT NULL UNIQUE,
+                    batch_id INTEGER NOT NULL,
+                    supplier_id INTEGER NOT NULL,
+                    total_bill INTEGER NOT NULL CHECK (total_bill >= 0),
+                    down_payment INTEGER NOT NULL DEFAULT 0 CHECK (down_payment >= 0),
+                    financed_amount INTEGER NOT NULL CHECK (financed_amount >= 0),
+                    installment_count INTEGER NOT NULL CHECK (installment_count > 0),
+                    interval_days INTEGER NOT NULL DEFAULT 30 CHECK (interval_days > 0),
+                    start_due_date TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL DEFAULT 'active'
+                        CHECK (status IN ('active', 'completed', 'cancelled')),
+                    notes TEXT DEFAULT '',
+                    last_modified_by TEXT DEFAULT '',
+                    last_modified_at TEXT DEFAULT '',
+                    created_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT '',
+                    row_version INTEGER NOT NULL DEFAULT 1,
+                    first_installment_paid INTEGER NOT NULL DEFAULT 0 CHECK (first_installment_paid IN (0, 1)),
+                    FOREIGN KEY(batch_id) REFERENCES batches(id) ON DELETE CASCADE,
+                    FOREIGN KEY(supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE
+                )
+            """)
+
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS supplier_installment_payments (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    plan_id INTEGER NOT NULL,
+                    installment_no INTEGER NOT NULL CHECK (installment_no > 0),
+                    due_date TEXT NOT NULL,
+                    due_amount INTEGER NOT NULL CHECK (due_amount >= 0),
+                    paid_amount INTEGER NOT NULL DEFAULT 0 CHECK (paid_amount >= 0),
+                    paid_date TEXT DEFAULT '',
+                    status TEXT NOT NULL DEFAULT 'pending'
+                        CHECK (status IN ('pending', 'partial', 'paid')),
+                    notes TEXT DEFAULT '',
+                    last_modified_by TEXT DEFAULT '',
+                    last_modified_at TEXT DEFAULT '',
+                    created_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT '',
+                    row_version INTEGER NOT NULL DEFAULT 1,
+                    UNIQUE(plan_id, installment_no),
+                    FOREIGN KEY(plan_id) REFERENCES supplier_installment_plans(id) ON DELETE CASCADE
+                )
+            """)
+
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS proforma_invoices (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    proforma_number TEXT NOT NULL UNIQUE CHECK (length(trim(proforma_number)) > 0),
+                    customer_id INTEGER,
+                    customer_name TEXT DEFAULT '',
+                    customer_phone TEXT DEFAULT '',
+                    seller_employee_id INTEGER,
+                    proforma_datetime TEXT NOT NULL,
+                    valid_until TEXT DEFAULT '',
+                    status TEXT NOT NULL DEFAULT 'open'
+                        CHECK (status IN ('open', 'converted', 'cancelled')),
+                    converted_sale_invoice TEXT DEFAULT '',
+                    total_amount INTEGER NOT NULL DEFAULT 0 CHECK (total_amount >= 0),
+                    notes TEXT DEFAULT '',
+                    last_modified_by TEXT DEFAULT '',
+                    last_modified_at TEXT DEFAULT '',
+                    created_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT '',
+                    row_version INTEGER NOT NULL DEFAULT 1,
+                    FOREIGN KEY(customer_id) REFERENCES customers(id) ON DELETE SET NULL,
+                    FOREIGN KEY(seller_employee_id) REFERENCES employees(id) ON DELETE SET NULL
+                )
+            """)
+
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS proforma_items (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    proforma_id INTEGER NOT NULL,
+                    line_no INTEGER NOT NULL DEFAULT 1 CHECK (line_no > 0),
+                    product_id INTEGER NOT NULL,
+                    batch_id INTEGER NOT NULL,
+                    qty INTEGER NOT NULL CHECK (qty > 0),
+                    suggested_unit_price INTEGER NOT NULL DEFAULT 0 CHECK (suggested_unit_price >= 0),
+                    actual_unit_price INTEGER NOT NULL CHECK (actual_unit_price >= 0),
+                    line_total INTEGER NOT NULL CHECK (line_total >= 0),
+                    serial_number TEXT DEFAULT '',
+                    warranty_company TEXT DEFAULT '',
+                    warranty_start TEXT DEFAULT '',
+                    warranty_months INTEGER NOT NULL DEFAULT 0,
+                    warranty_days INTEGER NOT NULL DEFAULT 0,
+                    warranty_end TEXT DEFAULT '',
+                    specifications TEXT DEFAULT '',
+                    colors_json TEXT NOT NULL DEFAULT '[]',
+                    notes TEXT DEFAULT '',
+                    created_at TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL DEFAULT '',
+                    row_version INTEGER NOT NULL DEFAULT 1,
+                    FOREIGN KEY(proforma_id) REFERENCES proforma_invoices(id) ON DELETE CASCADE,
+                    FOREIGN KEY(product_id) REFERENCES products(id),
+                    FOREIGN KEY(batch_id) REFERENCES batches(id)
+                )
+            """)
+
             # Backward-compatible additive upgrade for existing v4 databases (row_version + v4.10.0 additive columns)
             if existing_tables:
                 for rv_table in ROW_VERSION_TABLES:
@@ -1629,6 +1741,8 @@ class DatabaseManager:
                         ("settlement_subtype", "TEXT NOT NULL DEFAULT ''"),
                         ("check_due_date", "TEXT DEFAULT ''"),
                         ("check_status", "TEXT DEFAULT ''"),
+                        ("purchase_invoice_code", "TEXT NOT NULL DEFAULT ''"),
+                        ("payment_type", "TEXT NOT NULL DEFAULT 'cash'"),
                     ),
                     "sales": (
                         ("customer_id", "INTEGER REFERENCES customers(id) ON DELETE SET NULL"),
@@ -1749,7 +1863,9 @@ class DatabaseManager:
                 "products", "batches", "sales", "upgrades", "service_catalog",
                 "service_records", "suppliers", "customers", "payments",
                 "service_price_history", "audit_logs",
-                "installment_plans", "installment_payments", "checks", "invoice_headers",
+                "installment_plans", "installment_payments",
+                "supplier_installment_plans", "supplier_installment_payments",
+                "checks", "invoice_headers", "proforma_invoices", "proforma_items",
             )
             for table_name in activity_tables:
                 conn.execute(f"DROP TRIGGER IF EXISTS trg_{table_name}_updated_at_insert")
@@ -1854,7 +1970,9 @@ class DatabaseManager:
             for table_name in (
                 "products", "batches", "sales", "upgrades", "service_catalog",
                 "service_records", "suppliers", "employees", "customers", "payments",
-                "installment_plans", "installment_payments", "checks", "invoice_headers",
+                "installment_plans", "installment_payments",
+                "supplier_installment_plans", "supplier_installment_payments",
+                "checks", "invoice_headers", "proforma_invoices", "proforma_items",
             ):
                 conn.execute(
                     f"CREATE INDEX IF NOT EXISTS idx_{table_name}_activity "
@@ -1910,6 +2028,15 @@ class DatabaseManager:
                 "CREATE INDEX IF NOT EXISTS idx_checks_supplier ON checks(supplier_id, status, due_date)",
                 "CREATE INDEX IF NOT EXISTS idx_inv_headers_kind_num ON invoice_headers(invoice_kind, invoice_number)",
                 "CREATE INDEX IF NOT EXISTS idx_inv_headers_datetime ON invoice_headers(invoice_datetime DESC, id DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_batches_pinv ON batches(purchase_invoice_code, id DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_batches_invoice_num ON batches(invoice_number)",
+                "CREATE INDEX IF NOT EXISTS idx_sup_inst_plans_sup ON supplier_installment_plans(supplier_id, status, id DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_sup_inst_plans_pinv ON supplier_installment_plans(purchase_invoice_code)",
+                "CREATE INDEX IF NOT EXISTS idx_sup_inst_pay_plan ON supplier_installment_payments(plan_id, installment_no)",
+                "CREATE INDEX IF NOT EXISTS idx_sup_inst_pay_due ON supplier_installment_payments(status, due_date, id)",
+                "CREATE INDEX IF NOT EXISTS idx_proforma_num ON proforma_invoices(proforma_number)",
+                "CREATE INDEX IF NOT EXISTS idx_proforma_status_dt ON proforma_invoices(status, proforma_datetime DESC, id DESC)",
+                "CREATE INDEX IF NOT EXISTS idx_proforma_items_pf ON proforma_items(proforma_id, line_no)",
             ):
                 conn.execute(index_sql)
 
@@ -2249,10 +2376,11 @@ class DatabaseManager:
         """Generate a code, optionally inside the caller's serialized write transaction."""
         allowed_columns = {
             "products": {"code"},
-            "batches": {"batch_code", "invoice_number"},
+            "batches": {"batch_code", "invoice_number", "purchase_invoice_code"},
             "sales": {"invoice_number"},
             "service_catalog": {"code"},
             "service_records": {"invoice_number"},
+            "proforma_invoices": {"proforma_number"},
         }
         if column not in allowed_columns.get(table, set()):
             raise ValueError("جدول یا ستون تولید کد معتبر نیست.")
@@ -2269,6 +2397,7 @@ class DatabaseManager:
                     max_num = max(max_num, int(value))
             kind_map = {
                 ("sales", "invoice_number"): "sale",
+                ("batches", "purchase_invoice_code"): "batch",
                 ("batches", "invoice_number"): "batch",
                 ("service_records", "invoice_number"): "service",
             }
@@ -2282,6 +2411,16 @@ class DatabaseManager:
                     value = str(row[0] or "")[len(prefix):]
                     if value.isdigit():
                         max_num = max(max_num, int(value))
+            if table == "batches" and column in ("purchase_invoice_code", "batch_code"):
+                other_col = "batch_code" if column == "purchase_invoice_code" else "purchase_invoice_code"
+                brows = connection.execute(
+                    f"SELECT {other_col} FROM batches WHERE {other_col} LIKE ?",
+                    (f"{prefix}%",),
+                ).fetchall()
+                for row in brows:
+                    value = str(row[0] or "")[len(prefix):]
+                    if value.isdigit():
+                        max_num = max(max_num, int(value))
             return f"{prefix}{max_num + 1}"
 
         if conn is not None:
@@ -2291,21 +2430,37 @@ class DatabaseManager:
 
     def _next_available_invoice_code(self, conn, invoice_kind: str, field: str, prefix: str, start_num: int = 1001) -> str:
         """Allocate the next unused sequential code in a strict collision-free loop."""
-        table_map = {"sale": "sales", "batch": "batches", "service": "service_records"}
+        table_map = {
+            "sale": "sales",
+            "batch": "batches",
+            "service": "service_records",
+            "proforma": "proforma_invoices",
+        }
         tbl = table_map[invoice_kind]
-        col = field if field in ("batch_code", "invoice_number") else "invoice_number"
+        if invoice_kind == "proforma":
+            col = "proforma_number"
+        elif field in ("batch_code", "purchase_invoice_code", "invoice_number"):
+            col = field
+        else:
+            col = "invoice_number"
         candidate = self.generate_next_code(tbl, col, prefix, start_num, conn=conn)
         seq = int(candidate[len(prefix):]) if candidate.startswith(prefix) and candidate[len(prefix):].isdigit() else start_num
         while True:
             cand = f"{prefix}{seq}"
             exists_op = conn.execute(f"SELECT 1 FROM {tbl} WHERE {col}=? LIMIT 1", (cand,)).fetchone()
             exists_hdr = None
-            if col == "invoice_number":
+            exists_alt = None
+            if col in ("invoice_number", "purchase_invoice_code") and invoice_kind in ("sale", "batch", "service"):
                 exists_hdr = conn.execute(
                     "SELECT 1 FROM invoice_headers WHERE invoice_kind=? AND invoice_number=? LIMIT 1",
                     (invoice_kind, cand),
                 ).fetchone()
-            if not exists_op and not exists_hdr:
+            if invoice_kind == "batch" and col in ("purchase_invoice_code", "batch_code"):
+                exists_alt = conn.execute(
+                    "SELECT 1 FROM batches WHERE batch_code=? OR purchase_invoice_code=? LIMIT 1",
+                    (cand, cand),
+                ).fetchone()
+            if not exists_op and not exists_hdr and not exists_alt:
                 return cand
             seq += 1
 
@@ -2315,7 +2470,7 @@ class DatabaseManager:
         if not clean_val:
             return None
         hdr = None
-        if field == "invoice_number":
+        if field in ("invoice_number", "purchase_invoice_code"):
             hdr = conn.execute(
                 "SELECT * FROM invoice_headers WHERE invoice_kind=? AND invoice_number=?",
                 (invoice_kind, clean_val),
@@ -2361,9 +2516,12 @@ class DatabaseManager:
                 },
             }
         if invoice_kind == "batch":
-            where_col = "batch_code" if field == "batch_code" else "invoice_number"
+            where_col = (
+                "batch_code" if field == "batch_code"
+                else ("purchase_invoice_code" if field == "purchase_invoice_code" else "invoice_number")
+            )
             rows = conn.execute(
-                f"""SELECT id, batch_code, invoice_number, initial_qty, sold_qty, unit_purchase_price,
+                f"""SELECT id, batch_code, purchase_invoice_code, invoice_number, initial_qty, sold_qty, unit_purchase_price,
                            extra_cost_total, paid_amount, supplier_name_snapshot, settlement_status,
                            purchase_date, row_version
                     FROM batches WHERE {where_col}=? ORDER BY id ASC""",
@@ -2390,7 +2548,7 @@ class DatabaseManager:
         """Atomically reverse all stock, check, payment, and installment side effects of an existing invoice."""
         clean_val = str(value or "").strip()
         prev_hdr = None
-        if field == "invoice_number":
+        if field in ("invoice_number", "purchase_invoice_code"):
             prev_hdr = conn.execute(
                 "SELECT id, row_version FROM invoice_headers WHERE invoice_kind=? AND invoice_number=?",
                 (invoice_kind, clean_val),
@@ -2433,9 +2591,12 @@ class DatabaseManager:
             return prev_ver
 
         if invoice_kind == "batch":
-            where_col = "batch_code" if field == "batch_code" else "invoice_number"
+            where_col = (
+                "batch_code" if field == "batch_code"
+                else ("purchase_invoice_code" if field == "purchase_invoice_code" else "invoice_number")
+            )
             rows = conn.execute(
-                f"SELECT id, batch_code, sold_qty, returned_qty, row_version FROM batches WHERE {where_col}=?",
+                f"SELECT id, batch_code, purchase_invoice_code, sold_qty, returned_qty, row_version FROM batches WHERE {where_col}=?",
                 (clean_val,),
             ).fetchall()
             prev_ver = int(prev_hdr["row_version"]) if prev_hdr else (max(int(r["row_version"] or 1) for r in rows) if rows else 1)
@@ -2453,6 +2614,11 @@ class DatabaseManager:
                 ).fetchone()
                 if has_upg:
                     raise ValueError("محموله قبلی دارای سابقه ارتقا است و جایگزینی خودکار آن مجاز نیست.")
+                conn.execute(
+                    f"DELETE FROM supplier_installment_payments WHERE plan_id IN (SELECT id FROM supplier_installment_plans WHERE batch_id IN ({marks}))",
+                    batch_ids,
+                )
+                conn.execute(f"DELETE FROM supplier_installment_plans WHERE batch_id IN ({marks})", batch_ids)
                 conn.execute(f"DELETE FROM payments WHERE ref_type='batch' AND ref_id IN ({marks})", batch_ids)
                 conn.execute(f"DELETE FROM checks WHERE ref_type='batch' AND ref_id IN ({marks})", batch_ids)
             conn.execute("DELETE FROM checks WHERE direction='payable' AND ref_type='batch' AND invoice_number=?", (clean_val,))
@@ -2674,7 +2840,7 @@ class DatabaseManager:
         def _tx(conn):
             nonlocal code
             if not code:
-                code = self.generate_next_code("products", "code", "P-", 1001, conn=conn)
+                code = self.generate_next_code("products", "code", "SKU-", 1001, conn=conn)
             conn.execute(
                 """
                 INSERT INTO products (code, name, category, sub_category, brand, model, specs_json, description, reorder_point, default_profit_pct, serial_number)
@@ -2904,10 +3070,11 @@ class DatabaseManager:
         if not clauses:
             return
         rows = conn.execute(
-            "SELECT id,batch_id,qty FROM sales WHERE " + " OR ".join(clauses) + " ORDER BY updated_at DESC, id DESC",
+            "SELECT id,batch_id,qty,invoice_number FROM sales WHERE " + " OR ".join(clauses) + " ORDER BY updated_at DESC, id DESC",
             params,
         ).fetchall()
         removed_batches = set(batch_ids)
+        touched_invoices = set()
         for sale in rows:
             if sale["batch_id"] not in removed_batches:
                 conn.execute(
@@ -2921,7 +3088,18 @@ class DatabaseManager:
             )
             conn.execute("DELETE FROM installment_plans WHERE sale_id=?", (sale["id"],))
             conn.execute("DELETE FROM payments WHERE ref_type='sale' AND ref_id=?", (sale["id"],))
+            conn.execute("DELETE FROM checks WHERE ref_type='sale' AND ref_id=?", (sale["id"],))
             conn.execute("DELETE FROM sales WHERE id=?", (sale["id"],))
+            if str(sale["invoice_number"] or "").strip():
+                touched_invoices.add(str(sale["invoice_number"]).strip())
+        for inv_no in touched_invoices:
+            rem_cnt = conn.execute(
+                "SELECT COUNT(*) FROM sales WHERE invoice_number=?",
+                (inv_no,),
+            ).fetchone()[0]
+            if int(rem_cnt or 0) == 0:
+                conn.execute("DELETE FROM checks WHERE ref_type='sale' AND invoice_number=?", (inv_no,))
+                conn.execute("DELETE FROM invoice_headers WHERE invoice_kind='sale' AND invoice_number=?", (inv_no,))
 
     def _hard_delete_batches(self, conn, batch_ids):
         batch_ids = list(dict.fromkeys(int(value) for value in batch_ids))
@@ -2930,11 +3108,49 @@ class DatabaseManager:
         self._delete_linked_upgrades(conn, batch_ids=batch_ids)
         self._delete_linked_sales(conn, batch_ids=batch_ids)
         marks = ",".join("?" for _ in batch_ids)
+        b_rows = conn.execute(
+            f"SELECT id, batch_code, invoice_number, purchase_invoice_code FROM batches WHERE id IN ({marks})",
+            batch_ids,
+        ).fetchall()
+        pinv_codes = {str(r["purchase_invoice_code"] or "").strip() for r in b_rows if str(r["purchase_invoice_code"] or "").strip()}
+        inv_codes = {str(r["invoice_number"] or "").strip() for r in b_rows if str(r["invoice_number"] or "").strip()}
+        batch_codes = {str(r["batch_code"] or "").strip() for r in b_rows if str(r["batch_code"] or "").strip()}
+        conn.execute(
+            f"DELETE FROM supplier_installment_payments WHERE plan_id IN (SELECT id FROM supplier_installment_plans WHERE batch_id IN ({marks}))",
+            batch_ids,
+        )
+        conn.execute(f"DELETE FROM supplier_installment_plans WHERE batch_id IN ({marks})", batch_ids)
         conn.execute(
             f"DELETE FROM payments WHERE ref_type='batch' AND ref_id IN ({marks})",
             batch_ids,
         )
+        conn.execute(
+            f"DELETE FROM checks WHERE ref_type='batch' AND ref_id IN ({marks})",
+            batch_ids,
+        )
+        conn.execute(f"DELETE FROM proforma_items WHERE batch_id IN ({marks})", batch_ids)
         conn.execute(f"DELETE FROM batches WHERE id IN ({marks})", batch_ids)
+        for pcode in pinv_codes:
+            rem_p = conn.execute(
+                "SELECT COUNT(*) FROM batches WHERE purchase_invoice_code=?",
+                (pcode,),
+            ).fetchone()[0]
+            if int(rem_p or 0) == 0:
+                conn.execute(
+                    "DELETE FROM supplier_installment_payments WHERE plan_id IN (SELECT id FROM supplier_installment_plans WHERE purchase_invoice_code=?)",
+                    (pcode,),
+                )
+                conn.execute("DELETE FROM supplier_installment_plans WHERE purchase_invoice_code=?", (pcode,))
+                conn.execute("DELETE FROM checks WHERE ref_type='batch' AND invoice_number=?", (pcode,))
+                conn.execute("DELETE FROM invoice_headers WHERE invoice_kind='batch' AND invoice_number=?", (pcode,))
+        for icode in inv_codes | batch_codes:
+            rem_i = conn.execute(
+                "SELECT COUNT(*) FROM batches WHERE invoice_number=? OR batch_code=? OR purchase_invoice_code=?",
+                (icode, icode, icode),
+            ).fetchone()[0]
+            if int(rem_i or 0) == 0:
+                conn.execute("DELETE FROM checks WHERE ref_type='batch' AND invoice_number=?", (icode,))
+                conn.execute("DELETE FROM invoice_headers WHERE invoice_kind='batch' AND invoice_number=?", (icode,))
 
     def delete_product(self, prod_id, expected_row_version=None):
         """Hard-delete product history and dependent batches transactionally."""
@@ -2979,12 +3195,22 @@ class DatabaseManager:
             ).fetchone()
             if not supplier:
                 return
+            if not delete_related_data:
+                active_plan = conn.execute(
+                    "SELECT id FROM supplier_installment_plans WHERE supplier_id=? AND status='active' LIMIT 1",
+                    (sup_id,),
+                ).fetchone()
+                if active_plan:
+                    raise ValueError(
+                        "این تأمین‌کننده دارای طرح خرید اقساطی فعال است. ابتدا اقساط تسویه یا با حذف سوابق اقدام کنید."
+                    )
             batch_rows = conn.execute(
                 "SELECT id FROM batches WHERE supplier_id=?", (sup_id,)
             ).fetchall()
             batch_ids = [int(row["id"]) for row in batch_rows]
             if delete_related_data:
                 self._hard_delete_batches(conn, batch_ids)
+                conn.execute("UPDATE checks SET supplier_id=NULL WHERE supplier_id=?", (sup_id,))
             else:
                 conn.execute(
                     """UPDATE batches
@@ -2992,6 +3218,7 @@ class DatabaseManager:
                        WHERE supplier_id=?""",
                     (supplier["name"], sup_id),
                 )
+                conn.execute("UPDATE checks SET supplier_id=NULL WHERE supplier_id=?", (sup_id,))
             conn.execute("DELETE FROM suppliers WHERE id=?", (sup_id,))
             self.log_audit(
                 conn, "حذف تأمین‌کننده",
@@ -3196,6 +3423,9 @@ class DatabaseManager:
         conflict_resolution=None,
         expected_existing_version=None,
         enforce_unique_invoice=False,
+        purchase_invoice_code="",
+        payment_type="cash",
+        installment_plan=None,
     ):
         """Create a purchase shipment and all linked records atomically."""
         return self.add_purchase_invoice(
@@ -3224,19 +3454,112 @@ class DatabaseManager:
             paid_amount=paid_amount,
             check_due_date=check_due_date,
             check_status=check_status,
-            notes=notes,
             operator_name=operator_name,
             conflict_resolution=conflict_resolution,
             expected_existing_version=expected_existing_version,
             enforce_unique_invoice=enforce_unique_invoice,
             return_invoice_number=False,
+            purchase_invoice_code=purchase_invoice_code,
+            payment_type=payment_type,
+            installment_plan=installment_plan,
         )
+
+    def _create_supplier_installment_plan_tx(
+        self,
+        conn,
+        *,
+        purchase_invoice_code: str,
+        batch_id: int,
+        supplier_id: int,
+        total_bill: int,
+        down_payment: int,
+        count: int,
+        start_due_date: str,
+        interval_days: int = 30,
+        notes: str = "",
+        operator_name: str = "",
+        cal_type: Optional[str] = None,
+        first_installment_paid: bool = False,
+        purchase_date: str = "",
+    ) -> dict:
+        financed = self._sqlite_integer(total_bill - down_payment, "مبلغ باقی‌مانده اقساط خرید")
+        if financed <= 0:
+            raise ValueError("مبلغ تقسیط‌شده خرید باید بیشتر از صفر باشد.")
+        schedule = self.build_installment_schedule(
+            financed_amount=financed,
+            count=count,
+            start_due_date=start_due_date,
+            interval_days=interval_days,
+            cal_type=cal_type,
+        )
+        mod_by = str(operator_name or "").strip()
+        mod_at = time.strftime("%Y-%m-%d %H:%M:%S")
+        first_paid_flag = bool(first_installment_paid)
+        first_paid_amt = int(schedule[0]["due_amount"]) if (first_paid_flag and schedule) else 0
+        paid_date_first = str(purchase_date or start_due_date or "").split(" ")[0].strip()
+        plan_status = "completed" if (first_paid_flag and len(schedule) == 1) else "active"
+        cur = conn.execute(
+            """
+            INSERT INTO supplier_installment_plans (
+                purchase_invoice_code, batch_id, supplier_id, total_bill, down_payment,
+                financed_amount, installment_count, interval_days, start_due_date, status,
+                notes, last_modified_by, last_modified_at, first_installment_paid
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                purchase_invoice_code,
+                int(batch_id),
+                int(supplier_id),
+                int(total_bill),
+                int(down_payment),
+                int(financed),
+                int(count),
+                int(interval_days),
+                start_due_date,
+                plan_status,
+                notes,
+                mod_by,
+                mod_at,
+                1 if first_paid_flag else 0,
+            ),
+        )
+        plan_id = int(cur.lastrowid)
+        rows_to_insert = []
+        for idx, item in enumerate(schedule):
+            is_first_paid = (idx == 0 and first_paid_flag)
+            rows_to_insert.append((
+                plan_id,
+                item["installment_no"],
+                item["due_date"],
+                item["due_amount"],
+                item["due_amount"] if is_first_paid else 0,
+                paid_date_first if is_first_paid else "",
+                "paid" if is_first_paid else "pending",
+                "پرداخت قسط اول هنگام ثبت خرید" if is_first_paid else "",
+                mod_by,
+                mod_at,
+            ))
+        conn.executemany(
+            """
+            INSERT INTO supplier_installment_payments (
+                plan_id, installment_no, due_date, due_amount, paid_amount, paid_date,
+                status, notes, last_modified_by, last_modified_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            rows_to_insert,
+        )
+        return {
+            "plan_id": plan_id,
+            "first_paid_amount": first_paid_amt,
+            "plan_status": plan_status,
+        }
 
     def add_purchase_invoice(
         self,
         invoice_number,
         items,
         *,
+        purchase_invoice_code="",
         supplier_id=None,
         supplier_name=None,
         buyer_employee_id=None,
@@ -3245,8 +3568,10 @@ class DatabaseManager:
         settlement_status=None,
         settlement_subtype="تسویه نقدی",
         paid_amount=0,
+        payment_type="cash",
         check_due_date="",
         check_status="pending",
+        installment_plan=None,
         notes="",
         operator_name="",
         conflict_resolution=None,
@@ -3254,7 +3579,7 @@ class DatabaseManager:
         enforce_unique_invoice=True,
         return_invoice_number=True,
     ):
-        """Atomically record a 1-item or multi-item purchase invoice under one invoice number."""
+        """Atomically record a 1-item or multi-item purchase invoice grouped by PINV- code."""
         if not items or not isinstance(items, (list, tuple)):
             raise ValueError("حداقل یک قلم کالا برای ثبت خرید لازم است.")
         supplier_id = self._batch_optional_id(supplier_id, "تأمین‌کننده")
@@ -3267,17 +3592,48 @@ class DatabaseManager:
             purchase_date = f"{purchase_date} {purchase_time_arg}"
         purchase_payment_date = purchase_date.split(" ", 1)[0].strip()
         invoice_number = str(invoice_number or "").strip()
+        p_inv_input = str(purchase_invoice_code or "").strip()
         clean_subtype = str(settlement_subtype or "").strip()
-        if str(settlement_status or "").strip() == "تسویه‌شده" and clean_subtype not in ("تسویه نقدی", "تسویه چکی", ""):
+        resolved_payment_type = str(payment_type or "cash").strip().lower()
+        if installment_plan:
+            resolved_payment_type = "installment"
+        elif clean_subtype == "تسویه چکی":
+            resolved_payment_type = "check"
+        elif resolved_payment_type not in ("cash", "check", "installment", "partial"):
+            resolved_payment_type = "cash"
+        if str(settlement_status or "").strip() == "تسویه‌شده" and resolved_payment_type == "cash" and clean_subtype not in ("تسویه نقدی", "تسویه چکی", ""):
             clean_subtype = "تسویه نقدی"
-        if str(settlement_status or "").strip() != "تسویه‌شده" and clean_subtype == "تسویه چکی":
+        if resolved_payment_type != "check" and clean_subtype == "تسویه چکی":
             clean_subtype = ""
-        clean_chk_due = str(check_due_date or "").strip() if clean_subtype == "تسویه چکی" else ""
+        clean_chk_due = str(check_due_date or "").strip() if resolved_payment_type == "check" else ""
         clean_chk_status = (
             ("cleared" if str(check_status or "").strip().lower() in ("cleared", "وصول شده", "وصول‌شده")
              else ("bounced" if str(check_status or "").strip().lower() in ("bounced", "برگشتی", "برگشت خورده") else "pending"))
-            if clean_subtype == "تسویه چکی" else ""
+            if resolved_payment_type == "check" else ""
         )
+        first_inst_paid = False
+        if installment_plan:
+            down_p = self._batch_integer(
+                installment_plan.get("down_payment", paid_amount),
+                "پیش‌پرداخت",
+            )
+            inst_count = self._batch_integer(
+                installment_plan.get("count", 1),
+                "تعداد اقساط",
+                minimum=1,
+            )
+            inst_interval = self._batch_integer(
+                installment_plan.get("interval_days", 30),
+                "فاصله اقساط (روز)",
+                minimum=1,
+            )
+            inst_start_due = str(
+                installment_plan.get("start_due_date") or purchase_payment_date
+            ).strip()
+            if not inst_start_due:
+                raise ValueError("تاریخ سررسید قسط اول مشخص نشده است.")
+            first_inst_paid = bool(installment_plan.get("first_installment_paid", False))
+            paid_amount = down_p
 
         prepared_items = []
         total_invoice_bill = 0
@@ -3308,34 +3664,57 @@ class DatabaseManager:
                 "color_json": json.dumps(self._normalize_color_list(raw_item.get("colors")) or [], ensure_ascii=False),
             })
 
-        if clean_subtype == "تسویه چکی" and not clean_chk_due:
+        if resolved_payment_type == "check" and not clean_chk_due:
             raise ValueError("برای تسویه چکی، تاریخ سررسید چک باید مشخص شود.")
 
-        if clean_subtype == "تسویه چکی":
+        if resolved_payment_type == "check":
             total_paid_val = total_invoice_bill
             inv_status = "تسویه‌شده"
+        elif installment_plan:
+            total_paid_val = self._batch_integer(paid_amount, "پیش‌پرداخت")
+            if total_paid_val > total_invoice_bill:
+                raise ValueError("پیش‌پرداخت نمی‌تواند از مبلغ کل فاکتور خرید بیشتر باشد.")
+            if total_invoice_bill - total_paid_val <= 0:
+                raise ValueError("برای خرید اقساطی باید مبلغی پس از پیش‌پرداخت باقی بماند.")
+            inv_status = "تسویه جزئی" if total_paid_val > 0 else "تسویه‌نشده"
         else:
             total_paid_val, inv_status = self._purchase_settlement(total_invoice_bill, paid_amount)
 
         def _tx(conn):
-            nonlocal supplier_id, invoice_number
+            nonlocal supplier_id, invoice_number, p_inv_input
             bumped_ver = None
-            if len(prepared_items) > 1 and not invoice_number:
-                invoice_number = self._next_available_invoice_code(conn, "batch", "invoice_number", "PINV-", 1001)
-            if invoice_number and (enforce_unique_invoice or conflict_resolution):
-                invoice_number, bumped_ver = self._resolve_or_raise_invoice_conflict_tx(
+            explicit_pinv = bool(p_inv_input)
+            if explicit_pinv and (enforce_unique_invoice or conflict_resolution):
+                p_inv_input, bumped_ver = self._resolve_or_raise_invoice_conflict_tx(
                     conn,
                     invoice_kind="batch",
-                    field="invoice_number",
-                    value=invoice_number,
+                    field="purchase_invoice_code",
+                    value=p_inv_input,
                     prefix="PINV-",
                     start_num=1001,
                     conflict_resolution=conflict_resolution,
                     expected_existing_version=expected_existing_version,
                 )
+            elif not explicit_pinv:
+                p_inv_input = self._next_available_invoice_code(
+                    conn, "batch", "purchase_invoice_code", "PINV-", 1001
+                )
+                if invoice_number and (enforce_unique_invoice or conflict_resolution):
+                    invoice_number, bumped_ver = self._resolve_or_raise_invoice_conflict_tx(
+                        conn,
+                        invoice_kind="batch",
+                        field="invoice_number",
+                        value=invoice_number,
+                        prefix="PINV-",
+                        start_num=1001,
+                        conflict_resolution=conflict_resolution,
+                        expected_existing_version=expected_existing_version,
+                    )
 
             if supplier_id is None and str(supplier_name or "").strip():
                 supplier_id = self.get_or_create_supplier(supplier_name, conn=conn)
+            if installment_plan and supplier_id is None:
+                raise ValueError("برای خرید اقساطی، انتخاب یا ثبت تأمین‌کننده الزامی است.")
             supplier_row = conn.execute(
                 "SELECT name, phone FROM suppliers WHERE id=?", (supplier_id,)
             ).fetchone() if supplier_id is not None else None
@@ -3343,19 +3722,23 @@ class DatabaseManager:
             supplier_phone = (supplier_row["phone"] if supplier_row else "") or ""
 
             allocated_batch_codes = []
-            first_batch_id = None
-            rem_paid = total_paid_val
+            inserted_batches = []
             for idx, item in enumerate(prepared_items):
                 bcode = item["batch_code"]
                 if not bcode:
-                    bcode = self._next_available_invoice_code(conn, "batch", "batch_code", "C-", 1001)
-                elif len(prepared_items) == 1:
+                    base_b = p_inv_input
+                    cand = base_b if (len(prepared_items) == 1 and idx == 0) else f"{base_b}-{idx + 1}"
+                    if cand in allocated_batch_codes or conn.execute("SELECT 1 FROM batches WHERE batch_code=? LIMIT 1", (cand,)).fetchone():
+                        bcode = self._next_available_invoice_code(conn, "batch", "batch_code", "PINV-", 1001)
+                    else:
+                        bcode = cand
+                elif len(prepared_items) == 1 and not explicit_pinv:
                     bcode, bcode_bumped = self._resolve_or_raise_invoice_conflict_tx(
                         conn,
                         invoice_kind="batch",
                         field="batch_code",
                         value=bcode,
-                        prefix="C-",
+                        prefix="PINV-",
                         start_num=1001,
                         conflict_resolution=conflict_resolution,
                         expected_existing_version=expected_existing_version if not invoice_number else None,
@@ -3363,24 +3746,7 @@ class DatabaseManager:
                     if bumped_ver is None and bcode_bumped is not None:
                         bumped_ver = bcode_bumped
                 while bcode in allocated_batch_codes or conn.execute("SELECT 1 FROM batches WHERE batch_code=? LIMIT 1", (bcode,)).fetchone():
-                    bcode = self._next_available_invoice_code(conn, "batch", "batch_code", "C-", 1001)
-
-                if total_paid_val >= total_invoice_bill:
-                    line_paid = item["line_bill"]
-                    line_status = "تسویه‌شده"
-                elif total_paid_val == 0:
-                    line_paid = 0
-                    line_status = "تسویه‌نشده"
-                else:
-                    if idx == len(prepared_items) - 1:
-                        line_paid = min(item["line_bill"], rem_paid)
-                    else:
-                        line_paid = min(item["line_bill"], rem_paid)
-                    rem_paid = max(0, rem_paid - line_paid)
-                    line_status = (
-                        "تسویه‌شده" if line_paid >= item["line_bill"]
-                        else ("تسویه‌نشده" if line_paid == 0 else "تسویه جزئی")
-                    )
+                    bcode = self._next_available_invoice_code(conn, "batch", "batch_code", "PINV-", 1001)
 
                 cursor = conn.execute(
                     """
@@ -3390,38 +3756,96 @@ class DatabaseManager:
                         unit_purchase_price, extra_cost_total, upgrade_cost_unit, unit_cost_price,
                         suggested_sell_price, profit_pct, settlement_status, paid_amount,
                         serial_numbers, initial_specs, final_specs, notes, supplier_name_snapshot,
-                        colors_json, settlement_subtype, check_due_date, check_status
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        colors_json, settlement_subtype, check_due_date, check_status,
+                        purchase_invoice_code, payment_type
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         bcode, item["product_id"], supplier_id, buyer_employee_id, invoice_number,
                         purchase_date, item["initial_qty"], item["initial_qty"], item["unit_purchase_price"],
                         item["extra_cost_total"], item["unit_cost_price"], item["suggested_sell_price"], item["profit_pct"],
-                        line_status, line_paid, item["serial_numbers"], item["initial_specs"], item["initial_specs"],
+                        inv_status, 0, item["serial_numbers"], item["initial_specs"], item["initial_specs"],
                         item["notes"], supplier_snapshot, item["color_json"],
                         clean_subtype, clean_chk_due, clean_chk_status,
+                        p_inv_input, resolved_payment_type,
                     ),
                 )
                 bid = int(cursor.lastrowid)
-                if first_batch_id is None:
-                    first_batch_id = bid
                 allocated_batch_codes.append(bcode)
-                if line_paid > 0 and clean_subtype != "تسویه چکی":
+                inserted_batches.append({"id": bid, "line_bill": item["line_bill"]})
+
+            first_batch_id = inserted_batches[0]["id"]
+            first_inst_paid_amt = 0
+            if installment_plan:
+                plan_res = self._create_supplier_installment_plan_tx(
+                    conn=conn,
+                    purchase_invoice_code=p_inv_input,
+                    batch_id=first_batch_id,
+                    supplier_id=int(supplier_id),
+                    total_bill=total_invoice_bill,
+                    down_payment=total_paid_val,
+                    count=inst_count,
+                    start_due_date=inst_start_due,
+                    interval_days=inst_interval,
+                    notes=str(installment_plan.get("notes") or "").strip(),
+                    operator_name=operator_name,
+                    cal_type=installment_plan.get("cal_type") or self.cfg.get("calendar_type", "jalali"),
+                    first_installment_paid=first_inst_paid,
+                    purchase_date=purchase_payment_date,
+                )
+                first_inst_paid_amt = int(plan_res.get("first_paid_amount") or 0)
+
+            final_paid_total = min(total_invoice_bill, total_paid_val + first_inst_paid_amt)
+            if resolved_payment_type == "check":
+                final_status = "تسویه‌شده"
+            elif installment_plan:
+                final_status = (
+                    "تسویه‌شده" if final_paid_total >= total_invoice_bill
+                    else ("تسویه جزئی" if final_paid_total > 0 else "تسویه‌نشده")
+                )
+            else:
+                final_status = inv_status
+
+            rem_paid = final_paid_total
+            for idx, brow in enumerate(inserted_batches):
+                if final_paid_total >= total_invoice_bill:
+                    line_paid = brow["line_bill"]
+                    line_status = "تسویه‌شده"
+                elif final_paid_total == 0:
+                    line_paid = 0
+                    line_status = "تسویه‌نشده"
+                else:
+                    line_paid = min(brow["line_bill"], rem_paid)
+                    rem_paid = max(0, rem_paid - line_paid)
+                    line_status = (
+                        "تسویه‌شده" if line_paid >= brow["line_bill"]
+                        else ("تسویه‌نشده" if line_paid == 0 else "تسویه جزئی")
+                    )
+                conn.execute(
+                    "UPDATE batches SET paid_amount=?, settlement_status=? WHERE id=?",
+                    (line_paid, line_status, brow["id"]),
+                )
+                if line_paid > 0 and resolved_payment_type != "check":
+                    note_txt = (
+                        "پیش‌پرداخت / قسط اول خرید اقساطی" if installment_plan
+                        else "پرداخت اولیه هنگام ثبت خرید"
+                    )
                     conn.execute(
                         """
                         INSERT INTO payments (ref_type, ref_id, amount, payment_date, notes)
-                        VALUES ('batch', ?, ?, ?, 'پرداخت اولیه هنگام ثبت خرید')
+                        VALUES ('batch', ?, ?, ?, ?)
                         """,
-                        (bid, line_paid, purchase_payment_date),
+                        (brow["id"], line_paid, purchase_payment_date, note_txt),
                     )
 
-            if clean_subtype == "تسویه چکی" and first_batch_id is not None:
+            hdr_inv_no = p_inv_input if (explicit_pinv or not invoice_number) else invoice_number
+            if resolved_payment_type == "check" and first_batch_id is not None:
                 self._record_check_tx(
                     conn,
                     direction="payable",
                     ref_type="batch",
                     ref_id=first_batch_id,
-                    invoice_number=invoice_number or allocated_batch_codes[0],
+                    invoice_number=hdr_inv_no,
                     supplier_id=supplier_id,
                     party_name=supplier_snapshot,
                     party_phone=supplier_phone,
@@ -3433,35 +3857,36 @@ class DatabaseManager:
                     operator_name=operator_name,
                 )
 
-            if invoice_number:
-                self._upsert_invoice_header_tx(
-                    conn,
-                    invoice_kind="batch",
-                    invoice_number=invoice_number,
-                    party_id=supplier_id,
-                    party_name=supplier_snapshot,
-                    party_phone=supplier_phone,
-                    operator_id=buyer_employee_id,
-                    total_amount=total_invoice_bill,
-                    paid_amount=total_paid_val,
-                    settlement_status=inv_status,
-                    settlement_subtype=clean_subtype,
-                    check_due_date=clean_chk_due,
-                    check_status=clean_chk_status,
-                    first_installment_paid=False,
-                    item_count=len(prepared_items),
-                    invoice_datetime=purchase_date,
-                    notes=str(notes or "").strip(),
-                    operator_name=operator_name,
-                    forced_version=bumped_ver,
-                )
+            self._upsert_invoice_header_tx(
+                conn,
+                invoice_kind="batch",
+                invoice_number=hdr_inv_no,
+                party_id=supplier_id,
+                party_name=supplier_snapshot,
+                party_phone=supplier_phone,
+                operator_id=buyer_employee_id,
+                total_amount=total_invoice_bill,
+                paid_amount=final_paid_total,
+                settlement_status=final_status,
+                settlement_subtype=clean_subtype,
+                check_due_date=clean_chk_due,
+                check_status=clean_chk_status,
+                first_installment_paid=first_inst_paid,
+                item_count=len(prepared_items),
+                invoice_datetime=purchase_date,
+                notes=str(notes or "").strip(),
+                operator_name=operator_name,
+                forced_version=bumped_ver,
+            )
 
             self.log_audit(
                 conn,
                 "ثبت خرید",
-                f"کد محموله: {', '.join(allocated_batch_codes)} | فاکتور: {invoice_number or '-'}",
+                f"شناسه فاکتور خرید: {p_inv_input} | فاکتور تأمین‌کننده: {invoice_number or '-'} | اقلام: {len(allocated_batch_codes)}",
             )
-            return invoice_number if (return_invoice_number and invoice_number) else allocated_batch_codes[0]
+            if return_invoice_number:
+                return hdr_inv_no
+            return allocated_batch_codes[0]
 
         return self.run_write_transaction(_tx)
 
@@ -4080,298 +4505,352 @@ class DatabaseManager:
             })
 
         def _tx(conn):
-            nonlocal invoice_number, paid_amount, customer_id
-            bumped_ver = None
-            if not invoice_number:
-                invoice_number = self._next_available_invoice_code(conn, "sale", "invoice_number", "INV-", 1001)
-            elif enforce_unique_invoice or conflict_resolution:
-                invoice_number, bumped_ver = self._resolve_or_raise_invoice_conflict_tx(
-                    conn,
-                    invoice_kind="sale",
-                    field="invoice_number",
-                    value=invoice_number,
-                    prefix="INV-",
-                    start_num=1001,
-                    conflict_resolution=conflict_resolution,
-                    expected_existing_version=expected_existing_version,
-                )
-
-            if installment_plan:
-                if paid_amount > total_invoice_amount:
-                    raise ValueError("پیش‌پرداخت نمی‌تواند بیشتر از مبلغ کل فاکتور باشد.")
-                financed_amount = total_invoice_amount - paid_amount
-                if financed_amount <= 0:
-                    raise ValueError("برای فروش اقساطی باید مبلغی پس از پیش‌پرداخت باقی بماند.")
-                if customer_id is None and customer_name:
-                    customer_id = self.get_or_create_customer(
-                        customer_name,
-                        phone=customer_phone,
-                        conn=conn,
-                        operator_name=operator_name,
-                    )
-                if customer_id is None:
-                    raise ValueError("برای فروش اقساطی، انتخاب یا ثبت نام مشتری الزامی است.")
-            elif customer_id is None and customer_name and customer_name != "مشتری حضوری":
-                row_cust = conn.execute(
-                    "SELECT id FROM customers WHERE name=? AND (?='' OR phone=?) ORDER BY id DESC LIMIT 1",
-                    (customer_name, customer_phone, customer_phone),
-                ).fetchone()
-                if row_cust:
-                    customer_id = int(row_cust["id"])
-                elif resolved_payment_type == "check":
-                    customer_id = self.get_or_create_customer(
-                        customer_name,
-                        phone=customer_phone,
-                        conn=conn,
-                        operator_name=operator_name,
-                    )
-
-            # Create installment plan computation cleanly if applicable (needs first sale_id after inserts)
-            if resolved_payment_type == "check":
-                inv_paid_initial = total_invoice_amount
-                inv_status = "تسویه‌شده"
-            elif installment_plan:
-                inv_paid_initial = paid_amount
-                inv_status = "تسویه جزئی" if inv_paid_initial > 0 else "تسویه‌نشده"
-            elif settlement_status in ("تسویه‌شده", "تسویه‌نشده", "تسویه جزئی"):
-                inv_status = settlement_status
-                if inv_status == "تسویه‌شده":
-                    inv_paid_initial = total_invoice_amount
-                elif inv_status == "تسویه‌نشده":
-                    inv_paid_initial = 0
-                else:
-                    inv_paid_initial = min(total_invoice_amount, paid_amount)
-            else:
-                if paid_amount >= total_invoice_amount:
-                    inv_status = "تسویه‌شده"
-                    inv_paid_initial = total_invoice_amount
-                elif paid_amount == 0:
-                    inv_status = "تسویه‌نشده"
-                    inv_paid_initial = 0
-                else:
-                    inv_status = "تسویه جزئی"
-                    inv_paid_initial = paid_amount
-
-            cur = conn.cursor()
-            inserted_sales = []
-            # Validate stock and insert every line
-            for line in prepared_lines:
-                batch = conn.execute(
-                    """SELECT id, batch_code, product_id, remaining_qty, unit_cost_price,
-                              colors_json, row_version FROM batches WHERE id=?""",
-                    (line["batch_id"],),
-                ).fetchone()
-                if not batch:
-                    raise ValueError("محموله انتخاب شده وجود ندارد.")
-                live_rv = int(batch["row_version"] if "row_version" in batch.keys() else 1)
-                exp_rv = line["expected_batch_row_version"]
-                q = line["qty"]
-                if batch["remaining_qty"] < q:
-                    concurrent_flag = exp_rv is not None and live_rv != int(exp_rv)
-                    raise InsufficientStockError(
-                        available_qty=batch["remaining_qty"],
-                        requested_qty=q,
-                        batch_code=batch["batch_code"],
-                        concurrent_modified=concurrent_flag,
-                        message=(
-                            f"موجودی محموله «{batch['batch_code']}» به دلیل ثبت فروش هم‌زمان کافی نیست! موجودی قابل فروش: {batch['remaining_qty']} عدد"
-                            if concurrent_flag
-                            else f"موجودی محموله کافی نیست! موجودی قابل فروش: {batch['remaining_qty']} عدد"
-                        ),
-                    )
-                if exp_rv is not None and live_rv != int(exp_rv):
-                    raise ConcurrencyConflictError(
-                        "batch_sale",
-                        line["batch_id"],
-                        int(exp_rv),
-                        live_rv,
-                        dict(batch),
-                        f"در فاصله انتخاب محموله تا ثبت فاکتور، فروش یا تغییری در محموله «{batch['batch_code']}» ثبت شده است. موجودی فعلی: {batch['remaining_qty']} عدد.",
-                    )
-                normalized_colors = self._normalize_color_list(line["colors"])
-                if normalized_colors is not None:
-                    if len(normalized_colors) > q:
-                        raise ValueError("تعداد رنگ‌های انتخاب‌شده نمی‌تواند از تعداد فروش بیشتر باشد.")
-                    try:
-                        batch_colors = json.loads(batch["colors_json"] or "[]")
-                    except (TypeError, ValueError, json.JSONDecodeError):
-                        batch_colors = []
-                    unavailable = [value for value in normalized_colors if value not in batch_colors]
-                    if unavailable:
-                        raise ValueError("یکی از رنگ‌های انتخاب‌شده در این محموله ثبت نشده است.")
-
-                unit_cost_price = self._batch_integer(batch["unit_cost_price"], "بهای تمام‌شده واحد")
-                sug_u = line["suggested_unit_price"]
-                act_u = line["actual_unit_price"]
-                if act_u < sug_u:
-                    unit_discount = sug_u - act_u
-                    price_markup_unit = 0
-                else:
-                    unit_discount = 0
-                    price_markup_unit = act_u - sug_u
-                total_discount = self._batch_integer(unit_discount * q, "تخفیف کل فروش")
-                unit_profit = self._sqlite_integer(act_u - unit_cost_price, "سود هر واحد")
-                total_profit = self._sqlite_integer(unit_profit * q, "سود کل فروش")
-
-                cur.execute(
-                    """
-                    INSERT INTO sales (
-                        invoice_number, product_id, batch_id, serial_number, seller_employee_id, customer_name,
-                        customer_phone, qty, suggested_unit_price, actual_unit_price, unit_cost_price,
-                        unit_discount, total_discount, price_Markup_unit, unit_profit, total_profit,
-                        total_amount, paid_amount, settlement_status, sale_datetime,
-                        warranty_company, warranty_start, warranty_months, warranty_days, warranty_end,
-                        specifications, colors_json, notes, customer_id, payment_type,
-                        settlement_subtype, check_due_date, check_status
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        invoice_number, line["product_id"], line["batch_id"], line["serial_number"],
-                        seller_employee_id, customer_name, customer_phone, q, sug_u, act_u, unit_cost_price,
-                        unit_discount, total_discount, price_markup_unit, unit_profit, total_profit,
-                        line["line_total"], 0, inv_status, sale_datetime,
-                        line["warranty_company"], line["warranty_start"],
-                        int(line["warranty_months"]),
-                        int(line["warranty_days"] if line["warranty_days"] is not None else int(line["warranty_months"] or 0) * 30),
-                        line["warranty_end"], line["specifications"],
-                        json.dumps(normalized_colors or [], ensure_ascii=False),
-                        line["notes"],
-                        int(customer_id) if customer_id is not None else None,
-                        resolved_payment_type, clean_subtype, clean_chk_due, clean_chk_status,
-                    ),
-                )
-                sid = int(cur.lastrowid)
-                stock_update = conn.execute(
-                    "UPDATE batches SET sold_qty=sold_qty+?, remaining_qty=remaining_qty-? WHERE id=? AND remaining_qty>=?",
-                    (q, q, line["batch_id"], q),
-                )
-                if stock_update.rowcount != 1:
-                    raise ValueError("موجودی محموله برای ثبت این تعداد کافی نیست.")
-                inserted_sales.append({"id": sid, "line_total": line["line_total"], "total_profit": total_profit})
-
-            first_sale_id = inserted_sales[0]["id"]
-            first_inst_paid_amt = 0
-            sale_d_only = sale_datetime.split(" ")[0]
-            if installment_plan:
-                plan_res = self._create_installment_plan_tx(
-                    conn=conn,
-                    sale_id=first_sale_id,
-                    customer_id=int(customer_id),
-                    total_bill=total_invoice_amount,
-                    down_payment=inv_paid_initial,
-                    count=inst_count,
-                    start_due_date=inst_start_due,
-                    interval_days=inst_interval,
-                    notes=str(installment_plan.get("notes") or "").strip(),
-                    operator_name=operator_name,
-                    cal_type=installment_plan.get("cal_type") or self.cfg.get("calendar_type", "jalali"),
-                    first_installment_paid=first_inst_paid,
-                    sale_date=sale_d_only,
-                )
-                first_inst_paid_amt = int(plan_res.get("first_paid_amount") or 0)
-
-            final_paid_total = min(total_invoice_amount, inv_paid_initial + first_inst_paid_amt)
-            if resolved_payment_type == "check":
-                final_status = "تسویه‌شده"
-            elif installment_plan:
-                final_status = (
-                    "تسویه‌شده" if final_paid_total >= total_invoice_amount
-                    else ("تسویه جزئی" if final_paid_total > 0 else "تسویه‌نشده")
-                )
-            else:
-                final_status = inv_status
-
-            # Allocate final_paid_total across inserted sale lines so SQL sums always balance 100%.
-            rem_to_alloc = final_paid_total
-            for idx, srow in enumerate(inserted_sales):
-                if final_paid_total >= total_invoice_amount:
-                    l_paid = srow["line_total"]
-                    l_status = "تسویه‌شده"
-                elif final_paid_total == 0:
-                    l_paid = 0
-                    l_status = "تسویه‌نشده"
-                else:
-                    l_paid = min(srow["line_total"], rem_to_alloc)
-                    rem_to_alloc = max(0, rem_to_alloc - l_paid)
-                    l_status = (
-                        "تسویه‌شده" if l_paid >= srow["line_total"]
-                        else ("تسویه‌نشده" if l_paid == 0 else "تسویه جزئی")
-                    )
-                conn.execute(
-                    "UPDATE sales SET paid_amount=?, settlement_status=? WHERE id=?",
-                    (l_paid, l_status, srow["id"]),
-                )
-
-            if inv_paid_initial > 0 and resolved_payment_type != "check":
-                conn.execute(
-                    """
-                    INSERT INTO payments (ref_type, ref_id, amount, payment_date, notes)
-                    VALUES ('sale', ?, ?, ?, ?)
-                    """,
-                    (
-                        first_sale_id,
-                        inv_paid_initial,
-                        sale_d_only,
-                        "پیش‌پرداخت فروش اقساطی" if installment_plan else "دریافت وجه هنگام فروش",
-                    ),
-                )
-            if first_inst_paid_amt > 0:
-                conn.execute(
-                    """
-                    INSERT INTO payments (ref_type, ref_id, amount, payment_date, notes)
-                    VALUES ('sale', ?, ?, ?, 'پرداخت قسط اول هنگام خرید')
-                    """,
-                    (first_sale_id, first_inst_paid_amt, sale_d_only),
-                )
-
-            if resolved_payment_type == "check":
-                self._record_check_tx(
-                    conn,
-                    direction="receivable",
-                    ref_type="sale",
-                    ref_id=first_sale_id,
-                    invoice_number=invoice_number,
-                    customer_id=int(customer_id) if customer_id is not None else None,
-                    party_name=customer_name,
-                    party_phone=customer_phone,
-                    amount=total_invoice_amount,
-                    due_date=clean_chk_due,
-                    status=clean_chk_status or "pending",
-                    cleared_date=sale_d_only if clean_chk_status == "cleared" else "",
-                    notes=notes,
-                    operator_name=operator_name,
-                )
-
-            self._upsert_invoice_header_tx(
+            return self._insert_sale_invoice_tx(
                 conn,
-                invoice_kind="sale",
                 invoice_number=invoice_number,
-                party_id=int(customer_id) if customer_id is not None else None,
-                party_name=customer_name,
-                party_phone=customer_phone,
-                operator_id=seller_employee_id,
-                total_amount=total_invoice_amount,
-                paid_amount=final_paid_total,
-                settlement_status=final_status,
-                settlement_subtype=clean_subtype,
-                check_due_date=clean_chk_due,
-                check_status=clean_chk_status,
-                first_installment_paid=first_inst_paid,
-                item_count=len(inserted_sales),
-                invoice_datetime=sale_datetime,
+                prepared_lines=prepared_lines,
+                total_invoice_amount=total_invoice_amount,
+                seller_employee_id=seller_employee_id,
+                customer_name=customer_name,
+                customer_phone=customer_phone,
+                customer_id=customer_id,
+                sale_datetime=sale_datetime,
+                settlement_status=settlement_status,
+                clean_subtype=clean_subtype,
+                paid_amount=paid_amount,
+                resolved_payment_type=resolved_payment_type,
+                clean_chk_due=clean_chk_due,
+                clean_chk_status=clean_chk_status,
+                installment_plan=installment_plan,
+                inst_count=inst_count if installment_plan else 0,
+                inst_interval=inst_interval if installment_plan else 30,
+                inst_start_due=inst_start_due if installment_plan else "",
+                first_inst_paid=first_inst_paid,
                 notes=notes,
                 operator_name=operator_name,
-                forced_version=bumped_ver,
+                conflict_resolution=conflict_resolution,
+                expected_existing_version=expected_existing_version,
+                enforce_unique_invoice=enforce_unique_invoice,
             )
-
-            self.log_audit(
-                conn,
-                "ثبت فروش",
-                f"فاکتور: {invoice_number} - تعداد اقلام: {len(inserted_sales)} - جمع: {total_invoice_amount:,}",
-            )
-            return invoice_number
 
         return self.run_write_transaction(_tx)
+
+    def _insert_sale_invoice_tx(
+        self,
+        conn,
+        *,
+        invoice_number: str,
+        prepared_lines: list,
+        total_invoice_amount: int,
+        seller_employee_id=None,
+        customer_name: str = "",
+        customer_phone: str = "",
+        customer_id=None,
+        sale_datetime: str = "",
+        settlement_status=None,
+        clean_subtype: str = "",
+        paid_amount: int = 0,
+        resolved_payment_type: str = "cash",
+        clean_chk_due: str = "",
+        clean_chk_status: str = "",
+        installment_plan=None,
+        inst_count: int = 0,
+        inst_interval: int = 30,
+        inst_start_due: str = "",
+        first_inst_paid: bool = False,
+        notes: str = "",
+        operator_name: str = "",
+        conflict_resolution=None,
+        expected_existing_version=None,
+        enforce_unique_invoice: bool = True,
+    ) -> str:
+        """Execute transactional sale invoice creation inside the caller's write lock."""
+        bumped_ver = None
+        if not invoice_number:
+            invoice_number = self._next_available_invoice_code(conn, "sale", "invoice_number", "INV-", 1001)
+        elif enforce_unique_invoice or conflict_resolution:
+            invoice_number, bumped_ver = self._resolve_or_raise_invoice_conflict_tx(
+                conn,
+                invoice_kind="sale",
+                field="invoice_number",
+                value=invoice_number,
+                prefix="INV-",
+                start_num=1001,
+                conflict_resolution=conflict_resolution,
+                expected_existing_version=expected_existing_version,
+            )
+
+        if installment_plan:
+            if paid_amount > total_invoice_amount:
+                raise ValueError("پیش‌پرداخت نمی‌تواند بیشتر از مبلغ کل فاکتور باشد.")
+            financed_amount = total_invoice_amount - paid_amount
+            if financed_amount <= 0:
+                raise ValueError("برای فروش اقساطی باید مبلغی پس از پیش‌پرداخت باقی بماند.")
+            if customer_id is None and customer_name:
+                customer_id = self.get_or_create_customer(
+                    customer_name,
+                    phone=customer_phone,
+                    conn=conn,
+                    operator_name=operator_name,
+                )
+            if customer_id is None:
+                raise ValueError("برای فروش اقساطی، انتخاب یا ثبت نام مشتری الزامی است.")
+        elif customer_id is None and customer_name and customer_name != "مشتری حضوری":
+            row_cust = conn.execute(
+                "SELECT id FROM customers WHERE name=? AND (?='' OR phone=?) ORDER BY id DESC LIMIT 1",
+                (customer_name, customer_phone, customer_phone),
+            ).fetchone()
+            if row_cust:
+                customer_id = int(row_cust["id"])
+            elif resolved_payment_type == "check":
+                customer_id = self.get_or_create_customer(
+                    customer_name,
+                    phone=customer_phone,
+                    conn=conn,
+                    operator_name=operator_name,
+                )
+
+        if resolved_payment_type == "check":
+            inv_paid_initial = total_invoice_amount
+            inv_status = "تسویه‌شده"
+        elif installment_plan:
+            inv_paid_initial = paid_amount
+            inv_status = "تسویه جزئی" if inv_paid_initial > 0 else "تسویه‌نشده"
+        elif settlement_status in ("تسویه‌شده", "تسویه‌نشده", "تسویه جزئی"):
+            inv_status = settlement_status
+            if inv_status == "تسویه‌شده":
+                inv_paid_initial = total_invoice_amount
+            elif inv_status == "تسویه‌نشده":
+                inv_paid_initial = 0
+            else:
+                inv_paid_initial = min(total_invoice_amount, paid_amount)
+        else:
+            if paid_amount >= total_invoice_amount:
+                inv_status = "تسویه‌شده"
+                inv_paid_initial = total_invoice_amount
+            elif paid_amount == 0:
+                inv_status = "تسویه‌نشده"
+                inv_paid_initial = 0
+            else:
+                inv_status = "تسویه جزئی"
+                inv_paid_initial = paid_amount
+
+        cur = conn.cursor()
+        inserted_sales = []
+        for line in prepared_lines:
+            batch = conn.execute(
+                """SELECT id, batch_code, product_id, remaining_qty, unit_cost_price,
+                          colors_json, row_version FROM batches WHERE id=?""",
+                (line["batch_id"],),
+            ).fetchone()
+            if not batch:
+                raise ValueError("محموله انتخاب شده وجود ندارد.")
+            live_rv = int(batch["row_version"] if "row_version" in batch.keys() else 1)
+            exp_rv = line["expected_batch_row_version"]
+            q = line["qty"]
+            if batch["remaining_qty"] < q:
+                concurrent_flag = exp_rv is not None and live_rv != int(exp_rv)
+                raise InsufficientStockError(
+                    available_qty=batch["remaining_qty"],
+                    requested_qty=q,
+                    batch_code=batch["batch_code"],
+                    concurrent_modified=concurrent_flag,
+                    message=(
+                        f"موجودی محموله «{batch['batch_code']}» به دلیل ثبت فروش هم‌زمان کافی نیست! موجودی قابل فروش: {batch['remaining_qty']} عدد"
+                        if concurrent_flag
+                        else f"موجودی محموله کافی نیست! موجودی قابل فروش: {batch['remaining_qty']} عدد"
+                    ),
+                )
+            if exp_rv is not None and live_rv != int(exp_rv):
+                raise ConcurrencyConflictError(
+                    "batch_sale",
+                    line["batch_id"],
+                    int(exp_rv),
+                    live_rv,
+                    dict(batch),
+                    f"در فاصله انتخاب محموله تا ثبت فاکتور، فروش یا تغییری در محموله «{batch['batch_code']}» ثبت شده است. موجودی فعلی: {batch['remaining_qty']} عدد.",
+                )
+            normalized_colors = self._normalize_color_list(line["colors"])
+            if normalized_colors is not None:
+                if len(normalized_colors) > q:
+                    raise ValueError("تعداد رنگ‌های انتخاب‌شده نمی‌تواند از تعداد فروش بیشتر باشد.")
+                try:
+                    batch_colors = json.loads(batch["colors_json"] or "[]")
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    batch_colors = []
+                unavailable = [value for value in normalized_colors if value not in batch_colors]
+                if unavailable:
+                    raise ValueError("یکی از رنگ‌های انتخاب‌شده در این محموله ثبت نشده است.")
+
+            unit_cost_price = self._batch_integer(batch["unit_cost_price"], "بهای تمام‌شده واحد")
+            sug_u = line["suggested_unit_price"]
+            act_u = line["actual_unit_price"]
+            if act_u < sug_u:
+                unit_discount = sug_u - act_u
+                price_markup_unit = 0
+            else:
+                unit_discount = 0
+                price_markup_unit = act_u - sug_u
+            total_discount = self._batch_integer(unit_discount * q, "تخفیف کل فروش")
+            unit_profit = self._sqlite_integer(act_u - unit_cost_price, "سود هر واحد")
+            total_profit = self._sqlite_integer(unit_profit * q, "سود کل فروش")
+
+            cur.execute(
+                """
+                INSERT INTO sales (
+                    invoice_number, product_id, batch_id, serial_number, seller_employee_id, customer_name,
+                    customer_phone, qty, suggested_unit_price, actual_unit_price, unit_cost_price,
+                    unit_discount, total_discount, price_Markup_unit, unit_profit, total_profit,
+                    total_amount, paid_amount, settlement_status, sale_datetime,
+                    warranty_company, warranty_start, warranty_months, warranty_days, warranty_end,
+                    specifications, colors_json, notes, customer_id, payment_type,
+                    settlement_subtype, check_due_date, check_status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    invoice_number, line["product_id"], line["batch_id"], line["serial_number"],
+                    seller_employee_id, customer_name, customer_phone, q, sug_u, act_u, unit_cost_price,
+                    unit_discount, total_discount, price_markup_unit, unit_profit, total_profit,
+                    line["line_total"], 0, inv_status, sale_datetime,
+                    line["warranty_company"], line["warranty_start"],
+                    int(line["warranty_months"]),
+                    int(line["warranty_days"] if line["warranty_days"] is not None else int(line["warranty_months"] or 0) * 30),
+                    line["warranty_end"], line["specifications"],
+                    json.dumps(normalized_colors or [], ensure_ascii=False),
+                    line["notes"],
+                    int(customer_id) if customer_id is not None else None,
+                    resolved_payment_type, clean_subtype, clean_chk_due, clean_chk_status,
+                ),
+            )
+            sid = int(cur.lastrowid)
+            stock_update = conn.execute(
+                "UPDATE batches SET sold_qty=sold_qty+?, remaining_qty=remaining_qty-? WHERE id=? AND remaining_qty>=?",
+                (q, q, line["batch_id"], q),
+            )
+            if stock_update.rowcount != 1:
+                raise ValueError("موجودی محموله برای ثبت این تعداد کافی نیست.")
+            inserted_sales.append({"id": sid, "line_total": line["line_total"], "total_profit": total_profit})
+
+        first_sale_id = inserted_sales[0]["id"]
+        first_inst_paid_amt = 0
+        sale_d_only = sale_datetime.split(" ")[0]
+        if installment_plan:
+            plan_res = self._create_installment_plan_tx(
+                conn=conn,
+                sale_id=first_sale_id,
+                customer_id=int(customer_id),
+                total_bill=total_invoice_amount,
+                down_payment=inv_paid_initial,
+                count=inst_count,
+                start_due_date=inst_start_due,
+                interval_days=inst_interval,
+                notes=str(installment_plan.get("notes") or "").strip(),
+                operator_name=operator_name,
+                cal_type=installment_plan.get("cal_type") or self.cfg.get("calendar_type", "jalali"),
+                first_installment_paid=first_inst_paid,
+                sale_date=sale_d_only,
+            )
+            first_inst_paid_amt = int(plan_res.get("first_paid_amount") or 0)
+
+        final_paid_total = min(total_invoice_amount, inv_paid_initial + first_inst_paid_amt)
+        if resolved_payment_type == "check":
+            final_status = "تسویه‌شده"
+        elif installment_plan:
+            final_status = (
+                "تسویه‌شده" if final_paid_total >= total_invoice_amount
+                else ("تسویه جزئی" if final_paid_total > 0 else "تسویه‌نشده")
+            )
+        else:
+            final_status = inv_status
+
+        rem_to_alloc = final_paid_total
+        for srow in inserted_sales:
+            if final_paid_total >= total_invoice_amount:
+                l_paid = srow["line_total"]
+                l_status = "تسویه‌شده"
+            elif final_paid_total == 0:
+                l_paid = 0
+                l_status = "تسویه‌نشده"
+            else:
+                l_paid = min(srow["line_total"], rem_to_alloc)
+                rem_to_alloc = max(0, rem_to_alloc - l_paid)
+                l_status = (
+                    "تسویه‌شده" if l_paid >= srow["line_total"]
+                    else ("تسویه‌نشده" if l_paid == 0 else "تسویه جزئی")
+                )
+            conn.execute(
+                "UPDATE sales SET paid_amount=?, settlement_status=? WHERE id=?",
+                (l_paid, l_status, srow["id"]),
+            )
+
+        if inv_paid_initial > 0 and resolved_payment_type != "check":
+            conn.execute(
+                """
+                INSERT INTO payments (ref_type, ref_id, amount, payment_date, notes)
+                VALUES ('sale', ?, ?, ?, ?)
+                """,
+                (
+                    first_sale_id,
+                    inv_paid_initial,
+                    sale_d_only,
+                    "پیش‌پرداخت فروش اقساطی" if installment_plan else "دریافت وجه هنگام فروش",
+                ),
+            )
+        if first_inst_paid_amt > 0:
+            conn.execute(
+                """
+                INSERT INTO payments (ref_type, ref_id, amount, payment_date, notes)
+                VALUES ('sale', ?, ?, ?, 'پرداخت قسط اول هنگام خرید')
+                """,
+                (first_sale_id, first_inst_paid_amt, sale_d_only),
+            )
+
+        if resolved_payment_type == "check":
+            self._record_check_tx(
+                conn,
+                direction="receivable",
+                ref_type="sale",
+                ref_id=first_sale_id,
+                invoice_number=invoice_number,
+                customer_id=int(customer_id) if customer_id is not None else None,
+                party_name=customer_name,
+                party_phone=customer_phone,
+                amount=total_invoice_amount,
+                due_date=clean_chk_due,
+                status=clean_chk_status or "pending",
+                cleared_date=sale_d_only if clean_chk_status == "cleared" else "",
+                notes=notes,
+                operator_name=operator_name,
+            )
+
+        self._upsert_invoice_header_tx(
+            conn,
+            invoice_kind="sale",
+            invoice_number=invoice_number,
+            party_id=int(customer_id) if customer_id is not None else None,
+            party_name=customer_name,
+            party_phone=customer_phone,
+            operator_id=seller_employee_id,
+            total_amount=total_invoice_amount,
+            paid_amount=final_paid_total,
+            settlement_status=final_status,
+            settlement_subtype=clean_subtype,
+            check_due_date=clean_chk_due,
+            check_status=clean_chk_status,
+            first_installment_paid=first_inst_paid,
+            item_count=len(inserted_sales),
+            invoice_datetime=sale_datetime,
+            notes=notes,
+            operator_name=operator_name,
+            forced_version=bumped_ver,
+        )
+
+        self.log_audit(
+            conn,
+            "ثبت فروش",
+            f"فاکتور: {invoice_number} - تعداد اقلام: {len(inserted_sales)} - جمع: {total_invoice_amount:,}",
+        )
+        return invoice_number
 
     def update_sale(
         self,
@@ -4645,7 +5124,7 @@ class DatabaseManager:
 
             if not target_id:
                 if not srv_code:
-                    srv_code = self.generate_next_code("service_catalog", "code", "S-", 1001, conn=conn)
+                    srv_code = self.generate_next_code("service_catalog", "code", "SVC-", 1001, conn=conn)
                 cur = conn.execute(
                     """
                     INSERT INTO service_catalog (code, service_type, name, default_fee, default_side_cost, description)
@@ -5016,6 +5495,7 @@ class DatabaseManager:
             if expected_row_version is not None:
                 self._check_row_version(conn, "service_records", record_id, expected_row_version, "خدمت")
             old = conn.execute("SELECT invoice_number FROM service_records WHERE id=?", (record_id,)).fetchone()
+            conn.execute("DELETE FROM payments WHERE ref_type='service' AND ref_id=?", (record_id,))
             conn.execute("DELETE FROM checks WHERE ref_type='service' AND ref_id=?", (record_id,))
             conn.execute("DELETE FROM service_records WHERE id=?", (record_id,))
             if old:
@@ -5025,9 +5505,14 @@ class DatabaseManager:
                 ).fetchone()[0]
                 if int(rem or 0) == 0:
                     conn.execute(
+                        "DELETE FROM checks WHERE ref_type='service' AND invoice_number=?",
+                        (old["invoice_number"],),
+                    )
+                    conn.execute(
                         "DELETE FROM invoice_headers WHERE invoice_kind='service' AND invoice_number=?",
                         (old["invoice_number"],),
                     )
+                self.log_audit(conn, "حذف رکورد خدمت", f"شناسه: {record_id} | فاکتور: {old['invoice_number']}")
 
         self.run_write_transaction(_tx)
 
@@ -6477,7 +6962,10 @@ class DatabaseManager:
                 if ref_type == "sale":
                     conn.execute("UPDATE sales SET check_status=? WHERE invoice_number=?", (clean_st, inv_no))
                 elif ref_type == "batch":
-                    conn.execute("UPDATE batches SET check_status=? WHERE invoice_number=?", (clean_st, inv_no))
+                    conn.execute(
+                        "UPDATE batches SET check_status=? WHERE purchase_invoice_code=? OR invoice_number=?",
+                        (clean_st, inv_no, inv_no),
+                    )
                 elif ref_type == "service":
                     conn.execute("UPDATE service_records SET check_status=? WHERE invoice_number=?", (clean_st, inv_no))
                 conn.execute(
@@ -6638,3 +7126,1000 @@ class DatabaseManager:
                     "total_profit": s_prof + sv_prof,
                 })
             return results
+
+    # =========================================================================
+    # اقساط خرید و دفتر حساب تأمین‌کنندگان (Daqiq v5.0.1 - REQ-06)
+    # =========================================================================
+    def pay_supplier_installment(
+        self,
+        installment_id: int,
+        pay_amount: int,
+        payment_date: str,
+        notes: str = "",
+        operator_name: str = "",
+        expected_row_version: Optional[int] = None,
+    ) -> dict:
+        iid = self._batch_integer(installment_id, "شناسه قسط تأمین‌کننده", minimum=1)
+        amt = self._batch_integer(pay_amount, "مبلغ پرداختی قسط", minimum=1)
+        p_date = str(payment_date or "").strip()
+        if not p_date:
+            raise ValueError("تاریخ پرداخت قسط مشخص نشده است.")
+        clean_notes = str(notes or "").strip()
+        mod_by = str(operator_name or "").strip()
+        mod_at = time.strftime("%Y-%m-%d %H:%M:%S")
+
+        def _tx(conn):
+            if expected_row_version is not None:
+                self._check_row_version(conn, "supplier_installment_payments", iid, expected_row_version, "قسط تأمین‌کننده")
+            row = conn.execute(
+                """
+                SELECT sp.*, pl.purchase_invoice_code, pl.batch_id, pl.supplier_id
+                FROM supplier_installment_payments sp
+                JOIN supplier_installment_plans pl ON pl.id = sp.plan_id
+                WHERE sp.id=?
+                """,
+                (iid,),
+            ).fetchone()
+            if not row:
+                raise ValueError("قسط انتخاب‌شده یافت نشد.")
+            rem_due = int(row["due_amount"]) - int(row["paid_amount"])
+            if rem_due <= 0:
+                raise ValueError("این قسط قبلاً به‌طور کامل پرداخت شده است.")
+            if amt > rem_due:
+                raise ValueError(
+                    f"مبلغ پرداختی ({amt:,} تومان) نمی‌تواند از مانده همین قسط ({rem_due:,} تومان) بیشتر باشد."
+                )
+            new_paid = int(row["paid_amount"]) + amt
+            new_status = "paid" if new_paid >= int(row["due_amount"]) else "partial"
+            merged_note = clean_notes or str(row["notes"] or "")
+            conn.execute(
+                """
+                UPDATE supplier_installment_payments
+                SET paid_amount=?, paid_date=?, status=?, notes=?,
+                    last_modified_by=?, last_modified_at=?
+                WHERE id=?
+                """,
+                (new_paid, p_date, new_status, merged_note, mod_by, mod_at, iid),
+            )
+            pinv_code = str(row["purchase_invoice_code"] or "").strip()
+            batch_rows = conn.execute(
+                """
+                SELECT id, initial_qty, unit_purchase_price, extra_cost_total, paid_amount
+                FROM batches
+                WHERE (purchase_invoice_code=? AND ? <> '') OR id=?
+                ORDER BY id ASC
+                """,
+                (pinv_code, pinv_code, int(row["batch_id"])),
+            ).fetchall()
+            rem_to_apply = amt
+            total_bill_all = 0
+            total_paid_all = 0
+            for br in batch_rows:
+                line_bill = int(br["unit_purchase_price"]) * int(br["initial_qty"]) + int(br["extra_cost_total"])
+                cur_paid = int(br["paid_amount"])
+                room = max(0, line_bill - cur_paid)
+                add_here = min(room, rem_to_apply)
+                rem_to_apply = max(0, rem_to_apply - add_here)
+                upd_paid = cur_paid + add_here
+                b_status = "تسویه‌شده" if upd_paid >= line_bill else ("تسویه‌نشده" if upd_paid == 0 else "تسویه جزئی")
+                conn.execute(
+                    "UPDATE batches SET paid_amount=?, settlement_status=? WHERE id=?",
+                    (upd_paid, b_status, int(br["id"])),
+                )
+                total_bill_all += line_bill
+                total_paid_all += upd_paid
+
+            if batch_rows:
+                conn.execute(
+                    """
+                    INSERT INTO payments (ref_type, ref_id, amount, payment_date, notes)
+                    VALUES ('batch', ?, ?, ?, ?)
+                    """,
+                    (
+                        int(batch_rows[0]["id"]),
+                        amt,
+                        p_date.split(" ")[0],
+                        f"پرداخت قسط #{row['installment_no']} فاکتور خرید {pinv_code or row['batch_id']}",
+                    ),
+                )
+            if pinv_code:
+                hdr_st = "تسویه‌شده" if total_paid_all >= total_bill_all else ("تسویه‌نشده" if total_paid_all == 0 else "تسویه جزئی")
+                conn.execute(
+                    """
+                    UPDATE invoice_headers
+                    SET paid_amount=?, settlement_status=?, last_modified_by=?, last_modified_at=?
+                    WHERE invoice_kind='batch' AND invoice_number=?
+                    """,
+                    (total_paid_all, hdr_st, mod_by, mod_at, pinv_code),
+                )
+            open_cnt = conn.execute(
+                "SELECT COUNT(*) FROM supplier_installment_payments WHERE plan_id=? AND status <> 'paid'",
+                (int(row["plan_id"]),),
+            ).fetchone()[0]
+            plan_status = "completed" if int(open_cnt) == 0 else "active"
+            conn.execute(
+                "UPDATE supplier_installment_plans SET status=?, last_modified_by=?, last_modified_at=? WHERE id=?",
+                (plan_status, mod_by, mod_at, int(row["plan_id"])),
+            )
+            self.log_audit(
+                conn,
+                "ثبت پرداخت قسط تأمین‌کننده",
+                f"قسط #{row['installment_no']} فاکتور {pinv_code} | مبلغ: {amt:,}",
+            )
+            return {
+                "installment_id": iid,
+                "plan_id": int(row["plan_id"]),
+                "plan_status": plan_status,
+                "new_paid": new_paid,
+                "status": new_status,
+            }
+
+        return self.run_write_transaction(_tx)
+
+    def list_suppliers_with_ledgers(
+        self,
+        today_str: str = "",
+        search_text: str = "",
+        limit: Optional[int] = None,
+        offset: int = 0,
+    ) -> list[dict]:
+        """Single-query SQL aggregation of suppliers, purchase volume, debt, installments, and payable checks."""
+        q_filter = ""
+        clean_search = str(search_text or "").strip()
+        params: list = [str(today_str or "").strip(), str(today_str or "").strip()]
+        if clean_search:
+            like = f"%{clean_search}%"
+            q_filter = "WHERE (s.name LIKE ? OR s.phone LIKE ? OR s.address LIKE ? OR s.notes LIKE ?)"
+            params.extend([like, like, like, like])
+        limit_sql = ""
+        if limit is not None and int(limit) > 0:
+            limit_sql = f" LIMIT {int(limit)} OFFSET {max(0, int(offset))}"
+        sql = f"""
+            WITH batch_agg AS (
+                SELECT
+                    supplier_id,
+                    COUNT(DISTINCT COALESCE(NULLIF(purchase_invoice_code, ''), batch_code)) AS invoice_count,
+                    COALESCE(SUM(unit_purchase_price * initial_qty + extra_cost_total), 0) AS total_purchases,
+                    COALESCE(SUM(paid_amount), 0) AS total_paid,
+                    COALESCE(SUM(MAX(0, (unit_purchase_price * initial_qty + extra_cost_total) - paid_amount)), 0) AS remaining_debt
+                FROM batches
+                WHERE supplier_id IS NOT NULL
+                GROUP BY supplier_id
+            ),
+            inst_agg AS (
+                SELECT
+                    p.supplier_id,
+                    COALESCE(SUM(CASE WHEN sp.status <> 'paid' THEN 1 ELSE 0 END), 0) AS open_installments,
+                    COALESCE(SUM(CASE WHEN sp.status <> 'paid' AND ? <> '' AND substr(sp.due_date, 1, 10) < substr(?, 1, 10) THEN 1 ELSE 0 END), 0) AS overdue_count
+                FROM supplier_installment_plans p
+                JOIN supplier_installment_payments sp ON sp.plan_id = p.id
+                WHERE p.status = 'active'
+                GROUP BY p.supplier_id
+            ),
+            chk_agg AS (
+                SELECT
+                    supplier_id,
+                    COALESCE(SUM(CASE WHEN status='pending' THEN 1 ELSE 0 END), 0) AS pending_checks_count,
+                    COALESCE(SUM(CASE WHEN status='pending' THEN amount ELSE 0 END), 0) AS pending_checks_amount
+                FROM checks
+                WHERE supplier_id IS NOT NULL AND direction='payable'
+                GROUP BY supplier_id
+            )
+            SELECT
+                s.id, s.name, s.phone, s.address, s.notes, s.created_at, s.updated_at, s.row_version,
+                COALESCE(ba.invoice_count, 0) AS invoice_count,
+                COALESCE(ba.total_purchases, 0) AS total_purchases,
+                COALESCE(ba.total_paid, 0) AS total_paid,
+                COALESCE(ba.remaining_debt, 0) AS remaining_debt,
+                COALESCE(ia.open_installments, 0) AS open_installments,
+                COALESCE(ia.overdue_count, 0) AS overdue_count,
+                COALESCE(ca.pending_checks_count, 0) AS pending_checks_count,
+                COALESCE(ca.pending_checks_amount, 0) AS pending_checks_amount
+            FROM suppliers s
+            LEFT JOIN batch_agg ba ON ba.supplier_id = s.id
+            LEFT JOIN inst_agg ia ON ia.supplier_id = s.id
+            LEFT JOIN chk_agg ca ON ca.supplier_id = s.id
+            {q_filter}
+            ORDER BY COALESCE(ba.remaining_debt, 0) DESC, s.updated_at DESC, s.id DESC
+            {limit_sql}
+        """
+        with self.get_connection() as conn:
+            return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+    def get_supplier_purchases_and_installments(self, supplier_id: int) -> dict:
+        sid = int(supplier_id)
+        with self.get_connection() as conn:
+            sup = conn.execute("SELECT * FROM suppliers WHERE id=?", (sid,)).fetchone()
+            batches_rows = conn.execute(
+                """
+                SELECT b.id, b.batch_code, b.purchase_invoice_code, b.invoice_number, b.purchase_date,
+                       b.initial_qty, (b.unit_purchase_price * b.initial_qty + b.extra_cost_total) AS total_amount,
+                       b.paid_amount, b.settlement_status, b.payment_type, b.settlement_subtype,
+                       b.check_due_date, b.check_status,
+                       COALESCE(NULLIF(trim(COALESCE(p.brand, '') || ' ' || COALESCE(p.model, '')), ''), p.name, '-') AS product_label
+                FROM batches b
+                LEFT JOIN products p ON p.id = b.product_id
+                WHERE b.supplier_id=?
+                ORDER BY b.purchase_date DESC, b.id DESC
+                """,
+                (sid,),
+            ).fetchall()
+            installments_rows = conn.execute(
+                """
+                SELECT sp.*, pl.purchase_invoice_code, pl.batch_id
+                FROM supplier_installment_payments sp
+                JOIN supplier_installment_plans pl ON pl.id = sp.plan_id
+                WHERE pl.supplier_id=?
+                ORDER BY sp.due_date ASC, sp.installment_no ASC, sp.id ASC
+                """,
+                (sid,),
+            ).fetchall()
+            check_rows = conn.execute(
+                """
+                SELECT * FROM checks
+                WHERE supplier_id=? AND direction='payable'
+                ORDER BY CASE status WHEN 'pending' THEN 0 WHEN 'bounced' THEN 1 ELSE 2 END, due_date ASC, id DESC
+                """,
+                (sid,),
+            ).fetchall()
+            return {
+                "supplier": dict(sup) if sup else None,
+                "batches": [dict(r) for r in batches_rows],
+                "installments": [dict(r) for r in installments_rows],
+                "checks": [dict(r) for r in check_rows],
+            }
+
+    def get_supplier_installments_overview(self, today_str: str = "") -> dict:
+        t_date = str(today_str or "").strip()[:10]
+        with self.get_connection() as conn:
+            row = conn.execute(
+                """
+                SELECT
+                    COALESCE(SUM(CASE WHEN sp.status <> 'paid' THEN MAX(0, sp.due_amount - sp.paid_amount) ELSE 0 END), 0) AS total_unpaid_installments,
+                    COALESCE(SUM(CASE WHEN sp.status <> 'paid' AND ? <> '' AND substr(sp.due_date, 1, 10) < ? THEN 1 ELSE 0 END), 0) AS overdue_count,
+                    COALESCE(SUM(CASE WHEN sp.status <> 'paid' AND ? <> '' AND substr(sp.due_date, 1, 10) < ? THEN MAX(0, sp.due_amount - sp.paid_amount) ELSE 0 END), 0) AS overdue_amount,
+                    COALESCE(SUM(CASE WHEN sp.status <> 'paid' THEN 1 ELSE 0 END), 0) AS open_count
+                FROM supplier_installment_payments sp
+                JOIN supplier_installment_plans pl ON pl.id = sp.plan_id
+                WHERE pl.status = 'active'
+                """,
+                (t_date, t_date, t_date, t_date),
+            ).fetchone()
+            sup_debt = conn.execute(
+                "SELECT COALESCE(SUM(MAX(0, (unit_purchase_price * initial_qty + extra_cost_total) - paid_amount)), 0) FROM batches WHERE settlement_status <> 'تسویه‌شده'"
+            ).fetchone()[0]
+            return {
+                "total_unpaid_installments": int(row["total_unpaid_installments"] or 0) if row else 0,
+                "overdue_count": int(row["overdue_count"] or 0) if row else 0,
+                "overdue_amount": int(row["overdue_amount"] or 0) if row else 0,
+                "open_count": int(row["open_count"] or 0) if row else 0,
+                "total_supplier_debt": int(sup_debt or 0),
+            }
+
+    # =========================================================================
+    # پیش‌فاکتورها (Proforma Invoices - Daqiq v5.0.1 - REQ-12)
+    # =========================================================================
+    def _prepare_proforma_items(self, items, notes: str = ""):
+        if not items or not isinstance(items, (list, tuple)):
+            raise ValueError("حداقل یک قلم کالا برای ثبت پیش‌فاکتور لازم است.")
+        prepared = []
+        total_amount = 0
+        for raw in items:
+            pid = self._batch_integer(raw.get("product_id"), "کالا", minimum=1)
+            bid = self._batch_integer(raw.get("batch_id"), "محموله", minimum=1)
+            q = self._batch_integer(raw.get("qty"), "تعداد", minimum=1)
+            sug_u = self._batch_integer(raw.get("suggested_unit_price", raw.get("actual_unit_price", 0)), "قیمت پیشنهادی واحد")
+            act_u = self._batch_integer(raw.get("actual_unit_price"), "قیمت واحد")
+            line_tot = self._sqlite_integer(act_u * q, "مبلغ کل ردیف پیش‌فاکتور")
+            total_amount = self._sqlite_integer(total_amount + line_tot, "جمع کل پیش‌فاکتور")
+            prepared.append({
+                "product_id": pid,
+                "batch_id": bid,
+                "qty": q,
+                "suggested_unit_price": sug_u,
+                "actual_unit_price": act_u,
+                "line_total": line_tot,
+                "serial_number": str(raw.get("serial_number") or "").strip(),
+                "warranty_company": str(raw.get("warranty_company") or "").strip(),
+                "warranty_start": str(raw.get("warranty_start") or "").strip(),
+                "warranty_months": int(raw.get("warranty_months") or 0),
+                "warranty_days": int(raw.get("warranty_days") if raw.get("warranty_days") is not None else int(raw.get("warranty_months") or 0) * 30),
+                "warranty_end": str(raw.get("warranty_end") or "").strip(),
+                "specifications": str(raw.get("specifications") or ""),
+                "colors_json": json.dumps(self._normalize_color_list(raw.get("colors")) or [], ensure_ascii=False),
+                "notes": str(raw.get("notes") or notes or "").strip(),
+            })
+        return prepared, total_amount
+
+    def add_proforma_invoice(
+        self,
+        proforma_number,
+        items,
+        *,
+        customer_id=None,
+        customer_name="",
+        customer_phone="",
+        seller_employee_id=None,
+        proforma_datetime="",
+        valid_until="",
+        notes="",
+        operator_name="",
+    ) -> str:
+        clean_num = str(proforma_number or "").strip()
+        customer_id = self._batch_optional_id(customer_id, "مشتری")
+        seller_employee_id = self._batch_optional_id(seller_employee_id, "فروشنده")
+        c_name = str(customer_name or "").strip()
+        c_phone = str(customer_phone or "").strip()
+        dt_str = str(proforma_datetime or "").strip()
+        if not dt_str:
+            cal, tf = self._active_datetime_prefs()
+            dt_str = datetime_format.get_now_datetime(cal, tf)
+        v_until = str(valid_until or "").strip()
+        clean_notes = str(notes or "").strip()
+        prepared, total_amount = self._prepare_proforma_items(items, clean_notes)
+        mod_by = str(operator_name or "").strip()
+        mod_at = time.strftime("%Y-%m-%d %H:%M:%S")
+
+        def _tx(conn):
+            nonlocal clean_num, customer_id
+            if not clean_num:
+                clean_num = self._next_available_invoice_code(conn, "proforma", "proforma_number", "PF-", 1001)
+            else:
+                dup = conn.execute(
+                    "SELECT id FROM proforma_invoices WHERE proforma_number=?",
+                    (clean_num,),
+                ).fetchone()
+                if dup:
+                    clean_num = self._next_available_invoice_code(conn, "proforma", "proforma_number", "PF-", 1001)
+            if customer_id is None and c_name and c_name != "مشتری حضوری":
+                row_cust = conn.execute(
+                    "SELECT id FROM customers WHERE name=? AND (?='' OR phone=?) ORDER BY id DESC LIMIT 1",
+                    (c_name, c_phone, c_phone),
+                ).fetchone()
+                if row_cust:
+                    customer_id = int(row_cust["id"])
+            cur = conn.execute(
+                """
+                INSERT INTO proforma_invoices (
+                    proforma_number, customer_id, customer_name, customer_phone, seller_employee_id,
+                    proforma_datetime, valid_until, status, converted_sale_invoice, total_amount,
+                    notes, last_modified_by, last_modified_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'open', '', ?, ?, ?, ?)
+                """,
+                (
+                    clean_num, customer_id, c_name, c_phone, seller_employee_id,
+                    dt_str, v_until, total_amount, clean_notes, mod_by, mod_at,
+                ),
+            )
+            pf_id = int(cur.lastrowid)
+            for line_no, item in enumerate(prepared, start=1):
+                conn.execute(
+                    """
+                    INSERT INTO proforma_items (
+                        proforma_id, line_no, product_id, batch_id, qty,
+                        suggested_unit_price, actual_unit_price, line_total,
+                        serial_number, warranty_company, warranty_start, warranty_months,
+                        warranty_days, warranty_end, specifications, colors_json, notes
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        pf_id, line_no, item["product_id"], item["batch_id"], item["qty"],
+                        item["suggested_unit_price"], item["actual_unit_price"], item["line_total"],
+                        item["serial_number"], item["warranty_company"], item["warranty_start"],
+                        item["warranty_months"], item["warranty_days"], item["warranty_end"],
+                        item["specifications"], item["colors_json"], item["notes"],
+                    ),
+                )
+            self.log_audit(
+                conn,
+                "ثبت پیش‌فاکتور",
+                f"شماره: {clean_num} | مشتری: {c_name or 'حضوری'} | مبلغ کل: {total_amount:,}",
+            )
+            return clean_num
+
+        return self.run_write_transaction(_tx)
+
+    def update_proforma_invoice(
+        self,
+        proforma_id: int,
+        proforma_number: str,
+        items,
+        *,
+        customer_id=None,
+        customer_name="",
+        customer_phone="",
+        seller_employee_id=None,
+        proforma_datetime="",
+        valid_until="",
+        status="open",
+        notes="",
+        operator_name="",
+        expected_row_version=None,
+    ) -> str:
+        pf_id = self._batch_integer(proforma_id, "شناسه پیش‌فاکتور", minimum=1)
+        clean_num = str(proforma_number or "").strip()
+        customer_id = self._batch_optional_id(customer_id, "مشتری")
+        seller_employee_id = self._batch_optional_id(seller_employee_id, "فروشنده")
+        c_name = str(customer_name or "").strip()
+        c_phone = str(customer_phone or "").strip()
+        dt_str = str(proforma_datetime or "").strip()
+        v_until = str(valid_until or "").strip()
+        clean_st = str(status or "open").strip().lower()
+        if clean_st not in ("open", "cancelled"):
+            clean_st = "open"
+        clean_notes = str(notes or "").strip()
+        prepared, total_amount = self._prepare_proforma_items(items, clean_notes)
+        mod_by = str(operator_name or "").strip()
+        mod_at = time.strftime("%Y-%m-%d %H:%M:%S")
+
+        def _tx(conn):
+            old = self._check_row_version(conn, "proforma_invoices", pf_id, expected_row_version, "پیش‌فاکتور")
+            if old is None:
+                old = conn.execute("SELECT * FROM proforma_invoices WHERE id=?", (pf_id,)).fetchone()
+            if not old:
+                raise ValueError("پیش‌فاکتور انتخاب‌شده یافت نشد.")
+            if str(old["status"]) == "converted":
+                raise ValueError("پیش‌فاکتور تبدیل‌شده به فاکتور فروش قابل ویرایش نیست.")
+            final_num = clean_num or str(old["proforma_number"])
+            conn.execute(
+                """
+                UPDATE proforma_invoices
+                SET proforma_number=?, customer_id=?, customer_name=?, customer_phone=?,
+                    seller_employee_id=?, proforma_datetime=?, valid_until=?, status=?,
+                    total_amount=?, notes=?, last_modified_by=?, last_modified_at=?
+                WHERE id=?
+                """,
+                (
+                    final_num, customer_id, c_name, c_phone, seller_employee_id,
+                    dt_str or old["proforma_datetime"], v_until, clean_st,
+                    total_amount, clean_notes, mod_by, mod_at, pf_id,
+                ),
+            )
+            conn.execute("DELETE FROM proforma_items WHERE proforma_id=?", (pf_id,))
+            for line_no, item in enumerate(prepared, start=1):
+                conn.execute(
+                    """
+                    INSERT INTO proforma_items (
+                        proforma_id, line_no, product_id, batch_id, qty,
+                        suggested_unit_price, actual_unit_price, line_total,
+                        serial_number, warranty_company, warranty_start, warranty_months,
+                        warranty_days, warranty_end, specifications, colors_json, notes
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        pf_id, line_no, item["product_id"], item["batch_id"], item["qty"],
+                        item["suggested_unit_price"], item["actual_unit_price"], item["line_total"],
+                        item["serial_number"], item["warranty_company"], item["warranty_start"],
+                        item["warranty_months"], item["warranty_days"], item["warranty_end"],
+                        item["specifications"], item["colors_json"], item["notes"],
+                    ),
+                )
+            self.log_audit(conn, "ویرایش پیش‌فاکتور", f"شماره: {final_num} | مبلغ کل: {total_amount:,}")
+            return final_num
+
+        return self.run_write_transaction(_tx)
+
+    def list_proforma_invoices(
+        self,
+        *,
+        search_text: str = "",
+        status: str = "",
+        date_from: str = "",
+        date_to: str = "",
+        visible_employee_ids: Optional[set] = None,
+        limit: Optional[int] = None,
+        offset: int = 0,
+    ) -> list[dict]:
+        clauses = ["1=1"]
+        params: list = []
+        if status in ("open", "converted", "cancelled"):
+            clauses.append("pf.status = ?")
+            params.append(status)
+        d_from = str(date_from or "").strip()[:10]
+        d_to = str(date_to or "").strip()[:10]
+        if d_from:
+            clauses.append("substr(pf.proforma_datetime, 1, 10) >= ?")
+            params.append(d_from)
+        if d_to:
+            clauses.append("substr(pf.proforma_datetime, 1, 10) <= ?")
+            params.append(d_to)
+        if visible_employee_ids is not None:
+            if not visible_employee_ids:
+                return []
+            marks = ",".join("?" for _ in visible_employee_ids)
+            clauses.append(f"(pf.seller_employee_id IN ({marks}) OR pf.seller_employee_id IS NULL)")
+            params.extend(sorted(visible_employee_ids))
+        clean_q = str(search_text or "").strip()
+        if clean_q:
+            like = f"%{clean_q}%"
+            clauses.append(
+                "(pf.proforma_number LIKE ? OR pf.customer_name LIKE ? OR pf.customer_phone LIKE ? OR pf.converted_sale_invoice LIKE ?)"
+            )
+            params.extend([like, like, like, like])
+        where_sql = " AND ".join(clauses)
+        limit_sql = f" LIMIT {int(limit)} OFFSET {max(0, int(offset))}" if (limit is not None and int(limit) > 0) else ""
+        with self.get_connection() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT pf.*,
+                       COALESCE(e.name, '-') AS seller_name,
+                       (SELECT COUNT(*) FROM proforma_items pi WHERE pi.proforma_id = pf.id) AS item_count,
+                       (SELECT COALESCE(SUM(pi.qty), 0) FROM proforma_items pi WHERE pi.proforma_id = pf.id) AS total_qty
+                FROM proforma_invoices pf
+                LEFT JOIN employees e ON e.id = pf.seller_employee_id
+                WHERE {where_sql}
+                ORDER BY pf.proforma_datetime DESC, pf.id DESC
+                {limit_sql}
+                """,
+                params,
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_proforma_detail(self, proforma_id: int) -> Optional[dict]:
+        pf_id = int(proforma_id)
+        with self.get_connection() as conn:
+            hdr = conn.execute(
+                """
+                SELECT pf.*, COALESCE(e.name, '-') AS seller_name
+                FROM proforma_invoices pf
+                LEFT JOIN employees e ON e.id = pf.seller_employee_id
+                WHERE pf.id=?
+                """,
+                (pf_id,),
+            ).fetchone()
+            if not hdr:
+                return None
+            items = conn.execute(
+                """
+                SELECT pi.*,
+                       p.code AS product_code,
+                       p.name AS product_name,
+                       p.brand AS product_brand,
+                       p.model AS product_model,
+                       b.batch_code,
+                       b.purchase_invoice_code,
+                       b.invoice_number AS supplier_invoice_number,
+                       b.remaining_qty AS batch_remaining_qty
+                FROM proforma_items pi
+                LEFT JOIN products p ON p.id = pi.product_id
+                LEFT JOIN batches b ON b.id = pi.batch_id
+                WHERE pi.proforma_id=?
+                ORDER BY pi.line_no ASC, pi.id ASC
+                """,
+                (pf_id,),
+            ).fetchall()
+            res = dict(hdr)
+            res["items"] = [dict(r) for r in items]
+            return res
+
+    def delete_proformas_batch(self, proforma_ids: list[int], operator_name: str = "") -> int:
+        ids = list(dict.fromkeys(self._batch_integer(x, "شناسه پیش‌فاکتور", minimum=1) for x in (proforma_ids or [])))
+        if not ids:
+            return 0
+
+        def _tx(conn):
+            marks = ",".join("?" for _ in ids)
+            nums = [
+                str(r["proforma_number"])
+                for r in conn.execute(f"SELECT proforma_number FROM proforma_invoices WHERE id IN ({marks})", ids).fetchall()
+            ]
+            if not nums:
+                return 0
+            conn.execute(f"DELETE FROM proforma_items WHERE proforma_id IN ({marks})", ids)
+            conn.execute(f"DELETE FROM proforma_invoices WHERE id IN ({marks})", ids)
+            self.log_audit(
+                conn,
+                "حذف گروهی پیش‌فاکتور",
+                f"تعداد: {len(nums)} | شماره‌ها: {', '.join(nums)}",
+            )
+            return len(nums)
+
+        return self.run_write_transaction(_tx)
+
+    def convert_proforma_to_sale(
+        self,
+        proforma_id: int,
+        *,
+        sale_datetime: str = "",
+        settlement_status: str = "تسویه‌شده",
+        settlement_subtype: str = "تسویه نقدی",
+        paid_amount: Optional[int] = None,
+        payment_type: str = "cash",
+        check_due_date: str = "",
+        check_status: str = "pending",
+        installment_plan: Optional[dict] = None,
+        sale_invoice_number: str = "",
+        operator_name: str = "",
+        expected_row_version: Optional[int] = None,
+        conflict_resolution: Optional[str] = None,
+        expected_existing_version: Optional[int] = None,
+    ) -> str:
+        """Atomically convert an open proforma invoice into a finalized sale invoice."""
+        pf_id = self._batch_integer(proforma_id, "شناسه پیش‌فاکتور", minimum=1)
+        clean_sale_inv = str(sale_invoice_number or "").strip()
+        clean_dt = str(sale_datetime or "").strip()
+        if not clean_dt:
+            cal, tf = self._active_datetime_prefs()
+            clean_dt = datetime_format.get_now_datetime(cal, tf)
+        clean_subtype = str(settlement_subtype or "").strip()
+        resolved_payment_type = str(payment_type or "cash").strip().lower()
+        if installment_plan:
+            resolved_payment_type = "installment"
+        elif clean_subtype == "تسویه چکی":
+            resolved_payment_type = "check"
+        elif resolved_payment_type not in ("cash", "check", "installment", "partial"):
+            resolved_payment_type = "cash"
+        clean_chk_due = str(check_due_date or "").strip() if resolved_payment_type == "check" else ""
+        clean_chk_status = (
+            ("cleared" if str(check_status or "").strip().lower() in ("cleared", "وصول شده", "وصول‌شده")
+             else ("bounced" if str(check_status or "").strip().lower() in ("bounced", "برگشتی", "برگشت خورده") else "pending"))
+            if resolved_payment_type == "check" else ""
+        )
+        if resolved_payment_type == "check" and not clean_chk_due:
+            raise ValueError("برای تسویه چکی، تاریخ سررسید چک باید مشخص شود.")
+        first_inst_paid = False
+        inst_count = 0
+        inst_interval = 30
+        inst_start_due = ""
+        if installment_plan:
+            down_p = self._batch_integer(
+                installment_plan.get("down_payment", paid_amount if paid_amount is not None else 0),
+                "پیش‌پرداخت",
+            )
+            inst_count = self._batch_integer(installment_plan.get("count", 1), "تعداد اقساط", minimum=1)
+            inst_interval = self._batch_integer(installment_plan.get("interval_days", 30), "فاصله اقساط (روز)", minimum=1)
+            inst_start_due = str(installment_plan.get("start_due_date") or clean_dt.split(" ")[0]).strip()
+            if not inst_start_due:
+                raise ValueError("تاریخ سررسید قسط اول مشخص نشده است.")
+            first_inst_paid = bool(installment_plan.get("first_installment_paid", False))
+            resolved_paid = down_p
+        else:
+            resolved_paid = paid_amount
+
+        mod_by = str(operator_name or "").strip()
+        mod_at = time.strftime("%Y-%m-%d %H:%M:%S")
+
+        def _tx(conn):
+            pf = self._check_row_version(conn, "proforma_invoices", pf_id, expected_row_version, "پیش‌فاکتور")
+            if pf is None:
+                pf = conn.execute("SELECT * FROM proforma_invoices WHERE id=?", (pf_id,)).fetchone()
+            if not pf:
+                raise ValueError("پیش‌فاکتور انتخاب‌شده یافت نشد.")
+            if str(pf["status"]) != "open":
+                raise ValueError(
+                    f"این پیش‌فاکتور در وضعیت «{pf['status']}» است و قبلاً تبدیل یا لغو شده است."
+                )
+            pf_items = conn.execute(
+                "SELECT * FROM proforma_items WHERE proforma_id=? ORDER BY line_no ASC, id ASC",
+                (pf_id,),
+            ).fetchall()
+            if not pf_items:
+                raise ValueError("این پیش‌فاکتور هیچ قلم کالایی ندارد.")
+
+            prepared_lines = []
+            total_inv = 0
+            for pi in pf_items:
+                line_tot = int(pi["line_total"])
+                total_inv = self._sqlite_integer(total_inv + line_tot, "جمع کل فاکتور")
+                try:
+                    cols_list = json.loads(pi["colors_json"] or "[]")
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    cols_list = []
+                prepared_lines.append({
+                    "product_id": int(pi["product_id"]),
+                    "batch_id": int(pi["batch_id"]),
+                    "qty": int(pi["qty"]),
+                    "suggested_unit_price": int(pi["suggested_unit_price"]),
+                    "actual_unit_price": int(pi["actual_unit_price"]),
+                    "line_total": line_tot,
+                    "serial_number": str(pi["serial_number"] or "").strip(),
+                    "specifications": str(pi["specifications"] or ""),
+                    "colors": cols_list,
+                    "warranty_company": str(pi["warranty_company"] or "").strip(),
+                    "warranty_start": str(pi["warranty_start"] or "").strip(),
+                    "warranty_months": int(pi["warranty_months"] or 0),
+                    "warranty_days": int(pi["warranty_days"] or 0),
+                    "warranty_end": str(pi["warranty_end"] or "").strip(),
+                    "expected_batch_row_version": None,
+                    "notes": str(pi["notes"] or pf["notes"] or "").strip(),
+                })
+
+            eff_paid = total_inv if resolved_paid is None else self._batch_integer(resolved_paid, "مبلغ دریافتی")
+            converted_inv = self._insert_sale_invoice_tx(
+                conn,
+                invoice_number=clean_sale_inv,
+                prepared_lines=prepared_lines,
+                total_invoice_amount=total_inv,
+                seller_employee_id=pf["seller_employee_id"],
+                customer_name=str(pf["customer_name"] or "").strip(),
+                customer_phone=str(pf["customer_phone"] or "").strip(),
+                customer_id=pf["customer_id"],
+                sale_datetime=clean_dt,
+                settlement_status=settlement_status,
+                clean_subtype=clean_subtype,
+                paid_amount=eff_paid,
+                resolved_payment_type=resolved_payment_type,
+                clean_chk_due=clean_chk_due,
+                clean_chk_status=clean_chk_status,
+                installment_plan=installment_plan,
+                inst_count=inst_count,
+                inst_interval=inst_interval,
+                inst_start_due=inst_start_due,
+                first_inst_paid=first_inst_paid,
+                notes=str(pf["notes"] or "").strip(),
+                operator_name=operator_name,
+                conflict_resolution=conflict_resolution,
+                expected_existing_version=expected_existing_version,
+                enforce_unique_invoice=True,
+            )
+            upd = conn.execute(
+                """
+                UPDATE proforma_invoices
+                SET status='converted', converted_sale_invoice=?, last_modified_by=?, last_modified_at=?
+                WHERE id=? AND status='open' AND row_version=?
+                """,
+                (converted_inv, mod_by, mod_at, pf_id, int(pf["row_version"] or 1)),
+            )
+            if upd.rowcount != 1:
+                raise ConcurrencyConflictError(
+                    "proforma",
+                    pf_id,
+                    int(pf["row_version"] or 1),
+                    int(pf["row_version"] or 1) + 1,
+                    dict(pf),
+                    "پیش‌فاکتور هم‌زمان توسط کاربر دیگری تبدیل یا تغییر یافته است.",
+                )
+            self.log_audit(
+                conn,
+                "تبدیل پیش‌فاکتور به فاکتور فروش",
+                f"پیش‌فاکتور: {pf['proforma_number']} -> فاکتور فروش: {converted_inv}",
+            )
+            return converted_inv
+
+        return self.run_write_transaction(_tx)
+
+    # =========================================================================
+    # حذف گروهی اتمیک رکوردها (Atomic Batch Deletion - Daqiq v5.0.1 - REQ-05)
+    # =========================================================================
+    def delete_products_batch(self, prod_ids: list[int]) -> int:
+        ids = list(dict.fromkeys(self._batch_integer(x, "شناسه کالا", minimum=1) for x in (prod_ids or [])))
+        if not ids:
+            return 0
+
+        def _tx(conn):
+            marks = ",".join("?" for _ in ids)
+            batch_rows = conn.execute(f"SELECT id FROM batches WHERE product_id IN ({marks})", ids).fetchall()
+            self._hard_delete_batches(conn, [int(r["id"]) for r in batch_rows])
+            for pid in ids:
+                self._delete_linked_sales(conn, product_id=pid)
+            conn.execute(f"DELETE FROM proforma_items WHERE product_id IN ({marks})", ids)
+            cur = conn.execute(f"DELETE FROM products WHERE id IN ({marks})", ids)
+            self.log_audit(conn, "حذف گروهی کالاها", f"تعداد: {cur.rowcount} | شناسه‌ها: {ids}")
+            return int(cur.rowcount or 0)
+
+        return self.run_write_transaction(_tx)
+
+    def delete_batches_batch(self, batch_ids: list[int]) -> int:
+        ids = list(dict.fromkeys(self._batch_integer(x, "شناسه محموله", minimum=1) for x in (batch_ids or [])))
+        if not ids:
+            return 0
+
+        def _tx(conn):
+            marks = ",".join("?" for _ in ids)
+            rows = conn.execute(f"SELECT id, batch_code FROM batches WHERE id IN ({marks})", ids).fetchall()
+            if not rows:
+                return 0
+            found_ids = [int(r["id"]) for r in rows]
+            codes = [str(r["batch_code"]) for r in rows]
+            self._hard_delete_batches(conn, found_ids)
+            self.log_audit(conn, "حذف گروهی محموله‌ها", f"تعداد: {len(codes)} | کدها: {', '.join(codes)}")
+            return len(found_ids)
+
+        return self.run_write_transaction(_tx)
+
+    def delete_sales_batch(self, sale_ids: list[int]) -> int:
+        ids = list(dict.fromkeys(self._batch_integer(x, "شناسه فروش", minimum=1) for x in (sale_ids or [])))
+        if not ids:
+            return 0
+
+        def _tx(conn):
+            marks = ",".join("?" for _ in ids)
+            rows = conn.execute(
+                f"SELECT id, invoice_number, batch_id, qty FROM sales WHERE id IN ({marks}) ORDER BY id DESC",
+                ids,
+            ).fetchall()
+            if not rows:
+                return 0
+            touched_invoices = set()
+            for r in rows:
+                stock_upd = conn.execute(
+                    "UPDATE batches SET sold_qty=sold_qty-?, remaining_qty=remaining_qty+? WHERE id=? AND sold_qty>=?",
+                    (int(r["qty"]), int(r["qty"]), int(r["batch_id"]), int(r["qty"])),
+                )
+                if stock_upd.rowcount != 1:
+                    raise ValueError(f"موجودی مصرف‌شدهٔ محموله برای فاکتور {r['invoice_number']} سازگار نیست.")
+                touched_invoices.add(str(r["invoice_number"] or "").strip())
+            conn.execute(
+                f"DELETE FROM installment_payments WHERE plan_id IN (SELECT id FROM installment_plans WHERE sale_id IN ({marks}))",
+                ids,
+            )
+            conn.execute(f"DELETE FROM installment_plans WHERE sale_id IN ({marks})", ids)
+            conn.execute(f"DELETE FROM payments WHERE ref_type='sale' AND ref_id IN ({marks})", ids)
+            conn.execute(f"DELETE FROM checks WHERE ref_type='sale' AND ref_id IN ({marks})", ids)
+            conn.execute(f"DELETE FROM sales WHERE id IN ({marks})", ids)
+            for inv_no in touched_invoices:
+                if not inv_no:
+                    continue
+                rem = conn.execute("SELECT COUNT(*) FROM sales WHERE invoice_number=?", (inv_no,)).fetchone()[0]
+                if int(rem or 0) == 0:
+                    conn.execute("DELETE FROM checks WHERE ref_type='sale' AND invoice_number=?", (inv_no,))
+                    conn.execute("DELETE FROM invoice_headers WHERE invoice_kind='sale' AND invoice_number=?", (inv_no,))
+            self.log_audit(conn, "حذف گروهی فروش", f"تعداد: {len(rows)} | فاکتورها: {', '.join(sorted(touched_invoices))}")
+            return len(rows)
+
+        return self.run_write_transaction(_tx)
+
+    def delete_service_records_batch(self, record_ids: list[int]) -> int:
+        ids = list(dict.fromkeys(self._batch_integer(x, "شناسه خدمت", minimum=1) for x in (record_ids or [])))
+        if not ids:
+            return 0
+
+        def _tx(conn):
+            marks = ",".join("?" for _ in ids)
+            rows = conn.execute(
+                f"SELECT id, invoice_number FROM service_records WHERE id IN ({marks})",
+                ids,
+            ).fetchall()
+            if not rows:
+                return 0
+            invs = {str(r["invoice_number"] or "").strip() for r in rows if str(r["invoice_number"] or "").strip()}
+            conn.execute(f"DELETE FROM payments WHERE ref_type='service' AND ref_id IN ({marks})", ids)
+            conn.execute(f"DELETE FROM checks WHERE ref_type='service' AND ref_id IN ({marks})", ids)
+            conn.execute(f"DELETE FROM service_records WHERE id IN ({marks})", ids)
+            for inv_no in invs:
+                rem = conn.execute("SELECT COUNT(*) FROM service_records WHERE invoice_number=?", (inv_no,)).fetchone()[0]
+                if int(rem or 0) == 0:
+                    conn.execute("DELETE FROM checks WHERE ref_type='service' AND invoice_number=?", (inv_no,))
+                    conn.execute("DELETE FROM invoice_headers WHERE invoice_kind='service' AND invoice_number=?", (inv_no,))
+            self.log_audit(conn, "حذف گروهی خدمات", f"تعداد: {len(rows)} | فاکتورها: {', '.join(sorted(invs))}")
+            return len(rows)
+
+        return self.run_write_transaction(_tx)
+
+    def revert_upgrades_batch(self, upgrade_ids: list[int]) -> int:
+        ids = list(dict.fromkeys(self._batch_integer(x, "شناسه ارتقا", minimum=1) for x in (upgrade_ids or [])))
+        if not ids:
+            return 0
+
+        def _tx(conn):
+            marks = ",".join("?" for _ in ids)
+            selected = conn.execute(
+                f"""
+                SELECT id, target_batch_id, part_batch_id, technician_id, target_qty,
+                       part_qty_used, stock_deducted_qty, part_unit_cost, labor_cost_unit,
+                       added_cost_unit, upgrade_date, serial_number, manual_part_description,
+                       old_specs, new_specs, notes, created_at, updated_at
+                FROM upgrades
+                WHERE id IN ({marks})
+                ORDER BY updated_at DESC, id DESC
+                """,
+                ids,
+            ).fetchall()
+            if not selected:
+                return 0
+            selected_set = {int(r["id"]) for r in selected}
+            target_batches = {int(r["target_batch_id"]) for r in selected}
+            for tb_id in target_batches:
+                chain = conn.execute(
+                    "SELECT id FROM upgrades WHERE target_batch_id=? ORDER BY updated_at DESC, id DESC",
+                    (tb_id,),
+                ).fetchall()
+                chain_ids = [int(r["id"]) for r in chain]
+                seen_unselected = False
+                for cid in chain_ids:
+                    if cid in selected_set:
+                        if seen_unselected:
+                            raise ValueError(
+                                "برای جلوگیری از برهم خوردن زنجیره بهای تمام‌شده، ارتقاهای هر محموله باید از جدیدترین به قدیم‌تر به‌صورت پیوسته انتخاب و حذف شوند."
+                            )
+                    else:
+                        seen_unselected = True
+            for upg in selected:
+                self._reverse_upgrade_effects(conn, upg)
+                conn.execute("DELETE FROM upgrades WHERE id=?", (int(upg["id"]),))
+            self.log_audit(conn, "حذف گروهی ارتقای کالا", f"تعداد: {len(selected)} | شناسه‌ها: {list(selected_set)}")
+            return len(selected)
+
+        return self.run_write_transaction(_tx)
+
+    def delete_suppliers_batch(self, sup_ids: list[int], delete_related_data: bool = False) -> int:
+        ids = list(dict.fromkeys(self._batch_integer(x, "شناسه تأمین‌کننده", minimum=1) for x in (sup_ids or [])))
+        if not ids:
+            return 0
+
+        def _tx(conn):
+            marks = ",".join("?" for _ in ids)
+            sups = conn.execute(f"SELECT id, name FROM suppliers WHERE id IN ({marks})", ids).fetchall()
+            if not sups:
+                return 0
+            if not delete_related_data:
+                act = conn.execute(
+                    f"SELECT id FROM supplier_installment_plans WHERE supplier_id IN ({marks}) AND status='active' LIMIT 1",
+                    ids,
+                ).fetchone()
+                if act:
+                    raise ValueError(
+                        "حداقل یکی از تأمین‌کنندگان انتخاب‌شده دارای طرح خرید اقساطی فعال است. ابتدا اقساط تسویه یا با حذف سوابق اقدام کنید."
+                    )
+                for sup in sups:
+                    conn.execute(
+                        "UPDATE batches SET supplier_name_snapshot=?, supplier_id=NULL WHERE supplier_id=?",
+                        (sup["name"], int(sup["id"])),
+                    )
+            else:
+                batch_rows = conn.execute(f"SELECT id FROM batches WHERE supplier_id IN ({marks})", ids).fetchall()
+                self._hard_delete_batches(conn, [int(r["id"]) for r in batch_rows])
+            conn.execute(f"UPDATE checks SET supplier_id=NULL WHERE supplier_id IN ({marks})", ids)
+            conn.execute(f"DELETE FROM suppliers WHERE id IN ({marks})", ids)
+            self.log_audit(conn, "حذف گروهی تأمین‌کنندگان", f"تعداد: {len(sups)}")
+            return len(sups)
+
+        return self.run_write_transaction(_tx)
+
+    def delete_customers_batch(self, customer_ids: list[int]) -> int:
+        ids = list(dict.fromkeys(self._batch_integer(x, "شناسه مشتری", minimum=1) for x in (customer_ids or [])))
+        if not ids:
+            return 0
+
+        def _tx(conn):
+            marks = ",".join("?" for _ in ids)
+            active = conn.execute(
+                f"SELECT id FROM installment_plans WHERE customer_id IN ({marks}) AND status='active' LIMIT 1",
+                ids,
+            ).fetchone()
+            if active:
+                raise ValueError("حداقل یکی از مشتریان انتخاب‌شده دارای طرح فروش اقساطی فعال است.")
+            conn.execute(f"UPDATE sales SET customer_id=NULL WHERE customer_id IN ({marks})", ids)
+            conn.execute(f"UPDATE checks SET customer_id=NULL WHERE customer_id IN ({marks})", ids)
+            conn.execute(f"UPDATE proforma_invoices SET customer_id=NULL WHERE customer_id IN ({marks})", ids)
+            cur = conn.execute(f"DELETE FROM customers WHERE id IN ({marks})", ids)
+            self.log_audit(conn, "حذف گروهی مشتریان", f"تعداد: {cur.rowcount}")
+            return int(cur.rowcount or 0)
+
+        return self.run_write_transaction(_tx)
+
+    def delete_employees_batch(self, emp_ids: list[int], delete_related_data: bool = False) -> int:
+        ids = list(dict.fromkeys(self._batch_integer(x, "شناسه کاربر", minimum=1) for x in (emp_ids or [])))
+        if not ids:
+            return 0
+
+        def _tx(conn):
+            marks = ",".join("?" for _ in ids)
+            emps = conn.execute(f"SELECT id FROM employees WHERE id IN ({marks})", ids).fetchall()
+            if not emps:
+                return 0
+            if delete_related_data:
+                batch_rows = conn.execute(f"SELECT id FROM batches WHERE buyer_employee_id IN ({marks})", ids).fetchall()
+                self._hard_delete_batches(conn, [int(r["id"]) for r in batch_rows])
+                for eid in ids:
+                    self._delete_linked_sales(conn, seller_id=eid)
+                conn.execute(
+                    f"DELETE FROM service_records WHERE seller_employee_id IN ({marks}) OR technician_employee_id IN ({marks})",
+                    (*ids, *ids),
+                )
+                conn.execute(f"DELETE FROM upgrades WHERE technician_id IN ({marks})", ids)
+            else:
+                conn.execute(f"UPDATE batches SET buyer_employee_id=NULL WHERE buyer_employee_id IN ({marks})", ids)
+                conn.execute(f"UPDATE sales SET seller_employee_id=NULL WHERE seller_employee_id IN ({marks})", ids)
+                conn.execute(
+                    f"UPDATE service_records SET seller_employee_id=NULL, technician_employee_id=NULL WHERE seller_employee_id IN ({marks}) OR technician_employee_id IN ({marks})",
+                    (*ids, *ids),
+                )
+                conn.execute(f"UPDATE upgrades SET technician_id=NULL WHERE technician_id IN ({marks})", ids)
+            conn.execute(f"UPDATE proforma_invoices SET seller_employee_id=NULL WHERE seller_employee_id IN ({marks})", ids)
+            conn.execute(f"DELETE FROM access_level_scope_users WHERE employee_id IN ({marks})", ids)
+            conn.execute(f"DELETE FROM employees WHERE id IN ({marks})", ids)
+            self.log_audit(conn, "حذف گروهی کاربران", f"تعداد: {len(emps)}")
+            return len(emps)
+
+        return self.run_write_transaction(_tx)

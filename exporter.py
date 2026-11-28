@@ -150,7 +150,8 @@ def _style_worksheet_professional(ws, title: str, headers: list, data_rows: list
 
 INVENTORY_EXPORT_AVAILABLE_COLUMNS = [
     ("code", "کد کالا"),
-    ("batch_code", "کد محموله"),
+    ("batch_code", "شناسه فاکتور خرید"),
+    ("purchase_invoice", "شناسه فاکتور تأمین‌کننده"),
     ("product_name", "نام کالا"),
     ("category", "دسته‌بندی"),
     ("subcategory", "زیرمجموعه"),
@@ -162,7 +163,6 @@ INVENTORY_EXPORT_AVAILABLE_COLUMNS = [
     ("supplier", "تأمین‌کننده"),
     ("buyer", "مسئول خرید"),
     ("purchase_date", "تاریخ خرید"),
-    ("purchase_invoice", "شماره فاکتور خرید"),
     ("purchase_status", "وضعیت تسویه خرید"),
     ("settlement_subtype", "نحوه تسویه خرید"),
     ("check_due_date", "سررسید چک خرید"),
@@ -241,6 +241,7 @@ def export_safe_inventory_excel(
                 p.description,
                 p.specs_json,
                 b.batch_code,
+                b.purchase_invoice_code,
                 b.final_specs,
                 b.initial_specs,
                 b.supplier_name_snapshot,
@@ -306,7 +307,7 @@ def export_safe_inventory_excel(
 
         values = {
             "code": row["code"],
-            "batch_code": row["batch_code"],
+            "batch_code": row["purchase_invoice_code"] or row["batch_code"],
             "product_name": row["product_name"] or "-",
             "category": row["category"] or "سایر موارد",
             "reorder_point": int(row["reorder_point"] or 0),

@@ -1,4 +1,4 @@
-"""Zero-Qt pure Win32 / CLI UI for Daqiq-Troubleshooter.exe (v5.0.0).
+"""Zero-Qt pure Win32 / CLI UI for Daqiq-Troubleshooter.exe (v5.0.1).
 
 Uses ONLY Python standard library + native Win32 APIs (``user32.CreateWindowExW`` with
 ``WS_EX_LAYOUTRTL``, GDI typography, and 100% Persian horizontally-centered bottom buttons).

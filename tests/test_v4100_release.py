@@ -154,7 +154,7 @@ def _mock_license_svc(features: dict | None = None, in_grace: bool = False, grac
 
 def test_req00_semver_and_additive_upgrade_compatibility(tmp_path, monkeypatch):
     monkeypatch.setattr(db_mod, "CONFIG_FILE", str(tmp_path / "app_config.json"))
-    assert Path("VERSION").read_text(encoding="utf-8").strip() in ("4.10.0", "5.0.0")
+    assert Path("VERSION").read_text(encoding="utf-8").strip() in ("4.10.0", "5.0.0", "5.0.1")
     assert db_mod.get_live_app_version() == Path("VERSION").read_text(encoding="utf-8").strip()
     assert main_mod.APP_VERSION == Path("VERSION").read_text(encoding="utf-8").strip()
 
@@ -374,8 +374,8 @@ def test_req02_req03_req04_ui_layout_rtl_and_persistent_forms(qapp, tmp_path, mo
         win.show()
         qapp.processEvents()
 
-        # Tab order & count (12 tabs): مشتری‌ها beside تأمین‌کنندگان; گزارش‌های نموداری beside گزارش‌های جامع
-        assert win.tabs.count() == 12
+        # Tab order & count (13 tabs): مشتری‌ها beside تأمین‌کنندگان; گزارش‌های نموداری beside گزارش‌های جامع
+        assert win.tabs.count() == 13
         tab_names = [win.tabs.tabText(i) for i in range(win.tabs.count())]
         idx_sup = next(i for i, t in enumerate(tab_names) if "تأمین‌کنندگان" in t)
         idx_cust = next(i for i, t in enumerate(tab_names) if "مشتری" in t)

@@ -553,6 +553,12 @@ _DATE_ONLY_COLUMNS = {
     "upgrade_date",
     "payment_date",
     "change_date",
+    "due_date",
+    "paid_date",
+    "cleared_date",
+    "check_due_date",
+    "start_due_date",
+    "valid_until",
 }
 
 _TIME_ONLY_COLUMNS = set()
@@ -561,6 +567,8 @@ _DATETIME_COLUMNS = {
     "purchase_date",
     "sale_datetime",
     "service_datetime",
+    "proforma_datetime",
+    "invoice_datetime",
     "action_time",
     "created_at",
     "updated_at",

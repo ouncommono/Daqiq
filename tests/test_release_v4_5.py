@@ -102,7 +102,7 @@ class ReleaseV45Tests(unittest.TestCase):
     def test_schema_and_app_version_v450(self):
         """Item 0: Database version is 4.8.4 and schema_version is 484."""
         self.assertEqual(APP_VERSION, "4.8.4")
-        self.assertIn(UI_APP_VERSION, ("4.8.4", "4.9.0", "4.9.1", "4.9.2", "4.9.3", "4.9.4", "4.9.5", "4.9.6", "4.9.7", "4.9.8", "4.9.9", "4.9.10", "4.10.0", "5.0.0"))
+        self.assertIn(UI_APP_VERSION, ("4.8.4", "4.9.0", "4.9.1", "4.9.2", "4.9.3", "4.9.4", "4.9.5", "4.9.6", "4.9.7", "4.9.8", "4.9.9", "4.9.10", "4.10.0", "5.0.0", "5.0.1"))
         self.assertEqual(SCHEMA_VERSION, 484)
         with self.db.get_connection() as conn:
             user_ver = conn.execute("PRAGMA user_version").fetchone()[0]
@@ -209,20 +209,22 @@ class ReleaseV45Tests(unittest.TestCase):
                 for i in range(win.tbl_sales.columnCount())
             ]
             self.assertEqual(headers_sales[0], "شناسه")
-            self.assertEqual(headers_sales[1], "شماره فاکتور")
+            self.assertEqual(headers_sales[1], "شناسه فاکتور فروش")
             self.assertEqual(headers_sales[2], "کد کالا")
-            self.assertEqual(headers_sales[3], "شماره سریال")
-            self.assertEqual(headers_sales[4], "مشخصات کالا")
-            self.assertEqual(headers_sales[5], "تاریخ و ساعت فروش")
+            self.assertEqual(headers_sales[3], "شناسه فاکتور تأمین‌کننده")
+            self.assertEqual(headers_sales[4], "شماره سریال")
+            self.assertEqual(headers_sales[5], "مشخصات کالا")
+            self.assertEqual(headers_sales[6], "تاریخ و ساعت فروش")
             self.assertIn("شماره تماس مشتری", headers_sales)
 
             rep1_cols = REPORT_AVAILABLE_COLUMNS["۱. گزارش کامل تمام فروش‌ها"]
             self.assertEqual(rep1_cols[0], "شناسه")
-            self.assertEqual(rep1_cols[1], "شماره فاکتور")
+            self.assertEqual(rep1_cols[1], "شناسه فاکتور فروش")
             self.assertEqual(rep1_cols[2], "کد کالا")
-            self.assertEqual(rep1_cols[3], "شماره سریال")
-            self.assertEqual(rep1_cols[4], "مشخصات کالا")
-            self.assertEqual(rep1_cols[5], "تاریخ و ساعت فروش")
+            self.assertEqual(rep1_cols[3], "شناسه فاکتور تأمین‌کننده")
+            self.assertEqual(rep1_cols[4], "شماره سریال")
+            self.assertEqual(rep1_cols[5], "مشخصات کالا")
+            self.assertEqual(rep1_cols[6], "تاریخ و ساعت فروش")
             self.assertIn("شماره تماس مشتری", rep1_cols)
         finally:
             win.close()

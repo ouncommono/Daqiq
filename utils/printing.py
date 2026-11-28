@@ -6,6 +6,7 @@ from __future__ import annotations
 import html
 import io
 import os
+import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
@@ -42,11 +43,62 @@ FORBIDDEN_SALES_INVOICE_TERMS = (
     "قیمت پیشنهادی",
     "هزینه ارتقا",
     "کد محموله",
+    "شناسه فاکتور خرید",
+    "شناسه فاکتور تأمین‌کننده",
     "کارمزد",
     "unit_cost_price",
     "unit_profit",
     "total_profit",
 )
+
+_LRI = "\u2066"
+_PDI = "\u2069"
+
+_DATE_TIME_TOKEN_RE = re.compile(
+    r"(?<!\u2066)"
+    r"("
+    r"[0-9۰-۹٠-٩]{2,4}[/\-][0-9۰-۹٠-٩]{1,2}[/\-][0-9۰-۹٠-٩]{1,4}"
+    r"(?:\s+[0-9۰-۹٠-٩]{1,2}:[0-9۰-۹٠-٩]{2}(?::[0-9۰-۹٠-٩]{2})?(?:\s*(?:AM|PM|am|pm|ق\.ظ|ب\.ظ))?)?"
+    r"|"
+    r"[0-9۰-۹٠-٩]{1,2}:[0-9۰-۹٠-٩]{2}(?::[0-9۰-۹٠-٩]{2})?(?:\s*(?:AM|PM|am|pm|ق\.ظ|ب\.ظ))?"
+    r")"
+    r"(?!\u2069)"
+)
+
+
+def isolate_bidi_dates(text: Any) -> str:
+    """Wrap every date, time, or datetime token in LRI..PDI (U+2066..U+2069) so RTL never flips dates."""
+    if text is None:
+        return ""
+    raw = str(text)
+    if not raw:
+        return raw
+
+    def _wrap(m: re.Match) -> str:
+        tok = m.group(1)
+        return f"{_LRI}{tok}{_PDI}"
+
+    return _DATE_TIME_TOKEN_RE.sub(_wrap, raw)
+
+
+def _esc_html_dates(val: Any) -> str:
+    """HTML-escape text while isolating every date/time token inside <span dir='ltr'>U+2066...U+2069</span>."""
+    raw = "" if val is None else str(val)
+    if not raw:
+        return ""
+    # Strip existing isolates temporarily to emit uniform spans cleanly
+    cleaned = raw.replace(_LRI, "").replace(_PDI, "")
+    parts: List[str] = []
+    pos = 0
+    for m in _DATE_TIME_TOKEN_RE.finditer(cleaned):
+        if m.start() > pos:
+            parts.append(html.escape(cleaned[pos:m.start()], quote=True))
+        tok = html.escape(m.group(1), quote=True)
+        parts.append(f"<span dir='ltr' style='unicode-bidi:isolate;'>{_LRI}{tok}{_PDI}</span>")
+        pos = m.end()
+    if pos < len(cleaned):
+        parts.append(html.escape(cleaned[pos:], quote=True))
+    return "".join(parts)
 
 PAPER_SIZE_MAP = {
     "A5": QPageSize.PageSizeId.A5,
@@ -179,8 +231,15 @@ def build_sales_invoice_spec(
         if str(item.get("payment_type") or "").lower() in ("installment", "credit") or (line_total > paid and paid >= 0):
             any_installment = True
 
-        # Concise customer-facing item label (never technical batch codes/internal specs)
-        title = str(item.get("product_title") or item.get("description") or "کالا").strip()
+        # Concise customer-facing item label (brand + model only, never category/batch/internal codes)
+        bm = " ".join(
+            v for v in (str(item.get("brand") or "").strip(), str(item.get("model") or "").strip())
+            if v
+        )
+        raw_title = str(item.get("product_title") or item.get("description") or "کالا").strip()
+        if not bm and "|" in raw_title:
+            raw_title = raw_title.split("|", 1)[1].strip() or raw_title
+        title = bm or raw_title
         row = [to_persian_digits(idx), title]
         if has_warranty:
             w = str(item.get("warranty_text") or "").strip()
@@ -230,6 +289,86 @@ def build_sales_invoice_spec(
     )
 
 
+def build_proforma_invoice_spec(
+    records: Sequence[Dict[str, Any]],
+    shop_info: Optional[Dict[str, Any]] = None,
+) -> PrintDocumentSpec:
+    """Customer-only Proforma Invoice («پیش‌فاکتور فروش»): displays ONLY brand + model without cost/profit."""
+    shop = shop_info or {}
+    shop_name = str(shop.get("shop_name") or "فروشگاه دقیق").strip()
+    shop_phone = str(shop.get("phone") or "").strip()
+    print_time = to_persian_digits(str(shop.get("print_time") or "-").strip())
+
+    first = records[0] if records else {}
+    pf_nos = list(dict.fromkeys(str(r.get("proforma_number") or "").strip() for r in records if str(r.get("proforma_number") or "").strip()))
+    pf_display = "، ".join(pf_nos) if pf_nos else "-"
+    customer = str(first.get("customer_name") or "").strip()
+    cust_phone = str(first.get("customer_phone") or "").strip()
+    pf_dt = to_persian_digits(str(first.get("proforma_datetime") or print_time or "-").strip())
+    valid_until = to_persian_digits(str(first.get("valid_until") or "").strip())
+
+    meta: List[Tuple[str, str]] = [
+        ("شماره پیش‌فاکتور", pf_display),
+        ("تاریخ صدور", pf_dt),
+    ]
+    if valid_until and valid_until != "-":
+        meta.append(("تاریخ اعتبار", valid_until))
+    if customer and customer != "-":
+        meta.append(("خریدار", customer))
+    if cust_phone and cust_phone != "-":
+        meta.append(("تلفن خریدار", to_persian_digits(cust_phone)))
+
+    headers = ["ردیف", "شرح کالا", "تعداد", "فی (تومان)", "مبلغ کل (تومان)"]
+    widths = [8, 48, 10, 16, 18]
+    rows: List[List[str]] = []
+    grand_total = 0
+    clean_notes: List[str] = []
+    for idx, item in enumerate(records, 1):
+        qty = int(item.get("qty") or 0)
+        unit_price = int(item.get("actual_unit_price") or 0)
+        line_total = int(item.get("line_total") or (qty * unit_price))
+        grand_total += line_total
+        bm = " ".join(
+            v for v in (str(item.get("brand") or "").strip(), str(item.get("model") or "").strip())
+            if v
+        )
+        raw_title = str(item.get("product_title") or item.get("description") or "کالا").strip()
+        if not bm and "|" in raw_title:
+            raw_title = raw_title.split("|", 1)[1].strip() or raw_title
+        title = bm or raw_title
+        rows.append([
+            to_persian_digits(idx),
+            title,
+            _fmt_int_fa(qty),
+            _fmt_int_fa(unit_price),
+            _fmt_int_fa(line_total),
+        ])
+        n = str(item.get("notes") or "").strip()
+        if n and not any(bad in n.lower() for bad in FORBIDDEN_SALES_INVOICE_TERMS):
+            clean_notes.append(n)
+
+    summary = [
+        ("تعداد ردیف", to_persian_digits(len(rows))),
+        ("جمع کل پیش‌فاکتور", f"{_fmt_int_fa(grand_total)} تومان"),
+    ]
+    return PrintDocumentSpec(
+        section_key="proformas",
+        title="پیش‌فاکتور فروش",
+        shop_name=shop_name,
+        shop_phone=to_persian_digits(shop_phone),
+        print_time=print_time,
+        meta_pairs=meta,
+        headers=headers,
+        rows=rows,
+        right_align_cols=set(),
+        col_widths_pct=widths,
+        summary_pairs=summary,
+        notes=" | ".join(dict.fromkeys(clean_notes)),
+        signatures=("مهر و امضای فروشنده", "تأیید خریدار"),
+        customer_privacy_strict=True,
+    )
+
+
 def build_purchase_voucher_spec(
     records: Sequence[Dict[str, Any]],
     shop_info: Optional[Dict[str, Any]] = None,
@@ -239,7 +378,7 @@ def build_purchase_voucher_spec(
     shop_name = str(shop.get("shop_name") or "فروشگاه دقیق").strip()
     print_time = to_persian_digits(str(shop.get("print_time") or "-").strip())
 
-    headers = ["ردیف", "کد محموله", "تاریخ و ساعت", "تأمین‌کننده", "کالا", "تعداد", "قیمت خرید واحد", "جمع کل (تومان)"]
+    headers = ["ردیف", "شناسه فاکتور خرید", "شناسه فاکتور تأمین‌کننده", "تاریخ و ساعت", "تأمین‌کننده", "کالا", "تعداد", "قیمت خرید واحد", "جمع کل (تومان)"]
     rows: List[List[str]] = []
     grand_total = 0
     grand_paid = 0
@@ -253,7 +392,8 @@ def build_purchase_voucher_spec(
         grand_rem += rem
         rows.append([
             to_persian_digits(idx),
-            str(rec.get("batch_code") or "-"),
+            str(rec.get("purchase_invoice_code") or rec.get("batch_code") or "-"),
+            str(rec.get("invoice_number") or "-"),
             to_persian_digits(rec.get("purchase_date") or "-"),
             str(rec.get("supplier_name") or "-"),
             str(rec.get("product_title") or "-"),
@@ -283,8 +423,8 @@ def build_purchase_voucher_spec(
         meta_pairs=[("تعداد اقلام", to_persian_digits(len(records))), ("تاریخ چاپ", print_time)],
         headers=headers,
         rows=rows,
-        right_align_cols={3, 4},
-        col_widths_pct=[6, 11, 14, 15, 22, 8, 12, 12],
+        right_align_cols=set(),
+        col_widths_pct=[5, 11, 12, 12, 13, 19, 7, 10, 11],
         summary_pairs=summary_pairs,
         signatures=("امضای انباردار / خریدار", "تأیید مدیریت"),
     )
@@ -818,9 +958,9 @@ def render_spec_to_html(spec: PrintDocumentSpec, *, is_a5: bool = True) -> str:
     </style>
     """
 
-    phone_html = f"<div>تلفن: {_esc(spec.shop_phone)}</div>" if spec.shop_phone else ""
-    meta_tds = "".join(f"<td><b>{_esc(k)}:</b> {_esc(v)}</td>" for k, v in spec.meta_pairs)
-    meta_html = f"<table class='meta-grid'><tr>{meta_tds}</tr></table>" if meta_tds else ""
+    phone_html = f"<div>تلفن: {_esc_html_dates(spec.shop_phone)}</div>" if spec.shop_phone else ""
+    meta_tds = "".join(f"<td align='center' valign='middle'><b>{_esc(k)}:</b> {_esc_html_dates(v)}</td>" for k, v in spec.meta_pairs)
+    meta_html = f"<table width='100%' border='1' cellspacing='0' cellpadding='4' class='meta-grid'><tr>{meta_tds}</tr></table>" if meta_tds else ""
 
     chart_html = ""
     if spec.chart_png_bytes:
@@ -831,42 +971,44 @@ def render_spec_to_html(spec: PrintDocumentSpec, *, is_a5: bool = True) -> str:
 
     ths: List[str] = []
     for idx, h in enumerate(spec.headers):
-        cls = " class='right'" if idx in spec.right_align_cols else ""
-        w_style = f" style='width:{spec.col_widths_pct[idx]}%;'" if (spec.col_widths_pct and idx < len(spec.col_widths_pct)) else ""
-        ths.append(f"<th{cls}{w_style}>{_esc(h)}</th>")
+        w_pct = f"{spec.col_widths_pct[idx]}%" if (spec.col_widths_pct and idx < len(spec.col_widths_pct)) else ""
+        w_attr = f" width='{w_pct}'" if w_pct else ""
+        w_style = f" style='width:{w_pct};text-align:center;vertical-align:middle;'" if w_pct else " style='text-align:center;vertical-align:middle;'"
+        ths.append(f"<th align='center' valign='middle'{w_attr}{w_style}>{_esc_html_dates(h)}</th>")
 
     trs: List[str] = []
     for row in spec.rows:
         tds = []
         for idx, cell in enumerate(row):
-            cls = " class='right'" if idx in spec.right_align_cols else ""
-            tds.append(f"<td{cls}>{_esc(cell)}</td>")
+            w_pct = f"{spec.col_widths_pct[idx]}%" if (spec.col_widths_pct and idx < len(spec.col_widths_pct)) else ""
+            w_attr = f" width='{w_pct}'" if w_pct else ""
+            tds.append(f"<td align='center' valign='middle'{w_attr} style='text-align:center;vertical-align:middle;'>{_esc_html_dates(cell)}</td>")
         trs.append(f"<tr>{''.join(tds)}</tr>")
 
     table_html = (
-        f"<table class='items'><thead><tr>{''.join(ths)}</tr></thead><tbody>{''.join(trs)}</tbody></table>"
+        f"<table width='100%' border='1' cellspacing='0' cellpadding='4' class='items'><thead><tr>{''.join(ths)}</tr></thead><tbody>{''.join(trs)}</tbody></table>"
         if spec.headers
         else ""
     )
 
     summary_rows = "".join(
-        f"<tr><td class='lbl'>{_esc(k)}</td><td class='val'>{_esc(v)}</td></tr>"
+        f"<tr><td width='48%' align='right' valign='middle' class='lbl'>{_esc(k)}</td><td width='52%' align='left' valign='middle' class='val'>{_esc_html_dates(v)}</td></tr>"
         for k, v in spec.summary_pairs
     )
-    summary_html = f"<table class='summary-table'>{summary_rows}</table>" if summary_rows else ""
-    notes_html = f"<div class='muted-note'><b>توضیحات:</b> {_esc(spec.notes)}</div>" if spec.notes else ""
+    summary_html = f"<table width='62%' align='left' border='1' cellspacing='0' cellpadding='4' class='summary-table'>{summary_rows}</table>" if summary_rows else ""
+    notes_html = f"<div class='muted-note'><b>توضیحات:</b> {_esc_html_dates(spec.notes)}</div>" if spec.notes else ""
     sign_html = (
-        f"<table class='footer-sign'><tr><td>{_esc(spec.signatures[0])}</td><td>{_esc(spec.signatures[1])}</td></tr></table>"
+        f"<table width='100%' cellspacing='0' cellpadding='6' class='footer-sign'><tr><td width='50%' align='center' valign='middle'>{_esc(spec.signatures[0])}</td><td width='50%' align='center' valign='middle'>{_esc(spec.signatures[1])}</td></tr></table>"
         if spec.signatures
         else ""
     )
 
     body = f"""
-    <table class="header-box">
+    <table width="100%" cellspacing="0" cellpadding="5" class="header-box">
       <tr>
-        <td style="width:36%;" class="right"><div class="shop-name">{_esc(spec.shop_name)}</div>{phone_html}</td>
-        <td style="width:32%;"><div class="doc-title">{_esc(spec.title)}</div></td>
-        <td style="width:32%; text-align:left;"><div><b>تاریخ چاپ:</b> {_esc(spec.print_time or '-')}</div></td>
+        <td width="36%" align="right" valign="middle"><div class="shop-name">{_esc_html_dates(spec.shop_name)}</div>{phone_html}</td>
+        <td width="32%" align="center" valign="middle"><div class="doc-title">{_esc_html_dates(spec.title)}</div></td>
+        <td width="32%" align="left" valign="middle" style="text-align:left;"><div><b>تاریخ چاپ:</b> {_esc_html_dates(spec.print_time or '-')}</div></td>
       </tr>
     </table>
     {meta_html}
@@ -898,6 +1040,15 @@ def build_sales_invoice_html(
     is_a5: bool = True,
 ) -> str:
     return render_spec_to_html(build_sales_invoice_spec(records, shop_info), is_a5=is_a5)
+
+
+def build_proforma_invoice_html(
+    records: Sequence[Dict[str, Any]],
+    shop_info: Optional[Dict[str, Any]] = None,
+    *,
+    is_a5: bool = True,
+) -> str:
+    return render_spec_to_html(build_proforma_invoice_spec(records, shop_info), is_a5=is_a5)
 
 
 def build_purchase_voucher_html(
@@ -1076,9 +1227,49 @@ def _format_persian_run(
         rPr.append(szCs)
 
 
+def _set_cell_pct_width(cell, pct: float) -> None:
+    tcPr = cell._tc.get_or_add_tcPr()
+    for old in tcPr.findall(qn("w:tcW")):
+        tcPr.remove(old)
+    tcW = OxmlElement("w:tcW")
+    tcW.set(qn("w:w"), str(int(round(max(1.0, pct) * 50))))
+    tcW.set(qn("w:type"), "pct")
+    tcPr.append(tcW)
+
+
+def _write_docx_runs_with_date_isolation(
+    paragraph,
+    text: Any,
+    *,
+    font_name: str = "B Nazanin",
+    size_pt: float = 9.0,
+    bold: bool = True,
+) -> None:
+    """Emit OOXML runs with U+2066..U+2069 and explicit w:rtl='0' on date/time tokens so dates never flip."""
+    isolated = isolate_bidi_dates("" if text is None else str(text))
+    parts = re.split(r"(\u2066[^\u2069]+\u2069)", isolated)
+    for part in parts:
+        if not part:
+            continue
+        is_date_seg = part.startswith(_LRI) and part.endswith(_PDI)
+        run = paragraph.add_run(part)
+        _format_persian_run(run, font_name=font_name, size_pt=size_pt, bold=bold)
+        if is_date_seg:
+            rPr = run._r.get_or_add_rPr()
+            for old_rtl in rPr.findall(qn("w:rtl")):
+                old_rtl.set(qn("w:val"), "0")
+
+
 def _set_table_rtl_and_borders(table) -> None:
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    table.autofit = False
     tblPr = table._tbl.tblPr
+    for old_w in tblPr.findall(qn("w:tblW")):
+        tblPr.remove(old_w)
+    tblW = OxmlElement("w:tblW")
+    tblW.set(qn("w:w"), "5000")
+    tblW.set(qn("w:type"), "pct")
+    tblPr.append(tblW)
     bidi_vis = OxmlElement("w:bidiVisual")
     tblPr.append(bidi_vis)
     borders = parse_xml(
@@ -1161,42 +1352,51 @@ def export_spec_to_docx(
     sec.right_margin = Mm(9)
     sec.left_margin = Mm(9)
 
-    # Header band
+    # Header band (logical RTL column order with <w:bidiVisual/>: 0=right shop, 1=center title, 2=left date)
     hdr_tbl = doc.add_table(rows=1, cols=3)
     _set_table_rtl_and_borders(hdr_tbl)
     c0, c1, c2 = hdr_tbl.rows[0].cells
+    _set_cell_pct_width(c0, 36.0)
+    _set_cell_pct_width(c1, 32.0)
+    _set_cell_pct_width(c2, 32.0)
+    c0.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+    c1.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+    c2.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
     p0 = c0.paragraphs[0]
     _set_paragraph_rtl(p0)
     p0.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    _format_persian_run(p0.add_run(spec.shop_name), font_name="B Titr", size_pt=head_pt, bold=True)
+    _write_docx_runs_with_date_isolation(p0, spec.shop_name, font_name="B Titr", size_pt=head_pt, bold=True)
     if spec.shop_phone:
         p0_sub = c0.add_paragraph()
         _set_paragraph_rtl(p0_sub)
         p0_sub.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-        _format_persian_run(p0_sub.add_run(f"تلفن: {spec.shop_phone}"), font_name="B Nazanin", size_pt=body_pt - 0.5, bold=True)
+        _write_docx_runs_with_date_isolation(p0_sub, f"تلفن: {spec.shop_phone}", font_name="B Nazanin", size_pt=body_pt - 0.5, bold=True)
 
     _shade_cell(c1, "EFEFEF")
     p1 = c1.paragraphs[0]
     _set_paragraph_rtl(p1)
     p1.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    _format_persian_run(p1.add_run(spec.title), font_name="B Titr", size_pt=head_pt, bold=True)
+    _write_docx_runs_with_date_isolation(p1, spec.title, font_name="B Titr", size_pt=head_pt, bold=True)
 
     p2 = c2.paragraphs[0]
     _set_paragraph_rtl(p2)
     p2.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    _format_persian_run(p2.add_run(f"تاریخ چاپ: {spec.print_time or '-'}"), font_name="B Nazanin", size_pt=body_pt - 0.5, bold=True)
+    _write_docx_runs_with_date_isolation(p2, f"تاریخ چاپ: {spec.print_time or '-'}", font_name="B Nazanin", size_pt=body_pt - 0.5, bold=True)
 
     # Metadata strip
     if spec.meta_pairs:
         m_tbl = doc.add_table(rows=1, cols=len(spec.meta_pairs))
         _set_table_rtl_and_borders(m_tbl)
+        meta_pct = 100.0 / max(1, len(spec.meta_pairs))
         for idx, (mk, mv) in enumerate(spec.meta_pairs):
             cell = m_tbl.rows[0].cells[idx]
+            cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+            _set_cell_pct_width(cell, meta_pct)
             _shade_cell(cell, "FAFAFA")
             p = cell.paragraphs[0]
             _set_paragraph_rtl(p)
-            p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-            _format_persian_run(p.add_run(f"{mk}: {mv}"), font_name="B Nazanin", size_pt=body_pt - 0.5, bold=True)
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            _write_docx_runs_with_date_isolation(p, f"{mk}: {mv}", font_name="B Nazanin", size_pt=body_pt - 0.5, bold=True)
 
     # Chart snapshot if present
     if spec.chart_png_bytes:
@@ -1205,10 +1405,12 @@ def export_spec_to_docx(
         cp.alignment = WD_ALIGN_PARAGRAPH.CENTER
         cp.add_run().add_picture(io.BytesIO(spec.chart_png_bytes), width=Mm(max(90, w_mm - 26)))
 
-    # Data table with w:tblHeader (repeating header across pages) & w:cantSplit (never split rows mid-page)
+    # Data table with w:tblHeader (repeating header across pages), w:cantSplit, centered cells & col_widths_pct
     if spec.headers:
         tbl = doc.add_table(rows=1 + len(spec.rows), cols=len(spec.headers))
         _set_table_rtl_and_borders(tbl)
+        usable_w_mm = max(80.0, float(w_mm) - 18.0)
+        equal_pct = 100.0 / max(1, len(spec.headers))
         hdr_row = tbl.rows[0]
         hdr_trPr = hdr_row._tr.get_or_add_trPr()
         hdr_trPr.append(OxmlElement("w:tblHeader"))
@@ -1217,11 +1419,14 @@ def export_spec_to_docx(
         for c_idx, h_text in enumerate(spec.headers):
             cell = hdr_row.cells[c_idx]
             cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+            pct = float(spec.col_widths_pct[c_idx]) if (spec.col_widths_pct and c_idx < len(spec.col_widths_pct)) else equal_pct
+            _set_cell_pct_width(cell, pct)
+            cell.width = Mm(usable_w_mm * pct / 100.0)
             _shade_cell(cell, "EFEFEF")
             p = cell.paragraphs[0]
             _set_paragraph_rtl(p)
-            p.alignment = WD_ALIGN_PARAGRAPH.RIGHT if c_idx in spec.right_align_cols else WD_ALIGN_PARAGRAPH.CENTER
-            _format_persian_run(p.add_run(str(h_text)), font_name="B Titr", size_pt=body_pt, bold=True)
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            _write_docx_runs_with_date_isolation(p, str(h_text), font_name="B Titr", size_pt=body_pt, bold=True)
 
         for r_idx, row_vals in enumerate(spec.rows, 1):
             row_obj = tbl.rows[r_idx]
@@ -1232,12 +1437,15 @@ def export_spec_to_docx(
                     continue
                 cell = row_obj.cells[c_idx]
                 cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+                pct = float(spec.col_widths_pct[c_idx]) if (spec.col_widths_pct and c_idx < len(spec.col_widths_pct)) else equal_pct
+                _set_cell_pct_width(cell, pct)
+                cell.width = Mm(usable_w_mm * pct / 100.0)
                 if r_idx % 2 == 0:
                     _shade_cell(cell, "FAFAFA")
                 p = cell.paragraphs[0]
                 _set_paragraph_rtl(p)
-                p.alignment = WD_ALIGN_PARAGRAPH.RIGHT if c_idx in spec.right_align_cols else WD_ALIGN_PARAGRAPH.CENTER
-                _format_persian_run(p.add_run(str(val)), font_name="B Nazanin", size_pt=body_pt, bold=True)
+                p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                _write_docx_runs_with_date_isolation(p, str(val), font_name="B Nazanin", size_pt=body_pt, bold=True)
 
     # Summary block
     if spec.summary_pairs:
@@ -1250,21 +1458,25 @@ def export_spec_to_docx(
             row_trPr = s_tbl.rows[idx]._tr.get_or_add_trPr()
             row_trPr.append(OxmlElement("w:cantSplit"))
             lc, vc = s_tbl.rows[idx].cells[0], s_tbl.rows[idx].cells[1]
+            lc.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+            vc.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+            _set_cell_pct_width(lc, 45.0)
+            _set_cell_pct_width(vc, 55.0)
             _shade_cell(lc, "EFEFEF")
             lp = lc.paragraphs[0]
             _set_paragraph_rtl(lp)
             lp.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-            _format_persian_run(lp.add_run(sk), font_name="B Nazanin", size_pt=body_pt, bold=True)
+            _write_docx_runs_with_date_isolation(lp, sk, font_name="B Nazanin", size_pt=body_pt, bold=True)
             vp = vc.paragraphs[0]
             _set_paragraph_rtl(vp)
             vp.alignment = WD_ALIGN_PARAGRAPH.LEFT
-            _format_persian_run(vp.add_run(sv), font_name="B Nazanin", size_pt=body_pt, bold=True)
+            _write_docx_runs_with_date_isolation(vp, sv, font_name="B Nazanin", size_pt=body_pt, bold=True)
 
     if spec.notes:
         np = doc.add_paragraph()
         _set_paragraph_rtl(np)
         np.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-        _format_persian_run(np.add_run(f"توضیحات: {spec.notes}"), font_name="B Nazanin", size_pt=body_pt - 0.5, bold=True)
+        _write_docx_runs_with_date_isolation(np, f"توضیحات: {spec.notes}", font_name="B Nazanin", size_pt=body_pt - 0.5, bold=True)
 
     if spec.signatures:
         sig_p = doc.add_paragraph()

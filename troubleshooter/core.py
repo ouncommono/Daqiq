@@ -475,6 +475,28 @@ def _is_path_protected(target: Path, plan: TroubleshootingPlan) -> bool:
     return False
 
 
+def _clear_readonly_and_remove(path: Path, *, is_dir: bool = False) -> None:
+    """Clear read-only attributes and remove file/empty dir with brief retries for transient locks."""
+    import stat
+    import time
+
+    for attempt in range(3):
+        try:
+            try:
+                os.chmod(str(path), stat.S_IWRITE | stat.S_IREAD)
+            except OSError:
+                pass
+            if is_dir:
+                path.rmdir()
+            else:
+                path.unlink()
+            return
+        except OSError:
+            if attempt == 2:
+                raise
+            time.sleep(0.05)
+
+
 def _safe_remove_path(target: Path, plan: TroubleshootingPlan) -> bool:
     if _is_path_protected(target, plan):
         return False
@@ -483,19 +505,23 @@ def _safe_remove_path(target: Path, plan: TroubleshootingPlan) -> bool:
             for fname in files:
                 fpath = Path(root) / fname
                 if not _is_path_protected(fpath, plan):
-                    fpath.unlink()
+                    _clear_readonly_and_remove(fpath, is_dir=False)
             for dname in dirs:
                 dpath = Path(root) / dname
                 if not _is_path_protected(dpath, plan):
                     try:
-                        dpath.rmdir()
+                        if not any(dpath.iterdir()):
+                            _clear_readonly_and_remove(dpath, is_dir=True)
                     except OSError:
                         pass
-        if not any(target.iterdir()):
-            target.rmdir()
+        try:
+            if not any(target.iterdir()):
+                _clear_readonly_and_remove(target, is_dir=True)
+        except OSError:
+            pass
         return True
     if target.is_file():
-        target.unlink()
+        _clear_readonly_and_remove(target, is_dir=False)
         return True
     return False
 
@@ -579,10 +605,33 @@ def execute_troubleshooting_reset(
                         res.removed_databases.append(sp)
                     continue
                 try:
-                    sp.unlink()
+                    _clear_readonly_and_remove(sp, is_dir=False)
                     if sp == dbp:
                         res.removed_databases.append(sp)
                 except OSError as exc:
                     res.warnings.append(f"حذف فایل پایگاه داده ممکن نشد ({sp}): {exc}")
+
+    # Bottom-up cleanup of any emptied non-protected Daqiq directories (never removing backups)
+    if not dry_run:
+        candidate_roots = []
+        for lp in plan.license_paths:
+            candidate_roots.append(lp if lp.is_dir() else lp.parent)
+        candidate_roots.extend([plan.roaming_app_daqiq, plan.local_app_daqiq])
+        program_daqiq = Path(os.environ.get("ProgramData") or r"C:\ProgramData") / "Daqiq"
+        if program_daqiq.is_dir():
+            candidate_roots.append(program_daqiq)
+        seen_roots = set()
+        for root_dir in candidate_roots:
+            if not root_dir or not root_dir.is_dir():
+                continue
+            k = _norm_key(root_dir)
+            if k in seen_roots or _is_path_protected(root_dir, plan):
+                continue
+            seen_roots.add(k)
+            try:
+                if not any(root_dir.iterdir()):
+                    _clear_readonly_and_remove(root_dir, is_dir=True)
+            except OSError:
+                pass
 
     return res

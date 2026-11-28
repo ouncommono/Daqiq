@@ -963,10 +963,10 @@ def test_colleague_inventory_export_defaults_to_product_and_batch_codes(manager,
     worksheet = workbook.active
     headers = [cell.value for cell in worksheet[2]]
     row = [cell.value for cell in worksheet[3]]
-    assert headers[:2] == ["کد کالا", "کد محموله"]
+    assert headers[:2] == ["کد کالا", "شناسه فاکتور خرید"]
     assert "قیمت فروش پیشنهادی" not in headers
     assert "موجودی" not in headers
-    assert row[:2] == ["P-EXPORT-DEFAULT", "C-EXPORT-DEFAULT"]
+    assert row[:2] == ["P-EXPORT-DEFAULT", "PINV-1001"]
     workbook.close()
 
 
@@ -1025,6 +1025,7 @@ def test_fresh_schema_has_v3_physical_column_order_and_metadata(manager):
             "initial_specs", "final_specs", "supplier_name_snapshot", "notes",
             "created_at", "updated_at", "row_version",
             "settlement_subtype", "check_due_date", "check_status",
+            "purchase_invoice_code", "payment_type",
         ],
         "upgrades": [
             "id", "target_batch_id", "part_batch_id", "technician_id", "target_qty",
@@ -1287,6 +1288,7 @@ def test_v330_greenfield_schema_contracts_and_stock_balance_constraints(manager)
             "initial_specs", "final_specs", "supplier_name_snapshot", "notes",
             "created_at", "updated_at", "row_version",
             "settlement_subtype", "check_due_date", "check_status",
+            "purchase_invoice_code", "payment_type",
         ],
         "upgrades": [
             "id", "target_batch_id", "part_batch_id", "technician_id", "target_qty",

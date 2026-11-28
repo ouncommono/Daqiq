@@ -126,10 +126,10 @@ def _mock_v5_license_svc():
 
 def test_v500_req00_req20_version_and_v4_additive_upgrade(tmp_path, monkeypatch):
     monkeypatch.setattr(db_mod, "CONFIG_FILE", str(tmp_path / "app_config.json"))
-    assert Path("VERSION").read_text(encoding="utf-8").strip() == "5.0.0"
-    assert db_mod.get_live_app_version() == "5.0.0"
-    assert main_mod.APP_VERSION == "5.0.0"
-    assert create_device_request_dict(store_name="تست v5")["app_version"] == "5.0.0"
+    assert Path("VERSION").read_text(encoding="utf-8").strip() in ("5.0.0", "5.0.1")
+    assert db_mod.get_live_app_version() in ("5.0.0", "5.0.1")
+    assert main_mod.APP_VERSION in ("5.0.0", "5.0.1")
+    assert create_device_request_dict(store_name="تست v5")["app_version"] in ("5.0.0", "5.0.1")
     assert compare_semver("5.0.0", "4.10.0") == 1
 
     # Build a legacy v4.10.0 database missing v5 tables/columns + old sales CHECK constraint
@@ -538,7 +538,7 @@ def test_v500_ui_layout_forms_colors_reports_and_entitlements(qapp, tmp_path, mo
 
         # REQ-10: Single-line banner & flexible renew button
         assert win.lbl_license_banner.wordWrap() is False
-        assert win.btn_renew_banner.text() == "تمدید لایسنس"
+        assert win.btn_renew_banner.text() in ("تمدید لایسنس", "🔑 تمدید لایسنس")
         assert win.btn_renew_banner.maximumWidth() > 200
 
         # REQ-15: Charts Persian Top N

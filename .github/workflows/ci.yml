@@ -165,7 +165,7 @@ jobs:
         shell: pwsh
         run: |
           $ver = (Get-Content VERSION).Trim()
-          if (-not $ver) { $ver = "5.0.0" }
+          if (-not $ver) { $ver = "5.0.1" }
           Write-Output "APP_VERSION=$ver" >> $env:GITHUB_ENV
           Write-Output "Building Daqiq onefile for version: $ver"
 
@@ -340,7 +340,7 @@ jobs:
         shell: pwsh
         run: |
           $ver = (Get-Content VERSION).Trim()
-          if (-not $ver) { $ver = "5.0.0" }
+          if (-not $ver) { $ver = "5.0.1" }
           Write-Output "APP_VERSION=$ver" >> $env:GITHUB_ENV
 
       - name: Download Build Artifacts

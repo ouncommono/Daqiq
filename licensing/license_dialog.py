@@ -561,10 +561,14 @@ class LicenseDialog(QDialog):
         step1_layout.setSpacing(8)
 
         self.step1_hint = QLabel(
+            '<div dir="rtl" align="right">'
             "برای صدور یا تمدید لایسنس، فایل مشخصات سیستم (.daqreq) را ذخیره کرده و برای پشتیبانی ارسال کنید:"
+            "</div>"
         )
         self.step1_hint.setObjectName("licHintLabel")
         self.step1_hint.setWordWrap(True)
+        self.step1_hint.setTextFormat(Qt.RichText)
+        self.step1_hint.setLayoutDirection(Qt.RightToLeft)
         self.step1_hint.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         step1_layout.addWidget(self.step1_hint)
 
@@ -602,10 +606,14 @@ class LicenseDialog(QDialog):
         step2_layout.setSpacing(8)
 
         self.step2_hint = QLabel(
+            '<div dir="rtl" align="right">'
             "فایل لایسنس دریافتی (.daqlic) را انتخاب کنید، به داخل این پنجره بکشید، یا متن فعال‌سازی را وارد نمایید:"
+            "</div>"
         )
         self.step2_hint.setObjectName("licHintLabel")
         self.step2_hint.setWordWrap(True)
+        self.step2_hint.setTextFormat(Qt.RichText)
+        self.step2_hint.setLayoutDirection(Qt.RightToLeft)
         self.step2_hint.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         step2_layout.addWidget(self.step2_hint)
 

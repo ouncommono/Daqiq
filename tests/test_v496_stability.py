@@ -173,7 +173,7 @@ def test_unmocked_startup_new_db_real_event_loop(tmp_path, monkeypatch, qapp, wi
     assert exc_info.value.code == 0
     assert observed["visible"] is True
     assert observed["quit_on_last"] is True
-    assert observed["tabs"] == 12
+    assert observed["tabs"] == 13
     if with_taxonomy:
         assert "لپ‌تاپ" in observed["cats"]
     else:
@@ -201,7 +201,7 @@ def test_unmocked_startup_existing_v493_schema_and_restricted_license(tmp_path, 
         cols = [
             r[1]
             for r in raw_conn.execute("PRAGMA table_info(batches)").fetchall()
-            if r[1] not in ("purchase_time", "row_version", "settlement_subtype", "check_due_date", "check_status")
+            if r[1] not in ("purchase_time", "row_version", "settlement_subtype", "check_due_date", "check_status", "purchase_invoice_code", "payment_type")
         ]
         cols_csv = ", ".join(cols)
         raw_conn.execute("PRAGMA foreign_keys=OFF")

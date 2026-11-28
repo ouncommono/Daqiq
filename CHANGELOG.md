@@ -1,3 +1,15 @@
+# Daqiq 5.0.1
+
+## Commercial Release: Right Hover Sidebar, Proforma Invoices, Supplier Installments, Standardized Prefixes, Bidirectional Date Isolation & Complete Folder Reset
+
+- **Collapsible Right Hover Sidebar (`utils_and_widgets.py`, `main.py`)**: Replaced the traditional wide top tab strip with `HoverSidebarTabsWidget`, expanding smoothly (`56px` <-> `224px`) on mouse hover with 120ms leave hysteresis, full Light & Dark hover contrast, `Qt.PointingHandCursor` interactive styling across buttons/combos/tabs, soft-blue Light top bar parity, and natural Persian labels (`حالت تاریک`, `تنظیم عرض ستون‌ها` / `عرض پیش‌فرض ستون‌ها`).
+- **Proforma Invoices (`پیش‌فاکتور`) & Atomic LAN Conversion (`database.py`, `main.py`, `utils/printing.py`)**: Added full multi-item `PF-1001` Proforma invoice creation, editing, A5/A4 B&W printing, Word `.docx` export, and concurrency-safe atomic conversion (`WHERE id=? AND status='open' AND row_version=?`) to finalized `INV-1001` sales invoices with `proforma_invoices` entitlement.
+- **Standardized Prefixes, Supplier Installments & Atomic Multi-Select Deletes (`database.py`, `main.py`, `exporter.py`)**: Unified entity IDs (`SKU-1001`, `PINV-1001`, `SVC-1001`, `PF-1001`, `INV-1001`, `SINV-1001`), promoted `شناسه فاکتور تأمین‌کننده` (optional/blank) beside `کد کالا` across Purchases, Sales, Reports & Excel exports, added full Supplier `خرید اقساطی` installment schedules & payments inside `🏭 تأمین‌کنندگان`, and enabled atomic `ExtendedSelection` multi-row deletion (`delete_*_batch`) across every tab.
+- **HTML4 Print/PDF, Word `<w:bidiVisual/>` & Bidirectional Date Isolation (`utils/printing.py`)**: Enforced HTML4 `<table width="100%">` layouts with universal centered headers/cells, Word DOCX `<w:bidiVisual/>` with explicit `col_widths_pct`, Unicode LRI/PDI date/time isolation (`<span dir="ltr">\u2066...\u2069</span>` in HTML and `\u2066...\u2069` with `w:rtl="0"` in Word) preventing flipped Persian/Jalali dates, and clean `برند + مدل` product labels on customer Sales & Proforma invoices.
+- **UI/UX Overhaul, Dialog Contrast & Folder-Clean Troubleshooter (`main.py`, `licensing/license_dialog.py`, `troubleshooter/core.py`)**: Organized Services into 2 clean sub-tabs, nested ledger sub-tabs across Suppliers/Customers/Users, structured 4-tab Settings layout, taller multi-row workspace tables (`>= 290px`), balanced carts (`140..200px`), sharp Light/Dark Bootstrap & RTL License step hints (`گام ۱`/`گام ۲`), and bottom-up Troubleshooter cleanup removing emptied non-protected `Daqiq` folders while keeping 100% of backups.
+
+---
+
 # Daqiq 5.0.0
 
 ## Final Commercial Release: Multi-Item Invoices, Check Management, LAN Invoice Resolution, User Performance & Full UI/UX Overhaul
