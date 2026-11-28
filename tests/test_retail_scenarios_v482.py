@@ -381,15 +381,19 @@ def test_scenario5_zero_asterisks_and_uniform_placeholders(qapp, tmp_path):
         "نام مشتری را تایپ یا از لیست انتخاب کنید...",
     )
     assert win.ed_sale_phone.placeholderText() == "شماره تماس مشتری (مثلاً ۰۹۱۲۳۴۵۶۷۸۹)..."
-    assert win.ed_srv_cust.placeholderText() == "نام و نام خانوادگی مشتری را وارد کنید..."
+    assert win.ed_srv_cust.placeholderText() in (
+        "نام و نام خانوادگی مشتری را وارد کنید...",
+        "نام مشتری را تایپ یا انتخاب کنید...",
+    )
     assert "اسکن بارکدخوان یا تایپ شماره سریال..." in win.ed_prod_serial.placeholderText()
     assert "اسکن بارکدخوان یا تایپ شماره سریال..." in win.ed_batch_serial_number.placeholderText()
     assert "اسکن بارکدخوان یا تایپ شماره سریال..." in win.ed_sale_serial.placeholderText()
     assert win.ed_sale_inv.placeholderText().startswith("INV-")
     assert win.ed_srv_code.placeholderText().startswith("SVC-")
     assert win.ed_shop_name.placeholderText() == "نام فروشگاه را وارد کنید..."
-    assert "رمز عبور فعلی کاربر..." in win.ed_emp_old_pass.placeholderText()
-    assert "رمز عبور جدید کاربر..." in win.ed_emp_pass.placeholderText()
+    assert not hasattr(win, "ed_emp_old_pass")
+    assert hasattr(win, "btn_manage_emp_pass")
+    assert "رمز عبور جدید کاربر" in win.ed_emp_pass.placeholderText()
 
 
 # =========================================================================

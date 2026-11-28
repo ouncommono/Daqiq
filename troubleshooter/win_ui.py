@@ -1,4 +1,4 @@
-"""Zero-Qt pure Win32 / CLI UI for Daqiq-Troubleshooter.exe (v5.0.1).
+"""Zero-Qt pure Win32 / CLI UI for Daqiq-Troubleshooter.exe (v5.0.2).
 
 Uses ONLY Python standard library + native Win32 APIs (``user32.CreateWindowExW`` with
 ``WS_EX_LAYOUTRTL``, GDI typography, and 100% Persian horizontally-centered bottom buttons).
@@ -147,6 +147,13 @@ def show_native_persian_dialog(
     user32.GetClientRect.restype = wintypes.BOOL
     user32.LoadCursorW.argtypes = [wintypes.HINSTANCE, ctypes.c_void_p]
     user32.LoadCursorW.restype = wintypes.HICON
+    user32.LoadImageW.argtypes = [
+        wintypes.HINSTANCE, ctypes.c_void_p, wintypes.UINT,
+        ctypes.c_int, ctypes.c_int, wintypes.UINT,
+    ]
+    user32.LoadImageW.restype = wintypes.HICON
+    user32.DestroyIcon.argtypes = [wintypes.HICON]
+    user32.DestroyIcon.restype = wintypes.BOOL
     kernel32.GetModuleHandleW.argtypes = [wintypes.LPCWSTR]
     kernel32.GetModuleHandleW.restype = wintypes.HINSTANCE
     gdi32.CreateFontW.argtypes = [
@@ -237,10 +244,38 @@ def show_native_persian_dialog(
         return user32.DefWindowProcW(hwnd, msg, wparam, lparam)
 
     wnd_proc_cb = WNDPROC(_wnd_proc)
+    h_icon_lg = None
+    h_icon_sm = None
+    owns_icons = False
+    try:
+        # First try loading the Nuitka-embedded icon resource (IDI_ICON1 = 1)
+        h_icon_lg = user32.LoadImageW(hinst, ctypes.c_void_p(1), 1, 32, 32, 0x00008000)
+        h_icon_sm = user32.LoadImageW(hinst, ctypes.c_void_p(1), 1, 16, 16, 0x00008000)
+        if not h_icon_lg:
+            # Fallback to sibling or repository assets/daqiq_troubleshooter.ico
+            cand_paths = [
+                Path(sys.executable).resolve().parent / "assets" / "daqiq_troubleshooter.ico",
+                Path(__file__).resolve().parent.parent / "assets" / "daqiq_troubleshooter.ico",
+            ]
+            for ico_p in cand_paths:
+                if ico_p.is_file():
+                    ico_w = ctypes.c_wchar_p(str(ico_p))
+                    ico_ptr = ctypes.cast(ico_w, ctypes.c_void_p)
+                    h_icon_lg = user32.LoadImageW(None, ico_ptr, 1, 32, 32, 0x00000010)
+                    h_icon_sm = user32.LoadImageW(None, ico_ptr, 1, 16, 16, 0x00000010)
+                    if h_icon_lg or h_icon_sm:
+                        owns_icons = True
+                        break
+    except Exception:
+        h_icon_lg = None
+        h_icon_sm = None
+
     wc = WNDCLASSEXW()
     wc.cbSize = ctypes.sizeof(WNDCLASSEXW)
     wc.lpfnWndProc = wnd_proc_cb
     wc.hInstance = hinst
+    wc.hIcon = h_icon_lg
+    wc.hIconSm = h_icon_sm or h_icon_lg
     wc.hCursor = user32.LoadCursorW(None, IDC_ARROW)
     wc.hbrBackground = bg_brush
     wc.lpszClassName = cls_name
@@ -298,6 +333,11 @@ def show_native_persian_dialog(
             user32.DispatchMessageW(ctypes.byref(msg_struct))
     finally:
         user32.UnregisterClassW(cls_name, hinst)
+        if owns_icons:
+            if h_icon_lg:
+                user32.DestroyIcon(h_icon_lg)
+            if h_icon_sm:
+                user32.DestroyIcon(h_icon_sm)
         gdi32.DeleteObject(bg_brush)
         gdi32.DeleteObject(h_font)
         gdi32.DeleteObject(h_font_bold)

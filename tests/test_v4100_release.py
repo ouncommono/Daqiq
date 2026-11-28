@@ -154,7 +154,7 @@ def _mock_license_svc(features: dict | None = None, in_grace: bool = False, grac
 
 def test_req00_semver_and_additive_upgrade_compatibility(tmp_path, monkeypatch):
     monkeypatch.setattr(db_mod, "CONFIG_FILE", str(tmp_path / "app_config.json"))
-    assert Path("VERSION").read_text(encoding="utf-8").strip() in ("4.10.0", "5.0.0", "5.0.1")
+    assert Path("VERSION").read_text(encoding="utf-8").strip() in ("4.10.0", "5.0.0", "5.0.1", "5.0.2")
     assert db_mod.get_live_app_version() == Path("VERSION").read_text(encoding="utf-8").strip()
     assert main_mod.APP_VERSION == Path("VERSION").read_text(encoding="utf-8").strip()
 

@@ -188,7 +188,7 @@ def main():
     dist_dir = repo_root / "dist"
 
     v_file = repo_root / "VERSION"
-    version = v_file.read_text(encoding="utf-8").strip() if v_file.is_file() else "5.0.1"
+    version = v_file.read_text(encoding="utf-8").strip() if v_file.is_file() else "5.0.2"
 
     if args.binary:
         target = args.binary

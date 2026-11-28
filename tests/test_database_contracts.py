@@ -1051,6 +1051,7 @@ def test_fresh_schema_has_v3_physical_column_order_and_metadata(manager):
             "settlement_status", "service_datetime", "description", "created_at",
             "updated_at", "row_version",
             "settlement_subtype", "check_due_date", "check_status", "customer_phone",
+            "customer_id", "payment_type",
         ],
     }
     with manager.get_connection() as conn:
@@ -1322,6 +1323,7 @@ def test_v330_greenfield_schema_contracts_and_stock_balance_constraints(manager)
             "settlement_status", "service_datetime", "description", "created_at",
             "updated_at", "row_version",
             "settlement_subtype", "check_due_date", "check_status", "customer_phone",
+            "customer_id", "payment_type",
         ],
         "payments": [
             "id", "ref_type", "ref_id", "amount", "payment_date",

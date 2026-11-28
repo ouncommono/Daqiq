@@ -559,12 +559,21 @@ class NativeChartWidget(QWidget):
         QToolTip.hideText()
         super().leaveEvent(event)
 
-    def render_png_bytes(self, width: int = 920, height: int = 440, print_bw: bool = False) -> bytes:
-        """Render the chart crisp & standalone to PNG bytes (for Word/Print/PNG export)."""
-        pm = QPixmap(max(400, width), max(220, height))
+    def render_png_bytes(self, width: int = 2400, height: int = 1150, print_bw: bool = False) -> bytes:
+        """Render the chart crisp & standalone (>= 2400px high-res) to PNG bytes (for Word/Print/PNG export)."""
+        out_w = max(2400, int(width or 2400))
+        ratio = max(0.35, float(height or 1150) / max(1.0, float(width or 2400)))
+        out_h = max(1080, int(round(out_w * ratio)))
+        logical_w = 1080
+        logical_h = max(480, int(round(logical_w * (out_h / out_w))))
+        pm = QPixmap(out_w, out_h)
         pm.fill(Qt.white if print_bw else self._theme_tokens()["card"])
         p = QPainter(pm)
-        self.render_to_painter(p, pm.width(), pm.height(), print_bw=print_bw)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        p.setRenderHint(QPainter.TextAntialiasing, True)
+        p.setRenderHint(QPainter.SmoothPixmapTransform, True)
+        p.scale(out_w / float(logical_w), out_h / float(logical_h))
+        self.render_to_painter(p, logical_w, logical_h, print_bw=print_bw)
         p.end()
         buf = QBuffer()
         buf.open(QIODevice.WriteOnly)

@@ -132,7 +132,7 @@ def test_req00_and_req02_schema_version_app_config_and_scale_indexes(tmp_path, m
     cfg_file = tmp_path / "app_config.json"
     monkeypatch.setattr(db_mod, "CONFIG_FILE", str(cfg_file))
 
-    assert Path("VERSION").read_text(encoding="utf-8").strip() in ("4.9.10", "4.10.0", "5.0.0", "5.0.1")
+    assert Path("VERSION").read_text(encoding="utf-8").strip() in ("4.9.10", "4.10.0", "5.0.0", "5.0.1", "5.0.2")
     assert db_mod.get_live_app_version() == Path("VERSION").read_text(encoding="utf-8").strip()
     assert main_mod.APP_VERSION == Path("VERSION").read_text(encoding="utf-8").strip()
     assert CONFIG_SCHEMA_VERSION == 2
